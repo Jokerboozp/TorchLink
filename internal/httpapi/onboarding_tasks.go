@@ -76,7 +76,7 @@ func (s *Server) authorizeTemplateDraft(ctx context.Context, tenant string, owne
 // RunOnboardingTasks is attached to the process lifetime, not an HTTP request.
 func (s *Server) RunOnboardingTasks(ctx context.Context) { s.onboardingTasks().Run(ctx) }
 
-func onboardingTaskProblem(w http.ResponseWriter, err error) {
+func (s *Server) onboardingTaskProblem(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, model.ErrOnboardingChanged) {
 		problem(w, 409, err.Error())
 		return
@@ -90,7 +90,7 @@ func onboardingTaskProblem(w http.ResponseWriter, err error) {
 		problem(w, e.Status, e.Message)
 		return
 	}
-	problem(w, 500, "接入任务暂时不可用，请稍后重试")
+	s.failure(w, r, err, "接入任务暂时不可用，请稍后重试")
 }
 func taskPage(r *http.Request) (int, int) {
 	page := parseListPagination(r)
@@ -100,7 +100,7 @@ func (s *Server) listOnboardingDrafts(w http.ResponseWriter, r *http.Request) {
 	limit, offset := taskPage(r)
 	items, total, err := s.onboardingTasks().ListDrafts(r.Context(), claims(r).TenantID, taskOwner(r), limit, offset, r.URL.Query().Get("purpose"))
 	if err != nil {
-		onboardingTaskProblem(w, err)
+		s.onboardingTaskProblem(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -110,13 +110,13 @@ func (s *Server) listOnboardingBatches(w http.ResponseWriter, r *http.Request) {
 	owner := taskOwner(r)
 	ctx, err := s.authorizeOnboardingTask(r.Context(), claims(r).TenantID, owner)
 	if err != nil {
-		onboardingTaskProblem(w, err)
+		s.onboardingTaskProblem(w, r, err)
 		return
 	}
 	limit, offset := taskPage(r)
 	rows, total, err := s.engine.Repo.ListOnboardingRecords(ctx, claims(r).TenantID, owner.Username, onboarding.BatchKind, limit, offset)
 	if err != nil {
-		onboardingTaskProblem(w, err)
+		s.onboardingTaskProblem(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -124,7 +124,7 @@ func (s *Server) listOnboardingBatches(w http.ResponseWriter, r *http.Request) {
 	for _, v := range rows {
 		item, e := onboarding.BatchRecordSummary(v)
 		if e != nil {
-			onboardingTaskProblem(w, e)
+			s.onboardingTaskProblem(w, r, e)
 			return
 		}
 		items = append(items, item)
@@ -134,7 +134,7 @@ func (s *Server) listOnboardingBatches(w http.ResponseWriter, r *http.Request) {
 func (s *Server) getOnboardingDraft(w http.ResponseWriter, r *http.Request) {
 	v, err := s.onboardingTasks().OwnedRecord(r.Context(), claims(r).TenantID, taskOwner(r), r.PathValue("id"), onboarding.DraftKind)
 	if err != nil {
-		onboardingTaskProblem(w, err)
+		s.onboardingTaskProblem(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -147,7 +147,7 @@ func (s *Server) saveOnboardingDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	v, err := s.onboardingTasks().SaveDraft(r.Context(), claims(r).TenantID, taskOwner(r), r.PathValue("id"), d)
 	if err != nil {
-		onboardingTaskProblem(w, err)
+		s.onboardingTaskProblem(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -160,7 +160,7 @@ func (s *Server) preflightOnboardingBatch(w http.ResponseWriter, r *http.Request
 	}
 	v, err := s.onboardingTasks().PreflightBatch(r.Context(), claims(r).TenantID, taskOwner(r), q)
 	if err != nil {
-		onboardingTaskProblem(w, err)
+		s.onboardingTaskProblem(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -173,7 +173,7 @@ func (s *Server) createOnboardingBatch(w http.ResponseWriter, r *http.Request) {
 	}
 	v, err := s.onboardingTasks().CreateBatch(r.Context(), claims(r).TenantID, taskOwner(r), q)
 	if err != nil {
-		onboardingTaskProblem(w, err)
+		s.onboardingTaskProblem(w, r, err)
 		return
 	}
 	s.audit(r, "device.batch.create", "onboarding", v.ID, map[string]any{"productId": v.ProductID, "count": v.Total})
@@ -187,12 +187,12 @@ func (s *Server) getOnboardingBatch(w http.ResponseWriter, r *http.Request) {
 	}
 	v, rows, err := s.onboardingTasks().Batch(r.Context(), claims(r).TenantID, taskOwner(r), r.PathValue("id"), limit, offset)
 	if err != nil {
-		onboardingTaskProblem(w, err)
+		s.onboardingTaskProblem(w, r, err)
 		return
 	}
 	verification, err := s.enrichOnboardingRows(r.Context(), claims(r).TenantID, v.ProductID, rows)
 	if err != nil {
-		onboardingTaskProblem(w, err)
+		s.onboardingTaskProblem(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -212,7 +212,7 @@ func (s *Server) retryOnboardingBatch(w http.ResponseWriter, r *http.Request) {
 	}
 	v, err := s.onboardingTasks().RetryBatch(r.Context(), claims(r).TenantID, taskOwner(r), r.PathValue("id"), q.Revision, q.Indices)
 	if err != nil {
-		onboardingTaskProblem(w, err)
+		s.onboardingTaskProblem(w, r, err)
 		return
 	}
 	s.audit(r, "device.batch.retry", "onboarding", v.ID, map[string]any{"count": len(q.Indices)})
@@ -230,7 +230,7 @@ func (s *Server) claimOnboardingBatchCredentials(w http.ResponseWriter, r *http.
 	defer cancel()
 	v, err := s.onboardingTasks().ClaimCredentials(ctx, claims(r).TenantID, taskOwner(r), r.PathValue("id"), q.Indices)
 	if err != nil {
-		onboardingTaskProblem(w, err)
+		s.onboardingTaskProblem(w, r, err)
 		return
 	}
 	for i := range v.Items {

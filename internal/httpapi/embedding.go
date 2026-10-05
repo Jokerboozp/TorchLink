@@ -82,7 +82,7 @@ func (s *Server) updateEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.embeddingRuntime.Configure(r.Context(), cfg); err != nil {
-		problem(w, 500, "向量配置保存失败")
+		s.failure(w, r, err, "向量配置保存失败")
 		return
 	}
 	s.audit(r, "ai.embedding.update", "embedding-model", cfg.Model, map[string]any{"dimensions": cfg.Dimensions, "apiKeyConfigured": cfg.APIKey != ""})
@@ -121,7 +121,7 @@ func (s *Server) retryKnowledgeDocument(w http.ResponseWriter, r *http.Request) 
 	tenant := claims(r).TenantID
 	docs, err := s.engine.Repo.ListKnowledgeDocs(r.Context(), tenant)
 	if err != nil {
-		problem(w, 500, "无法读取知识文档")
+		s.failure(w, r, err, "无法读取知识文档")
 		return
 	}
 	for _, doc := range docs {
@@ -149,7 +149,7 @@ func (s *Server) retryKnowledgeDocument(w http.ResponseWriter, r *http.Request) 
 		if s.knowledgeJobs != nil {
 			updated, err := s.knowledgeJobs.UpdateKnowledgeDocument(r.Context(), doc)
 			if err != nil {
-				problem(w, 500, "无法重试知识索引")
+				s.failure(w, r, err, "无法重试知识索引")
 				return
 			}
 			if !updated {
@@ -157,7 +157,7 @@ func (s *Server) retryKnowledgeDocument(w http.ResponseWriter, r *http.Request) 
 				return
 			}
 		} else if err := s.engine.Repo.SaveKnowledgeDoc(r.Context(), doc); err != nil {
-			problem(w, 500, "无法重试知识索引")
+			s.failure(w, r, err, "无法重试知识索引")
 			return
 		}
 		s.audit(r, "knowledge.retry", "knowledge-document", doc.ID, nil)

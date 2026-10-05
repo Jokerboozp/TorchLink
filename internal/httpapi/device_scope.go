@@ -406,7 +406,7 @@ func (r *deviceScopeRepository) DashboardCounts(ctx context.Context, t string, s
 func (s *Server) accessDeviceOptions(w http.ResponseWriter, r *http.Request) {
 	rows, e := s.unscopedRepo().ListManagedDevices(r.Context(), claims(r).TenantID)
 	if e != nil {
-		problem(w, 500, "读取设备选项失败")
+		s.failure(w, r, e, "读取设备选项失败")
 		return
 	}
 	out := []map[string]string{}

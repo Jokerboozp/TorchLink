@@ -413,7 +413,7 @@ func (s *Server) saveAccessState(w http.ResponseWriter, r *http.Request, state m
 	}
 	saved, err := store.SaveAccessState(r.Context(), claims(r).TenantID, state)
 	if err != nil {
-		problem(w, 500, "保存用户权限失败")
+		s.failure(w, r, err, "保存用户权限失败")
 		return false
 	}
 	if !saved {

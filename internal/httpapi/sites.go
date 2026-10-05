@@ -69,7 +69,7 @@ func (s *Server) siteRoutes() {
 	s.router.GET("/api/v1/alarms/:id/location-plan", s.authorize("viewer"), s.endpoint(s.alarmLocationPlan, "id"))
 }
 
-func siteError(w http.ResponseWriter, err error) {
+func (s *Server) siteError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, errDeviceScope):
 		problem(w, 403, err.Error())
@@ -80,7 +80,7 @@ func siteError(w http.ResponseWriter, err error) {
 	case errors.Is(err, sites.ErrConflict):
 		problem(w, 409, err.Error())
 	default:
-		problem(w, 500, "单位建筑数据读取或保存失败，请稍后重试")
+		s.failure(w, r, err, "单位建筑数据读取或保存失败，请稍后重试")
 	}
 }
 
@@ -95,7 +95,7 @@ func (s *Server) listSites(w http.ResponseWriter, r *http.Request) {
 	tenant := claims(r).TenantID
 	state, err := s.sites.Snapshot(r.Context(), tenant)
 	if err != nil {
-		siteError(w, err)
+		s.siteError(w, r, err)
 		return
 	}
 	state.Units, state.Buildings, state.Floors = append([]model.SiteUnit(nil), state.Units...), append([]model.SiteBuilding(nil), state.Buildings...), append([]model.SiteFloor(nil), state.Floors...)
@@ -118,7 +118,7 @@ func (s *Server) listSites(w http.ResponseWriter, r *http.Request) {
 		// The IDs are already limited to the caller's scope.
 		devices, _, err := s.unscopedRepo().ListManagedDevicesFiltered(r.Context(), ports.DeviceFilter{TenantID: tenant, RestrictDevices: true, DeviceIDs: ids[start:end]}, end-start, 0)
 		if err != nil {
-			siteError(w, err)
+			s.siteError(w, r, err)
 			return
 		}
 		for _, d := range devices {
@@ -187,7 +187,7 @@ func (s *Server) saveSite(kind string) endpointHandler {
 			}
 		}
 		if err != nil {
-			siteError(w, err)
+			s.siteError(w, r, err)
 			return
 		}
 		targetID := id
@@ -257,7 +257,7 @@ func (s *Server) deleteSite(kind string) endpointHandler {
 			}
 		}
 		if err != nil {
-			siteError(w, err)
+			s.siteError(w, r, err)
 			return
 		}
 		s.audit(r, "site.delete", strings.TrimSuffix(kind, "s"), id, nil)
@@ -314,7 +314,7 @@ func (s *Server) uploadFloorPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	floor, previous, err := s.sites.SetFloorPlan(r.Context(), c.TenantID, c.Username, id, version, plan)
 	if err != nil {
-		siteError(w, err)
+		s.siteError(w, r, err)
 		return
 	}
 	if previous != nil && previous.SHA256 != plan.SHA256 {
@@ -373,7 +373,7 @@ func (s *Server) floorPlan(w http.ResponseWriter, r *http.Request) {
 	tenant := claims(r).TenantID
 	state, err := s.sites.Snapshot(r.Context(), tenant)
 	if err != nil {
-		siteError(w, err)
+		s.siteError(w, r, err)
 		return
 	}
 	for _, floor := range state.Floors {
@@ -407,7 +407,7 @@ func (s *Server) alarmLocationPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	state, err := s.sites.Snapshot(r.Context(), tenant)
 	if err != nil {
-		siteError(w, err)
+		s.siteError(w, r, err)
 		return
 	}
 	for _, floor := range state.Floors {
@@ -432,7 +432,7 @@ func (s *Server) importSites(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := sites.ParseImport(filename, data)
 	if err != nil {
-		siteError(w, err)
+		s.siteError(w, r, err)
 		return
 	}
 	c := claims(r)
@@ -442,7 +442,7 @@ func (s *Server) importSites(w http.ResponseWriter, r *http.Request) {
 			write(w, 422, map[string]any{"detail": err.Error(), "status": 422, "title": "Unprocessable Entity", "result": result})
 			return
 		}
-		siteError(w, err)
+		s.siteError(w, r, err)
 		return
 	}
 	s.audit(r, "site.import", "site", "", map[string]any{"rows": result.Rows, "pointsCreated": result.PointsCreated, "pointsUpdated": result.PointsUpdated})
@@ -457,7 +457,7 @@ func (s *Server) validUnitGrants(w http.ResponseWriter, r *http.Request, scope s
 	}
 	state, err := s.sites.Snapshot(r.Context(), claims(r).TenantID)
 	if err != nil {
-		problem(w, 500, "读取单位失败")
+		s.failure(w, r, err, "读取单位失败")
 		return nil, false
 	}
 	known := map[string]bool{}

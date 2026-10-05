@@ -587,7 +587,7 @@ func copyMetadata(m map[string]any) map[string]any {
 func (s *Server) allowDirectTemplateProtocolChange(w http.ResponseWriter, r *http.Request) bool {
 	_, count, err := s.engine.Repo.ListManagedDevicesFiltered(r.Context(), ports.DeviceFilter{TenantID: claims(r).TenantID, RestrictProducts: true, ProductIDs: []string{r.PathValue("id")}}, 1, 0)
 	if err != nil {
-		problem(w, 500, "读取模板使用情况失败")
+		s.failure(w, r, err, "读取模板使用情况失败")
 		return false
 	}
 	if count > 0 {

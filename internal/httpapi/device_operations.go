@@ -109,7 +109,7 @@ func (s *Server) deviceSignals(w http.ResponseWriter, r *http.Request) {
 	}
 	items, err := s.engine.DeviceSignals.ListDeviceSignals(r.Context(), claims(r).TenantID, []string{r.PathValue("id")}, 50)
 	if err != nil {
-		problem(w, 500, "读取设备健康信号失败")
+		s.failure(w, r, err, "读取设备健康信号失败")
 		return
 	}
 	write(w, 200, map[string]any{"items": items, "available": true})

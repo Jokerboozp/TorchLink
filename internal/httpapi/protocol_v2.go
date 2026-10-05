@@ -249,12 +249,12 @@ func (s *Server) installProtocolPackageV2(w http.ResponseWriter, r *http.Request
 	}
 	root, err := filepath.Abs(s.cfg.DataDir)
 	if err != nil {
-		problem(w, 500, "resolve protocol data directory")
+		s.failure(w, r, err, "resolve protocol data directory")
 		return
 	}
 	directory := filepath.Join(root, "protocol-releases", tenant, protocolID, manifest.Version)
 	if err = os.MkdirAll(directory, 0o700); err != nil {
-		problem(w, 500, "create protocol release directory")
+		s.failure(w, r, err, "create protocol release directory")
 		return
 	}
 	packagePath := filepath.Join(directory, "package.zip")
@@ -669,7 +669,7 @@ func (s *Server) saveDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 		}
 		profiles, listErr := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), "")
 		if listErr != nil {
-			problem(w, 500, "读取接入实例失败")
+			s.failure(w, r, listErr, "读取接入实例失败")
 			return
 		}
 		for _, other := range profiles {

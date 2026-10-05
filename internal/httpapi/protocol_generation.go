@@ -167,7 +167,7 @@ func (s *Server) previewGeneratedRelease(w http.ResponseWriter, r *http.Request)
 		}
 		raw, loadErr := s.engine.GetRaw(r.Context(), index)
 		if loadErr != nil {
-			problem(w, 500, "raw archive could not be read")
+			s.failure(w, r, loadErr, "raw archive could not be read")
 			return
 		}
 		if raw.ProtocolID != release.ProtocolID || raw.ProtocolVersion != release.Version {

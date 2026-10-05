@@ -92,7 +92,7 @@ func (s *Server) aiChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		problem(w, http.StatusInternalServerError, "streaming is not supported")
+		s.failure(w, r, errors.New("response writer does not support streaming"), "streaming is not supported")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")

@@ -90,7 +90,7 @@ func (s *Server) healthInspectionPDF(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		problem(w, 500, "生成巡检报告失败")
+		s.failure(w, r, err, "生成巡检报告失败")
 		return
 	}
 	filename := fmt.Sprintf("health-inspection-%d.pdf", job.Report.GeneratedAt)

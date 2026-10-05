@@ -121,7 +121,7 @@ func (s *Server) readProtocolDownloadForTenantV2(w http.ResponseWriter, r *http.
 	}
 	root, err := os.OpenRoot(s.cfg.DataDir)
 	if err != nil {
-		problem(w, 500, "无法读取协议制品目录")
+		s.failure(w, r, err, "无法读取协议制品目录")
 		return empty, nil, false
 	}
 	defer root.Close()
@@ -138,7 +138,7 @@ func (s *Server) readProtocolDownloadForTenantV2(w http.ResponseWriter, r *http.
 	}
 	data, err := io.ReadAll(io.LimitReader(file, maxProtocolPackageV2+1))
 	if err != nil || int64(len(data)) > maxProtocolPackageV2 {
-		problem(w, 500, "读取协议制品失败")
+		s.failure(w, r, err, "读取协议制品失败")
 		return empty, nil, false
 	}
 	expectedHash, _ := release.Artifact["packageSha256"].(string)

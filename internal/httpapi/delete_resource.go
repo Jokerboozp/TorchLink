@@ -38,10 +38,10 @@ func (s *Server) deleteProtocolRelease(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, model.ErrResourceInUse):
 		problem(w, http.StatusConflict, "protocol version is still referenced; remove its associations first")
 	case err != nil:
-		problem(w, http.StatusInternalServerError, "delete protocol version failed")
+		s.failure(w, r, err, "delete protocol version failed")
 	default:
 		if err := s.removeProtocolReleaseArtifacts(tenant, id, version); err != nil {
-			problem(w, http.StatusInternalServerError, "protocol version deleted but artifact cleanup failed")
+			s.failure(w, r, err, "protocol version deleted but artifact cleanup failed")
 			return
 		}
 		s.audit(r, "protocol.release.delete", "protocol-release", id+"@"+version, nil)
@@ -67,11 +67,11 @@ func (s *Server) deleteResource(kind string) endpointHandler {
 		case errors.Is(err, model.ErrResourceInUse):
 			problem(w, http.StatusConflict, "resource is still referenced; remove its associations first")
 		case err != nil:
-			problem(w, http.StatusInternalServerError, "delete failed")
+			s.failure(w, r, err, "delete failed")
 		default:
 			if kind == "protocol" {
 				if err := s.removeProtocolArtifacts(claims(r).TenantID, id); err != nil {
-					problem(w, http.StatusInternalServerError, "protocol deleted but artifact cleanup failed")
+					s.failure(w, r, err, "protocol deleted but artifact cleanup failed")
 					return
 				}
 			}

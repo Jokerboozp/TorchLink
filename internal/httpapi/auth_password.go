@@ -14,10 +14,10 @@ import (
 const passwordChangeTTL = 15 * time.Minute
 
 // writeManagedSession issues a managed user's console session.
-func (s *Server) writeManagedSession(w http.ResponseWriter, state model.AccessState, u model.PlatformUser, tenant string) {
+func (s *Server) writeManagedSession(w http.ResponseWriter, r *http.Request, state model.AccessState, u model.PlatformUser, tenant string) {
 	token, err := s.auth.IssueUser(u.Username, tenant, u.SessionVersion, 8*time.Hour)
 	if err != nil {
-		problem(w, 500, "创建会话失败")
+		s.failure(w, r, err, "创建会话失败")
 		return
 	}
 	permissions := effectivePermissions(state, u)
@@ -94,7 +94,7 @@ func (s *Server) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
 	state.Users[index] = u
 	ok, err := store.SaveAccessState(r.Context(), c.TenantID, state)
 	if err != nil {
-		problem(w, 500, "保存密码失败")
+		s.failure(w, r, err, "保存密码失败")
 		return
 	}
 	if !ok {
@@ -103,5 +103,5 @@ func (s *Server) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
 	}
 	s.logins.record(account, true)
 	s.engine.RecordAudit(r.Context(), model.AuditLog{ID: "audit_" + randomHex(8), TenantID: c.TenantID, Actor: c.Username, Action: "auth.password.change", TargetType: "user", TargetID: c.Username, CreatedAt: time.Now().UnixMilli()})
-	s.writeManagedSession(w, state, u, c.TenantID)
+	s.writeManagedSession(w, r, state, u, c.TenantID)
 }

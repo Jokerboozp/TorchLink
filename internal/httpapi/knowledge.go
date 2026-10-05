@@ -311,7 +311,7 @@ func (s *Server) knowledgeUpload(w http.ResponseWriter, r *http.Request) {
 		doc.Metadata["capacityRunId"] = run
 	}
 	if err = s.engine.Repo.SaveKnowledgeDoc(r.Context(), doc); err != nil {
-		problem(w, 500, "文档记录保存失败")
+		s.failure(w, r, err, "文档记录保存失败")
 		return
 	}
 	// The persistent worker recovers pending rows after a restart. Tests and

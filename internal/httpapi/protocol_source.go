@@ -26,7 +26,7 @@ func (s *Server) protocolSourceTemplate(w http.ResponseWriter, r *http.Request) 
 	if r.URL.Query().Get("format") == "go-functions" {
 		data, err := protocolbuild.FunctionTemplateZIP(r.URL.Query().Get("kind"))
 		if err != nil {
-			problem(w, 500, "生成 Go 模板失败")
+			s.failure(w, r, err, "生成 Go 模板失败")
 			return
 		}
 		w.Header().Set("Content-Type", "application/zip")
@@ -77,7 +77,7 @@ func (s *Server) uploadProtocolSource(w http.ResponseWriter, r *http.Request) {
 		}
 		_, count, err := s.engine.Repo.ListManagedDevicesFiltered(r.Context(), ports.DeviceFilter{TenantID: tenant, RestrictProducts: true, ProductIDs: []string{product}}, 1, 0)
 		if err != nil {
-			problem(w, 500, "读取设备模板使用情况失败")
+			s.failure(w, r, err, "读取设备模板使用情况失败")
 			return
 		}
 		if count > 0 {
@@ -222,12 +222,12 @@ func (s *Server) uploadProtocolSource(w http.ResponseWriter, r *http.Request) {
 		}
 		if zipErr != nil {
 			_ = zw.Close()
-			problem(w, 500, "保存编译制品失败")
+			s.failure(w, r, zipErr, "保存编译制品失败")
 			return
 		}
 	}
 	if err = zw.Close(); err != nil {
-		problem(w, 500, "保存编译制品失败")
+		s.failure(w, r, err, "保存编译制品失败")
 		return
 	}
 	if int64(archive.Len()) > maxProtocolPackageV2 {

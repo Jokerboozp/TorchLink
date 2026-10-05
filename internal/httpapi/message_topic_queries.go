@@ -161,7 +161,7 @@ func (s *Server) previewMessageTopicQuery(w http.ResponseWriter, r *http.Request
 				Items []json.RawMessage `json:"items"`
 			}
 			if err := json.Unmarshal(payload, &snapshot); err != nil {
-				problem(w, 500, "读取查询预览结果失败")
+				s.failure(w, r, err, "读取查询预览结果失败")
 				return
 			}
 			result["payload"], result["sampled"], result["matched"] = string(payload), true, len(snapshot.Items) > 0

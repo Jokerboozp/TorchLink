@@ -56,7 +56,7 @@ func (s *Server) externalDataRoutes() {
 	s.router.POST("/api/external/v1/:tenantId/:id", s.endpoint(s.externalPush, "tenantId", "id"))
 }
 
-func externalError(w http.ResponseWriter, err error) {
+func (s *Server) externalError(w http.ResponseWriter, r *http.Request, err error) {
 	status := 500
 	detail := "外部数据处理失败，请稍后重试"
 	switch {
@@ -72,6 +72,9 @@ func externalError(w http.ResponseWriter, err error) {
 	case errors.Is(err, errExternalDenied):
 		status = 403
 		detail = err.Error()
+	default:
+		s.failure(w, r, err, detail)
+		return
 	}
 	problem(w, status, detail)
 }
@@ -98,7 +101,7 @@ func (s *Server) externalManagement(w http.ResponseWriter, r *http.Request) bool
 		if kind != "" {
 			entry, err := s.externalData.Store.Get(r.Context(), claims(r).TenantID, kind, r.PathValue("id"))
 			if err != nil {
-				externalError(w, err)
+				s.externalError(w, r, err)
 				return false
 			}
 			sourceID := entry.SourceID
@@ -116,7 +119,7 @@ func (s *Server) externalManagement(w http.ResponseWriter, r *http.Request) bool
 func (s *Server) externalControlSource(w http.ResponseWriter, r *http.Request, sourceID string) bool {
 	src, err := s.externalData.SourceInfo(r.Context(), claims(r).TenantID, sourceID)
 	if err != nil {
-		externalError(w, err)
+		s.externalError(w, r, err)
 		return false
 	}
 	if !externalCanBindUser(r, src.Username) {
@@ -146,7 +149,7 @@ func (s *Server) externalList(kind string) endpointHandler {
 		q := r.URL.Query()
 		items, total, err := s.externalData.List(r.Context(), externaldata.Query{TenantID: claims(r).TenantID, Kind: kind, SourceID: q.Get("sourceId"), EndpointID: q.Get("endpointId"), Status: q.Get("status"), Limit: p.PageSize, Offset: p.Offset})
 		if err != nil {
-			externalError(w, err)
+			s.externalError(w, r, err)
 			return
 		}
 		writeList(w, 200, items, total, p, nil)
@@ -212,7 +215,7 @@ func (s *Server) externalSave(kind string) endpointHandler {
 			}
 		}
 		if err != nil {
-			externalError(w, err)
+			s.externalError(w, r, err)
 			return
 		}
 		s.audit(r, "external-data.save", kind, id, nil)
@@ -234,7 +237,7 @@ func (s *Server) externalDelete(kind string) endpointHandler {
 			return
 		}
 		if err := s.externalData.Delete(r.Context(), claims(r).TenantID, kind, r.PathValue("id"), rev); err != nil {
-			externalError(w, err)
+			s.externalError(w, r, err)
 			return
 		}
 		s.audit(r, "external-data.delete", kind, r.PathValue("id"), nil)
@@ -248,22 +251,22 @@ func (s *Server) externalRecord(w http.ResponseWriter, r *http.Request) {
 	tenant := claims(r).TenantID
 	e, err := s.externalData.Store.Get(r.Context(), tenant, "record", r.PathValue("id"))
 	if err != nil {
-		externalError(w, err)
+		s.externalError(w, r, err)
 		return
 	}
 	var record externaldata.Record
-	if json.Unmarshal(e.Body, &record) != nil {
-		problem(w, 500, "记录内容不可读")
+	if err = json.Unmarshal(e.Body, &record); err != nil {
+		s.failure(w, r, err, "记录内容不可读")
 		return
 	}
 	receipt, err := s.externalData.Store.Get(r.Context(), tenant, "receipt", record.ReceiptID)
 	if err != nil {
-		externalError(w, err)
+		s.externalError(w, r, err)
 		return
 	}
 	var original externaldata.Receipt
 	if err = json.Unmarshal(receipt.Body, &original); err != nil {
-		externalError(w, err)
+		s.externalError(w, r, err)
 		return
 	}
 	write(w, 200, map[string]any{"entry": e, "receipt": original.Payload})
@@ -282,7 +285,7 @@ func (s *Server) externalRetry(kind string) endpointHandler {
 		}
 		e, err := s.externalData.Retry(r.Context(), claims(r).TenantID, kind, r.PathValue("id"), in.Revision, in.UseCurrentMapping)
 		if err != nil {
-			externalError(w, err)
+			s.externalError(w, r, err)
 			return
 		}
 		s.audit(r, "external-data.retry", kind, e.ID, nil)
@@ -302,12 +305,12 @@ func (s *Server) externalPull(w http.ResponseWriter, r *http.Request) {
 	}
 	ep, err := s.externalData.Endpoint(r.Context(), claims(r).TenantID, r.PathValue("id"))
 	if err != nil {
-		externalError(w, err)
+		s.externalError(w, r, err)
 		return
 	}
 	e, err := s.externalData.Pull(r.Context(), claims(r).TenantID, ep, in.From, in.To)
 	if err != nil {
-		externalError(w, err)
+		s.externalError(w, r, err)
 		return
 	}
 	s.audit(r, "external-data.pull", "job", e.ID, nil)
@@ -329,7 +332,7 @@ func (s *Server) externalTest(fetch bool) endpointHandler {
 		}
 		ep, err := s.externalData.Endpoint(r.Context(), claims(r).TenantID, r.PathValue("id"))
 		if err != nil {
-			externalError(w, err)
+			s.externalError(w, r, err)
 			return
 		}
 		var result any
@@ -365,7 +368,7 @@ func (s *Server) externalRotateKey(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	key, err := s.externalData.RotateKey(r.Context(), tenant, id)
 	if err != nil {
-		externalError(w, err)
+		s.externalError(w, r, err)
 		return
 	}
 	s.audit(r, "external-data.rotate-key", "endpoint", id, nil)
@@ -497,7 +500,7 @@ func (s *Server) externalReceive(w http.ResponseWriter, r *http.Request, tenant,
 	}
 	workCtx, err := s.authorizeExternalSource(r.Context(), tenant, src, ep)
 	if err != nil {
-		externalError(w, err)
+		s.externalError(w, r, err)
 		return
 	}
 	if !public && !externalCanBindUser(r, src.Username) {
@@ -506,7 +509,7 @@ func (s *Server) externalReceive(w http.ResponseWriter, r *http.Request, tenant,
 	}
 	_, err = s.externalData.Receive(workCtx, tenant, ep, payload, "")
 	if err != nil {
-		externalError(w, err)
+		s.externalError(w, r, err)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")

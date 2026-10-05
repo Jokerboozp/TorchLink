@@ -92,7 +92,7 @@ func (s *Server) alarmStatistics(w http.ResponseWriter, r *http.Request) {
 	stats, err := s.engine.Repo.AlarmDispositionStats(r.Context(), reportFilter(r))
 	if err != nil {
 		s.log.Error("alarm statistics failed", "error", err)
-		problem(w, 500, "读取告警失败")
+		s.failure(w, r, err, "读取告警失败")
 		return
 	}
 	write(w, 200, stats)
@@ -104,7 +104,7 @@ func (s *Server) alarmAIQuality(w http.ResponseWriter, r *http.Request) {
 	outcomes, err := s.engine.Repo.AIAnalysisOutcomes(r.Context(), reportFilter(r), strings.TrimSpace(r.URL.Query().Get("promptVersion")))
 	if err != nil {
 		s.log.Error("AI analysis statistics failed", "error", err)
-		problem(w, 500, "读取研判统计失败")
+		s.failure(w, r, err, "读取研判统计失败")
 		return
 	}
 	write(w, 200, map[string]any{"stats": model.SummarizeAIAnalysis(outcomes), "outcomes": outcomes})
@@ -154,7 +154,7 @@ func (s *Server) exportAlarms(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.log.Error("alarm export failed", "rows", rows, "error", err)
 		if out == nil {
-			problem(w, 500, "读取告警失败")
+			s.failure(w, r, err, "读取告警失败")
 			return
 		}
 		panic(http.ErrAbortHandler)
@@ -182,12 +182,12 @@ func (s *Server) alarmMonthlyReport(w http.ResponseWriter, r *http.Request) {
 	report, err := s.engine.AlarmMonthlyReport(r.Context(), claims(r).TenantID, month)
 	if err != nil {
 		s.log.Error("alarm monthly report failed", "error", err)
-		problem(w, 500, "读取告警失败")
+		s.failure(w, r, err, "读取告警失败")
 		return
 	}
 	pdf, err := core.RenderAlarmMonthlyPDF(report)
 	if err != nil {
-		problem(w, 500, "生成月报失败")
+		s.failure(w, r, err, "生成月报失败")
 		return
 	}
 	w.Header().Set("Content-Type", "application/pdf")

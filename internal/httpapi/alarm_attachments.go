@@ -65,7 +65,7 @@ func attachmentName(name, ext string) string {
 	return name + ext
 }
 
-func attachmentProblem(w http.ResponseWriter, err error) {
+func (s *Server) attachmentProblem(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, errDeviceScope):
 		problem(w, 403, "无权处置该设备的告警")
@@ -76,7 +76,7 @@ func attachmentProblem(w http.ResponseWriter, err error) {
 	case errors.Is(err, model.ErrAlarmClosed), errors.Is(err, model.ErrTooManyAttachments):
 		problem(w, 422, err.Error())
 	default:
-		problem(w, 500, "保存附件失败")
+		s.failure(w, r, err, "保存附件失败")
 	}
 }
 
@@ -94,7 +94,7 @@ func (s *Server) uploadAlarmAttachment(w http.ResponseWriter, r *http.Request) {
 		err = model.ErrTooManyAttachments
 	}
 	if err != nil {
-		attachmentProblem(w, err)
+		s.attachmentProblem(w, r, err)
 		return
 	}
 	data, filename, ok := readUpload(w, r, model.MaxAlarmAttachmentSize, "附件不能超过 20 MiB")
@@ -117,7 +117,7 @@ func (s *Server) uploadAlarmAttachment(w http.ResponseWriter, r *http.Request) {
 	alarm, err = s.engine.AddAlarmAttachment(r.Context(), c.TenantID, alarmID, att, c.Username)
 	if err != nil {
 		s.engine.DeleteObjectLater(r.Context(), model.AlarmAttachmentBucket, key)
-		attachmentProblem(w, err)
+		s.attachmentProblem(w, r, err)
 		return
 	}
 	write(w, 200, alarm)
@@ -126,12 +126,12 @@ func (s *Server) uploadAlarmAttachment(w http.ResponseWriter, r *http.Request) {
 func (s *Server) findAttachment(w http.ResponseWriter, r *http.Request) (model.AlarmAttachment, bool) {
 	alarm, err := s.engine.Repo.GetAlarm(r.Context(), claims(r).TenantID, r.PathValue("id"))
 	if err != nil {
-		attachmentProblem(w, err)
+		s.attachmentProblem(w, r, err)
 		return model.AlarmAttachment{}, false
 	}
 	index := slices.IndexFunc(alarm.Attachments, func(a model.AlarmAttachment) bool { return a.ID == r.PathValue("attachmentId") })
 	if index < 0 {
-		attachmentProblem(w, model.ErrAttachmentNotFound)
+		s.attachmentProblem(w, r, model.ErrAttachmentNotFound)
 		return model.AlarmAttachment{}, false
 	}
 	return alarm.Attachments[index], true
@@ -171,7 +171,7 @@ func (s *Server) deleteAlarmAttachment(w http.ResponseWriter, r *http.Request) {
 	c, alarmID := claims(r), r.PathValue("id")
 	att, err := s.engine.RemoveAlarmAttachment(r.Context(), c.TenantID, alarmID, r.PathValue("attachmentId"), c.Username)
 	if err != nil {
-		attachmentProblem(w, err)
+		s.attachmentProblem(w, r, err)
 		return
 	}
 	s.engine.DeleteObjectLater(r.Context(), model.AlarmAttachmentBucket, model.AlarmAttachmentKey(c.TenantID, alarmID, att.ID))

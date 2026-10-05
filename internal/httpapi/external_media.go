@@ -95,7 +95,7 @@ func (s *Server) externalAlarmMedia(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, err = seeker.Seek(0, io.SeekStart); err != nil {
-			problem(w, 500, "媒体文件读取失败")
+			s.failure(w, r, err, "媒体文件读取失败")
 			return
 		}
 		http.ServeContent(w, r, kind+ext, time.Time{}, seeker)

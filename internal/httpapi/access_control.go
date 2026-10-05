@@ -450,7 +450,7 @@ func (s *Server) accessState(w http.ResponseWriter, r *http.Request) (ports.Acce
 	}
 	state, err := store.LoadAccessState(r.Context(), claims(r).TenantID)
 	if err != nil {
-		problem(w, 500, "读取用户权限失败")
+		s.failure(w, r, err, "读取用户权限失败")
 		return nil, state, false
 	}
 	return store, state, true
@@ -458,7 +458,7 @@ func (s *Server) accessState(w http.ResponseWriter, r *http.Request) (ports.Acce
 func (s *Server) commitAccess(w http.ResponseWriter, r *http.Request, store ports.AccessStore, state model.AccessState) {
 	ok, err := store.SaveAccessState(r.Context(), claims(r).TenantID, state)
 	if err != nil {
-		problem(w, 500, "保存用户权限失败")
+		s.failure(w, r, err, "保存用户权限失败")
 		return
 	}
 	if !ok {
@@ -801,13 +801,13 @@ func (s *Server) loginManaged(w http.ResponseWriter, r *http.Request, username, 
 				// No session yet: the token only allows changing the password.
 				token, err := s.auth.IssuePasswordChange(username, tenant, u.SessionVersion, passwordChangeTTL)
 				if err != nil {
-					problem(w, 500, "创建会话失败")
+					s.failure(w, r, err, "创建会话失败")
 					return
 				}
 				write(w, 200, map[string]any{"passwordChangeRequired": true, "changeToken": token, "expiresIn": int(passwordChangeTTL.Seconds()), "tenantId": tenant, "displayName": u.DisplayName})
 				return
 			}
-			s.writeManagedSession(w, state, u, tenant)
+			s.writeManagedSession(w, r, state, u, tenant)
 			return
 		}
 	}

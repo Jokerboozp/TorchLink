@@ -90,7 +90,7 @@ func (s *Server) fireSafetyRoutes() {
 	s.router.GET("/api/v1/extinguishers/statistics", s.authorize("viewer"), s.endpoint(s.extinguisherStatistics))
 }
 
-func fireSafetyError(w http.ResponseWriter, err error) {
+func (s *Server) fireSafetyError(w http.ResponseWriter, r *http.Request, err error) {
 	status := http.StatusInternalServerError
 	switch {
 	case errors.Is(err, firesafety.ErrValidation):
@@ -103,7 +103,7 @@ func fireSafetyError(w http.ResponseWriter, err error) {
 		status = http.StatusForbidden
 	}
 	if status == http.StatusInternalServerError {
-		problem(w, status, "消防管理数据读取或保存失败，请稍后重试")
+		s.failure(w, r, err, "消防管理数据读取或保存失败，请稍后重试")
 		return
 	}
 	problem(w, status, err.Error())
@@ -125,7 +125,7 @@ func (s *Server) fireSafetyMutation(action string) endpointHandler {
 		c := claims(r)
 		result, err := s.fireSafety.Apply(r.Context(), c.TenantID, c.Username, action, r.PathValue("id"), body)
 		if err != nil {
-			fireSafetyError(w, err)
+			s.fireSafetyError(w, r, err)
 			return
 		}
 		targetID := r.PathValue("id")
@@ -323,7 +323,7 @@ func (s *Server) fireSafetyList(kind string) endpointHandler {
 	return func(w http.ResponseWriter, r *http.Request) {
 		state, err := s.fireSafety.Snapshot(r.Context(), claims(r).TenantID)
 		if err != nil {
-			fireSafetyError(w, err)
+			s.fireSafetyError(w, r, err)
 			return
 		}
 		rows := fireSafetyFilter(fireSafetyRows(state, kind, time.Now(), fireRemindDays(r)), kind, r, state)
@@ -337,7 +337,7 @@ func (s *Server) fireSafetyDetail(kind string) endpointHandler {
 	return func(w http.ResponseWriter, r *http.Request) {
 		state, err := s.fireSafety.Snapshot(r.Context(), claims(r).TenantID)
 		if err != nil {
-			fireSafetyError(w, err)
+			s.fireSafetyError(w, r, err)
 			return
 		}
 		for _, row := range fireSafetyRows(state, kind, time.Now(), fireRemindDays(r)) {
@@ -353,7 +353,7 @@ func (s *Server) fireSafetyDetail(kind string) endpointHandler {
 func (s *Server) fireSafetyOptions(w http.ResponseWriter, r *http.Request) {
 	state, err := s.fireSafety.Snapshot(r.Context(), claims(r).TenantID)
 	if err != nil {
-		fireSafetyError(w, err)
+		s.fireSafetyError(w, r, err)
 		return
 	}
 	// Related pages receive only selector fields, never contacts or workflow history.
@@ -436,7 +436,7 @@ func extinguisherReminders(asset model.Extinguisher, inspections []model.FireIns
 func (s *Server) extinguisherStatistics(w http.ResponseWriter, r *http.Request) {
 	state, err := s.fireSafety.Snapshot(r.Context(), claims(r).TenantID)
 	if err != nil {
-		fireSafetyError(w, err)
+		s.fireSafetyError(w, r, err)
 		return
 	}
 	now := time.Now()
@@ -476,7 +476,7 @@ func (s *Server) extinguisherStatistics(w http.ResponseWriter, r *http.Request) 
 func (s *Server) fireStationStatistics(w http.ResponseWriter, r *http.Request) {
 	state, err := s.fireSafety.Snapshot(r.Context(), claims(r).TenantID)
 	if err != nil {
-		fireSafetyError(w, err)
+		s.fireSafetyError(w, r, err)
 		return
 	}
 	byStation := []map[string]any{}

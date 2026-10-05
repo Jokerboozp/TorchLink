@@ -168,7 +168,7 @@ func (s *Server) capacityPlanBody(w http.ResponseWriter, r *http.Request, start 
 		}
 		token, err := s.reissueToken(c, ttl)
 		if err != nil {
-			problem(w, http.StatusInternalServerError, "无法为容量测试签发操作凭据")
+			s.failure(w, r, err, "无法为容量测试签发操作凭据")
 			return nil, false
 		}
 		req.OperatorToken = token

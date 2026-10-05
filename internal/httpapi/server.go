@@ -215,7 +215,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := s.auth.IssueWithVersion(in.Username, in.TenantID, "admin", s.adminSessionVersion(), 8*time.Hour)
 	if err != nil {
-		problem(w, http.StatusInternalServerError, "无法签发登录凭据")
+		s.failure(w, r, err, "无法签发登录凭据")
 		return
 	}
 	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": in.TenantID, "role": "admin", "permissions": []string{"*"}, "platformVersion": version.Version})
@@ -320,7 +320,7 @@ func (s *Server) products(w http.ResponseWriter, r *http.Request) {
 	for i := range items {
 		status, ready, e := s.onboarding.TemplateReadiness(r.Context(), claims(r).TenantID, items[i].ID)
 		if e != nil {
-			problem(w, 500, "读取模板准备状态失败")
+			s.failure(w, r, e, "读取模板准备状态失败")
 			return
 		}
 		items[i].PreparationStatus, items[i].Reusable = status, ready
@@ -333,7 +333,7 @@ func (s *Server) products(w http.ResponseWriter, r *http.Request) {
 func (s *Server) productBindingCheck(w http.ResponseWriter, r *http.Request) {
 	items, err := s.engine.UnboundProducts(r.Context(), claims(r).TenantID)
 	if err != nil {
-		problem(w, 500, "检查设备模板协议绑定失败")
+		s.failure(w, r, err, "检查设备模板协议绑定失败")
 		return
 	}
 	write(w, 200, map[string]any{"items": items})
@@ -405,7 +405,7 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 		if onboarding.CandidateFingerprint(before) != onboarding.CandidateFingerprint(after) {
 			_, count, e := s.engine.Repo.ListManagedDevicesFiltered(r.Context(), ports.DeviceFilter{TenantID: c.TenantID, RestrictProducts: true, ProductIDs: []string{v.ID}}, 1, 0)
 			if e != nil {
-				problem(w, 500, "读取模板使用情况失败")
+				s.failure(w, r, e, "读取模板使用情况失败")
 				return
 			}
 			if count > 0 {
@@ -714,7 +714,7 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 		created = true
 		v.CreatedAt = now
 	} else {
-		problem(w, 500, "读取设备登记信息失败")
+		s.failure(w, r, err, "读取设备登记信息失败")
 		return
 	}
 	if v.Status == "" {
@@ -820,7 +820,7 @@ func (s *Server) registerDiscoveredDevice(w http.ResponseWriter, r *http.Request
 		problem(w, 409, "device is already registered")
 		return
 	} else if !errors.Is(err, model.ErrNotFound) {
-		problem(w, 500, "读取设备登记信息失败")
+		s.failure(w, r, err, "读取设备登记信息失败")
 		return
 	}
 	state, err := s.engine.Repo.GetDeviceState(r.Context(), c.TenantID, id)
@@ -1014,7 +1014,7 @@ func (s *Server) rawDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, err := s.engine.GetRaw(r.Context(), idx)
 	if err != nil {
-		problem(w, 500, "raw archive could not be read")
+		s.failure(w, r, err, "raw archive could not be read")
 		return
 	}
 	result := map[string]any{"archive": idx, "message": raw, "parseStatus": "UNPARSED", "parseError": idx.ParseError}
@@ -1035,7 +1035,7 @@ func (s *Server) downloadRaw(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, err := s.engine.GetRaw(r.Context(), idx)
 	if err != nil {
-		problem(w, 500, "raw archive could not be read")
+		s.failure(w, r, err, "raw archive could not be read")
 		return
 	}
 	body, err := json.MarshalIndent(raw, "", "  ")
@@ -1099,7 +1099,7 @@ func (s *Server) downloadRawBatch(w http.ResponseWriter, r *http.Request) {
 		}
 		raw, err := s.engine.GetRaw(r.Context(), idx)
 		if err != nil {
-			problem(w, 500, "raw archive could not be read: "+id)
+			s.failure(w, r, err, "raw archive could not be read: "+id)
 			return
 		}
 		items = append(items, archivedRaw{Index: idx, Message: raw})
@@ -1470,7 +1470,7 @@ func (s *Server) mqttToken(w http.ResponseWriter, r *http.Request) {
 	// Broker-only credentials: never usable as a console token.
 	token, err := s.auth.IssueBrowserMQTT(c.Username, c.TenantID, scope, 15*time.Minute)
 	if err != nil {
-		problem(w, 500, "创建消息令牌失败")
+		s.failure(w, r, err, "创建消息令牌失败")
 		return
 	}
 	write(w, 200, map[string]any{"username": auth.BrowserMQTTUsername(c.Username), "token": token, "expiresIn": 900, "subscriptions": scope, "websocketUrl": s.mqttWebSocketURL(r)})
@@ -1947,10 +1947,14 @@ func (s *Server) recovery() gin.HandlerFunc {
 			if recovered == http.ErrAbortHandler {
 				panic(recovered)
 			}
-			if s.log != nil {
-				s.log.Error("http panic recovered", "method", c.Request.Method, "path", c.Request.URL.Path, "error", fmt.Sprint(recovered), "stack", string(debug.Stack()))
+			reference := requestIDFrom(c.Request.Context())
+			if reference == "" {
+				reference = randomHex(6)
 			}
-			ginProblem(c, http.StatusInternalServerError, "internal server error")
+			if s.log != nil {
+				s.log.Error("http panic recovered", "reference", reference, "method", c.Request.Method, "path", c.Request.URL.Path, "error", fmt.Sprint(recovered), "stack", string(debug.Stack()))
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"type": "about:blank", "title": http.StatusText(http.StatusInternalServerError), "status": http.StatusInternalServerError, "detail": "服务内部错误（编号 " + reference + "）", "traceId": reference})
 			c.Abort()
 		}()
 		c.Next()
@@ -2020,6 +2024,23 @@ func (s *Server) metricsAuthorized(r *http.Request) bool {
 	}
 	got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
 	return ok && subtle.ConstantTimeCompare([]byte(strings.TrimSpace(got)), []byte(s.cfg.MetricsToken)) == 1
+}
+
+// failure answers 500 with a Chinese hint and a reference, and logs err under
+// that reference so the operator can find the cause ("request failed").
+// Handlers use it instead of problem(w, 500, …), which loses the error.
+func (s *Server) failure(w http.ResponseWriter, r *http.Request, err error, detail string) {
+	if err == nil {
+		err = errors.New(detail)
+	}
+	reference := requestIDFrom(r.Context())
+	if reference == "" {
+		reference = randomHex(6)
+	}
+	if s.log != nil {
+		s.log.ErrorContext(r.Context(), "request failed", "reference", reference, "method", r.Method, "path", r.URL.Path, "detail", detail, "error", err)
+	}
+	write(w, http.StatusInternalServerError, map[string]any{"type": "about:blank", "title": http.StatusText(http.StatusInternalServerError), "status": http.StatusInternalServerError, "detail": detail + "（编号 " + reference + "）", "traceId": reference})
 }
 
 func problem(w http.ResponseWriter, status int, detail string) {

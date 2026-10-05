@@ -68,7 +68,7 @@ func capacityFullScope(w http.ResponseWriter, r *http.Request) bool {
 func (s *Server) capacityOperatorBody(w http.ResponseWriter, r *http.Request, environment string) ([]byte, bool) {
 	token, err := s.capacityOperatorToken(r)
 	if err != nil {
-		problem(w, 500, "无法签发清理操作凭据")
+		s.failure(w, r, err, "无法签发清理操作凭据")
 		return nil, false
 	}
 	body, _ := json.Marshal(map[string]string{"tenant": claims(r).TenantID, "environment": environment, "operatorToken": token})
@@ -184,7 +184,7 @@ func (s *Server) capacityFixtures(w http.ResponseWriter, r *http.Request) {
 	if product := r.URL.Query().Get("product"); product != "" {
 		devices, err := cleaner.ListCapacityFixtureDevices(r.Context(), tenant, product, r.URL.Query().Get("after"), 500)
 		if err != nil {
-			capacityDataError(w, err)
+			s.capacityDataError(w, r, err)
 			return
 		}
 		write(w, 200, map[string]any{"devices": devices})
@@ -192,7 +192,7 @@ func (s *Server) capacityFixtures(w http.ResponseWriter, r *http.Request) {
 	}
 	products, err := cleaner.ListCapacityFixtureProducts(r.Context(), tenant)
 	if err != nil {
-		capacityDataError(w, err)
+		s.capacityDataError(w, r, err)
 		return
 	}
 	write(w, 200, map[string]any{"products": products})
@@ -221,13 +221,13 @@ func (s *Server) capacityCleanupData(w http.ResponseWriter, r *http.Request) {
 		}
 		p, perr := s.unscopedRepo().GetProduct(ctx, tenant, q.Product)
 		if err != nil || perr != nil || !model.CapacityFixtureDevice(p, d) {
-			capacityDataError(w, errors.Join(err, perr, model.ErrResourceInUse))
+			s.capacityDataError(w, r, errors.Join(err, perr, model.ErrResourceInUse))
 			return
 		}
 		if d.Status != "DISABLED" {
 			d.Status = "DISABLED"
 			if err = s.unscopedRepo().SaveManagedDevice(ctx, d); err != nil {
-				capacityDataError(w, err)
+				s.capacityDataError(w, r, err)
 				return
 			}
 		}
@@ -238,14 +238,14 @@ func (s *Server) capacityCleanupData(w http.ResponseWriter, r *http.Request) {
 	if s.capacityMQTT != nil && len(q.Devices) > 0 {
 		var err error
 		if inbox, err = s.capacityMQTT.DiscardCapacityInbox(ctx, tenant, q.Product, q.Devices); err != nil {
-			capacityDataError(w, err)
+			s.capacityDataError(w, r, err)
 			return
 		}
 	}
 	n, err := cleaner.CleanupCapacityData(ctx, tenant, q)
 	n.InboxMessages = inbox
 	if err != nil {
-		capacityDataError(w, err)
+		s.capacityDataError(w, r, err)
 		return
 	}
 	if len(q.Devices) > 0 {
@@ -253,13 +253,13 @@ func (s *Server) capacityCleanupData(w http.ResponseWriter, r *http.Request) {
 			ForgetCapacityDevices(context.Context, string, []string) error
 		}); ok {
 			if err = cache.ForgetCapacityDevices(ctx, tenant, q.Devices); err != nil {
-				capacityDataError(w, err)
+				s.capacityDataError(w, r, err)
 				return
 			}
 		}
 		if s.capacityMQTT != nil {
 			if n.RetainedRequests, err = s.capacityMQTT.ClearCapacityRetained(ctx, tenant, q.Product, q.Devices); err != nil {
-				capacityDataError(w, err)
+				s.capacityDataError(w, r, err)
 				return
 			}
 		}
@@ -268,7 +268,7 @@ func (s *Server) capacityCleanupData(w http.ResponseWriter, r *http.Request) {
 		removed, err := s.removeCapacityKnowledge(ctx, tenant, q)
 		n.Resources += removed
 		if err != nil {
-			capacityDataError(w, err)
+			s.capacityDataError(w, r, err)
 			return
 		}
 	}
@@ -312,7 +312,7 @@ func (s *Server) removeCapacityKnowledge(ctx context.Context, tenant string, q m
 	return removed, nil
 }
 
-func capacityDataError(w http.ResponseWriter, err error) {
+func (s *Server) capacityDataError(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, model.ErrResourceInUse) {
 		problem(w, 409, "测试数据仍在处理、被引用或不属于专用测试产品，已保留；请处理完成或解除引用后重试")
 		return
@@ -321,5 +321,5 @@ func capacityDataError(w http.ResponseWriter, err error) {
 		problem(w, 409, "清理超时，可保留记录后重试")
 		return
 	}
-	problem(w, 500, "测试数据清理失败，可保留记录后重试")
+	s.failure(w, r, err, "测试数据清理失败，可保留记录后重试")
 }

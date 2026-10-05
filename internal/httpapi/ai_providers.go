@@ -205,7 +205,7 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 			// switch would be undone silently a few seconds later; undo it now
 			// and report the configuration that actually stays in effect.
 			s.rollbackAIProvider(current)
-			problem(w, http.StatusInternalServerError, "模型配置保存失败，原配置继续生效")
+			s.failure(w, r, err, "模型配置保存失败，原配置继续生效")
 			return
 		}
 	}
@@ -349,7 +349,7 @@ func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
 		if s.log != nil {
 			s.log.Error("persist AI provider test audit", "traceId", traceID, "error", auditErr)
 		}
-		problem(w, 500, "AI provider test completed but its audit trace could not be persisted")
+		s.failure(w, r, auditErr, "AI provider test completed but its audit trace could not be persisted")
 		return
 	}
 	write(w, 200, result)

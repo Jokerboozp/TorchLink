@@ -110,14 +110,14 @@ func (s *Server) notificationService(w http.ResponseWriter) (*notify.Service, bo
 	return s.notifications, true
 }
 
-func notificationProblem(w http.ResponseWriter, err error) {
+func (s *Server) notificationProblem(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, notify.ErrNotFound):
 		problem(w, 404, "通知渠道或策略不存在")
 	case errors.Is(err, notify.ErrConflict):
 		problem(w, 409, "内容已被修改或已存在，请刷新后重试")
 	default:
-		problem(w, 500, "保存告警通知配置失败")
+		s.failure(w, r, err, "保存告警通知配置失败")
 	}
 }
 
@@ -128,7 +128,7 @@ func (s *Server) listNotificationChannels(w http.ResponseWriter, r *http.Request
 	}
 	items, err := n.Store.ListChannels(r.Context(), claims(r).TenantID)
 	if err != nil {
-		notificationProblem(w, err)
+		s.notificationProblem(w, r, err)
 		return
 	}
 	write(w, 200, map[string]any{"items": items})
@@ -165,7 +165,7 @@ func (s *Server) saveNotificationChannel(w http.ResponseWriter, r *http.Request)
 	if c.Version != 0 {
 		old, sealed, err := n.Store.GetChannel(r.Context(), c.TenantID, c.ID)
 		if err != nil {
-			notificationProblem(w, err)
+			s.notificationProblem(w, r, err)
 			return
 		}
 		if old.Type != c.Type {
@@ -194,14 +194,14 @@ func (s *Server) saveNotificationChannel(w http.ResponseWriter, r *http.Request)
 	if c.Version == 0 || in.Secret != nil {
 		sealed, err := n.Cipher.Seal(c.TenantID, c.ID, secret)
 		if err != nil {
-			problem(w, 500, "加密渠道凭据失败")
+			s.failure(w, r, err, "加密渠道凭据失败")
 			return
 		}
 		sealedPtr = &sealed
 	}
 	saved, err := n.Store.SaveChannel(r.Context(), c, sealedPtr)
 	if err != nil {
-		notificationProblem(w, err)
+		s.notificationProblem(w, r, err)
 		return
 	}
 	s.audit(r, "notification.channel.save", "notification_channel", saved.ID, map[string]any{"type": saved.Type, "enabled": saved.Enabled, "secretChanged": in.Secret != nil})
@@ -216,7 +216,7 @@ func (s *Server) deleteNotificationChannel(w http.ResponseWriter, r *http.Reques
 	tenant, id := claims(r).TenantID, r.PathValue("id")
 	policies, err := n.Store.ListPolicies(r.Context(), tenant)
 	if err != nil {
-		notificationProblem(w, err)
+		s.notificationProblem(w, r, err)
 		return
 	}
 	if used := notify.ReferencedBy(policies, id); len(used) > 0 {
@@ -224,7 +224,7 @@ func (s *Server) deleteNotificationChannel(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err = n.Store.DeleteChannel(r.Context(), tenant, id); err != nil {
-		notificationProblem(w, err)
+		s.notificationProblem(w, r, err)
 		return
 	}
 	s.audit(r, "notification.channel.delete", "notification_channel", id, nil)
@@ -250,7 +250,7 @@ func (s *Server) testNotificationChannel(w http.ResponseWriter, r *http.Request)
 	err := n.Test(r.Context(), claims(r).TenantID, r.PathValue("id"), in.Emails, in.Mobiles)
 	s.audit(r, "notification.channel.test", "notification_channel", r.PathValue("id"), map[string]any{"success": err == nil})
 	if errors.Is(err, notify.ErrNotFound) {
-		notificationProblem(w, err)
+		s.notificationProblem(w, r, err)
 		return
 	}
 	if err != nil {
@@ -267,7 +267,7 @@ func (s *Server) listNotificationPolicies(w http.ResponseWriter, r *http.Request
 	}
 	items, err := n.Store.ListPolicies(r.Context(), claims(r).TenantID)
 	if err != nil {
-		notificationProblem(w, err)
+		s.notificationProblem(w, r, err)
 		return
 	}
 	write(w, 200, map[string]any{"items": items})
@@ -294,7 +294,7 @@ func (s *Server) saveNotificationPolicy(w http.ResponseWriter, r *http.Request) 
 	p.Name = strings.TrimSpace(p.Name)
 	channels, err := n.Store.ListChannels(r.Context(), p.TenantID)
 	if err != nil {
-		notificationProblem(w, err)
+		s.notificationProblem(w, r, err)
 		return
 	}
 	byID := map[string]notify.Channel{}
@@ -307,7 +307,7 @@ func (s *Server) saveNotificationPolicy(w http.ResponseWriter, r *http.Request) 
 	}
 	saved, err := n.Store.SavePolicy(r.Context(), p)
 	if err != nil {
-		notificationProblem(w, err)
+		s.notificationProblem(w, r, err)
 		return
 	}
 	s.audit(r, "notification.policy.save", "notification_policy", saved.ID, map[string]any{"enabled": saved.Enabled, "stages": len(saved.Stages)})
@@ -320,7 +320,7 @@ func (s *Server) deleteNotificationPolicy(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := n.Store.DeletePolicy(r.Context(), claims(r).TenantID, r.PathValue("id")); err != nil {
-		notificationProblem(w, err)
+		s.notificationProblem(w, r, err)
 		return
 	}
 	s.audit(r, "notification.policy.delete", "notification_policy", r.PathValue("id"), nil)
@@ -379,7 +379,7 @@ func (s *Server) alarmNotifications(w http.ResponseWriter, r *http.Request) {
 	}
 	items, err := s.notifications.Store.ListAlarmTasks(r.Context(), tenant, r.PathValue("id"))
 	if err != nil {
-		problem(w, 500, "读取通知记录失败")
+		s.failure(w, r, err, "读取通知记录失败")
 		return
 	}
 	names := map[string]string{}
