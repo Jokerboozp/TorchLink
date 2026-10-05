@@ -1,6 +1,19 @@
+<script setup>
+import { ref } from 'vue'
+import { SlidersHorizontal } from '@lucide/vue'
+import { useMediaQuery } from '../../composables/useMediaQuery'
+
+// 窄屏时筛选条件默认收起，点击“筛选”展开，操作按钮始终可见。
+const narrow = useMediaQuery('(max-width: 767px)')
+const open = ref(false)
+</script>
+
 <template>
   <div class="filter-bar">
-    <div class="filter-bar__filters"><slot /></div>
+    <ui-button v-if="narrow" class="filter-bar__toggle" :aria-expanded="open ? 'true' : 'false'" @click="open = !open"
+      ><SlidersHorizontal />{{ open ? '收起筛选' : '筛选' }}</ui-button
+    >
+    <div v-show="!narrow || open" class="filter-bar__filters"><slot /></div>
     <div v-if="$slots.actions" class="filter-bar__actions"><slot name="actions" /></div>
   </div>
 </template>
