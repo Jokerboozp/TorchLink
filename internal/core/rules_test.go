@@ -419,6 +419,10 @@ func TestGengineFieldNamesAndStringLiterals(t *testing.T) {
 // messages; each evaluation still sees only its own message.
 func TestGengineExpressionCompiledOnceAndSharedConcurrently(t *testing.T) {
 	expression := `Properties["cache-test-temperature"] > 80 && Tags["zone"] == "A"`
+	// Start from an empty cache: repeated test runs share the package cache.
+	compiledExpressions.Lock()
+	compiledExpressions.items = map[string]*expressionCacheEntry{}
+	compiledExpressions.Unlock()
 	before := expressionCompiles.Load()
 	var wg sync.WaitGroup
 	errs := make(chan error, 8)
