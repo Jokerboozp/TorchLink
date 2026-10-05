@@ -92,6 +92,14 @@ func (c *Client) receive(m mqtt.Message) {
 		reason = "unknown_topic"
 	case len(m.Payload()) > 128<<10:
 		reason = "payload_too_large"
+	case len(m.Payload()) == 0 && applyStateTopicIdentity(m.Topic(), &model.DeviceState{}) == nil:
+		// An empty retained publication (capacity cleanup) clears the state
+		// snapshot; live subscribers receive it too. It carries no state, so
+		// it is neither ingested nor quarantined, whose identical repeats
+		// would otherwise fail every later receipt and readiness.
+		c.logger().Debug("MQTT device state clear ignored", "topic", m.Topic())
+		m.Ack()
+		return
 	case m.Retained():
 		if applyStateTopicIdentity(m.Topic(), &model.DeviceState{}) == nil {
 			// The platform publishes retained state for realtime subscribers.

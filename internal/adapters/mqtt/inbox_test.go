@@ -83,6 +83,7 @@ func TestReceiveRetainedStateSnapshotAndRejectionReasons(t *testing.T) {
 	}{
 		{name: "historical state is quietly ignored", topic: stateTopic, retained: true, payload: []byte(`{"businessStatus":"normal"}`)},
 		{name: "live state still enters inbox", topic: stateTopic, payload: []byte(`{"businessStatus":"normal"}`), depth: 1},
+		{name: "state clear is ignored, not quarantined", topic: stateTopic, payload: []byte{}},
 		{name: "retained uplink remains rejected", topic: "/iot/up/t/p/d/event", retained: true, reason: "retained"},
 		{name: "malformed retained state is not quiet", topic: "/iot/device/state/t/p", retained: true, reason: "retained"},
 		{name: "unknown topic", topic: "/unknown/topic", reason: "unknown_topic"},
