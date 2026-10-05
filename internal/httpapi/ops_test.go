@@ -44,7 +44,7 @@ func TestCapacityCleanupThroughPlatformAndController(t *testing.T) {
 	controller := httptest.NewServer(service.Handler())
 	defer controller.Close()
 	api.cfg.Ops.CapacityURL = controller.URL
-	token, err := api.auth.Issue("root", "t", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("root", "t", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -478,7 +478,7 @@ func TestCapacityCleanupDataProtectsTenantsAndBusinessDevices(t *testing.T) {
 		_, _ = repo.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: tenant, ProductID: p.ID, DeviceID: "fixture", MessageID: "raw", ObjectBucket: "postgres", ParseAttemptedAt: 1})
 	}
 	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	token, _ := api.auth.Issue("root", "t", "admin", nil, time.Hour)
+	token, _ := api.auth.IssueWithVersion("root", "t", "admin", api.adminSessionVersion(), time.Hour)
 	call := func(method, path string, body any, secret string, status int) []byte {
 		t.Helper()
 		b, _ := json.Marshal(body)
@@ -554,7 +554,7 @@ func TestCapacityCleanAllThroughPlatformAndController(t *testing.T) {
 	controller := httptest.NewServer(service.Handler())
 	defer controller.Close()
 	api.cfg.Ops.CapacityURL = controller.URL
-	token, err := api.auth.Issue("root", "t", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("root", "t", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

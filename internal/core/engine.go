@@ -268,7 +268,7 @@ func (e *Engine) ensureGatewayChild(ctx context.Context, raw model.RawMessage) e
 	if err = e.Repo.SaveManagedDevice(ctx, child); err != nil {
 		return fmt.Errorf("auto-register child device: %w", err)
 	}
-	_ = e.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: raw.TenantID, Actor: "gateway:" + gateway.ID, Action: "device.child.auto-register", TargetType: "device", TargetID: child.ID, Details: map[string]any{"gatewayId": gateway.ID, "productId": child.ProductID}, CreatedAt: now})
+	e.RecordAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: raw.TenantID, Actor: "gateway:" + gateway.ID, Action: "device.child.auto-register", TargetType: "device", TargetID: child.ID, Details: map[string]any{"gatewayId": gateway.ID, "productId": child.ProductID}, CreatedAt: now})
 	return nil
 }
 func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
@@ -695,8 +695,7 @@ func (e *Engine) raiseDirectAlarm(ctx context.Context, msg model.StandardMessage
 			e.Metrics.Inc("alarm_trigger_total")
 		}
 		payload, _ := json.Marshal(saved)
-		_ = e.Bus.Publish(ctx, model.TopicAlarmRaised, saved.ID, payload)
-		_ = e.Realtime.Publish(ctx, saved.MQTTTopic("raised"), payload, 1, false)
+		e.publishEvent(ctx, model.TopicAlarmRaised, saved.ID, saved.MQTTTopic("raised"), payload)
 	}
 	e.flushOutbox(ctx)
 	return saved, created, nil
@@ -930,8 +929,7 @@ func (e *Engine) recoverDirectAlarms(ctx context.Context, msg model.StandardMess
 			}
 			if written {
 				payload := mustJSON(alarm)
-				_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, alarm.ID, payload)
-				_ = e.Realtime.Publish(ctx, alarm.MQTTTopic("recovered"), payload, 1, false)
+				e.publishEvent(ctx, model.TopicAlarmRecovered, alarm.ID, alarm.MQTTTopic("recovered"), payload)
 			}
 		}
 	}
@@ -951,8 +949,7 @@ func (e *Engine) raiseRuleAlarm(ctx context.Context, rule model.AlarmRule, msg m
 			e.Metrics.Inc("alarm_trigger_total")
 		}
 		payload, _ := json.Marshal(saved)
-		_ = e.Bus.Publish(ctx, model.TopicAlarmRaised, saved.ID, payload)
-		_ = e.Realtime.Publish(ctx, saved.MQTTTopic("raised"), payload, 1, false)
+		e.publishEvent(ctx, model.TopicAlarmRaised, saved.ID, saved.MQTTTopic("raised"), payload)
 	}
 	e.flushOutbox(ctx)
 	// Alarm records are deduplicated while ACTIVE/ACKED, but a new matching
@@ -962,8 +959,7 @@ func (e *Engine) raiseRuleAlarm(ctx context.Context, rule model.AlarmRule, msg m
 		for _, action := range rule.Actions {
 			event := model.UIActionEvent{ID: id("ui_action"), TenantID: msg.TenantID, RuleID: rule.ID, AlarmID: saved.ID, DeviceID: msg.DeviceID, Action: action, TriggeredAt: now}
 			actionPayload, _ := json.Marshal(event)
-			_ = e.Bus.Publish(ctx, model.TopicUIAction, event.ID, actionPayload)
-			_ = e.Realtime.Publish(ctx, fmt.Sprintf("/iot/ui-action/%s", msg.TenantID), actionPayload, 1, false)
+			e.publishEvent(ctx, model.TopicUIAction, event.ID, fmt.Sprintf("/iot/ui-action/%s", msg.TenantID), actionPayload)
 		}
 	}
 	return saved, created, nil
@@ -990,8 +986,7 @@ func (e *Engine) recoverRuleAlarm(ctx context.Context, rule model.AlarmRule, msg
 		}
 		if written {
 			payload, _ := json.Marshal(a)
-			_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, a.ID, payload)
-			_ = e.Realtime.Publish(ctx, a.MQTTTopic("recovered"), payload, 1, false)
+			e.publishEvent(ctx, model.TopicAlarmRecovered, a.ID, a.MQTTTopic("recovered"), payload)
 		}
 	}
 	return nil
@@ -1054,8 +1049,7 @@ func (e *Engine) closeRuleAlarms(ctx context.Context, tenant, ruleID string) err
 				}
 				affectedDevices[alarm.DeviceID] = struct{}{}
 				payload := mustJSON(alarm)
-				_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, alarm.ID, payload)
-				_ = e.Realtime.Publish(ctx, alarm.MQTTTopic("recovered"), payload, 1, false)
+				e.publishEvent(ctx, model.TopicAlarmRecovered, alarm.ID, alarm.MQTTTopic("recovered"), payload)
 				changed = true
 			}
 			if changed {
@@ -1244,15 +1238,13 @@ func (e *Engine) SetAlarmStatus(ctx context.Context, tenant, alarmID, status, ac
 	if err := e.syncDeviceBusinessStatus(ctx, a.TenantID, "", a.DeviceID); err != nil {
 		return a, err
 	}
-	_ = e.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenant, Actor: actor, Action: "alarm." + strings.ToLower(status), TargetType: "alarm", TargetID: alarmID, CreatedAt: now})
+	e.RecordAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenant, Actor: actor, Action: "alarm." + strings.ToLower(status), TargetType: "alarm", TargetID: alarmID, CreatedAt: now})
 	payload := mustJSON(a)
 	if status == "RECOVERED" {
-		_ = e.Bus.Publish(ctx, model.TopicAlarmRecovered, a.ID, payload)
-		_ = e.Realtime.Publish(ctx, a.MQTTTopic("recovered"), payload, 1, false)
+		e.publishEvent(ctx, model.TopicAlarmRecovered, a.ID, a.MQTTTopic("recovered"), payload)
 		return a, nil
 	}
-	_ = e.Bus.Publish(ctx, model.TopicAlarmConfirmed, a.ID, payload)
-	_ = e.Realtime.Publish(ctx, a.MQTTTopic("confirmed"), payload, 1, false)
+	e.publishEvent(ctx, model.TopicAlarmConfirmed, a.ID, a.MQTTTopic("confirmed"), payload)
 	return a, nil
 }
 
@@ -1283,7 +1275,7 @@ func (e *Engine) VerifyAlarm(ctx context.Context, tenant, alarmID string, d mode
 	if err != nil {
 		return a, err
 	}
-	_ = e.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenant, Actor: actor, Action: "alarm.verify", TargetType: "alarm", TargetID: alarmID, Details: map[string]any{"result": d.Result, "dispatchId": d.DispatchID}, CreatedAt: now})
+	e.RecordAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenant, Actor: actor, Action: "alarm.verify", TargetType: "alarm", TargetID: alarmID, Details: map[string]any{"result": d.Result, "dispatchId": d.DispatchID}, CreatedAt: now})
 	return a, nil
 }
 
@@ -1358,7 +1350,7 @@ func (e *Engine) changeAttachments(ctx context.Context, tenant, alarmID, actor, 
 	if err != nil {
 		return a, err
 	}
-	_ = e.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenant, Actor: actor, Action: action, TargetType: "alarm", TargetID: alarmID, Details: map[string]any{"attachmentId": att.ID, "name": att.Name, "size": att.Size}, CreatedAt: e.Clock.Now().UnixMilli()})
+	e.RecordAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenant, Actor: actor, Action: action, TargetType: "alarm", TargetID: alarmID, Details: map[string]any{"attachmentId": att.ID, "name": att.Name, "size": att.Size}, CreatedAt: e.Clock.Now().UnixMilli()})
 	return a, nil
 }
 
@@ -1397,4 +1389,38 @@ func (e *Engine) CleanupObjectsOnce(ctx context.Context) error {
 		}
 	}
 	return failed
+}
+
+// publishEvent delivers an event to the internal bus and the realtime channel.
+// The stored state is already authoritative, so a delivery failure does not
+// undo it; it is logged and counted so lost notifications are visible.
+func (e *Engine) publishEvent(ctx context.Context, topic, key, realtimeTopic string, payload []byte) {
+	if err := e.Bus.Publish(ctx, topic, key, payload); err != nil {
+		e.deliveryFailed("bus", topic, err)
+	}
+	if err := e.Realtime.Publish(ctx, realtimeTopic, payload, 1, false); err != nil {
+		e.deliveryFailed("realtime", topic, err)
+	}
+}
+
+func (e *Engine) deliveryFailed(channel, topic string, err error) {
+	if e.Metrics != nil {
+		e.Metrics.Inc("event_publish_failed_total")
+	}
+	if e.Log != nil {
+		e.Log.Warn("event delivery failed", "channel", channel, "topic", topic, "error", err)
+	}
+}
+
+// RecordAudit writes an audit entry. The audited action has already happened,
+// so a failed write is reported instead of failing the action.
+func (e *Engine) RecordAudit(ctx context.Context, entry model.AuditLog) {
+	if err := e.Repo.SaveAudit(ctx, entry); err != nil {
+		if e.Metrics != nil {
+			e.Metrics.Inc("audit_write_failed_total")
+		}
+		if e.Log != nil {
+			e.Log.Error("audit write failed", "tenant", entry.TenantID, "action", entry.Action, "error", err)
+		}
+	}
 }

@@ -35,12 +35,12 @@ func (s *Server) protocolDefinitionsV2(w http.ResponseWriter, r *http.Request) {
 	tenant := claims(r).TenantID
 	definitions, err := s.engine.Repo.ListProtocolDefinitions(r.Context(), tenant)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	releases, err := s.engine.Repo.ListProtocolReleases(r.Context(), tenant, "")
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	byProtocol := map[string][]model.ProtocolRelease{}
@@ -75,7 +75,7 @@ func (s *Server) saveProtocolDefinitionV2(w http.ResponseWriter, r *http.Request
 	}
 	v.UpdatedAt = now
 	if err := s.engine.Repo.SaveProtocolDefinition(r.Context(), v); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	s.audit(r, "protocol.v2.definition.save", "protocol", v.ID, nil)
@@ -85,7 +85,7 @@ func (s *Server) saveProtocolDefinitionV2(w http.ResponseWriter, r *http.Request
 func (s *Server) protocolReleasesV2(w http.ResponseWriter, r *http.Request) {
 	items, err := s.engine.Repo.ListProtocolReleases(r.Context(), claims(r).TenantID, r.PathValue("id"))
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	write(w, 200, map[string]any{"items": items, "count": len(items)})
@@ -325,7 +325,7 @@ func (s *Server) installProtocolPackageV2(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		_ = os.Remove(workerPath)
 		_ = os.Remove(packagePath)
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	retained = true
@@ -478,7 +478,7 @@ func (s *Server) publishProtocolReleaseV2(w http.ResponseWriter, r *http.Request
 	}
 	now := time.Now().UnixMilli()
 	if err = s.engine.Repo.UpdateProtocolReleaseStatus(r.Context(), tenant, id, version, "PUBLISHED", now); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	s.engine.ProtocolsChanged(tenant)
@@ -608,7 +608,7 @@ func (s *Server) importModbusTCPV2(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deviceAccessProfilesV2(w http.ResponseWriter, r *http.Request) {
 	items, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), claims(r).TenantID)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	for i := range items {
@@ -719,7 +719,7 @@ func (s *Server) saveDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 			problem(w, 409, "协议绑定或监听端口已改变，请刷新后重新确认")
 			return
 		}
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	s.audit(r, "protocol.v2.access.save", "deviceAccessProfile", v.ID, map[string]any{"deviceId": v.DeviceID, "enabled": v.Enabled})

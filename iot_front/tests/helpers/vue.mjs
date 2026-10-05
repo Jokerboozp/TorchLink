@@ -5,5 +5,5 @@ import { readFileSync } from 'node:fs'
 export function setupScript(url) {
   const source = readFileSync(url, 'utf8').match(/<script setup>([\s\S]*?)<\/script>/)?.[1]
   if (source === undefined) throw new Error(`Missing <script setup>: ${url}`)
-  return source.replace(/^import .*$/gm, '')
+  return source.replace(/^import\s[^'"]*['"][^'"]+['"];?$/gm, '')
 }

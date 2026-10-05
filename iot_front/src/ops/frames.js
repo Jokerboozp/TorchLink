@@ -10,14 +10,23 @@ export function alignSeries(list) {
   const index = new Map(times.map((ts, i) => [ts, i]))
   const series = list.map(item => {
     const values = new Array(times.length).fill(null)
-    item.timestamps.forEach((ts, i) => { values[index.get(ts)] = item.values[i] ?? null })
+    item.timestamps.forEach((ts, i) => {
+      values[index.get(ts)] = item.values[i] ?? null
+    })
     return { name: item.name, labels: item.labels || {}, values }
   })
   return { times, series }
 }
 
 export function metricResultToChart(result, legend = '') {
-  return alignSeries((result?.series || []).map(s => ({ name: seriesName(s.labels, legend), labels: s.labels, timestamps: s.timestamps || [], values: s.values || [] })))
+  return alignSeries(
+    (result?.series || []).map(s => ({
+      name: seriesName(s.labels, legend),
+      labels: s.labels,
+      timestamps: s.timestamps || [],
+      values: s.values || []
+    }))
+  )
 }
 
 function frameTimeField(frame) {
@@ -40,31 +49,68 @@ export function framesToChart(frames = []) {
     if (!time) continue
     for (const field of frame.fields) {
       if (field === time || field.type !== 'number') continue
-      list.push({ name: fieldName(field, frame, frames.length > 1), labels: field.labels || {}, timestamps: time.values.map(Number), values: field.values.map(v => (v == null ? null : Number(v))), unit: field.config?.unit })
+      list.push({
+        name: fieldName(field, frame, frames.length > 1),
+        labels: field.labels || {},
+        timestamps: time.values.map(Number),
+        values: field.values.map(v => (v == null ? null : Number(v))),
+        unit: field.config?.unit
+      })
     }
   }
   return alignSeries(list)
 }
 
 const calcs = {
-  lastNotNull: v => { for (let i = v.length - 1; i >= 0; i--) if (v[i] != null) return v[i]; return null },
+  lastNotNull: v => {
+    for (let i = v.length - 1; i >= 0; i--) if (v[i] != null) return v[i]
+    return null
+  },
   last: v => (v.length ? v[v.length - 1] : null),
   firstNotNull: v => v.find(x => x != null) ?? null,
   first: v => (v.length ? v[0] : null),
-  mean: v => { const n = v.filter(x => x != null); return n.length ? n.reduce((a, b) => a + b, 0) / n.length : null },
-  max: v => { const n = v.filter(x => x != null); return n.length ? Math.max(...n) : null },
-  min: v => { const n = v.filter(x => x != null); return n.length ? Math.min(...n) : null },
+  mean: v => {
+    const n = v.filter(x => x != null)
+    return n.length ? n.reduce((a, b) => a + b, 0) / n.length : null
+  },
+  max: v => {
+    const n = v.filter(x => x != null)
+    return n.length ? Math.max(...n) : null
+  },
+  min: v => {
+    const n = v.filter(x => x != null)
+    return n.length ? Math.min(...n) : null
+  },
   sum: v => v.reduce((a, b) => a + (b ?? 0), 0),
   count: v => v.filter(x => x != null).length,
-  delta: v => { const n = v.filter(x => x != null); let d = 0; for (let i = 1; i < n.length; i++) d += Math.max(0, n[i] - n[i - 1]); return n.length ? d : null },
-  range: v => { const n = v.filter(x => x != null); return n.length ? Math.max(...n) - Math.min(...n) : null },
-  diff: v => { const n = v.filter(x => x != null); return n.length ? n[n.length - 1] - n[0] : null }
+  delta: v => {
+    const n = v.filter(x => x != null)
+    let d = 0
+    for (let i = 1; i < n.length; i++) d += Math.max(0, n[i] - n[i - 1])
+    return n.length ? d : null
+  },
+  range: v => {
+    const n = v.filter(x => x != null)
+    return n.length ? Math.max(...n) - Math.min(...n) : null
+  },
+  diff: v => {
+    const n = v.filter(x => x != null)
+    return n.length ? n[n.length - 1] - n[0] : null
+  }
 }
 
 export const calcOptions = [
-  { value: 'lastNotNull', label: '最新非空值' }, { value: 'last', label: '最新值' }, { value: 'mean', label: '平均值' },
-  { value: 'max', label: '最大值' }, { value: 'min', label: '最小值' }, { value: 'sum', label: '合计' }, { value: 'count', label: '数量' },
-  { value: 'firstNotNull', label: '最早非空值' }, { value: 'delta', label: '累计增量' }, { value: 'range', label: '极差' }, { value: 'diff', label: '首尾差' }
+  { value: 'lastNotNull', label: '最新非空值' },
+  { value: 'last', label: '最新值' },
+  { value: 'mean', label: '平均值' },
+  { value: 'max', label: '最大值' },
+  { value: 'min', label: '最小值' },
+  { value: 'sum', label: '合计' },
+  { value: 'count', label: '数量' },
+  { value: 'firstNotNull', label: '最早非空值' },
+  { value: 'delta', label: '累计增量' },
+  { value: 'range', label: '极差' },
+  { value: 'diff', label: '首尾差' }
 ]
 
 export function reduceValues(values, calc = 'lastNotNull') {
@@ -78,7 +124,14 @@ export function reduceFrames(frames, calc) {
   const out = []
   for (const frame of frames) {
     for (const field of frame.fields) {
-      if (field.type === 'number') out.push({ name: fieldName(field, frame, frames.length > 1), value: reduceValues(field.values.map(v => (v == null ? null : Number(v))), calc) })
+      if (field.type === 'number')
+        out.push({
+          name: fieldName(field, frame, frames.length > 1),
+          value: reduceValues(
+            field.values.map(v => (v == null ? null : Number(v))),
+            calc
+          )
+        })
     }
   }
   return out
@@ -93,7 +146,9 @@ export function framesToTable(frames = []) {
     const rows = []
     for (const frame of frames) {
       const length = Math.max(0, ...frame.fields.map(f => f.values.length))
-      for (const field of frame.fields) if (!columns.find(c => c.key === field.name)) columns.push({ key: field.name, title: field.name, type: field.type, unit: field.config?.unit })
+      for (const field of frame.fields)
+        if (!columns.find(c => c.key === field.name))
+          columns.push({ key: field.name, title: field.name, type: field.type, unit: field.config?.unit })
       for (let i = 0; i < length; i++) rows.push(Object.fromEntries(frame.fields.map(field => [field.name, field.values[i]])))
     }
     return { columns, rows }
@@ -101,7 +156,11 @@ export function framesToTable(frames = []) {
   const chart = framesToChart(frames)
   const labelKeys = [...new Set(chart.series.flatMap(s => Object.keys(s.labels)))].filter(k => k !== '__name__').sort()
   return {
-    columns: [{ key: '__series', title: '序列', type: 'string' }, ...labelKeys.map(k => ({ key: k, title: k, type: 'string' })), { key: '__value', title: '最新值', type: 'number' }],
+    columns: [
+      { key: '__series', title: '序列', type: 'string' },
+      ...labelKeys.map(k => ({ key: k, title: k, type: 'string' })),
+      { key: '__value', title: '最新值', type: 'number' }
+    ],
     rows: chart.series.map(s => ({ __series: s.name, ...s.labels, __value: reduceValues(s.values, 'lastNotNull') }))
   }
 }
@@ -118,14 +177,36 @@ export function framesToLogs(frames = []) {
     for (let i = 0; i < line.values.length; i++) {
       const ms = Number(time.values[i])
       let entryLabels = labels?.values?.[i] || {}
-      if (typeof entryLabels === 'string') { try { entryLabels = JSON.parse(entryLabels) } catch { entryLabels = {} } }
+      if (typeof entryLabels === 'string') {
+        try {
+          entryLabels = JSON.parse(entryLabels)
+        } catch {
+          entryLabels = {}
+        }
+      }
       out.push({ ts: String(byName.tsNs?.values?.[i] ?? ms * 1e6), timeMs: ms, line: String(line.values[i] ?? ''), labels: entryLabels })
     }
   }
   return out
 }
 
-const namedColors = { green: 'var(--success)', 'dark-green': 'var(--success)', 'semi-dark-green': 'var(--success)', red: 'var(--danger)', 'dark-red': 'var(--danger)', 'semi-dark-red': 'var(--danger)', orange: 'var(--warning)', 'dark-orange': 'var(--warning)', yellow: 'var(--warning)', 'dark-yellow': 'var(--warning)', blue: 'var(--info)', 'dark-blue': 'var(--info)', purple: 'var(--chart-5)', text: 'var(--text)', transparent: 'transparent' }
+const namedColors = {
+  green: 'var(--success)',
+  'dark-green': 'var(--success)',
+  'semi-dark-green': 'var(--success)',
+  red: 'var(--danger)',
+  'dark-red': 'var(--danger)',
+  'semi-dark-red': 'var(--danger)',
+  orange: 'var(--warning)',
+  'dark-orange': 'var(--warning)',
+  yellow: 'var(--warning)',
+  'dark-yellow': 'var(--warning)',
+  blue: 'var(--info)',
+  'dark-blue': 'var(--info)',
+  purple: 'var(--chart-5)',
+  text: 'var(--text)',
+  transparent: 'transparent'
+}
 
 export function cssColor(color) {
   if (!color) return 'var(--text-strong)'
@@ -136,7 +217,7 @@ export function cssColor(color) {
 export function thresholdColor(value, thresholds, min = 0, max = 100) {
   const steps = thresholds?.steps || []
   if (value == null || !steps.length) return 'var(--text-strong)'
-  const v = thresholds.mode === 'percentage' ? ((value - min) / ((max - min) || 1)) * 100 : value
+  const v = thresholds.mode === 'percentage' ? ((value - min) / (max - min || 1)) * 100 : value
   let color = steps[0]?.color
   for (const step of steps) if (step.value == null || v >= step.value) color = step.color
   return cssColor(color)

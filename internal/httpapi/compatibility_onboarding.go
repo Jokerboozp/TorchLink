@@ -32,7 +32,7 @@ func (s *Server) enrollCompatibleDevice(w http.ResponseWriter, r *http.Request, 
 	if !trial {
 		_, ready, err := s.onboarding.TemplateReadiness(r.Context(), product.TenantID, product.ID)
 		if err != nil {
-			enrollProblem(w, err)
+			s.enrollProblem(w, r, err)
 			return
 		}
 		if !ready {
@@ -42,7 +42,7 @@ func (s *Server) enrollCompatibleDevice(w http.ResponseWriter, r *http.Request, 
 	}
 	plan, err := s.onboarding.Plan(r.Context(), product.TenantID, product)
 	if err != nil {
-		enrollProblem(w, err)
+		s.enrollProblem(w, r, err)
 		return
 	}
 	connection := onboarding.EnrollConnection{Mode: plan.Mode}
@@ -63,7 +63,7 @@ func (s *Server) enrollCompatibleDevice(w http.ResponseWriter, r *http.Request, 
 		if connection.ProfileID == "" {
 			profiles, e := s.onboarding.SharedListeners(r.Context(), product.TenantID, product.ID)
 			if e != nil {
-				enrollProblem(w, e)
+				s.enrollProblem(w, r, e)
 				return
 			}
 			for _, profile := range profiles {
@@ -91,7 +91,7 @@ func (s *Server) enrollCompatibleDevice(w http.ResponseWriter, r *http.Request, 
 	q := onboarding.EnrollRequest{Trial: trial, RequestID: "compat-" + onboarding.Hash(product.TenantID + "/" + device.ID)[:32], ProductID: product.ID, Device: onboarding.EnrollDevice{ID: device.ID, Name: device.Name, DeviceRole: device.DeviceRole, Description: device.Description, Tags: device.Tags}, Connection: connection}
 	result, err := s.onboarding.Enroll(r.Context(), product.TenantID, q)
 	if err != nil {
-		enrollProblem(w, err)
+		s.enrollProblem(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

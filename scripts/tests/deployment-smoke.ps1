@@ -66,7 +66,8 @@ $savedEnv = @{}
 foreach ($item in Get-ChildItem Env:) {
     if ($item.Name -match '^(IOT_|COMPOSE_|POSTGRES_|REDIS_|CLICKHOUSE_|MINIO_|EMQX_|GRAFANA_|DEEPSEEK_)') {
         $savedEnv[$item.Name] = $item.Value
-        [Environment]::SetEnvironmentVariable($item.Name, $null, 'Process')
+        # PowerShell 7.5 / .NET 9 keeps an empty variable when set to $null; remove it instead.
+        Remove-Item -LiteralPath "Env:$($item.Name)" -ErrorAction SilentlyContinue
     }
 }
 try {
@@ -167,7 +168,7 @@ try {
             [Environment]::SetEnvironmentVariable('IOT_KAFKA_SASL_PASSWORD', 'process-only-password', 'Process')
             & (Join-Path $scripts 'setup-local.ps1') -EnvFile $brokerEnv -SkipCodeDeps
         } finally {
-            [Environment]::SetEnvironmentVariable('IOT_KAFKA_SASL_PASSWORD', $null, 'Process')
+            Remove-Item -LiteralPath 'Env:IOT_KAFKA_SASL_PASSWORD' -ErrorAction SilentlyContinue
         }
         $content = [IO.File]::ReadAllText($brokerEnv)
         foreach ($key in $brokerDefaults.Keys) {
@@ -252,7 +253,7 @@ try {
     Assert ($LASTEXITCODE -eq 0) 'Optional Compose profiles failed to resolve'
     Assert ($optionalModel.services.'platform-api'.environment.IOT_AI_BASE_URL -eq 'https://api.deepseek.com') 'DeepSeek Provider misconfigured'
     Assert ($optionalModel.services.'deepseek-harness'.environment.DEEPSEEK_BASE_URL -eq 'https://api.deepseek.com') 'Harness inherited an unrelated Provider URL'
-    Assert (@($optionalModel.services.PSObject.Properties.Name | Where-Object { $_ -in @('embedding', 'weaviate', 'vllm') }).Count -eq 0) 'Retired local AI services remain'
+    Assert (@($optionalModel.services.PSObject.Properties.Name | Where-Object { $_ -in @('weaviate', 'vllm') }).Count -eq 0) 'Retired local AI services remain'
     Assert ($optionalModel.services.'platform-api'.environment.IOT_EMBEDDING_DIMENSIONS -eq '1024') 'Cloud embedding dimensions missing'
     $global:IotTest_failBuild = $true
     $global:IotTest_calls.Clear()
@@ -316,7 +317,7 @@ try {
     Assert ($manifest.images -contains 'rustfs/rustfs:1.0.1') 'Default bundle omitted the RustFS image'
     Assert (Contains-Call 'build --pull platform-api platform-web backup-service postgres') 'Offline packaging omitted the application image build'
     Assert ($manifest.images -contains 'iot-platform-postgres:17-pgvector-0.8.1') 'Bundle omitted pgvector PostgreSQL'
-    Assert ($manifest.knowledgeStore -eq 'postgres-pgvector' -and $manifest.embeddingRequiresInternet) 'Knowledge architecture metadata missing'
+    Assert ($manifest.knowledgeStore -eq 'postgres-pgvector' -and $manifest.embeddingRequiresInternet -eq $false) 'Knowledge architecture metadata missing'
     Assert (-not (Test-Path (Join-Path $bundle 'embedding-models.tgz'))) 'Bundle still contains model weights'
     Assert ($manifest.arch -eq 'x86_64') 'Bundle does not record its CPU architecture'
     Assert ($manifest.aiProvider -eq 'deepseek' -and $manifest.aiRequiresInternet) 'Bundle includes a chat model by default or omits DeepSeek metadata'

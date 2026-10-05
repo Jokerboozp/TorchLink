@@ -7,7 +7,13 @@ import { loadAIHistory, saveAIHistory } from './aiHistory.js'
 
 let sequence = 0
 const makeId = prefix => `${prefix}_${globalThis.crypto?.randomUUID?.() || `${Date.now()}_${++sequence}`}`
-const welcomeMessage = () => ({ id:'welcome', role:'assistant', status:'succeeded', text:'你好，我是消防物联网智能运维助手。可以直接查询设备、告警和趋势；切换顶部工作流插件后，会显示该插件的对话记录。', tools:[] })
+const welcomeMessage = () => ({
+  id: 'welcome',
+  role: 'assistant',
+  status: 'succeeded',
+  text: '你好，我是消防物联网智能运维助手。可以直接查询设备、告警和趋势；切换智能体后，会显示该智能体的对话记录。',
+  tools: []
+})
 
 function timestamp(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return value
@@ -23,33 +29,62 @@ function safeText(value, fallback = '') {
 }
 
 function normalizeError(value, fallback = '智能运行失败') {
-  const error = typeof value === 'string' ? { message:value } : value || {}
+  const error = typeof value === 'string' ? { message: value } : value || {}
   return {
-    message:safeText(error.message || error.detail || error.text, fallback),
-    code:safeText(error.code),
-    stage:safeText(error.stage),
-    traceId:safeText(error.traceId),
-    retryable:Boolean(error.retryable)
+    message: safeText(error.message || error.detail || error.text, fallback),
+    code: safeText(error.code),
+    stage: safeText(error.stage),
+    traceId: safeText(error.traceId),
+    retryable: Boolean(error.retryable)
   }
 }
 
 function normalizeEvent(raw) {
   const nested = raw?.data && typeof raw.data === 'object' && !Array.isArray(raw.data) ? raw.data : {}
-  return { ...raw, ...nested, type:raw?.type || nested.type || 'message' }
+  return { ...raw, ...nested, type: raw?.type || nested.type || 'message' }
+}
+
+// 知识预检返回的引用来源：只保留展示所需字段，最多 20 条。
+function knowledgeSources(value) {
+  if (!Array.isArray(value)) return []
+  return value.slice(0, 20).map(item => ({
+    filename: safeText(item?.filename || item?.documentId || '未命名文档'),
+    chunkIndex: Number.isInteger(item?.chunkIndex) ? item.chunkIndex : null,
+    score: Number.isFinite(item?.score) ? item.score : null
+  }))
 }
 
 function addRunEvent(run, event, label, status = 'info', detail = '') {
-  run.events.push({ id:event.eventId || makeId('event'), type:event.type, label, status, detail:safeText(detail), createdAt:timestamp(event.createdAt || event.timestamp) })
+  run.events.push({
+    id: event.eventId || makeId('event'),
+    type: event.type,
+    label,
+    status,
+    detail: safeText(detail),
+    createdAt: timestamp(event.createdAt || event.timestamp)
+  })
 }
 
-function toolCallKey(event) { return event.toolCallId || event.callId || event.tool?.toolCallId || event.tool?.id || event.id || '' }
+function toolCallKey(event) {
+  return event.toolCallId || event.callId || event.tool?.toolCallId || event.tool?.id || event.id || ''
+}
 
 function findOrCreateTool(run, assistant, event) {
   const callId = toolCallKey(event)
   let tool = run.tools.find(item => item.toolCallId === callId)
   if (!tool) {
     const toolName = event.toolName || event.name || (typeof event.tool === 'string' ? event.tool : event.tool?.name) || '未命名工具'
-    run.tools.push({ id:makeId('tool'), toolCallId:callId || makeId('call'), name:toolName, status:'running', inputSummary:event.inputSummary || event.input?.summary || '', outputSummary:'', error:'', startedAt:timestamp(event.startedAt || event.createdAt), durationMs:null })
+    run.tools.push({
+      id: makeId('tool'),
+      toolCallId: callId || makeId('call'),
+      name: toolName,
+      status: 'running',
+      inputSummary: event.inputSummary || event.input?.summary || '',
+      outputSummary: '',
+      error: '',
+      startedAt: timestamp(event.startedAt || event.createdAt),
+      durationMs: null
+    })
     tool = run.tools[run.tools.length - 1]
     assistant.tools = run.tools
   }
@@ -71,7 +106,9 @@ function createAIConversation({ identity, storage, stream }) {
   let disposed = false
 
   // 页面挂载时登记滚动回调；页面离开后运行照常更新状态，只是不再滚动。
-  function notify() { for (const listener of listeners) listener() }
+  function notify() {
+    for (const listener of listeners) listener()
+  }
   function onUpdate(listener) {
     listeners.add(listener)
     return () => listeners.delete(listener)
@@ -81,7 +118,7 @@ function createAIConversation({ identity, storage, stream }) {
     if (historyTimer) clearTimeout(historyTimer)
     historyTimer = 0
     if (!activeWorkflowId) return
-    const state = { conversationId:conversationId.value, selectedWorkflowId:activeWorkflowId, messages:messages.value, runs:runs.value }
+    const state = { conversationId: conversationId.value, selectedWorkflowId: activeWorkflowId, messages: messages.value, runs: runs.value }
     saveAIHistory(storage, identity, state, activeWorkflowId)
     saveAIHistory(storage, identity, state)
   }
@@ -120,7 +157,7 @@ function createAIConversation({ identity, storage, stream }) {
     if (!delta) return
     let state = pendingTextStates.get(assistant)
     if (!state) {
-      state = { value:'', timer:0 }
+      state = { value: '', timer: 0 }
       pendingTextStates.set(assistant, state)
     }
     state.value += delta
@@ -158,8 +195,14 @@ function createAIConversation({ identity, storage, stream }) {
   function applyStreamEvent(raw, assistant, run) {
     const event = normalizeEvent(raw)
     if (event.messageId) assistant.serverMessageId = event.messageId
-    if (event.runId) { assistant.runId = event.runId; run.runId = event.runId }
-    if (event.traceId) { assistant.traceId = event.traceId; run.traceId = event.traceId }
+    if (event.runId) {
+      assistant.runId = event.runId
+      run.runId = event.runId
+    }
+    if (event.traceId) {
+      assistant.traceId = event.traceId
+      run.traceId = event.traceId
+    }
 
     switch (event.type) {
       case 'run.started':
@@ -168,7 +211,7 @@ function createAIConversation({ identity, storage, stream }) {
         run.provider = event.provider || run.provider
         run.model = event.model || run.model
         run.startedAt = timestamp(event.startedAt || event.createdAt)
-        addRunEvent(run, event, '工作流服务开始运行', 'running', [run.provider,run.model].filter(Boolean).join(' / '))
+        addRunEvent(run, event, '工作流服务开始运行', 'running', [run.provider, run.model].filter(Boolean).join(' / '))
         break
       case 'text.delta': {
         const delta = event.delta ?? event.text ?? event.content ?? ''
@@ -185,11 +228,18 @@ function createAIConversation({ identity, storage, stream }) {
       case 'tool.completed': {
         const tool = findOrCreateTool(run, assistant, event)
         const toolError = event.error ? normalizeError(event.error, '工具调用失败') : null
-        tool.status = event.success === false || ['failed','error'].includes(event.status) || toolError ? 'failed' : 'succeeded'
+        tool.status = event.success === false || ['failed', 'error'].includes(event.status) || toolError ? 'failed' : 'succeeded'
         tool.outputSummary = event.outputSummary || event.output?.summary || ''
+        tool.sources = knowledgeSources(event.sources)
         tool.error = toolError?.message || ''
         tool.durationMs = event.durationMs ?? (event.completedAt ? Math.max(0, timestamp(event.completedAt) - tool.startedAt) : null)
-        addRunEvent(run, event, `工具${tool.status === 'failed' ? '失败' : '完成'} · ${tool.name}`, tool.status === 'failed' ? 'danger' : 'success', tool.error || tool.outputSummary)
+        addRunEvent(
+          run,
+          event,
+          `工具${tool.status === 'failed' ? '失败' : '完成'} · ${tool.name}`,
+          tool.status === 'failed' ? 'danger' : 'success',
+          tool.error || tool.outputSummary
+        )
         if (event.clientAction?.type === 'RULE_DRAFT_READY' && event.clientAction.draft && typeof event.clientAction.draft === 'object') {
           assistant.ruleDraft = event.clientAction.draft
           assistant.ruleDraftPersisted = event.clientAction.persisted === true
@@ -230,10 +280,36 @@ function createAIConversation({ identity, storage, stream }) {
   async function send(text, { workflowName = '', model = '' } = {}) {
     if (!text || sending.value || disposed) return
     if (!conversationId.value) conversationId.value = makeId('conversation')
-    messages.value.push({ id:makeId('message'), role:'user', status:'succeeded', text, tools:[] })
-    messages.value.push({ id:makeId('message'), role:'assistant', status:'streaming', text:'', prompt:text, tools:[], error:null })
+    const createdAt = Date.now()
+    messages.value.push({ id: makeId('message'), role: 'user', status: 'succeeded', text, tools: [], createdAt })
+    messages.value.push({
+      id: makeId('message'),
+      role: 'assistant',
+      status: 'streaming',
+      text: '',
+      prompt: text,
+      tools: [],
+      error: null,
+      createdAt
+    })
     const assistant = messages.value[messages.value.length - 1]
-    runs.value.unshift({ id:makeId('run'), runId:'', traceId:'', status:'running', workflowId:selectedWorkflowId.value, workflowName, provider:'', model, startedAt:Date.now(), finishedAt:null, durationMs:null, usage:null, events:[], tools:[], error:null })
+    runs.value.unshift({
+      id: makeId('run'),
+      runId: '',
+      traceId: '',
+      status: 'running',
+      workflowId: selectedWorkflowId.value,
+      workflowName,
+      provider: '',
+      model,
+      startedAt: Date.now(),
+      finishedAt: null,
+      durationMs: null,
+      usage: null,
+      events: [],
+      tools: [],
+      error: null
+    })
     const run = runs.value[0]
     assistant.runKey = run.id
     assistant.tools = run.tools
@@ -242,36 +318,55 @@ function createAIConversation({ identity, storage, stream }) {
 
     const controller = new AbortController()
     abortController = controller
-    const body = { question:text, conversationId:conversationId.value, workflowId:selectedWorkflowId.value, model }
+    const body = { question: text, conversationId: conversationId.value, workflowId: selectedWorkflowId.value, model }
 
     try {
-      await stream('/api/v1/ai/chat/stream', { method:'POST', body:JSON.stringify(body), signal:controller.signal }, event => applyStreamEvent(event, assistant, run))
+      await stream('/api/v1/ai/chat/stream', { method: 'POST', body: JSON.stringify(body), signal: controller.signal }, event =>
+        applyStreamEvent(event, assistant, run)
+      )
       if (assistant.status === 'streaming') {
-        const failure = normalizeError({ code:'AI_STREAM_INCOMPLETE', retryable:true }, '智能流意外结束，请重试。')
-        assistant.status = 'failed'; assistant.error = failure; assistant.text ||= '响应流未完整结束。'
-        run.status = 'failed'; run.error = failure; run.durationMs = Math.max(0, Date.now() - run.startedAt)
-        addRunEvent(run, { type:'run.failed' }, '响应流意外结束', 'danger', failure.message)
+        const failure = normalizeError({ code: 'AI_STREAM_INCOMPLETE', retryable: true }, '智能流意外结束，请重试。')
+        assistant.status = 'failed'
+        assistant.error = failure
+        assistant.text ||= '响应流未完整结束。'
+        run.status = 'failed'
+        run.error = failure
+        run.durationMs = Math.max(0, Date.now() - run.startedAt)
+        addRunEvent(run, { type: 'run.failed' }, '响应流意外结束', 'danger', failure.message)
       }
     } catch (error) {
       if (error?.name === 'AbortError') {
-        assistant.status = 'canceled'; assistant.text ||= '已停止生成。'; run.status = 'canceled'; run.durationMs = Math.max(0, Date.now() - run.startedAt)
+        assistant.status = 'canceled'
+        assistant.text ||= '已停止生成。'
+        run.status = 'canceled'
+        run.durationMs = Math.max(0, Date.now() - run.startedAt)
         for (const tool of run.tools.filter(item => item.status === 'running')) tool.status = 'canceled'
-        addRunEvent(run, { type:'run.canceled' }, '用户停止运行', 'info')
+        addRunEvent(run, { type: 'run.canceled' }, '用户停止运行', 'info')
       } else {
         const failure = normalizeError(error)
-        assistant.status = 'failed'; assistant.error = failure; assistant.text ||= '运行未能完成。'
-        run.status = 'failed'; run.error = failure; run.traceId ||= failure.traceId; run.durationMs = Math.max(0, Date.now() - run.startedAt)
-        addRunEvent(run, { type:'run.failed' }, '请求失败', 'danger', failure.message)
+        assistant.status = 'failed'
+        assistant.error = failure
+        assistant.text ||= '运行未能完成。'
+        run.status = 'failed'
+        run.error = failure
+        run.traceId ||= failure.traceId
+        run.durationMs = Math.max(0, Date.now() - run.startedAt)
+        addRunEvent(run, { type: 'run.failed' }, '请求失败', 'danger', failure.message)
       }
     } finally {
       flushAssistantText(assistant)
       run.finishedAt ||= Date.now()
-      if (abortController === controller) { abortController = null; sending.value = false }
+      if (abortController === controller) {
+        abortController = null
+        sending.value = false
+      }
       notify()
     }
   }
 
-  function stop() { abortController?.abort() }
+  function stop() {
+    abortController?.abort()
+  }
 
   function clear() {
     abortController?.abort()
@@ -293,8 +388,8 @@ function createAIConversation({ identity, storage, stream }) {
 
   restore()
   scope.run(() => {
-    watch(selectedWorkflowId, workflowId => switchConversation(workflowId), { flush:'sync' })
-    watch([messages, runs, conversationId, selectedWorkflowId], schedulePersist, { deep:true })
+    watch(selectedWorkflowId, workflowId => switchConversation(workflowId), { flush: 'sync' })
+    watch([messages, runs, conversationId, selectedWorkflowId], schedulePersist, { deep: true })
   })
 
   return { identity, messages, runs, selectedWorkflowId, sending, send, stop, clear, persist, onUpdate, dispose }
@@ -306,7 +401,10 @@ const sameIdentity = (left, right) => ['tenant', 'user', 'accessVersion'].every(
 // 同一身份在页面重新进入时复用正在运行的对话；身份或授权版本不同则先停止旧对话。
 export function useAIConversation(identity, options) {
   if (active && !sameIdentity(active.identity, identity)) resetAIConversation()
-  active ||= createAIConversation({ ...options, identity:{ tenant:identity?.tenant || '', user:identity?.user || '', accessVersion:identity?.accessVersion || '' } })
+  active ||= createAIConversation({
+    ...options,
+    identity: { tenant: identity?.tenant || '', user: identity?.user || '', accessVersion: identity?.accessVersion || '' }
+  })
   return active
 }
 

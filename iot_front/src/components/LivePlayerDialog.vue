@@ -14,7 +14,13 @@ const visible = computed({ get: () => props.modelValue && Boolean(props.camera?.
 
 <template>
   <ui-dialog v-model="visible" class="live-player-dialog" title="摄像头直播" width="min(880px, 96vw)" destroy-on-close>
-    <LivePlayer v-if="visible" :key="camera.cameraId" :camera-id="camera.cameraId" :camera-name="camera.cameraName" :location="cameraLocation(camera)" />
+    <LivePlayer
+      v-if="visible"
+      :key="camera.cameraId"
+      :camera-id="camera.cameraId"
+      :camera-name="camera.cameraName"
+      :location="cameraLocation(camera)"
+    />
     <template #footer><ui-button @click="visible = false">关闭</ui-button></template>
   </ui-dialog>
 </template>

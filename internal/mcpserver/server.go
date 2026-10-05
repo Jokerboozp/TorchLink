@@ -129,7 +129,9 @@ func newServer(engine *core.Engine, harness bool, endpoint string) http.Handler 
 	s.AddTool(mcp.NewTool("create_rule_draft", mcp.WithDescription("把你按规定格式写好的规则 JSON 保存为禁用草稿；不会启用或执行，必须由用户人工确认。格式要求："+aiprompt.RuleDraftInstructions), mcp.WithString("ruleJson", mcp.Required(), mcp.Description("规则 JSON 对象文本")), mcp.WithString("inputText", mcp.Description("用户原始需求，用于审计"))), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		tenant, err := tenantForTool(ctx, auth.ScopeCreateRuleDraft, harness)
 		if !harness {
-			tenant, err = tenantFrom(ctx)
+			// Browser sessions carry no per-action permissions here; only the
+			// built-in administrator may save drafts outside a Harness run.
+			tenant, err = builtinAdminTenant(ctx)
 		}
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
@@ -405,10 +407,10 @@ func boundedLimit(value, fallback, maximum int) int {
 	return value
 }
 
-func tenantFrom(ctx context.Context) (string, error) {
+func builtinAdminTenant(ctx context.Context) (string, error) {
 	c, ok := auth.ClaimsFromContext(ctx)
-	if !ok || c.TenantID == "" {
-		return "", fmt.Errorf("authenticated tenant context is required")
+	if !ok || c.TenantID == "" || c.TokenUse != "" || c.Role != "admin" {
+		return "", fmt.Errorf("rule drafts outside a Harness run require the built-in administrator")
 	}
 	return c.TenantID, nil
 }
@@ -419,13 +421,43 @@ func result(v any, err error) (*mcp.CallToolResult, error) {
 	b, _ := json.Marshal(v)
 	return mcp.NewToolResultText(string(b)), nil
 }
+
+// auditOutputLimit bounds what a tool call log keeps of the tool result. Small
+// results such as a saved rule draft stay whole; telemetry and knowledge
+// passages are summarised, since the model already received them and the log
+// only needs to show what was returned.
+const auditOutputLimit = 4 << 10
+
+func auditOutput(v any) any {
+	encoded, err := json.Marshal(v)
+	if err != nil || len(encoded) <= auditOutputLimit {
+		return v
+	}
+	summary := map[string]any{"truncated": true, "bytes": len(encoded)}
+	var list []json.RawMessage
+	if json.Unmarshal(encoded, &list) == nil {
+		summary["items"] = len(list)
+	} else {
+		var object map[string]json.RawMessage
+		if json.Unmarshal(encoded, &object) == nil {
+			if json.Unmarshal(object["items"], &list) == nil {
+				summary["items"] = len(list)
+			}
+			if total, ok := object["total"]; ok {
+				summary["total"] = total
+			}
+		}
+	}
+	return summary
+}
+
 func auditedResult(ctx context.Context, engine *core.Engine, tool string, input map[string]any, v any, err error) (*mcp.CallToolResult, error) {
 	c, _ := auth.ClaimsFromContext(ctx)
 	traceID := fmt.Sprintf("tool_%d", time.Now().UnixNano())
 	if c.RunID != "" {
 		traceID = c.RunID
 	}
-	entry := model.AIToolCallLog{ID: traceID, TenantID: c.TenantID, Actor: c.Username, Tool: tool, Input: input, Output: v, Success: err == nil, CreatedAt: time.Now().UnixMilli()}
+	entry := model.AIToolCallLog{ID: traceID, TenantID: c.TenantID, Actor: c.Username, Tool: tool, Input: input, Output: auditOutput(v), Success: err == nil, CreatedAt: time.Now().UnixMilli()}
 	if err != nil {
 		entry.Error = err.Error()
 	}

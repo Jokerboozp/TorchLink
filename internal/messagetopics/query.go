@@ -251,11 +251,11 @@ func queryNumber(v any) (*big.Rat, bool) {
 	return value, ok
 }
 func queryValueType(v any) (string, bool) {
-	switch v.(type) {
+	switch value := v.(type) {
 	case nil:
 		return "null", true
 	case string:
-		return "string", len(v.(string)) <= 4096
+		return "string", len(value) <= 4096
 	case bool:
 		return "boolean", true
 	}

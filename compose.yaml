@@ -9,6 +9,12 @@ name: iot-platform
 x-service-defaults: &service-defaults
   restart: unless-stopped
   networks: [iot]
+  # Rotate container stdout so it cannot fill the disk; Alloy forwards it to Loki.
+  logging: &container-logging
+    driver: json-file
+    options:
+      max-size: ${IOT_CONTAINER_LOG_MAX_SIZE:-50m}
+      max-file: "${IOT_CONTAINER_LOG_MAX_FILE:-5}"
 
 services:
   platform-api:
@@ -20,6 +26,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        IOT_VERSION: ${IOT_VERSION:-dev}
+        IOT_REVISION: ${IOT_REVISION:-}
     environment:
       IOT_PROCESS_ROLE: ${IOT_PROCESS_ROLE:-combined}
       IOT_ACCESS_GATEWAY_URL: ${IOT_ACCESS_GATEWAY_URL:-}
@@ -156,6 +165,13 @@ services:
       - "${IOT_GB28181_SIP_PORT:-5060}:${IOT_GB28181_SIP_PORT:-5060}/udp"
       - "${IOT_GB28181_SIP_PORT:-5060}:${IOT_GB28181_SIP_PORT:-5060}/tcp"
     volumes: ["platform-data:/app/data", "prometheus-rules:/app/ops/prometheus-rules", "loki-ops:/app/ops/loki", "alertmanager-config:/app/ops/alertmanager", "protocol-runner-socket:/run/torchlink"]
+    # The distroless image has no shell or HTTP client; the binary probes its own /health/live.
+    healthcheck:
+      test: ["CMD", "/app/iot-platform", "healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 60s
     depends_on:
       protocol-runner: {condition: service_started}
       ops-init: {condition: service_completed_successfully}
@@ -177,6 +193,7 @@ services:
   protocol-runner:
     image: ${IOT_PLATFORM_API_IMAGE:-iot-platform-api:local}
     restart: unless-stopped
+    logging: *container-logging
     network_mode: none
     read_only: true
     cap_drop: [ALL]
@@ -841,6 +858,16 @@ configs:
               for: 0m
               labels: {severity: critical}
               annotations: {summary: "火警通知多次重试后仍发送失败，请检查通知渠道"}
+            - alert: AlarmEventDeliveryFailures
+              expr: increase(event_publish_failed_total[15m]) > 0
+              for: 0m
+              labels: {severity: warning}
+              annotations: {summary: "告警事件未能推送到消息总线或实时通道，页面实时提醒可能遗漏"}
+            - alert: AuditWriteFailures
+              expr: increase(audit_write_failed_total[15m]) > 0
+              for: 0m
+              labels: {severity: warning}
+              annotations: {summary: "审计记录写入失败，相关操作缺少审计"}
             - alert: RetentionFailures
               expr: increase(retention_failed_total[1d]) > 0
               for: 0m

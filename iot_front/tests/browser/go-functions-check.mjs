@@ -6,70 +6,104 @@ try {
   browser = await startBrowser({ timeout: 60000 })
   const { call, evaluate, until } = browser
   await call('Page.enable')
-  await call('Page.addScriptToEvaluateOnNewDocument',{source:`localStorage.setItem('iot_token',${JSON.stringify(process.env.IOT_TEST_TOKEN)});localStorage.setItem('iot_tenant','tenant');localStorage.setItem('iot_role','admin');localStorage.setItem('iot_user','browser-test');window.__provisions=0;const originalFetch=window.fetch;window.fetch=(url,options)=>{if(String(url).includes('/test-devices/provision')&&options?.method==='POST')window.__provisions++;return originalFetch(url,options)};`})
-  await call('Page.navigate',{url:process.env.IOT_TEST_ORIGIN})
-  const click=async text=>until(()=>evaluate(`(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getClientRects().length&&!e.disabled);if(!e)return false;e.click();return true})()`))
-  const fill=async(label,value)=>evaluate(`(()=>{const item=[...document.querySelectorAll('.ui-form-item')].find(e=>e.querySelector('label')?.textContent.trim()===${JSON.stringify(label)});const input=item?.querySelector('input,textarea');if(!input)throw new Error('missing input '+${JSON.stringify(label)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}))})()`)
-  const closeDialog=async()=>{await call('Input.dispatchKeyEvent',{type:'keyDown',key:'Escape',code:'Escape'});await call('Input.dispatchKeyEvent',{type:'keyUp',key:'Escape',code:'Escape'});await until(()=>evaluate(`![...document.querySelectorAll('.ui-dialog')].some(e=>e.getClientRects().length)`))}
-  await click('协议开发'); await click('上传源码')
-  await until(()=>evaluate(`document.querySelector('input[type=file]')`))
-  await fill('协议标识','functions-browser')
-  assert.equal(await evaluate(`[...document.querySelectorAll('.n-collapse-item__content-inner textarea')].some(e=>e.getClientRects().length>0)`),false)
-  assert.equal(await evaluate(`document.querySelector('input[placeholder="Go 函数模式留空自动生成新版本"]').value`),'')
+  await call('Page.addScriptToEvaluateOnNewDocument', {
+    source: `localStorage.setItem('iot_token',${JSON.stringify(process.env.IOT_TEST_TOKEN)});localStorage.setItem('iot_tenant','tenant');localStorage.setItem('iot_role','admin');localStorage.setItem('iot_user','browser-test');window.__provisions=0;const originalFetch=window.fetch;window.fetch=(url,options)=>{if(String(url).includes('/test-devices/provision')&&options?.method==='POST')window.__provisions++;return originalFetch(url,options)};`
+  })
+  await call('Page.navigate', { url: process.env.IOT_TEST_ORIGIN })
+  const click = async text =>
+    until(() =>
+      evaluate(
+        `(()=>{const e=[...document.querySelectorAll('button')].find(e=>e.textContent.trim()===${JSON.stringify(text)}&&e.getClientRects().length&&!e.disabled);if(!e)return false;e.click();return true})()`
+      )
+    )
+  const fill = async (label, value) =>
+    evaluate(
+      `(()=>{const item=[...document.querySelectorAll('.ui-form-item')].find(e=>e.querySelector('label')?.textContent.trim()===${JSON.stringify(label)});const input=item?.querySelector('input,textarea');if(!input)throw new Error('missing input '+${JSON.stringify(label)});input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}))})()`
+    )
+  const closeDialog = async () => {
+    await call('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape' })
+    await call('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape' })
+    await until(() => evaluate(`![...document.querySelectorAll('.ui-dialog')].some(e=>e.getClientRects().length)`))
+  }
+  await click('协议开发')
+  await click('上传源码')
+  await until(() => evaluate(`document.querySelector('input[type=file]')`))
+  await fill('协议标识', 'functions-browser')
+  assert.equal(
+    await evaluate(`[...document.querySelectorAll('.n-collapse-item__content-inner textarea')].some(e=>e.getClientRects().length>0)`),
+    false
+  )
+  assert.equal(await evaluate(`document.querySelector('input[placeholder="Go 函数模式留空自动生成新版本"]').value`), '')
   // Template download uses the authenticated endpoint and a real ZIP response.
   await click('下载解析模板')
   await call('DOM.enable')
-  const tree=await call('DOM.getDocument')
-  const input=await call('DOM.querySelector',{nodeId:tree.root.nodeId,selector:'input[type=file]'})
-  await call('DOM.setFileInputFiles',{nodeId:input.nodeId,files:[process.env.IOT_TEST_SOURCE_GO]})
+  const tree = await call('DOM.getDocument')
+  const input = await call('DOM.querySelector', { nodeId: tree.root.nodeId, selector: 'input[type=file]' })
+  await call('DOM.setFileInputFiles', { nodeId: input.nodeId, files: [process.env.IOT_TEST_SOURCE_GO] })
   await click('构建并校验')
-  await until(()=>evaluate(`document.body.textContent.includes('已校验，待发布') || document.querySelector('.source-error')?.textContent`))
-  assert.equal(await evaluate(`document.querySelector('.source-error')?.textContent || ''`),'')
-  assert.equal(await evaluate(`fetch('/api/v2/protocols',{headers:{Authorization:'Bearer '+localStorage.getItem('iot_token')}}).then(r=>r.json()).then(r=>r.items.find(i=>i.definition.id==='functions-browser').releases[0].status)`),'VALIDATED')
+  await until(() =>
+    evaluate(`document.body.textContent.includes('已校验，待发布') || document.querySelector('.source-error')?.textContent`)
+  )
+  assert.equal(await evaluate(`document.querySelector('.source-error')?.textContent || ''`), '')
+  assert.equal(
+    await evaluate(
+      `fetch('/api/v2/protocols',{headers:{Authorization:'Bearer '+localStorage.getItem('iot_token')}}).then(r=>r.json()).then(r=>r.items.find(i=>i.definition.id==='functions-browser').releases[0].status)`
+    ),
+    'VALIDATED'
+  )
   await click('发布协议')
-  await until(()=>evaluate(`document.body.textContent.includes('协议已发布，可用于设备模板')`))
-  await until(()=>evaluate(`document.body.textContent.includes('functions-browser') && document.body.textContent.includes('auto-')`))
+  await until(() => evaluate(`document.body.textContent.includes('协议已发布，可用于设备模板')`))
+  await until(() => evaluate(`document.body.textContent.includes('functions-browser') && document.body.textContent.includes('auto-')`))
   await closeDialog()
-  await call('Emulation.setDeviceMetricsOverride',{width:390,height:844,deviceScaleFactor:1,mobile:true})
+  await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: true })
   await click('上传源码')
   await delay(200)
-  assert.equal(await evaluate(`[...document.querySelectorAll('button')].some(e=>e.textContent.trim()==='下载 TCP / UDP 模板'&&e.getClientRects().length)`),true)
-  assert.equal(await evaluate(`document.documentElement.scrollWidth<=window.innerWidth+2`),true)
+  assert.equal(
+    await evaluate(
+      `[...document.querySelectorAll('button')].some(e=>e.textContent.trim()==='下载 TCP / UDP 模板'&&e.getClientRects().length)`
+    ),
+    true
+  )
+  assert.equal(await evaluate(`document.documentElement.scrollWidth<=window.innerWidth+2`), true)
   // Send a compile failure through the real page; the previous version remains.
-  await fill('协议标识','functions-browser')
-  await fill('版本','invalid-browser')
-  const failureTree=await call('DOM.getDocument')
-  const failureInput=await call('DOM.querySelector',{nodeId:failureTree.root.nodeId,selector:'input[type=file]'})
-  await call('DOM.setFileInputFiles',{nodeId:failureInput.nodeId,files:[process.env.IOT_TEST_SOURCE_GO+'.invalid.go']})
+  await fill('协议标识', 'functions-browser')
+  await fill('版本', 'invalid-browser')
+  const failureTree = await call('DOM.getDocument')
+  const failureInput = await call('DOM.querySelector', { nodeId: failureTree.root.nodeId, selector: 'input[type=file]' })
+  await call('DOM.setFileInputFiles', { nodeId: failureInput.nodeId, files: [process.env.IOT_TEST_SOURCE_GO + '.invalid.go'] })
   await click('构建并校验')
-  await until(()=>evaluate(`document.querySelector('.source-error')?.textContent`))
-  await until(()=>evaluate(`![...document.querySelectorAll('button')].some(e=>e.textContent.trim()==='构建并校验'&&e.disabled)`))
+  await until(() => evaluate(`document.querySelector('.source-error')?.textContent`))
+  await until(() => evaluate(`![...document.querySelectorAll('button')].some(e=>e.textContent.trim()==='构建并校验'&&e.disabled)`))
   await closeDialog()
   await call('Emulation.clearDeviceMetricsOverride')
   await click('协议生成')
-  await fill('或粘贴报文','{"temperature":25}')
-  await fill('协议名称','字段浏览器回归')
+  await fill('或粘贴报文', '{"temperature":25}')
+  await fill('协议名称', '字段浏览器回归')
   await click('生成协议')
-  await until(()=>evaluate(`document.querySelector('.mapping-editor')`))
-  assert.match(await evaluate(`document.querySelector('[aria-label="第1行数据类型"]').textContent`),/保持原值/)
+  await until(() => evaluate(`document.querySelector('.mapping-editor')`))
+  assert.match(await evaluate(`document.querySelector('[aria-label="第1行数据类型"]').textContent`), /保持原值/)
   await click('解析预览')
-  await until(()=>evaluate(`document.querySelector('.protocol-generator .ui-descriptions')?.textContent.includes('25')`))
-  await evaluate(`(()=>{const root=document.querySelector('[aria-label="第1行字段标识"]');const e=root.matches('input')?root:root.querySelector('input');e.value='heat';e.dispatchEvent(new Event('input',{bubbles:true}))})()`)
-  await until(()=>evaluate(`!document.querySelector('.protocol-generator .ui-descriptions')`))
+  await until(() => evaluate(`document.querySelector('.protocol-generator .ui-descriptions')?.textContent.includes('25')`))
+  await evaluate(
+    `(()=>{const root=document.querySelector('[aria-label="第1行字段标识"]');const e=root.matches('input')?root:root.querySelector('input');e.value='heat';e.dispatchEvent(new Event('input',{bubbles:true}))})()`
+  )
+  await until(() => evaluate(`!document.querySelector('.protocol-generator .ui-descriptions')`))
   await click('解析预览')
-  await until(()=>evaluate(`document.querySelector('.protocol-generator .ui-descriptions')?.textContent.includes('heat')`))
+  await until(() => evaluate(`document.querySelector('.protocol-generator .ui-descriptions')?.textContent.includes('heat')`))
   await click('保存草稿')
-  await until(()=>evaluate(`document.body.textContent.includes('样本校验通过后可发布')`))
+  await until(() => evaluate(`document.body.textContent.includes('样本校验通过后可发布')`))
   await click('校验草稿')
-  await until(()=>evaluate(`[...document.querySelectorAll('button')].some(e=>e.textContent.trim()==='发布协议'&&!e.disabled)`))
+  await until(() => evaluate(`[...document.querySelectorAll('button')].some(e=>e.textContent.trim()==='发布协议'&&!e.disabled)`))
   await click('发布协议')
-  await until(()=>evaluate(`document.body.textContent.includes('用于设备模板')`))
+  await until(() => evaluate(`document.body.textContent.includes('用于设备模板')`))
   await closeDialog()
   await click('模拟设备测试')
-  await until(()=>evaluate(`document.querySelector('.protocol-preview-panel')`))
+  await until(() => evaluate(`document.querySelector('.protocol-preview-panel')`))
   await delay(300)
-  assert.equal(await evaluate('window.__provisions'),0)
-  console.log('PASS: Go build and validation saved before explicit publication; compile failure and narrow view; JSON type display, edited preview invalidation, draft-validation-publication; simulation mount creates no resources')
+  assert.equal(await evaluate('window.__provisions'), 0)
+  console.log(
+    'PASS: Go build and validation saved before explicit publication; compile failure and narrow view; JSON type display, edited preview invalidation, draft-validation-publication; simulation mount creates no resources'
+  )
 } finally {
   await browser?.close()
 }

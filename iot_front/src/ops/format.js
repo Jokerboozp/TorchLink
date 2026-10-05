@@ -19,7 +19,10 @@ function fixed(value, decimals) {
 function scaled(value, base, units, decimals) {
   let index = 0
   let v = value
-  while (Math.abs(v) >= base && index < units.length - 1) { v /= base; index++ }
+  while (Math.abs(v) >= base && index < units.length - 1) {
+    v /= base
+    index++
+  }
   return `${fixed(v, decimals)} ${units[index]}`
 }
 
@@ -42,10 +45,18 @@ export function formatDuration(seconds) {
 }
 
 export const unitOptions = [
-  { value: 'short', label: '数值（自动缩写）' }, { value: 'none', label: '原始数值' }, { value: 'percent', label: '百分比（0-100）' },
-  { value: 'percentunit', label: '百分比（0-1）' }, { value: 'bytes', label: '字节（IEC）' }, { value: 'decbytes', label: '字节（SI）' },
-  { value: 'Bps', label: '字节/秒' }, { value: 's', label: '秒' }, { value: 'ms', label: '毫秒' }, { value: 'reqps', label: '请求/秒' },
-  { value: 'ops', label: '次/秒' }, { value: 'dateTimeAsIso', label: '时间' }
+  { value: 'short', label: '数值（自动缩写）' },
+  { value: 'none', label: '原始数值' },
+  { value: 'percent', label: '百分比（0-100）' },
+  { value: 'percentunit', label: '百分比（0-1）' },
+  { value: 'bytes', label: '字节（IEC）' },
+  { value: 'decbytes', label: '字节（SI）' },
+  { value: 'Bps', label: '字节/秒' },
+  { value: 's', label: '秒' },
+  { value: 'ms', label: '毫秒' },
+  { value: 'reqps', label: '请求/秒' },
+  { value: 'ops', label: '次/秒' },
+  { value: 'dateTimeAsIso', label: '时间' }
 ]
 
 // formatValue 按 Grafana 单位编号格式化数值；null 与非有限值显示为“—”。
@@ -55,19 +66,40 @@ export function formatValue(value, unit = 'short', decimals) {
   if (typeof unit === 'string' && unit.startsWith('suffix:')) return `${shortNumber(v, decimals)} ${unit.slice(7)}`
   if (typeof unit === 'string' && unit.startsWith('prefix:')) return `${unit.slice(7)}${shortNumber(v, decimals)}`
   switch (unit) {
-    case 'none': case 'string': return fixed(v, decimals)
-    case 'percent': return `${fixed(v, decimals ?? 1)}%`
-    case 'percentunit': return `${fixed(v * 100, decimals ?? 1)}%`
-    case 'bytes': return scaled(v, 1024, SIZE_UNITS, decimals)
-    case 'decbytes': return scaled(v, 1000, DEC_UNITS, decimals)
-    case 'Bps': case 'binBps': return `${scaled(v, 1024, SIZE_UNITS, decimals)}/s`
-    case 'bps': return `${scaled(v, 1000, ['b', 'kb', 'Mb', 'Gb', 'Tb'], decimals)}/s`
-    case 's': case 'dtdurations': return formatDuration(v)
-    case 'ms': return v >= 1000 ? formatDuration(v / 1000) : `${fixed(v, decimals)} 毫秒`
-    case 'reqps': return `${shortNumber(v, decimals)} 请求/秒`
-    case 'ops': case 'rps': return `${shortNumber(v, decimals)} 次/秒`
-    case 'dateTimeAsIso': case 'dateTimeAsSystem': return new Date(v).toLocaleString('zh-CN', { hour12: false })
-    case '': case undefined: case null: case 'short': return shortNumber(v, decimals)
+    case 'none':
+    case 'string':
+      return fixed(v, decimals)
+    case 'percent':
+      return `${fixed(v, decimals ?? 1)}%`
+    case 'percentunit':
+      return `${fixed(v * 100, decimals ?? 1)}%`
+    case 'bytes':
+      return scaled(v, 1024, SIZE_UNITS, decimals)
+    case 'decbytes':
+      return scaled(v, 1000, DEC_UNITS, decimals)
+    case 'Bps':
+    case 'binBps':
+      return `${scaled(v, 1024, SIZE_UNITS, decimals)}/s`
+    case 'bps':
+      return `${scaled(v, 1000, ['b', 'kb', 'Mb', 'Gb', 'Tb'], decimals)}/s`
+    case 's':
+    case 'dtdurations':
+      return formatDuration(v)
+    case 'ms':
+      return v >= 1000 ? formatDuration(v / 1000) : `${fixed(v, decimals)} 毫秒`
+    case 'reqps':
+      return `${shortNumber(v, decimals)} 请求/秒`
+    case 'ops':
+    case 'rps':
+      return `${shortNumber(v, decimals)} 次/秒`
+    case 'dateTimeAsIso':
+    case 'dateTimeAsSystem':
+      return new Date(v).toLocaleString('zh-CN', { hour12: false })
+    case '':
+    case undefined:
+    case null:
+    case 'short':
+      return shortNumber(v, decimals)
   }
   return `${shortNumber(v, decimals)} ${unit}`
 }
@@ -82,7 +114,10 @@ export function formatKpi(value, unit) {
 }
 
 export function labelString(labels = {}, omit = []) {
-  const parts = Object.keys(labels).filter(key => key !== '__name__' && !omit.includes(key)).sort().map(key => `${key}="${labels[key]}"`)
+  const parts = Object.keys(labels)
+    .filter(key => key !== '__name__' && !omit.includes(key))
+    .sort()
+    .map(key => `${key}="${labels[key]}"`)
   return `${labels.__name__ || ''}{${parts.join(', ')}}`
 }
 
@@ -117,12 +152,20 @@ export function parseLogFields(line = '') {
       if (value && typeof value === 'object' && !Array.isArray(value)) {
         return Object.fromEntries(Object.entries(value).map(([key, v]) => [key, typeof v === 'object' ? JSON.stringify(v) : String(v)]))
       }
-    } catch { /* 不是合法 JSON 时尝试 logfmt。 */ }
+    } catch {
+      /* 不是合法 JSON 时尝试 logfmt。 */
+    }
   }
   const fields = {}
   for (const match of text.matchAll(/([A-Za-z_][\w.-]*)=("(?:[^"\\]|\\.)*"|[^\s"]*)/g)) {
     let value = match[2]
-    if (value.startsWith('"')) { try { value = JSON.parse(value) } catch { value = value.slice(1, -1) } }
+    if (value.startsWith('"')) {
+      try {
+        value = JSON.parse(value)
+      } catch {
+        value = value.slice(1, -1)
+      }
+    }
     fields[match[1]] = value
   }
   return Object.keys(fields).length >= 2 ? fields : {}

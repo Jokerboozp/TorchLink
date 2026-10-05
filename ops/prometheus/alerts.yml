@@ -67,6 +67,16 @@ groups:
         for: 0m
         labels: {severity: critical}
         annotations: {summary: "火警通知多次重试后仍发送失败，请检查通知渠道"}
+      - alert: AlarmEventDeliveryFailures
+        expr: increase(event_publish_failed_total[15m]) > 0
+        for: 0m
+        labels: {severity: warning}
+        annotations: {summary: "告警事件未能推送到消息总线或实时通道，页面实时提醒可能遗漏"}
+      - alert: AuditWriteFailures
+        expr: increase(audit_write_failed_total[15m]) > 0
+        for: 0m
+        labels: {severity: warning}
+        annotations: {summary: "审计记录写入失败，相关操作缺少审计"}
       - alert: RetentionFailures
         expr: increase(retention_failed_total[1d]) > 0
         for: 0m

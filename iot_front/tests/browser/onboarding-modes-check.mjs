@@ -54,52 +54,110 @@ let browser
 try {
   browser = await startBrowser({ args: ['--use-mock-keychain', '--password-store=basic'] })
   const { call, evaluate, until, errors: failures } = browser
-  const setInput = (label, value) => evaluate(`(() => {const input=document.querySelector('input[aria-label=${JSON.stringify(label)}]');if(!input)return false;input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));return true})()`)
-  const button = text => evaluate(`(() => {const item=[...document.querySelectorAll('.app-content button')].find(b=>b.innerText.trim()===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length);if(!item)return false;item.click();return true})()`)
+  const setInput = (label, value) =>
+    evaluate(
+      `(() => {const input=document.querySelector('input[aria-label=${JSON.stringify(label)}]');if(!input)return false;input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));return true})()`
+    )
+  const button = text =>
+    evaluate(
+      `(() => {const item=[...document.querySelectorAll('.app-content button')].find(b=>b.innerText.trim()===${JSON.stringify(text)}&&!b.disabled&&b.getClientRects().length);if(!item)return false;item.click();return true})()`
+    )
   const chooseTemplate = async name => {
-    await until(() => evaluate("Boolean([...document.querySelectorAll('.onboarding .n-form-item')].find(item=>item.innerText.includes('设备模板'))?.querySelector('.n-base-selection'))"), '模板选择')
-    await evaluate("[...document.querySelectorAll('.onboarding .n-form-item')].find(item=>item.innerText.includes('设备模板')).querySelector('.n-base-selection').click()")
-    await until(() => evaluate(`Boolean([...document.querySelectorAll('.n-base-select-option')].find(o=>o.getClientRects().length&&o.innerText.includes(${JSON.stringify(name)})))`), name)
-    await evaluate(`[...document.querySelectorAll('.n-base-select-option')].find(o=>o.getClientRects().length&&o.innerText.includes(${JSON.stringify(name)})).click()`)
+    await until(
+      () =>
+        evaluate(
+          "Boolean([...document.querySelectorAll('.onboarding .n-form-item')].find(item=>item.innerText.includes('设备模板'))?.querySelector('.n-base-selection'))"
+        ),
+      '模板选择'
+    )
+    await evaluate(
+      "[...document.querySelectorAll('.onboarding .n-form-item')].find(item=>item.innerText.includes('设备模板')).querySelector('.n-base-selection').click()"
+    )
+    await until(
+      () =>
+        evaluate(
+          `Boolean([...document.querySelectorAll('.n-base-select-option')].find(o=>o.getClientRects().length&&o.innerText.includes(${JSON.stringify(name)})))`
+        ),
+      name
+    )
+    await evaluate(
+      `[...document.querySelectorAll('.n-base-select-option')].find(o=>o.getClientRects().length&&o.innerText.includes(${JSON.stringify(name)})).click()`
+    )
   }
   const fits = async name => {
     await evaluate('new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))')
-    const layout = await evaluate("(() => {const card=document.querySelector('.onboarding__card').getBoundingClientRect();const clipped=[...document.querySelectorAll('.onboarding button,.onboarding .n-radio-button,.onboarding__option')].filter(e=>e.getClientRects().length&&(e.scrollWidth>e.clientWidth+2)).map(e=>e.innerText.trim());return {document:document.documentElement.scrollWidth,viewport:innerWidth,card:card.right,clipped}})()")
-    assert.ok(layout.document <= layout.viewport + 2 && layout.card <= layout.viewport + 1 && !layout.clipped.length, `${name} 布局溢出或文字被裁切：${JSON.stringify(layout)}`)
-    if (!skipScreenshots) { const shot = await call('Page.captureScreenshot', { format: 'png' }); await writeFile(join(tmpdir(), `iot-onboarding-modes-${name}.png`), Buffer.from(shot.data, 'base64')) }
+    const layout = await evaluate(
+      "(() => {const card=document.querySelector('.onboarding__card').getBoundingClientRect();const clipped=[...document.querySelectorAll('.onboarding button,.onboarding .n-radio-button,.onboarding__option')].filter(e=>e.getClientRects().length&&(e.scrollWidth>e.clientWidth+2)).map(e=>e.innerText.trim());return {document:document.documentElement.scrollWidth,viewport:innerWidth,card:card.right,clipped}})()"
+    )
+    assert.ok(
+      layout.document <= layout.viewport + 2 && layout.card <= layout.viewport + 1 && !layout.clipped.length,
+      `${name} 布局溢出或文字被裁切：${JSON.stringify(layout)}`
+    )
+    if (!skipScreenshots) {
+      const shot = await call('Page.captureScreenshot', { format: 'png' })
+      await writeFile(join(tmpdir(), `iot-onboarding-modes-${name}.png`), Buffer.from(shot.data, 'base64'))
+    }
   }
   const openWizard = async () => {
-    await until(() => evaluate("Boolean([...document.querySelectorAll('.filter-bar button')].find(b=>b.innerText.trim()==='添加设备'))"), '添加设备入口')
+    await until(
+      () => evaluate("Boolean([...document.querySelectorAll('.filter-bar button')].find(b=>b.innerText.trim()==='添加设备'))"),
+      '添加设备入口'
+    )
     await evaluate("[...document.querySelectorAll('.filter-bar button')].find(b=>b.innerText.trim()==='添加设备').click()")
   }
   await call('Page.enable')
   await call('Runtime.enable')
   await call('Page.addScriptToEvaluateOnNewDocument', { source: mocks })
-  for (const [width, height, mobile] of [[1440, 900, false], [390, 844, true]]) {
+  for (const [width, height, mobile] of [
+    [1440, 900, false],
+    [390, 844, true]
+  ]) {
     const size = mobile ? 'mobile' : 'desktop'
     await call('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile })
     await call('Page.navigate', { url: origin })
     await until(() => evaluate("document.querySelectorAll('.nav-item').length >= 15"), '主导航')
-    if (mobile) { await evaluate("document.querySelector('.app-topbar__toggle').click()"); await delay(250) }
-    await evaluate("document.querySelector('.nav-item[aria-label=\"设备管理\"]').click()")
+    if (mobile) {
+      await evaluate("document.querySelector('.app-topbar__toggle').click()")
+      await delay(250)
+    }
+    await evaluate('document.querySelector(\'.nav-item[aria-label="设备管理"]\').click()')
 
     // 共享监听复用模板的公共连接，设备为主设备，协议设备不显示平台密钥。
     await openWizard()
     await chooseTemplate('用户信息传输装置')
-    await until(() => evaluate("document.querySelector('.onboarding__preflight')?.innerText.includes('设备连接平台（TCP / UDP 监听）')"), '监听预检')
+    await until(
+      () => evaluate("document.querySelector('.onboarding__preflight')?.innerText.includes('设备连接平台（TCP / UDP 监听）')"),
+      '监听预检'
+    )
     await fits(`${size}-listener-template`)
     await until(() => button('下一步'), '下一步')
     await until(() => evaluate("document.querySelector('.onboarding__title')?.innerText==='设备与连接'"), '设备与连接')
-    assert.ok(await evaluate("[...document.querySelectorAll('.onboarding__option')].some(o=>o.innerText.includes('iot.example.com:26875'))"), '未列出模板已有的共享监听')
-    assert.ok(await evaluate("[...document.querySelectorAll('.onboarding .n-radio-button--checked')].some(b=>b.innerText.includes('主设备'))"), '网关分类未默认选择主设备')
+    assert.ok(
+      await evaluate("[...document.querySelectorAll('.onboarding__option')].some(o=>o.innerText.includes('iot.example.com:26875'))"),
+      '未列出模板已有的共享监听'
+    )
+    assert.ok(
+      await evaluate("[...document.querySelectorAll('.onboarding .n-radio-button--checked')].some(b=>b.innerText.includes('主设备'))"),
+      '网关分类未默认选择主设备'
+    )
     await setInput('设备名称', 'A 栋传输装置')
     await setInput('设备编号', 'gb26875_000000000001')
     await fits(`${size}-listener-device`)
     await until(() => button('保存并生成接入信息'), '保存')
     await until(() => evaluate("document.querySelector('.onboarding__title')?.innerText==='现场配置与验证'"), '验证步骤')
     const listener = await evaluate('window.__enrollRequest')
-    assert.deepEqual({ product: listener.productId, role: listener.device.deviceRole, connection: listener.connection }, { product: 'product-gateway', role: 'GATEWAY', connection: { mode: 'listener', profileId:'gateway-demo' } }, `监听接入请求不正确：${JSON.stringify(listener)}`)
-    await until(() => evaluate("document.querySelector('.onboarding')?.innerText.includes('iot.example.com:26875') && (document.querySelector('.onboarding-diagnosis')?.innerText||'').includes('等待设备本次上报')"), '监听设备端信息与诊断')
+    assert.deepEqual(
+      { product: listener.productId, role: listener.device.deviceRole, connection: listener.connection },
+      { product: 'product-gateway', role: 'GATEWAY', connection: { mode: 'listener', profileId: 'gateway-demo' } },
+      `监听接入请求不正确：${JSON.stringify(listener)}`
+    )
+    await until(
+      () =>
+        evaluate(
+          "document.querySelector('.onboarding')?.innerText.includes('iot.example.com:26875') && (document.querySelector('.onboarding-diagnosis')?.innerText||'').includes('等待设备本次上报')"
+        ),
+      '监听设备端信息与诊断'
+    )
     assert.ok(await evaluate("!document.querySelector('.onboarding__secret')"), '协议设备不应显示平台密钥')
     await fits(`${size}-listener-verify`)
     await until(() => button('保存并退出'), '保存并退出')
@@ -119,14 +177,38 @@ try {
     await evaluate("document.querySelector('.app-content').scrollTop=document.querySelector('.app-content').scrollHeight")
     await fits(`${size}-standard-device`)
     await until(() => button('保存并生成接入信息'), '保存')
-    await until(() => evaluate("(document.querySelector('.onboarding__secret')?.innerText||'').includes('fixture-device-secret')"), '一次性密钥')
+    await until(
+      () => evaluate("(document.querySelector('.onboarding__secret')?.innerText||'').includes('fixture-device-secret')"),
+      '一次性密钥'
+    )
     const standard = await evaluate('window.__enrollRequest')
-    assert.ok(/^device_[0-9a-f]{12}$/.test(standard.device.id) && standard.device.tags['楼栋'] === 'A座' && standard.connection.mode === 'standard' && standard.connection.transport === 'MQTT', `标准接入请求不正确：${JSON.stringify(standard)}`)
-    assert.ok(await evaluate("!Object.values(localStorage).some(value=>String(value).includes('fixture-device-secret'))"), '设备密钥写入了浏览器存储')
-    assert.equal(await evaluate("[...document.querySelectorAll('.onboarding__config .onboarding__kv span')].filter(span=>span.innerText==='Secret').length"), 0, '密钥不应在配置列表中重复显示')
+    assert.ok(
+      /^device_[0-9a-f]{12}$/.test(standard.device.id) &&
+        standard.device.tags['楼栋'] === 'A座' &&
+        standard.connection.mode === 'standard' &&
+        standard.connection.transport === 'MQTT',
+      `标准接入请求不正确：${JSON.stringify(standard)}`
+    )
+    assert.ok(
+      await evaluate("!Object.values(localStorage).some(value=>String(value).includes('fixture-device-secret'))"),
+      '设备密钥写入了浏览器存储'
+    )
+    assert.equal(
+      await evaluate(
+        "[...document.querySelectorAll('.onboarding__config .onboarding__kv span')].filter(span=>span.innerText==='Secret').length"
+      ),
+      0,
+      '密钥不应在配置列表中重复显示'
+    )
     await fits(`${size}-standard-verify`)
     await until(() => button('我已保存'), '我已保存')
-    await until(() => evaluate("!document.querySelector('.onboarding__secret') && [...document.querySelectorAll('.onboarding__config .onboarding__kv span')].some(span=>span.innerText==='AccessKey')"), '保存后显示 AccessKey')
+    await until(
+      () =>
+        evaluate(
+          "!document.querySelector('.onboarding__secret') && [...document.querySelectorAll('.onboarding__config .onboarding__kv span')].some(span=>span.innerText==='AccessKey')"
+        ),
+      '保存后显示 AccessKey'
+    )
     await until(() => button('保存并退出'), '保存并退出')
   }
   assert.deepEqual(failures, [], `页面脚本异常：${failures.join(' | ')}`)

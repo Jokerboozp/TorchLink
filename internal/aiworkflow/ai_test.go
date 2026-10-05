@@ -909,3 +909,10 @@ func TestAlarmPropertyHistoryUsesThingModel(t *testing.T) {
 		t.Fatalf("missing thing-model semantics: %v", p)
 	}
 }
+
+// A run the requester cancelled is recorded as stopped, not failed.
+func TestAIRunStatusTreatsCancellationAsStopped(t *testing.T) {
+	if got := AIRunStatus(context.Canceled); got != model.AIRunStopped {
+		t.Fatalf("cancelled run recorded as %q", got)
+	}
+}

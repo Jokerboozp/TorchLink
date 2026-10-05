@@ -1610,6 +1610,19 @@ func (r *Repository) ListKnowledgeDocsPage(ctx context.Context, tenant string, l
 	return items, total, rows.Err()
 }
 
+// KnowledgeDocSummary counts in the database so totals do not depend on the
+// page being viewed. Chunks count only indexed documents.
+func (r *Repository) KnowledgeDocSummary(ctx context.Context, tenant string) (model.KnowledgeSummary, error) {
+	var v model.KnowledgeSummary
+	err := r.pool.QueryRow(ctx, `SELECT count(*),
+  count(*) FILTER (WHERE status='INDEXED'),
+  count(*) FILTER (WHERE status='INDEX_FAILED'),
+  coalesce(sum(CASE WHEN status='INDEXED' AND jsonb_typeof(metadata->'chunks')='number' THEN (metadata->>'chunks')::numeric END),0)::bigint,
+  coalesce(sum(CASE WHEN jsonb_typeof(metadata->'size')='number' THEN (metadata->>'size')::numeric END),0)::bigint
+FROM ai_knowledge_doc WHERE tenant_id=$1`, tenant).Scan(&v.Documents, &v.Indexed, &v.Failed, &v.Chunks, &v.Bytes)
+	return v, err
+}
+
 func (r *Repository) SaveWorkflowKnowledgeBinding(ctx context.Context, v model.WorkflowKnowledgeBinding) error {
 	b, err := json.Marshal(v)
 	if err != nil {

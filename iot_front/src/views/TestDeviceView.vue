@@ -30,7 +30,9 @@ const history = ref([])
 
 const currentTemplate = computed({
   get: () => templates[activeTemplate.value],
-  set: value => { templates[activeTemplate.value] = value }
+  set: value => {
+    templates[activeTemplate.value] = value
+  }
 })
 const currentTemplateName = computed(() => templateNames[activeTemplate.value])
 
@@ -125,11 +127,16 @@ async function sendTemplate(kind) {
   saveTemplates()
   try {
     // 测试报文走受权限保护的调试接收接口，再以归档结果确认解析状态。
-    const response = await api(`/api/v1/device-registry/${encodeURIComponent(device.value.id)}/debug`, { method: 'POST', body: JSON.stringify(body) })
+    const response = await api(`/api/v1/device-registry/${encodeURIComponent(device.value.id)}/debug`, {
+      method: 'POST',
+      body: JSON.stringify(body)
+    })
     const messageId = response.archive?.messageId || response.messageId || body.messageId
     const rawDetail = await loadRawDetail(messageId)
     const alarmData = await api(`/api/v1/alarms?deviceId=${encodeURIComponent(device.value.id)}&limit=20`)
-    const relatedAlarms = (alarmData.items || []).filter(item => item.triggerId === messageId || (kind === 'alarm' || kind === 'recovery') && item.deviceId === device.value.id)
+    const relatedAlarms = (alarmData.items || []).filter(
+      item => item.triggerId === messageId || ((kind === 'alarm' || kind === 'recovery') && item.deviceId === device.value.id)
+    )
     const record = {
       id: `${messageId}-${Date.now()}`,
       kind,
@@ -162,17 +169,43 @@ onMounted(() => {
 <template>
   <div class="test-device-view">
     <FilterBar>
-      <p class="test-device-hint">{{ can('POST /api/v1/test-devices/provision') ? '平台标准协议调试：点击“准备测试设备”后创建或复用模拟资源。发送报文会写入测试设备数据，报警报文会进入告警中心。模拟结果不代表现场验收。' : '当前账号没有准备测试设备的权限。' }}</p>
+      <p class="test-device-hint">
+        {{
+          can('POST /api/v1/test-devices/provision')
+            ? '平台标准协议调试：点击“准备测试设备”后创建或复用模拟资源。发送报文会写入测试设备数据，报警报文会进入告警中心。模拟结果不代表现场验收。'
+            : '当前账号没有准备测试设备的权限。'
+        }}
+      </p>
       <template #actions>
         <ui-button v-permission="'menu:devices'" @click="emit('navigate', 'devices')">查看设备管理</ui-button>
         <ui-button v-permission="'menu:alarms'" @click="emit('navigate', 'alarms')">打开告警中心</ui-button>
-        <ui-button v-if="device" v-permission="'POST /api/v1/test-devices/provision'" :disabled="!!sending" :loading="loading" @click="resetLocalTemplates">恢复默认配置</ui-button>
-        <ui-button v-permission="'POST /api/v1/test-devices/provision'" type="primary" :disabled="!!sending" :loading="loading" @click="prepare(false)">{{ device ? '重新准备测试设备' : '准备测试设备' }}</ui-button>
+        <ui-button
+          v-if="device"
+          v-permission="'POST /api/v1/test-devices/provision'"
+          :disabled="!!sending"
+          :loading="loading"
+          @click="resetLocalTemplates"
+          >恢复默认配置</ui-button
+        >
+        <ui-button
+          v-permission="'POST /api/v1/test-devices/provision'"
+          type="primary"
+          :disabled="!!sending"
+          :loading="loading"
+          @click="prepare(false)"
+          >{{ device ? '重新准备测试设备' : '准备测试设备' }}</ui-button
+        >
       </template>
     </FilterBar>
 
-    <ui-alert v-if="device" title="设备告警直接进入告警中心" description="测试设备不会自动创建告警规则；发送报警数据会直接产生设备告警。若存在匹配规则，则按规则提供告警类型、等级和联动动作。"
-      type="info" :closable="false" show-icon />
+    <ui-alert
+      v-if="device"
+      title="设备告警直接进入告警中心"
+      description="测试设备不会自动创建告警规则；发送报警数据会直接产生设备告警。若存在匹配规则，则按规则提供告警类型、等级和联动动作。"
+      type="info"
+      :closable="false"
+      show-icon
+    />
 
     <div v-if="device" class="test-device-layout top-gap">
       <section class="test-device-workbench">
@@ -184,41 +217,101 @@ onMounted(() => {
             </div>
           </template>
           <div class="test-device-summary">
-            <div><span>设备名称</span><strong>{{ device.name }}</strong><small>{{ device.id }}</small></div>
-            <div><span>设备模板 / 协议</span><strong>{{ product?.name }}</strong><small>{{ label(parsers, protocolPackage?.parserType, '自定义协议') }} · {{ protocolPackage?.version }}</small></div>
+            <div>
+              <span>设备名称</span><strong>{{ device.name }}</strong
+              ><small>{{ device.id }}</small>
+            </div>
+            <div>
+              <span>设备模板 / 协议</span><strong>{{ product?.name }}</strong
+              ><small>{{ label(parsers, protocolPackage?.parserType, '自定义协议') }} · {{ protocolPackage?.version }}</small>
+            </div>
             <div><span>告警处理</span><strong>直接告警 + 可选规则</strong><small>设备主动告警无需规则，规则可补充联动</small></div>
           </div>
           <ui-descriptions :column="1" border>
-            <ui-descriptions-item label="设备标识"><code>{{ device.id }}</code></ui-descriptions-item>
-            <ui-descriptions-item label="接入密钥"><code>{{ device.accessKey }}</code></ui-descriptions-item>
-            <ui-descriptions-item label="设备状态"><ui-tag :type="tagType(device.status)" round>{{ statusLabel(device.status) }}</ui-tag></ui-descriptions-item>
+            <ui-descriptions-item label="设备标识"
+              ><code>{{ device.id }}</code></ui-descriptions-item
+            >
+            <ui-descriptions-item label="接入密钥"
+              ><code>{{ device.accessKey }}</code></ui-descriptions-item
+            >
+            <ui-descriptions-item label="设备状态"
+              ><ui-tag :type="tagType(device.status)" round>{{ statusLabel(device.status) }}</ui-tag></ui-descriptions-item
+            >
             <ui-descriptions-item label="报警模板条件">temperature &gt; 80 且 smoke = true</ui-descriptions-item>
           </ui-descriptions>
-          <ui-alert v-if="credential" class="top-gap" title="设备凭证已生成" description="密钥只在本次准备时返回，请仅在本地测试环境保存；页面内发送数据不需要手动填写凭证。" type="info" :closable="false" show-icon />
-          <div v-if="credential" class="credential-box top-gap"><span>设备密钥</span><code>{{ credential.secret }}</code></div>
+          <ui-alert
+            v-if="credential"
+            class="top-gap"
+            title="设备凭证已生成"
+            description="密钥只在本次准备时返回，请仅在本地测试环境保存；页面内发送数据不需要手动填写凭证。"
+            type="info"
+            :closable="false"
+            show-icon
+          />
+          <div v-if="credential" class="credential-box top-gap">
+            <span>设备密钥</span><code>{{ credential.secret }}</code>
+          </div>
         </ui-card>
 
         <ui-card shadow="never" class="surface-card template-card">
           <template #header>
-            <div class="card-header"><div><strong>报文模板</strong><small>{{ templateDescriptions[activeTemplate] }}</small></div><ui-tag effect="plain" round>{{ currentTemplateName }}</ui-tag></div>
+            <div class="card-header">
+              <div>
+                <strong>报文模板</strong><small>{{ templateDescriptions[activeTemplate] }}</small>
+              </div>
+              <ui-tag effect="plain" round>{{ currentTemplateName }}</ui-tag>
+            </div>
           </template>
           <div class="template-switcher" role="tablist" aria-label="测试报文类型">
-            <button v-for="key in templateOrder" :key="key" type="button" :class="{ active: activeTemplate === key }" @click="activeTemplate = key">{{ templateNames[key] }}</button>
+            <button
+              v-for="key in templateOrder"
+              :key="key"
+              type="button"
+              :class="{ active: activeTemplate === key }"
+              @click="activeTemplate = key"
+            >
+              {{ templateNames[key] }}
+            </button>
           </div>
-          <ui-input v-model="currentTemplate" class="template-editor" type="textarea" :rows="18" spellcheck="false" aria-label="可编辑报文模板" />
+          <ui-input
+            v-model="currentTemplate"
+            class="template-editor"
+            type="textarea"
+            :rows="18"
+            spellcheck="false"
+            aria-label="可编辑报文模板"
+          />
           <div class="template-actions">
-            <ui-button v-permission="'POST /api/v1/device-registry/:id/debug'" type="primary" :loading="sending === activeTemplate" @click="sendTemplate(activeTemplate)">发送{{ currentTemplateName }}</ui-button>
+            <ui-button
+              v-permission="'POST /api/v1/device-registry/:id/debug'"
+              type="primary"
+              :loading="sending === activeTemplate"
+              @click="sendTemplate(activeTemplate)"
+              >发送{{ currentTemplateName }}</ui-button
+            >
             <span>支持直接修改报文内容；带 <code>&lt;unique&gt;</code> 的消息标识会在发送时自动替换。</span>
           </div>
         </ui-card>
 
         <ui-card shadow="never" class="surface-card quick-send-card">
-          <template #header><div class="card-header"><div><strong>快捷发送</strong><small>不打开编辑器也可以直接验证典型链路</small></div></div></template>
+          <template #header
+            ><div class="card-header">
+              <div><strong>快捷发送</strong><small>不打开编辑器也可以直接验证典型链路</small></div>
+            </div></template
+          >
           <div class="quick-send-grid">
-            <button type="button" class="quick-send normal" :disabled="Boolean(sending)" @click="sendTemplate('data')"><strong>发送正常数据</strong><small>属性上报 · 在线状态</small></button>
-            <button type="button" class="quick-send danger" :disabled="Boolean(sending)" @click="sendTemplate('alarm')"><strong>发送报警数据</strong><small>高温 + 烟雾 · 直接入告警中心</small></button>
-            <button type="button" class="quick-send warning" :disabled="Boolean(sending)" @click="sendTemplate('recovery')"><strong>发送恢复数据</strong><small>安全值 · 自动恢复</small></button>
-            <button type="button" class="quick-send event" :disabled="Boolean(sending)" @click="sendTemplate('event')"><strong>发送事件数据</strong><small>心跳事件 · 事件解析</small></button>
+            <button type="button" class="quick-send normal" :disabled="Boolean(sending)" @click="sendTemplate('data')">
+              <strong>发送正常数据</strong><small>属性上报 · 在线状态</small>
+            </button>
+            <button type="button" class="quick-send danger" :disabled="Boolean(sending)" @click="sendTemplate('alarm')">
+              <strong>发送报警数据</strong><small>高温 + 烟雾 · 直接入告警中心</small>
+            </button>
+            <button type="button" class="quick-send warning" :disabled="Boolean(sending)" @click="sendTemplate('recovery')">
+              <strong>发送恢复数据</strong><small>安全值 · 自动恢复</small>
+            </button>
+            <button type="button" class="quick-send event" :disabled="Boolean(sending)" @click="sendTemplate('event')">
+              <strong>发送事件数据</strong><small>心跳事件 · 事件解析</small>
+            </button>
           </div>
         </ui-card>
       </section>
@@ -235,23 +328,44 @@ onMounted(() => {
         </ui-card>
 
         <ui-card shadow="never" class="surface-card">
-          <template #header><div class="card-header"><strong>最近发送</strong><small>本次打开页面的记录</small></div></template>
+          <template #header
+            ><div class="card-header"><strong>最近发送</strong><small>本次打开页面的记录</small></div></template
+          >
           <ui-empty v-if="!history.length" description="还没有发送记录" :image-size="58" />
           <div v-for="item in history" :key="item.id" class="send-history-item">
-            <div><strong>{{ templateNames[item.kind] }}</strong><small>{{ formatTime(item.sentAt) }} · {{ item.messageId }}</small></div>
-            <ui-tag :type="item.alarm ? 'danger' : (item.parsed ? 'success' : 'warning')" round>{{ item.alarm ? '已触发告警' : (item.parsed ? messageTypeLabel(item.messageType) : '处理中') }}</ui-tag>
+            <div>
+              <strong>{{ templateNames[item.kind] }}</strong
+              ><small>{{ formatTime(item.sentAt) }} · {{ item.messageId }}</small>
+            </div>
+            <ui-tag :type="item.alarm ? 'danger' : item.parsed ? 'success' : 'warning'" round>{{
+              item.alarm ? '已触发告警' : item.parsed ? messageTypeLabel(item.messageType) : '处理中'
+            }}</ui-tag>
           </div>
         </ui-card>
 
         <ui-card v-if="result" shadow="never" class="surface-card result-card">
-          <template #header><div class="card-header"><strong>最近一次结果</strong><ui-tag v-if="result.kind" effect="plain" round>{{ templateNames[result.kind] }}</ui-tag></div></template>
+          <template #header
+            ><div class="card-header">
+              <strong>最近一次结果</strong><ui-tag v-if="result.kind" effect="plain" round>{{ templateNames[result.kind] }}</ui-tag>
+            </div></template
+          >
           <ui-alert v-if="result.error" title="发送失败" :description="result.error" type="error" :closable="false" show-icon />
           <template v-else>
             <ui-descriptions :column="1" border>
-              <ui-descriptions-item label="消息编号"><code>{{ result.messageId }}</code></ui-descriptions-item>
-              <ui-descriptions-item label="解析状态">{{ result.rawDetail?.parseStatus ? statusLabel(result.rawDetail.parseStatus) : '已提交' }}</ui-descriptions-item>
-              <ui-descriptions-item label="标准消息">{{ result.rawDetail?.standardMessage ? `${messageTypeLabel(result.rawDetail.standardMessage.messageType)}（${result.rawDetail.standardMessage.messageType}）` : '等待处理' }}</ui-descriptions-item>
-              <ui-descriptions-item label="关联告警">{{ result.alarms?.length ? `${result.alarms.length} 条 · ${alarmType(result.alarms[0].alarmType)}` : '暂无' }}</ui-descriptions-item>
+              <ui-descriptions-item label="消息编号"
+                ><code>{{ result.messageId }}</code></ui-descriptions-item
+              >
+              <ui-descriptions-item label="解析状态">{{
+                result.rawDetail?.parseStatus ? statusLabel(result.rawDetail.parseStatus) : '已提交'
+              }}</ui-descriptions-item>
+              <ui-descriptions-item label="标准消息">{{
+                result.rawDetail?.standardMessage
+                  ? `${messageTypeLabel(result.rawDetail.standardMessage.messageType)}（${result.rawDetail.standardMessage.messageType}）`
+                  : '等待处理'
+              }}</ui-descriptions-item>
+              <ui-descriptions-item label="关联告警">{{
+                result.alarms?.length ? `${result.alarms.length} 条 · ${alarmType(result.alarms[0].alarmType)}` : '暂无'
+              }}</ui-descriptions-item>
             </ui-descriptions>
             <pre class="result-json">{{ pretty(resultDetail(result)) }}</pre>
           </template>
@@ -259,38 +373,220 @@ onMounted(() => {
       </aside>
     </div>
 
-    <ui-card v-else v-loading="loading" shadow="never" class="surface-card loading-card"><ui-empty :description="loading ? '正在准备当前租户的测试设备…' : '尚未准备模拟资源，点击“准备测试设备”后开始平台标准协议调试。'" /></ui-card>
+    <ui-card v-else v-loading="loading" shadow="never" class="surface-card loading-card"
+      ><ui-empty :description="loading ? '正在准备当前租户的测试设备…' : '尚未准备模拟资源，点击“准备测试设备”后开始平台标准协议调试。'"
+    /></ui-card>
   </div>
 </template>
 
 <style scoped>
-.test-device-hint { flex: 1 1 320px; margin: 0; color: var(--text-muted); font-size: var(--font-size-sm); }
-.test-device-layout { display: grid; grid-template-columns: minmax(0, 1.45fr) minmax(300px, .75fr); gap: 16px; align-items: start; }
-.test-device-workbench, .test-device-side { display: grid; gap: 16px; min-width: 0; }
-.test-device-view code { overflow-wrap: anywhere; word-break: break-word; }
-.test-device-summary { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 16px; }
-.test-device-summary > div { min-width: 0; padding: 13px; border-radius: .625rem; background: var(--surface-muted); }
-.test-device-summary span, .test-device-summary small, .credential-box span { display: block; color: var(--text-muted); font-size: 12px; }
-.test-device-summary strong { display: block; margin: 7px 0 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
-.credential-box { display: grid; gap: 6px; padding: 12px; border: 1px solid var(--warning); border-radius: .625rem; background: var(--surface-muted); }
-.credential-box code { overflow-wrap: anywhere; color: var(--warning-text); }
-.template-switcher { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 11px; }
-.template-switcher button { min-height: 30px; padding: 0 13px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-muted); background: var(--surface); cursor: pointer; font-size: 13px; }
-.template-switcher button:hover, .template-switcher button.active { border-color: var(--primary); color: var(--text); background: var(--primary-soft); }
-.template-editor :deep(textarea) { min-height: 330px; padding: 13px; color: var(--code-text); background: var(--code-bg); border-color: var(--code-border); border-radius: .625rem; font: 12px/1.65 "SFMono-Regular", Consolas, monospace; }
-.template-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
-.template-actions span { color: var(--text-muted); font-size: 12px; }
-.quick-send-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-.quick-send { min-height: 74px; padding: 13px; display: grid; gap: 5px; text-align: left; border: 1px solid var(--border); border-radius: .625rem; background: var(--surface); cursor: pointer; }
-.quick-send:hover:not(:disabled) { border-color: var(--primary); box-shadow: 0 2px 8px color-mix(in srgb,var(--primary) 10%,transparent); }
-.quick-send:disabled { cursor: not-allowed; opacity: .58; }
-.quick-send strong { font-size: 13px; }
-.quick-send small { color: var(--text-muted); font-size: 12px; }
-.quick-send.normal { border-left: 3px solid var(--success); }.quick-send.danger { border-left: 3px solid var(--danger); }.quick-send.warning { border-left: 3px solid var(--warning); }.quick-send.event { border-left: 3px solid var(--primary); }
-.send-history-item { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--border); }
-.send-history-item:last-child { border-bottom: 0; }.send-history-item strong, .send-history-item small { display: block; }.send-history-item small { max-width: 190px; margin-top: 3px; overflow: hidden; color: var(--text-muted); text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-.result-json { max-height: 300px; margin-top: 13px; }
-.loading-card { min-height: 300px; display: grid; place-items: center; }
-@media (max-width: 1050px) { .test-device-layout { grid-template-columns: 1fr; }.test-device-side { grid-template-columns: repeat(2, minmax(0, 1fr)); }.result-card { grid-column: 1 / -1; } }
-@media (max-width: 640px) { .test-device-summary, .quick-send-grid, .test-device-side { grid-template-columns: 1fr; }.test-device-summary strong { font-size: 13px; }.template-editor :deep(textarea) { min-height: 270px; }.send-history-item small { max-width: 150px; } }
+.test-device-hint {
+  flex: 1 1 320px;
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+.test-device-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.45fr) minmax(300px, 0.75fr);
+  gap: 16px;
+  align-items: start;
+}
+.test-device-workbench,
+.test-device-side {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+.test-device-view code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.test-device-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 16px;
+}
+.test-device-summary > div {
+  min-width: 0;
+  padding: 13px;
+  border-radius: 0.625rem;
+  background: var(--surface-muted);
+}
+.test-device-summary span,
+.test-device-summary small,
+.credential-box span {
+  display: block;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.test-device-summary strong {
+  display: block;
+  margin: 7px 0 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+.credential-box {
+  display: grid;
+  gap: 6px;
+  padding: 12px;
+  border: 1px solid var(--warning);
+  border-radius: 0.625rem;
+  background: var(--surface-muted);
+}
+.credential-box code {
+  overflow-wrap: anywhere;
+  color: var(--warning-text);
+}
+.template-switcher {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  margin-bottom: 11px;
+}
+.template-switcher button {
+  min-height: 30px;
+  padding: 0 13px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text-muted);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 13px;
+}
+.template-switcher button:hover,
+.template-switcher button.active {
+  border-color: var(--primary);
+  color: var(--text);
+  background: var(--primary-soft);
+}
+.template-editor :deep(textarea) {
+  min-height: 330px;
+  padding: 13px;
+  color: var(--code-text);
+  background: var(--code-bg);
+  border-color: var(--code-border);
+  border-radius: 0.625rem;
+  font:
+    12px/1.65 'SFMono-Regular',
+    Consolas,
+    monospace;
+}
+.template-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+.template-actions span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.quick-send-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+.quick-send {
+  min-height: 74px;
+  padding: 13px;
+  display: grid;
+  gap: 5px;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-radius: 0.625rem;
+  background: var(--surface);
+  cursor: pointer;
+}
+.quick-send:hover:not(:disabled) {
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 10%, transparent);
+}
+.quick-send:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+.quick-send strong {
+  font-size: 13px;
+}
+.quick-send small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.quick-send.normal {
+  border-left: 3px solid var(--success);
+}
+.quick-send.danger {
+  border-left: 3px solid var(--danger);
+}
+.quick-send.warning {
+  border-left: 3px solid var(--warning);
+}
+.quick-send.event {
+  border-left: 3px solid var(--primary);
+}
+.send-history-item {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.send-history-item:last-child {
+  border-bottom: 0;
+}
+.send-history-item strong,
+.send-history-item small {
+  display: block;
+}
+.send-history-item small {
+  max-width: 190px;
+  margin-top: 3px;
+  overflow: hidden;
+  color: var(--text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.result-json {
+  max-height: 300px;
+  margin-top: 13px;
+}
+.loading-card {
+  min-height: 300px;
+  display: grid;
+  place-items: center;
+}
+@media (max-width: 1050px) {
+  .test-device-layout {
+    grid-template-columns: 1fr;
+  }
+  .test-device-side {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .result-card {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 640px) {
+  .test-device-summary,
+  .quick-send-grid,
+  .test-device-side {
+    grid-template-columns: 1fr;
+  }
+  .test-device-summary strong {
+    font-size: 13px;
+  }
+  .template-editor :deep(textarea) {
+    min-height: 270px;
+  }
+  .send-history-item small {
+    max-width: 150px;
+  }
+}
 </style>

@@ -3,16 +3,19 @@ import { toolName } from '../presentation'
 import { computed, ref } from 'vue'
 
 const props = defineProps({
-  tool: { type:Object, required:true }
+  tool: { type: Object, required: true }
 })
 
 const expanded = ref(false)
-const statusMeta = computed(() => ({
-  running: { label:'执行中', type:'warning' },
-  succeeded: { label:'已完成', type:'success' },
-  failed: { label:'失败', type:'danger' },
-  canceled: { label:'已停止', type:'info' }
-}[props.tool.status] || { label:'等待中', type:'info' }))
+const statusMeta = computed(
+  () =>
+    ({
+      running: { label: '执行中', type: 'warning' },
+      succeeded: { label: '已完成', type: 'success' },
+      failed: { label: '失败', type: 'danger' },
+      canceled: { label: '已停止', type: 'info' }
+    })[props.tool.status] || { label: '等待中', type: 'info' }
+)
 const hasDetails = computed(() => Boolean(props.tool.inputSummary || props.tool.outputSummary || props.tool.error))
 
 function safeSummary(value) {
@@ -33,24 +36,144 @@ function safeSummary(value) {
       <ui-tag :type="statusMeta.type" size="small" effect="light">{{ statusMeta.label }}</ui-tag>
     </header>
     <div class="tool-meta">
-      <span v-if="tool.toolCallId">标识 · {{ tool.toolCallId }}</span>
       <span v-if="tool.durationMs != null">{{ tool.durationMs }} 毫秒</span>
-      <ui-button v-if="hasDetails" plain size="small" @click="expanded=!expanded">{{ expanded ? '收起详情' : '查看详情' }}</ui-button>
+      <ui-button v-if="hasDetails" plain size="small" @click="expanded = !expanded">{{ expanded ? '收起详情' : '查看详情' }}</ui-button>
     </div>
+    <ol v-if="tool.sources?.length" class="tool-sources" aria-label="引用来源">
+      <li v-for="(source, index) in tool.sources" :key="index">
+        <span>{{ source.filename }}</span
+        ><small
+          >{{ source.chunkIndex != null ? `第 ${source.chunkIndex + 1} 段` : ''
+          }}{{ source.score != null ? ` · 相关度 ${source.score}` : '' }}</small
+        >
+      </li>
+    </ol>
     <div v-if="expanded" class="tool-details">
-      <section v-if="tool.inputSummary"><strong>输入摘要</strong><pre>{{ safeSummary(tool.inputSummary) }}</pre></section>
-      <section v-if="tool.outputSummary"><strong>输出摘要</strong><pre>{{ safeSummary(tool.outputSummary) }}</pre></section>
+      <section v-if="tool.inputSummary">
+        <strong>输入摘要</strong>
+        <pre>{{ safeSummary(tool.inputSummary) }}</pre>
+      </section>
+      <section v-if="tool.outputSummary">
+        <strong>输出摘要</strong>
+        <pre>{{ safeSummary(tool.outputSummary) }}</pre>
+      </section>
       <ui-alert v-if="tool.error" :title="safeSummary(tool.error)" type="error" :closable="false" show-icon />
     </div>
   </article>
 </template>
 
 <style scoped>
-.tool-card { margin-top:10px; padding:10px 11px; background:var(--surface); border:1px solid var(--border); border-left:3px solid var(--border-strong); border-radius:4px; }
-.tool-card.is-running { border-left-color:var(--warning); }.tool-card.is-succeeded { border-left-color:var(--success); }.tool-card.is-failed { border-left-color:var(--danger); }
-.tool-card header { display:flex; align-items:center; gap:9px; }.tool-icon { width:25px; height:25px; flex:0 0 25px; display:grid; place-items:center; color:var(--primary); background:var(--surface-muted); border-radius:4px; font-size:12px; font-weight:800; }
-.tool-title { min-width:0; flex:1; display:grid; gap:1px; }.tool-title small { color:var(--text-muted); font-size:12px; letter-spacing:.08em; }.tool-title strong { overflow:hidden; font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
-.tool-meta { min-height:20px; margin-top:7px; padding-left:34px; display:flex; align-items:center; gap:10px; color:var(--text-muted); font-size:12px; }.tool-meta .ui-button { margin-left:auto; padding:0; font-size:12px; }
-.tool-details { margin:7px 0 0 34px; display:grid; gap:8px; }.tool-details section { display:grid; gap:4px; }.tool-details strong { color:var(--text); font-size:12px; }.tool-details pre { max-height:180px; margin:0; padding:8px; overflow:auto; color:var(--text); background:var(--surface); border:1px solid var(--border); border-radius:3px; font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace; white-space:pre-wrap; word-break:break-word; }
-.tool-meta .ui-button { min-height:24px; height:24px; padding:0 8px; }
+.tool-sources {
+  display: grid;
+  gap: 2px;
+  margin: 8px 0 0;
+  padding-left: 20px;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+.tool-sources small {
+  margin-left: var(--space-2);
+  color: var(--text-muted);
+}
+.tool-card {
+  margin-top: 10px;
+  padding: 10px 11px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: 4px;
+}
+.tool-card.is-running {
+  border-left-color: var(--warning);
+}
+.tool-card.is-succeeded {
+  border-left-color: var(--success);
+}
+.tool-card.is-failed {
+  border-left-color: var(--danger);
+}
+.tool-card header {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.tool-icon {
+  width: 25px;
+  height: 25px;
+  flex: 0 0 25px;
+  display: grid;
+  place-items: center;
+  color: var(--primary);
+  background: var(--surface-muted);
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 800;
+}
+.tool-title {
+  min-width: 0;
+  flex: 1;
+  display: grid;
+  gap: 1px;
+}
+.tool-title small {
+  color: var(--text-muted);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+}
+.tool-title strong {
+  overflow: hidden;
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool-meta {
+  min-height: 20px;
+  margin-top: 7px;
+  padding-left: 34px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.tool-meta .ui-button {
+  margin-left: auto;
+  padding: 0;
+  font-size: 12px;
+}
+.tool-details {
+  margin: 7px 0 0 34px;
+  display: grid;
+  gap: 8px;
+}
+.tool-details section {
+  display: grid;
+  gap: 4px;
+}
+.tool-details strong {
+  color: var(--text);
+  font-size: 12px;
+}
+.tool-details pre {
+  max-height: 180px;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font:
+    12px/1.6 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.tool-meta .ui-button {
+  min-height: 24px;
+  height: 24px;
+  padding: 0 8px;
+}
 </style>

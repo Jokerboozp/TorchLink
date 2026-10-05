@@ -1,6 +1,7 @@
 // Alertmanager 返回完整快照；只让当前页进入组件树，分组内的告警也共享页容量。
 export function sortAlerts(alerts = []) {
-  return alerts.map(alert => ({ alert, time: Date.parse(alert.startsAt) || 0 }))
+  return alerts
+    .map(alert => ({ alert, time: Date.parse(alert.startsAt) || 0 }))
     .sort((a, b) => b.time - a.time || String(a.alert.fingerprint).localeCompare(String(b.alert.fingerprint)))
     .map(({ alert }) => alert)
 }
@@ -22,11 +23,13 @@ export function summarizeAlerts(alerts = []) {
 }
 
 export function prepareAlertGroups(groups = []) {
-  return groups.map(group => ({
-    ...group,
-    key: JSON.stringify([group.receiver, Object.entries(group.labels || {}).sort(([a], [b]) => a.localeCompare(b))]),
-    alerts: sortAlerts(group.alerts)
-  })).sort((a, b) => a.key.localeCompare(b.key))
+  return groups
+    .map(group => ({
+      ...group,
+      key: JSON.stringify([group.receiver, Object.entries(group.labels || {}).sort(([a], [b]) => a.localeCompare(b))]),
+      alerts: sortAlerts(group.alerts)
+    }))
+    .sort((a, b) => a.key.localeCompare(b.key))
 }
 
 export function clampAlertPage(page, total, pageSize) {
@@ -39,7 +42,10 @@ export function pageAlertGroups(groups, page, pageSize) {
   const visible = []
   for (const group of groups) {
     if (remaining <= 0) break
-    if (skip >= group.alerts.length) { skip -= group.alerts.length; continue }
+    if (skip >= group.alerts.length) {
+      skip -= group.alerts.length
+      continue
+    }
     const alerts = group.alerts.slice(skip, skip + remaining)
     visible.push({ ...group, total: group.alerts.length, alerts })
     remaining -= alerts.length

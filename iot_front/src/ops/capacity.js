@@ -56,31 +56,64 @@ export function pollDelay(runs, busy = false) {
   return busy || (runs || []).some(run => run.active || run.cleaning || !isFinished(run.status)) ? 3000 : 0
 }
 
-export const historyCleanupStatusText = { RUNNING: '正在清理测试数据', SUCCEEDED: '本次清理已完成', PARTIAL: '已完成可清理部分', FAILED: '测试数据清理失败' }
+export const historyCleanupStatusText = {
+  RUNNING: '正在清理测试数据',
+  SUCCEEDED: '本次清理已完成',
+  PARTIAL: '已完成可清理部分',
+  FAILED: '测试数据清理失败'
+}
 export const historyCleanupRunning = job => job?.status === 'RUNNING'
-export const cleanupCountText = value => Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString('zh-CN') : '—'
+export const cleanupCountText = value => (Number.isSafeInteger(value) && value >= 0 ? value.toLocaleString('zh-CN') : '—')
 export function historyCleanupHasTargets(preview) {
   if (!preview) return false
-  return (preview.products?.length || 0) > 0 || ['runs', 'devices', 'rawMessages'].some(key => Number.isSafeInteger(preview[key]) && preview[key] > 0)
+  return (
+    (preview.products?.length || 0) > 0 ||
+    ['runs', 'devices', 'rawMessages'].some(key => Number.isSafeInteger(preview[key]) && preview[key] > 0)
+  )
 }
 
 // 只显示服务端的实际计数，不用耗时推算清理进度。
 export function historyCleanupProgress(job) {
-  return Number.isSafeInteger(job?.processed) && Number.isSafeInteger(job?.total) && job.total > 0 && job.processed >= 0 && job.processed <= job.total ? Math.round(job.processed / job.total * 100) : null
+  return Number.isSafeInteger(job?.processed) &&
+    Number.isSafeInteger(job?.total) &&
+    job.total > 0 &&
+    job.processed >= 0 &&
+    job.processed <= job.total
+    ? Math.round((job.processed / job.total) * 100)
+    : null
 }
 
 export function cleanupCountItems(counts = {}) {
-  const labels = { products: '产品', devices: '设备', rawMessages: '测试原文', standardMessages: '解析记录', alarms: '告警', rules: '测试规则', resources: '业务任务与文档', audits: '测试审计记录', accessReferences: '用户设备引用' }
-  return Object.entries(labels).filter(([key]) => Number.isSafeInteger(counts?.[key]) && counts[key] >= 0).map(([key, label]) => ({ key, label, value: counts[key] }))
+  const labels = {
+    products: '产品',
+    devices: '设备',
+    rawMessages: '测试原文',
+    standardMessages: '解析记录',
+    alarms: '告警',
+    rules: '测试规则',
+    resources: '业务任务与文档',
+    audits: '测试审计记录',
+    accessReferences: '用户设备引用'
+  }
+  return Object.entries(labels)
+    .filter(([key]) => Number.isSafeInteger(counts?.[key]) && counts[key] >= 0)
+    .map(([key, label]) => ({ key, label, value: counts[key] }))
 }
 
 export function cleanupRuntimeItems(counts = {}) {
   const labels = { retainedRequests: '已发送 retained 清除请求', inboxMessages: '平台 MQTT 收件箱消息' }
-  return Object.entries(labels).filter(([key]) => Number.isSafeInteger(counts?.[key]) && counts[key] > 0).map(([key, label]) => ({ key, label, value: counts[key] }))
+  return Object.entries(labels)
+    .filter(([key]) => Number.isSafeInteger(counts?.[key]) && counts[key] > 0)
+    .map(([key, label]) => ({ key, label, value: counts[key] }))
 }
 
 export const historyCleanupWarnings = job => [...new Set([...(job?.warnings || []), ...(job?.counts?.warnings || [])])]
-export const historyCleanupResultText = job => job?.status === 'SUCCEEDED' && job.error ? '清理结果需确认' : job?.status === 'SUCCEEDED' && historyCleanupWarnings(job).length ? '已完成可清理部分' : historyCleanupStatusText[job?.status] || job?.status
+export const historyCleanupResultText = job =>
+  job?.status === 'SUCCEEDED' && job.error
+    ? '清理结果需确认'
+    : job?.status === 'SUCCEEDED' && historyCleanupWarnings(job).length
+      ? '已完成可清理部分'
+      : historyCleanupStatusText[job?.status] || job?.status
 
 export function boundText(value) {
   return value == null ? '—' : `${Number(value).toLocaleString('zh-CN', { maximumFractionDigits: 1 })} 条/秒`
@@ -121,14 +154,23 @@ export function loadDraft(storage, session) {
     if (!saved || !presetDefaults[saved.form?.preset]) return null
     const form = defaultForm(saved.form.preset)
     for (const key of Object.keys(form)) if (typeof saved.form[key] === typeof form[key]) form[key] = saved.form[key]
-    return { form, advanced: saved.advanced === true, planText: typeof saved.planText === 'string' ? saved.planText : '', environment: typeof saved.environment === 'string' ? saved.environment : '' }
+    return {
+      form,
+      advanced: saved.advanced === true,
+      planText: typeof saved.planText === 'string' ? saved.planText : '',
+      environment: typeof saved.environment === 'string' ? saved.environment : ''
+    }
   } catch {
     return null
   }
 }
 
 export function saveDraft(storage, session, draft) {
-  try { storage?.setItem(draftKey(session), JSON.stringify(draft)) } catch { /* 存储不可用时只影响草稿恢复 */ }
+  try {
+    storage?.setItem(draftKey(session), JSON.stringify(draft))
+  } catch {
+    /* 存储不可用时只影响草稿恢复 */
+  }
 }
 
 // 平台对单台设备限速 20 条/秒，速率上限不能超过设备数 × 20，否则测到的是限速策略。
@@ -140,7 +182,8 @@ export function formProblems(form) {
   if (!(form.devices >= 1 && form.devices <= 10000)) problems.push('设备数需在 1–10000 之间')
   if (!(form.startRate >= 1)) problems.push('起始速率至少 1 条/秒')
   if (form.startRate > form.maxRate) problems.push('起始速率不能高于速率上限')
-  if (form.maxRate > rateCeiling(form)) problems.push(`速率上限不能超过设备数 × ${perDeviceLimit} = ${rateCeiling(form)} 条/秒（单台设备限速）`)
+  if (form.maxRate > rateCeiling(form))
+    problems.push(`速率上限不能超过设备数 × ${perDeviceLimit} = ${rateCeiling(form)} 条/秒（单台设备限速）`)
   if (!(form.measureMinutes >= 1)) problems.push('测量时长至少 1 分钟')
   return problems
 }
@@ -179,6 +222,13 @@ export function buildPlan(form) {
   lines.push('search:')
   if (form.preset === 'capacity') lines.push('  rampFactor: 1.5', '  warmup: 30s', `  measure: ${measure}`)
   else lines.push(`  rates: [${form.startRate}]`, '  warmup: 10s', `  measure: ${measure}`)
-  lines.push('  drainTimeout: 5m', 'budget:', `  maximumWallTime: ${wall}`, `  maximumMessagesPerSecond: ${form.maxRate}`, `  maximumDevices: ${devices}`, '  maximumEvidenceGiB: 5')
+  lines.push(
+    '  drainTimeout: 5m',
+    'budget:',
+    `  maximumWallTime: ${wall}`,
+    `  maximumMessagesPerSecond: ${form.maxRate}`,
+    `  maximumDevices: ${devices}`,
+    '  maximumEvidenceGiB: 5'
+  )
   return lines.join('\n') + '\n'
 }

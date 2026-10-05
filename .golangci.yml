@@ -1,0 +1,32 @@
+version: "2"
+
+run:
+  timeout: 20m
+
+linters:
+  default: standard
+  settings:
+    staticcheck:
+      # Error strings here are often Chinese or start with names such as "AI";
+      # quick-fix suggestions are refactors, not defects.
+      checks: ["all", "-ST1000", "-ST1003", "-ST1005", "-ST1016", "-ST1020", "-ST1021", "-ST1022", "-QF*"]
+    errcheck:
+      exclude-functions:
+        - os.Remove
+        - os.RemoveAll
+        - fmt.Fprintf
+        - fmt.Fprintln
+        - fmt.Fprint
+  exclusions:
+    generated: strict
+    rules:
+      # Tests fail on the asserted outcome; unchecked setup errors surface there.
+      - path: _test\.go
+        linters: [errcheck]
+      # Closing readers, connections and rolled-back transactions is
+      # best-effort cleanup; writers that must flush check Close explicitly.
+      - linters: [errcheck]
+        text: "Error return value of `[^`]*\\.(Close|Rollback|RemoveAll)` is not checked"
+
+formatters:
+  enable: [gofmt]

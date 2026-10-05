@@ -4,7 +4,9 @@ import { api, session } from './api'
 // 直播模块状态按“租户 + 用户”缓存在内存中，不写入浏览器存储；切换身份时清空。
 export const liveState = reactive({ key: '', status: null, canWatch: false, canManageModule: false, loading: false })
 
-function identityKey() { return `${session.tenant}\u0000${session.user}` }
+function identityKey() {
+  return `${session.tenant}\u0000${session.user}`
+}
 
 let pending = null
 export async function loadLiveStatus(force = false) {
@@ -12,17 +14,29 @@ export async function loadLiveStatus(force = false) {
   if (!force && liveState.key === key && liveState.status) return liveState
   if (pending && !force) return pending
   liveState.loading = true
-  pending = api('/api/v1/video/status').then(data => {
-    if (key !== identityKey()) return liveState // 请求期间已切换身份，丢弃旧结果。
-    liveState.key = key
-    liveState.status = data.status || data
-    liveState.canWatch = Boolean(data.canWatch)
-    liveState.canManageModule = Boolean(data.canManageModule)
-    return liveState
-  }).catch(() => {
-    if (key === identityKey()) Object.assign(liveState, { key, status: { state: 'unknown', message: '无法读取直播模块状态' }, canWatch: false, canManageModule: false })
-    return liveState
-  }).finally(() => { liveState.loading = false; pending = null })
+  pending = api('/api/v1/video/status')
+    .then(data => {
+      if (key !== identityKey()) return liveState // 请求期间已切换身份，丢弃旧结果。
+      liveState.key = key
+      liveState.status = data.status || data
+      liveState.canWatch = Boolean(data.canWatch)
+      liveState.canManageModule = Boolean(data.canManageModule)
+      return liveState
+    })
+    .catch(() => {
+      if (key === identityKey())
+        Object.assign(liveState, {
+          key,
+          status: { state: 'unknown', message: '无法读取直播模块状态' },
+          canWatch: false,
+          canManageModule: false
+        })
+      return liveState
+    })
+    .finally(() => {
+      liveState.loading = false
+      pending = null
+    })
   return pending
 }
 
@@ -42,7 +56,14 @@ export const moduleStateText = {
   degraded: '已启用，媒体服务异常',
   unknown: '状态未知'
 }
-export const moduleStateTone = { not_deployed: 'neutral', misconfigured: 'danger', disabled: 'neutral', enabled: 'success', degraded: 'warning', unknown: 'neutral' }
+export const moduleStateTone = {
+  not_deployed: 'neutral',
+  misconfigured: 'danger',
+  disabled: 'neutral',
+  enabled: 'success',
+  degraded: 'warning',
+  unknown: 'neutral'
+}
 
 export const testStatusText = {
   PLAYABLE: '可播放',
@@ -70,11 +91,13 @@ export function cameraLiveBadge(live) {
 
 // 浏览器对 H.265 的支持需要实际探测，不能按浏览器名称推断。
 export function browserCaps() {
-  let webrtcH265 = false
+  let webrtcH265
   try {
     const codecs = globalThis.RTCRtpReceiver?.getCapabilities?.('video')?.codecs || []
     webrtcH265 = codecs.some(codec => /h265|hevc/i.test(codec.mimeType || ''))
-  } catch { webrtcH265 = false }
+  } catch {
+    webrtcH265 = false
+  }
   // 平台 HLS 使用 MPEG-TS 分片，H.265 分片的浏览器兼容性不稳定，统一按不支持处理。
   return { webrtcH265, hlsH265: false }
 }

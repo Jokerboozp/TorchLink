@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/aiprompt"
 	"iot-platform/internal/aiworkflow"
 	"iot-platform/internal/sites"
 	"log/slog"
@@ -15,6 +16,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -97,7 +99,7 @@ func TestAIProviderConfigSwitchesRuntimeAndRedactsKey(t *testing.T) {
 	server := newTestHTTPServer(api)
 	defer server.Close()
 
-	adminToken, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	adminToken, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -184,7 +186,7 @@ func TestAIProviderConfigReportsActiveWorkflowsAndCanRetry(t *testing.T) {
 	api.SetAIWorkflowProvider(workflow)
 	server := newTestHTTPServer(api)
 	defer server.Close()
-	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -233,7 +235,7 @@ func TestAIProviderConfigSavesWithoutSuccessfulConnectionTest(t *testing.T) {
 	api.SetAIWorkflowProvider(&providerConfigTestWorkflow{})
 	server := newTestHTTPServer(api)
 	defer server.Close()
-	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +291,7 @@ func TestAIProviderTestDoesNotApplyAndReusesActiveKey(t *testing.T) {
 	api.SetAIProviderRuntime(runtime)
 	server := newTestHTTPServer(api)
 	defer server.Close()
-	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -985,7 +987,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	adminToken, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	adminToken, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1253,6 +1255,32 @@ func TestKnowledgeUploadAndTenantScopedList(t *testing.T) {
 		t.Fatalf("knowledge documents leaked across tenants: %#v", isolated)
 	}
 	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/knowledge/documents/"+item["id"].(string), otherTenantToken, nil, http.StatusNotFound)
+	if summary := listed["summary"].(map[string]any); summary["documents"] != float64(1) || summary["indexed"] != float64(1) || summary["chunks"] != float64(1) {
+		t.Fatalf("knowledge summary should count the whole tenant: %#v", summary)
+	}
+	if summary := isolated["summary"].(map[string]any); summary["documents"] != float64(0) {
+		t.Fatalf("knowledge summary leaked across tenants: %#v", summary)
+	}
+
+	// Retrieval test searches only the caller's tenant and the named Agent.
+	testPath := func(workflowID string) string {
+		return server.URL + "/api/v1/ai/workflows/" + workflowID + "/knowledge-binding/test"
+	}
+	probe := map[string]any{"question": "高温烟雾告警处置", "topK": 3, "minScore": 0}
+	found := requestJSON(t, server.Client(), http.MethodPost, testPath("ops-assistant"), viewerToken, probe, http.StatusOK)
+	hits := found["items"].([]any)
+	if len(hits) != 1 || hits[0].(map[string]any)["documentId"] != item["id"] || !strings.Contains(hits[0].(map[string]any)["content"].(string), "现场人员复核") {
+		t.Fatalf("retrieval test did not return the Agent's document: %#v", found)
+	}
+	for name, response := range map[string]map[string]any{
+		"other agent":  requestJSON(t, server.Client(), http.MethodPost, testPath("other-agent"), viewerToken, probe, http.StatusOK),
+		"other tenant": requestJSON(t, server.Client(), http.MethodPost, testPath("ops-assistant"), otherTenantToken, probe, http.StatusOK),
+	} {
+		if len(response["items"].([]any)) != 0 {
+			t.Fatalf("retrieval test leaked to %s: %#v", name, response)
+		}
+	}
+	requestJSON(t, server.Client(), http.MethodPost, testPath("ops-assistant"), viewerToken, map[string]any{"question": " ", "topK": 3}, http.StatusUnprocessableEntity)
 }
 
 type inspectionReadCounter struct {
@@ -1274,7 +1302,7 @@ func TestInspectionDownloadReadsMetadataBeforePDFCache(t *testing.T) {
 	api.inspectionPDFs.renderPDF = func(model.DeviceHealthReport) ([]byte, error) { return []byte("%PDF-test"), nil }
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
-	token, _ := api.auth.Issue("admin", "t", "admin", nil, time.Hour)
+	token, _ := api.auth.IssueWithVersion("admin", "t", "admin", api.adminSessionVersion(), time.Hour)
 	for i := 0; i < 2; i++ {
 		req, _ := http.NewRequest("POST", srv.URL+"/api/v1/ai/health-inspection/pdf", nil)
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -1306,7 +1334,7 @@ func TestInspectionReportPagesUseImmutableIDAndTenant(t *testing.T) {
 	api := New(config.Config{DevMode: true}, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
-	token, _ := api.auth.Issue("admin", "t", "admin", nil, time.Hour)
+	token, _ := api.auth.IssueWithVersion("admin", "t", "admin", api.adminSessionVersion(), time.Hour)
 	for _, id := range []string{"report-a", "report-b"} {
 		got := requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/ai/health-inspection/reports/"+id+"?limit=50&offset=200", token, nil, 200)
 		items := got["items"].([]any)
@@ -1314,7 +1342,7 @@ func TestInspectionReportPagesUseImmutableIDAndTenant(t *testing.T) {
 			t.Fatal(got)
 		}
 	}
-	other, _ := api.auth.Issue("admin", "other", "admin", nil, time.Hour)
+	other, _ := api.auth.IssueWithVersion("admin", "other", "admin", api.adminSessionVersion(), time.Hour)
 	requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/ai/health-inspection/reports/report-a", other, nil, 404)
 }
 
@@ -1339,7 +1367,7 @@ func TestAIProviderConfigKeepsTheStoredKeyOnAStaleReplica(t *testing.T) {
 	api.SetAIWorkflowProvider(&providerConfigTestWorkflow{})
 	server := newTestHTTPServer(api)
 	defer server.Close()
-	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1385,7 +1413,7 @@ func TestDynamicAgentChangesAreStoredForReconciliation(t *testing.T) {
 	api.SetAISync(&lock, repo)
 	server := newTestHTTPServer(api)
 	defer server.Close()
-	token, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1447,5 +1475,151 @@ func TestAlarmAnalysisNearbyAlarmsFollowDeviceScope(t *testing.T) {
 	question := workflows.Last().Question
 	if !strings.Contains(question, "alarm-visible") || strings.Contains(question, "alarm-hidden") || strings.Contains(question, `"hidden"`) {
 		t.Fatalf("nearby alarms ignore the device scope: %s", question)
+	}
+}
+
+// A blank key only falls back to the stored key for the address it was saved
+// for; pointing the test at another address must not leak the stored key.
+func TestAIProviderTestOnlyReusesStoredKeyForSameAddress(t *testing.T) {
+	var authorizations []string
+	recorder := func(w http.ResponseWriter, r *http.Request) {
+		authorizations = append(authorizations, r.Host+" "+r.Header.Get("Authorization"))
+		http.Error(w, "provider unavailable", http.StatusServiceUnavailable)
+	}
+	savedServer := httptest.NewServer(http.HandlerFunc(recorder))
+	defer savedServer.Close()
+	otherServer := httptest.NewServer(http.HandlerFunc(recorder))
+	defer otherServer.Close()
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := aiadapter.NewProviderRegistry()
+	runtime, err := aiadapter.NewRuntimeProvider(registry, ports.AIPluginConfig{Provider: "disabled"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AI = runtime
+	engine.AIPlugins = registry
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api.SetAIProviderRuntime(runtime)
+	api.SetAIProviderStore(repo)
+	api.SetAIWorkflowProvider(&providerConfigTestWorkflow{})
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, server.Client(), http.MethodPut, server.URL+"/api/v1/ai/providers/config", token, map[string]any{"provider": "deepseek", "baseUrl": savedServer.URL, "model": "test-model", "apiKey": "stored-key", "maxTokens": 2048}, http.StatusOK)
+	// Without the stored key the other address has nothing to authenticate with.
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, map[string]any{"provider": "deepseek", "baseUrl": otherServer.URL, "model": "test-model"}, http.StatusUnprocessableEntity)
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/providers/test", token, map[string]any{"provider": "deepseek", "baseUrl": savedServer.URL, "model": "test-model"}, http.StatusOK)
+	otherHost, savedHost := strings.TrimPrefix(otherServer.URL, "http://"), strings.TrimPrefix(savedServer.URL, "http://")
+	for _, seen := range authorizations {
+		if strings.HasPrefix(seen, otherHost) {
+			t.Fatalf("another address was contacted with the stored key: %v", authorizations)
+		}
+	}
+	if !slices.Contains(authorizations, savedHost+" Bearer stored-key") {
+		t.Fatalf("stored key was not reused for its own address: %v", authorizations)
+	}
+}
+
+type failingProviderStore struct{ *memory.Repository }
+
+func (failingProviderStore) SaveAIProviderConfig(context.Context, ports.AIPluginConfig) error {
+	return errors.New("database unavailable")
+}
+
+// Reconciliation pushes the stored configuration; when saving fails the
+// switch is undone at once on the runtime and the Harness, matching the
+// response instead of being reverted silently later.
+func TestAIProviderConfigSaveFailureRestoresPreviousEverywhere(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := ports.AIPluginConfig{Provider: "deepseek", BaseURL: "https://api.deepseek.com", Model: "old-model", APIKey: "old-test-key", MaxTokens: 2048}
+	if err := repo.SaveAIProviderConfig(context.Background(), previous); err != nil {
+		t.Fatal(err)
+	}
+	runtime := &providerConfigTestRuntime{config: previous}
+	workflow := &providerConfigTestWorkflow{}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AI = runtime
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api.SetAIProviderRuntime(runtime)
+	api.SetAIProviderStore(failingProviderStore{repo})
+	api.SetAIWorkflowProvider(workflow)
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := requestJSON(t, server.Client(), http.MethodPut, server.URL+"/api/v1/ai/providers/config", token, map[string]any{"provider": "deepseek", "baseUrl": "https://api.deepseek.com", "model": "new-model", "apiKey": "new-test-key"}, http.StatusInternalServerError)
+	if detail, _ := result["detail"].(string); !strings.Contains(detail, "原配置继续生效") {
+		t.Fatalf("detail=%q", detail)
+	}
+	if runtime.CurrentConfig() != previous {
+		t.Fatalf("runtime kept the unsaved provider: %+v", runtime.CurrentConfig())
+	}
+	if len(workflow.updates) != 2 || workflow.updates[0].Model != "new-model" || workflow.updates[1] != previous {
+		t.Fatalf("Harness was not restored: %+v", workflow.updates)
+	}
+}
+
+// Heartbeat comments keep a quiet stream open; they share the writer with
+// events and stop before the handler returns.
+func TestSSEWriterInterleavesHeartbeatsAndStopsOnClose(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	stream := newSSEWriter(recorder, recorder)
+	go stream.heartbeat(context.Background(), 5*time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
+	if err := stream.event(ports.AIWorkflowEvent{Type: "run.started", RunID: "run-1"}); err != nil {
+		t.Fatal(err)
+	}
+	stream.close()
+	body := recorder.Body.String()
+	if !strings.Contains(body, ": keepalive\n\n") || !strings.Contains(body, "event: run.started\n") {
+		t.Fatalf("stream lacks heartbeat or event: %q", body)
+	}
+	time.Sleep(20 * time.Millisecond)
+	if recorder.Body.String() != body {
+		t.Fatal("heartbeat wrote after close")
+	}
+}
+
+// Chat runs tell the model the same knowledge outcome as business runs: an
+// empty match under allow-model must be stated as missing evidence.
+func TestChatRunStatesMissingKnowledgeEvidence(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	runtime := &captureWorkflowRuntime{}
+	engine.AIWorkflows = runtime
+	engine.KB = knowledge.NewLocal()
+	cfg := config.Load()
+	cfg.JWTSecret = "test-secret-at-least-32-characters"
+	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/chat", token, map[string]any{"question": "烟感告警怎么处置", "workflowId": "ops-assistant"}, http.StatusOK)
+	runtime.mu.Lock()
+	question := runtime.requests[len(runtime.requests)-1].Question
+	runtime.mu.Unlock()
+	if !strings.Contains(question, aiprompt.KnowledgeNoMatch) {
+		t.Fatalf("chat prompt does not state missing evidence: %q", question)
 	}
 }

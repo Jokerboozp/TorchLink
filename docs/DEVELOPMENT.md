@@ -24,9 +24,10 @@
 | 执行目录 | 命令 | 验证范围 |
 | --- | --- | --- |
 | 仓库根目录 | `go test ./cmd/... ./internal/... ./deploy/toolaccounts` | 正式后端与工具账号初始化，避免把本地生成目录纳入测试 |
+| 仓库根目录 | `golangci-lint run ./cmd/... ./internal/... ./deploy/toolaccounts` | 静态检查，规则见 `.golangci.yml`；需 golangci-lint v2 且以 Go 1.26 构建 |
 | `protocol-packages/gb26875-dahua` | `go test ./...` | 独立协议及模拟器 |
 | `dev/` 下各协议 module 目录 | `go test ./...` | 对应厂商协议；与根 module 分开执行 |
-| `iot_front` | `npm test`、`npm run build` | 前端测试及构建；没有独立 lint/typecheck 脚本 |
+| `iot_front` | `npm run lint`、`npm run format:check`、`npm test`、`npm run build` | ESLint、Prettier 格式、前端测试及构建；`npm run format` 自动格式化 |
 | 仓库根目录 | `git diff --check` | 空白错误 |
 
 本地集成入口：`go run scripts/tests/local-runtime-smoke.go --env-file .env.local` 检查依赖读写；前端、API 和备份启动后，`node scripts/tests/local-business-smoke.mjs` 检查登录、接入、归档、规则及回放。业务冒烟会创建唯一测试数据，结束停用本次规则与凭据并保留记录；仅在测试环境运行。
@@ -41,7 +42,7 @@ Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交�
 
 ### 持续集成
 
-`.github/workflows/ci.yml` 在推送到 main 与 Pull Request 时运行：`gofmt`、`go vet`，以真实 PostgreSQL（pgvector 0.8.1 / PG17）、ClickHouse 25.7、Redis 7.4 服务容器执行 `go test ./cmd/... ./internal/... ./deploy/toolaccounts`（依赖 `IOT_TEST_POSTGRES_DSN` 等的仓储与迁移测试不再跳过），独立协议 module 测试，`govulncheck`；前端 `npm test`、`npm run build` 与提示性 `npm audit`；部署脚本冒烟与 Prometheus 规则 `promtool` 校验。本地可用相同变量指向一次性数据库复现。
+`.github/workflows/ci.yml` 在推送到 main 与 Pull Request 时运行：`gofmt`、`go vet`、`go mod tidy` 无差异、golangci-lint，以真实 PostgreSQL（pgvector 0.8.1 / PG17）、ClickHouse 25.7、Redis 7.4 服务容器执行 `go test ./cmd/... ./internal/... ./deploy/toolaccounts`（依赖 `IOT_TEST_POSTGRES_DSN` 等的仓储与迁移测试不再跳过），对核心、协议运行时、持久队列、MQTT / Kafka 与外部数据包加 `-race`，`protocol-packages/` 与 `dev/` 下各独立协议 module 的 vet 与测试，根 module 及各协议 module 的 `govulncheck`；前端 ESLint、Prettier 格式检查、`npm test`、`npm run build` 与提示性 `npm audit`；Bash 与 PowerShell 部署脚本冒烟与 Prometheus 规则 `promtool` 校验。本地可用相同变量指向一次性数据库复现。
 
 ### 脚本入口
 
@@ -90,7 +91,7 @@ HTTP 路由按业务区域注册：各区域的 `xxxRoutes()` 写在对应处理
 
 源码回归使用 `go test ./internal/core ./internal/httpapi ./internal/adapters/embedding ./internal/adapters/knowledge ./internal/backup`，Harness 使用 `node --test deploy/deepseek-harness/gateway.test.mjs`。知识任务测试覆盖进度、失败重试、重启恢复、删除、租户/Agent 范围和向量空间原子切换。
 
-业务工作流的提示词与版本号集中在 `internal/aiprompt`（`versions.go`、`prompts.go`）；修改提示词或研判上下文时同步提升对应版本号，运行记录与研判质量统计按版本区分。`go test ./internal/aiprompt` 不调用真实模型：`testdata/samples.json` 中每条样例以固定上下文生成提示词，经 `internal/aitest` 的脚本化 Harness 返回录制的答案，再用 `internal/aioutput` 解码并核对风险等级、列表与规则字段；同时校验提示词中的输出契约与解码器一致、版本号互不相同。新增工作流或输出格式时补充样例。`cmd/harness-mock` 的固定答案与真实网关同样携带 `usage`，其测试用同一解码器校验。
+业务工作流的提示词与版本号集中在 `internal/aiprompt`（`versions.go`、`prompts.go`），聊天与业务运行共用的知识策略与证据文案在 `knowledge.go`；修改提示词或研判上下文时同步提升对应版本号，运行记录与研判质量统计按版本区分。`go test ./internal/aiprompt` 不调用真实模型：`testdata/samples.json` 中每条样例以固定上下文生成提示词，经 `internal/aitest` 的脚本化 Harness 返回录制的答案，再用 `internal/aioutput` 解码并核对风险等级、列表与规则字段；同时校验提示词中的输出契约与解码器一致、版本号互不相同。新增工作流或输出格式时补充样例。`cmd/harness-mock` 的固定答案与真实网关同样携带 `usage`，其测试用同一解码器校验。
 
 | 联调 | 配置与命令 | 验证范围 |
 | --- | --- | --- |

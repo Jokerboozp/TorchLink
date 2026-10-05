@@ -44,6 +44,7 @@ import (
 	"iot-platform/internal/protocolruntime"
 	"iot-platform/internal/ratelimit"
 	"iot-platform/internal/retention"
+	"iot-platform/internal/version"
 
 	"iot-platform/internal/adapters/observability"
 	"iot-platform/internal/opscenter"
@@ -91,6 +92,9 @@ func Run(forcedRole string) {
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
 	if *envFile != "" {
 		fatal(log, "load environment file", config.LoadEnvFile(*envFile))
+	}
+	if flag.Arg(0) == "healthcheck" {
+		os.Exit(healthcheck(os.Getenv("IOT_HTTP_ADDR")))
 	}
 	level, err := config.LogLevel()
 	fatal(log, "validate configuration", err)
@@ -319,7 +323,8 @@ func Run(forcedRole string) {
 	engine.SignalOptions = core.DeviceSignalOptions{Window: cfg.DeviceSignalWindow, RaiseAlarms: cfg.DeviceSignalAlarm}
 	engine.SetIdentity(cfg.InstanceID)
 	engine.PublishExternalTopics = cfg.PublishExternalTopics
-	registry.SetProcessInfo(cfg.ProcessRole, cfg.InstanceID)
+	registry.SetProcessInfo(cfg.ProcessRole, cfg.InstanceID, version.Version)
+	log.Info("platform build", "version", version.Version, "revision", version.Commit(), "role", cfg.ProcessRole)
 	if kafkaBus != nil {
 		// Backpressure: stop taking new raw messages while parsing and storage
 		// are far behind, so ingest does not starve them of database capacity.

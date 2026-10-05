@@ -35,20 +35,51 @@ let reconnects = 0
 let rendering = false
 let watchdogTimer = 0
 
-const phaseText = computed(() => ({ idle: '准备中', connecting: '连接中', playing: '播放中', reconnecting: '重新连接中', blocked: '等待播放', error: '播放失败', ended: '已结束' })[phase.value])
-const phaseTone = computed(() => ({ playing: 'success', connecting: 'info', reconnecting: 'warning', blocked: 'info', error: 'danger' })[phase.value] || 'neutral')
+const phaseText = computed(
+  () =>
+    ({
+      idle: '准备中',
+      connecting: '连接中',
+      playing: '播放中',
+      reconnecting: '重新连接中',
+      blocked: '等待播放',
+      error: '播放失败',
+      ended: '已结束'
+    })[phase.value]
+)
+const phaseTone = computed(
+  () => ({ playing: 'success', connecting: 'info', reconnecting: 'warning', blocked: 'info', error: 'danger' })[phase.value] || 'neutral'
+)
 const protocolText = computed(() => ({ webrtc: 'WebRTC', hls: 'HLS' })[protocol.value] || '')
-const profileText = computed(() => grant.value?.profile && grant.value.profile !== 'direct' ? grant.value.profileName : '原始码流')
+const profileText = computed(() => (grant.value?.profile && grant.value.profile !== 'direct' ? grant.value.profileName : '原始码流'))
 
-function authHeaders(extra = {}) { return { ...(session.token ? { Authorization: `Bearer ${session.token}` } : {}), ...extra } }
+function authHeaders(extra = {}) {
+  return { ...(session.token ? { Authorization: `Bearer ${session.token}` } : {}), ...extra }
+}
 
 function teardownMedia() {
   window.clearInterval(heartbeatTimer)
   heartbeatTimer = 0
   window.clearInterval(watchdogTimer)
   watchdogTimer = 0
-  if (pc) { try { pc.ontrack = null; pc.onconnectionstatechange = null; pc.close() } catch { /* 已关闭 */ } pc = null }
-  if (hls) { try { hls.destroy() } catch { /* 已销毁 */ } hls = null }
+  if (pc) {
+    try {
+      pc.ontrack = null
+      pc.onconnectionstatechange = null
+      pc.close()
+    } catch {
+      /* 已关闭 */
+    }
+    pc = null
+  }
+  if (hls) {
+    try {
+      hls.destroy()
+    } catch {
+      /* 已销毁 */
+    }
+    hls = null
+  }
   const element = video.value
   if (element) {
     element.pause()
@@ -63,7 +94,9 @@ function teardownMedia() {
 function releaseSession(id = sessionId) {
   if (!id) return
   if (id === sessionId) sessionId = ''
-  fetch(`/api/v1/video/play-sessions/${encodeURIComponent(id)}`, { method: 'DELETE', keepalive: true, headers: authHeaders() }).catch(() => {})
+  fetch(`/api/v1/video/play-sessions/${encodeURIComponent(id)}`, { method: 'DELETE', keepalive: true, headers: authHeaders() }).catch(
+    () => {}
+  )
 }
 
 function fail(text) {
@@ -75,12 +108,27 @@ function fail(text) {
 
 function waitFirstFrame(element, gen, timeoutMs) {
   return new Promise((resolve, reject) => {
-    const timer = window.setTimeout(() => { cleanup(); reject(new Error('在限定时间内未收到画面')) }, timeoutMs)
+    const timer = window.setTimeout(() => {
+      cleanup()
+      reject(new Error('在限定时间内未收到画面'))
+    }, timeoutMs)
     const check = () => {
-      if (gen !== generation) { cleanup(); reject(new Error('stale')); return }
-      if (element.videoWidth > 0 && element.readyState >= 2) { cleanup(); resolve() }
+      if (gen !== generation) {
+        cleanup()
+        reject(new Error('stale'))
+        return
+      }
+      if (element.videoWidth > 0 && element.readyState >= 2) {
+        cleanup()
+        resolve()
+      }
     }
-    const cleanup = () => { window.clearTimeout(timer); element.removeEventListener('loadeddata', check); element.removeEventListener('playing', check); element.removeEventListener('resize', check) }
+    const cleanup = () => {
+      window.clearTimeout(timer)
+      element.removeEventListener('loadeddata', check)
+      element.removeEventListener('playing', check)
+      element.removeEventListener('resize', check)
+    }
     element.addEventListener('loadeddata', check)
     element.addEventListener('playing', check)
     element.addEventListener('resize', check)
@@ -116,10 +164,19 @@ async function playWebRTC(gen) {
   await new Promise(resolve => {
     if (peer.iceGatheringState === 'complete') return resolve()
     const timer = window.setTimeout(resolve, 2000)
-    peer.addEventListener('icegatheringstatechange', () => { if (peer.iceGatheringState === 'complete') { window.clearTimeout(timer); resolve() } })
+    peer.addEventListener('icegatheringstatechange', () => {
+      if (peer.iceGatheringState === 'complete') {
+        window.clearTimeout(timer)
+        resolve()
+      }
+    })
   })
   if (gen !== generation) return
-  const response = await fetch(grant.value.whepUrl, { method: 'POST', headers: authHeaders({ 'Content-Type': 'application/sdp' }), body: peer.localDescription.sdp })
+  const response = await fetch(grant.value.whepUrl, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/sdp' }),
+    body: peer.localDescription.sdp
+  })
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
     throw new ApiError(data.detail || 'WebRTC 协商失败', { ...data, status: response.status })
@@ -138,7 +195,13 @@ async function playHLS(gen) {
   const { default: Hls } = await import('hls.js/light')
   if (gen !== generation) return
   if (Hls.isSupported()) {
-    hls = new Hls({ liveSyncDurationCount: 2, manifestLoadingMaxRetry: 2, levelLoadingMaxRetry: 2, fragLoadingMaxRetry: 2, enableWorker: true })
+    hls = new Hls({
+      liveSyncDurationCount: 2,
+      manifestLoadingMaxRetry: 2,
+      levelLoadingMaxRetry: 2,
+      fragLoadingMaxRetry: 2,
+      enableWorker: true
+    })
     hls.on(Hls.Events.ERROR, (_event, data) => {
       if (gen !== generation || !data?.fatal) return
       void recover(gen, data.response?.code === 403 ? '播放凭证已失效' : 'HLS 播放中断')
@@ -161,10 +224,15 @@ async function start(preferred = supportsWebRTC() && !hlsTried ? 'webrtc' : 'hls
   phase.value = phase.value === 'reconnecting' ? 'reconnecting' : 'connecting'
   message.value = ''
   protocol.value = preferred
-  let issued = null
   try {
-    issued = await api(`/api/v1/video/cameras/${encodeURIComponent(props.cameraId)}/play-sessions`, { method: 'POST', body: JSON.stringify({ stream: variant, protocol: preferred, caps: browserCaps() }) })
-    if (gen !== generation) { releaseSession(issued.sessionId); return }
+    const issued = await api(`/api/v1/video/cameras/${encodeURIComponent(props.cameraId)}/play-sessions`, {
+      method: 'POST',
+      body: JSON.stringify({ stream: variant, protocol: preferred, caps: browserCaps() })
+    })
+    if (gen !== generation) {
+      releaseSession(issued.sessionId)
+      return
+    }
     grant.value = issued
     sessionId = issued.sessionId
     stream.value = issued.stream
@@ -194,9 +262,13 @@ async function start(preferred = supportsWebRTC() && !hlsTried ? 'webrtc' : 'hls
 async function heartbeat(gen) {
   if (gen !== generation || !sessionId) return
   try {
-    const result = await api(`/api/v1/video/play-sessions/${encodeURIComponent(sessionId)}/heartbeat`, { method: 'POST', body: JSON.stringify({ rendering }) })
+    const result = await api(`/api/v1/video/play-sessions/${encodeURIComponent(sessionId)}/heartbeat`, {
+      method: 'POST',
+      body: JSON.stringify({ rendering })
+    })
     if (gen !== generation) return
-    if (result.mediaState === 'restarted' || result.mediaState === 'reconnecting') void recover(gen, result.message || '媒体服务已恢复，正在重新连接')
+    if (result.mediaState === 'restarted' || result.mediaState === 'reconnecting')
+      void recover(gen, result.message || '媒体服务已恢复，正在重新连接')
   } catch (error) {
     if (gen !== generation) return
     const status = error?.status
@@ -214,13 +286,23 @@ async function heartbeat(gen) {
 // 画面冻结检测：连接仍在但 8 秒没有新帧时视为播放中断。WebRTC 冻结时切换到 HLS（只切换一次）。
 function startWatchdog(gen) {
   const element = video.value
-  let lastFrames = -1, lastTime = -1, stalledSince = Date.now()
+  let lastFrames = -1,
+    lastTime = -1,
+    stalledSince = Date.now()
   window.clearInterval(watchdogTimer)
   watchdogTimer = window.setInterval(() => {
-    if (gen !== generation || phase.value !== 'playing' || !element || element.paused) { stalledSince = Date.now(); return }
+    if (gen !== generation || phase.value !== 'playing' || !element || element.paused) {
+      stalledSince = Date.now()
+      return
+    }
     const frames = element.getVideoPlaybackQuality?.().totalVideoFrames ?? -1
     const time = element.currentTime
-    if (frames !== lastFrames || time !== lastTime) { lastFrames = frames; lastTime = time; stalledSince = Date.now(); return }
+    if (frames !== lastFrames || time !== lastTime) {
+      lastFrames = frames
+      lastTime = time
+      stalledSince = Date.now()
+      return
+    }
     if (Date.now() - stalledSince < 8000) return
     window.clearInterval(watchdogTimer)
     if (protocol.value === 'webrtc' && !hlsTried) {
@@ -246,10 +328,24 @@ async function recover(gen, reason) {
   void start(protocol.value, stream.value)
 }
 
-function retry() { reconnects = 0; hlsTried = false; void start(undefined, stream.value) }
-function switchStream(value) { if (value !== stream.value) { reconnects = 0; void start(protocol.value || undefined, value) } }
+function retry() {
+  reconnects = 0
+  hlsTried = false
+  void start(undefined, stream.value)
+}
+function switchStream(value) {
+  if (value !== stream.value) {
+    reconnects = 0
+    void start(protocol.value || undefined, value)
+  }
+}
 async function resume() {
-  try { await video.value.play(); phase.value = 'playing' } catch { phase.value = 'blocked' }
+  try {
+    await video.value.play()
+    phase.value = 'playing'
+  } catch {
+    phase.value = 'blocked'
+  }
 }
 function toggleMute() {
   muted.value = !muted.value
@@ -262,10 +358,25 @@ function fullscreen() {
   else element?.requestFullscreen?.().catch(() => video.value?.webkitEnterFullscreen?.())
 }
 
-function onPageHide() { releaseSession() }
-function onIdentityChange() { generation++; teardownMedia(); releaseSession(); phase.value = 'ended' }
+function onPageHide() {
+  releaseSession()
+}
+function onIdentityChange() {
+  generation++
+  teardownMedia()
+  releaseSession()
+  phase.value = 'ended'
+}
 
-watch(() => props.cameraId, () => { reconnects = 0; hlsTried = false; stream.value = ''; void start() })
+watch(
+  () => props.cameraId,
+  () => {
+    reconnects = 0
+    hlsTried = false
+    stream.value = ''
+    void start()
+  }
+)
 onMounted(() => {
   window.addEventListener('pagehide', onPageHide)
   window.addEventListener('iot:unauthorized', onIdentityChange)
@@ -292,19 +403,39 @@ onBeforeUnmount(() => {
     <div ref="container" class="live-player__stage">
       <video ref="video" class="live-player__video" muted playsinline autoplay disablepictureinpicture />
       <div v-if="phase !== 'playing'" class="live-player__overlay" aria-live="polite">
-        <template v-if="phase === 'blocked'"><p>浏览器阻止了自动播放</p><ui-button size="small" type="primary" @click="resume">开始播放</ui-button></template>
-        <template v-else-if="phase === 'error' || phase === 'ended'"><p>{{ message || phaseText }}</p><ui-button v-if="phase === 'error'" size="small" @click="retry"><RefreshCw />重试</ui-button></template>
-        <template v-else><span class="live-player__spinner" aria-hidden="true" /><p>{{ message || phaseText }}</p></template>
+        <template v-if="phase === 'blocked'"
+          ><p>浏览器阻止了自动播放</p>
+          <ui-button size="small" type="primary" @click="resume">开始播放</ui-button></template
+        >
+        <template v-else-if="phase === 'error' || phase === 'ended'"
+          ><p>{{ message || phaseText }}</p>
+          <ui-button v-if="phase === 'error'" size="small" @click="retry"><RefreshCw />重试</ui-button></template
+        >
+        <template v-else
+          ><span class="live-player__spinner" aria-hidden="true" />
+          <p>{{ message || phaseText }}</p></template
+        >
       </div>
     </div>
     <div class="live-player__bar">
-      <ui-radio-group v-if="streams.length > 1" :model-value="stream" size="small" class="segmented-choice-group" aria-label="码流" @update:model-value="switchStream">
+      <ui-radio-group
+        v-if="streams.length > 1"
+        :model-value="stream"
+        size="small"
+        class="segmented-choice-group"
+        aria-label="码流"
+        @update:model-value="switchStream"
+      >
         <ui-radio-button value="main">主码流</ui-radio-button>
         <ui-radio-button value="sub">子码流</ui-radio-button>
       </ui-radio-group>
-      <span class="live-player__meta">{{ profileText }}<template v-if="grant?.videoCodec"> · 源 {{ grant.videoCodec }}</template></span>
+      <span class="live-player__meta"
+        >{{ profileText }}<template v-if="grant?.videoCodec"> · 源 {{ grant.videoCodec }}</template></span
+      >
       <span class="live-player__actions">
-        <ui-button size="small" text :aria-label="muted ? '开启声音' : '静音'" :title="muted ? '开启声音' : '静音'" @click="toggleMute"><VolumeX v-if="muted" /><Volume2 v-else /></ui-button>
+        <ui-button size="small" text :aria-label="muted ? '开启声音' : '静音'" :title="muted ? '开启声音' : '静音'" @click="toggleMute"
+          ><VolumeX v-if="muted" /><Volume2 v-else
+        /></ui-button>
         <ui-button size="small" text aria-label="重试" title="重新连接" @click="retry"><RefreshCw /></ui-button>
         <ui-button size="small" text aria-label="全屏" title="全屏" @click="fullscreen"><Maximize /></ui-button>
       </span>
@@ -314,20 +445,105 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-.live-player { display: grid; gap: var(--space-2); min-width: 0; }
-.live-player__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-width: 0; }
-.live-player__title { display: grid; min-width: 0; }
-.live-player__title strong, .live-player__title small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.live-player__title small { color: var(--text-muted); font-size: var(--font-size-xs); }
-.live-player__stage { position: relative; aspect-ratio: 16 / 9; width: 100%; overflow: hidden; background: var(--media-stage-bg); border-radius: 6px; }
-.live-player__video { width: 100%; height: 100%; object-fit: contain; background: var(--media-stage-bg); }
-.live-player__overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--space-2); padding: var(--space-4); color: var(--media-overlay-text); text-align: center; background: var(--media-overlay-bg); }
-.live-player__overlay p { margin: 0; font-size: var(--font-size-sm); line-height: 1.6; }
-.live-player__spinner { width: 22px; height: 22px; border: 2px solid var(--media-spinner-track); border-top-color: var(--media-spinner-head); border-radius: 50%; animation: live-spin 0.9s linear infinite; }
-@keyframes live-spin { to { transform: rotate(360deg); } }
-.live-player__bar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); min-width: 0; }
-.live-player__meta { flex: 1 1 160px; min-width: 0; color: var(--text-secondary); font-size: var(--font-size-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.live-player__actions { display: inline-flex; gap: 2px; margin-left: auto; }
-.live-player__note { margin: 0; color: var(--text-muted); font-size: var(--font-size-xs); line-height: 1.6; }
-.live-player__stage:fullscreen { border-radius: 0; }
+.live-player {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+.live-player__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.live-player__title {
+  display: grid;
+  min-width: 0;
+}
+.live-player__title strong,
+.live-player__title small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.live-player__title small {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.live-player__stage {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  overflow: hidden;
+  background: var(--media-stage-bg);
+  border-radius: 6px;
+}
+.live-player__video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--media-stage-bg);
+}
+.live-player__overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  color: var(--media-overlay-text);
+  text-align: center;
+  background: var(--media-overlay-bg);
+}
+.live-player__overlay p {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  line-height: 1.6;
+}
+.live-player__spinner {
+  width: 22px;
+  height: 22px;
+  border: 2px solid var(--media-spinner-track);
+  border-top-color: var(--media-spinner-head);
+  border-radius: 50%;
+  animation: live-spin 0.9s linear infinite;
+}
+@keyframes live-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.live-player__bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-3);
+  min-width: 0;
+}
+.live-player__meta {
+  flex: 1 1 160px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.live-player__actions {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+}
+.live-player__note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  line-height: 1.6;
+}
+.live-player__stage:fullscreen {
+  border-radius: 0;
+}
 </style>

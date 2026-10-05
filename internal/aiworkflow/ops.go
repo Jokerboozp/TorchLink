@@ -75,7 +75,7 @@ func (e *Service) GenerateReport(ctx context.Context, tenantID, period string, s
 		alarmTypes = append(alarmTypes, boundedText(a.AlarmType, 80))
 	}
 	result, err := e.runBusinessWorkflow(ctx, tenantID, WorkflowOpsReport, aiprompt.OpsReportVersion, prompt, retrievalQuery("消防物联网运维 告警处置建议", alarmTypes), []string{"query_device_latest", "query_alarm_list", "query_property_history", "query_similar_alarms", "query_knowledge_base"}, 8192)
-	_ = e.engine.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenantID, Actor: "ai-report-generator", Action: "ai.report", TargetType: "report", TargetID: id("report"), Details: map[string]any{"period": period, "start": start, "end": end, "runId": result.RunID, "success": err == nil}, CreatedAt: e.engine.Clock.Now().UnixMilli()})
+	e.engine.RecordAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenantID, Actor: "ai-report-generator", Action: "ai.report", TargetType: "report", TargetID: id("report"), Details: map[string]any{"period": period, "start": start, "end": end, "runId": result.RunID, "success": err == nil}, CreatedAt: e.engine.Clock.Now().UnixMilli()})
 	return result.Answer, err
 }
 

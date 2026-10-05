@@ -125,7 +125,9 @@ func parseDuration(value string) (time.Duration, bool) {
 	units := map[string]time.Duration{"y": 365 * 24 * time.Hour, "w": 7 * 24 * time.Hour, "d": 24 * time.Hour, "h": time.Hour, "m": time.Minute, "s": time.Second, "ms": time.Millisecond}
 	for _, part := range regexp.MustCompile(`([0-9]+)(ms|y|w|d|h|m|s)`).FindAllStringSubmatch(value, -1) {
 		var n int64
-		fmt.Sscan(part[1], &n)
+		if _, err := fmt.Sscan(part[1], &n); err != nil {
+			return 0, false
+		}
 		total += time.Duration(n) * units[part[2]]
 	}
 	return total, true

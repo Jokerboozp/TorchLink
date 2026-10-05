@@ -1,9 +1,9 @@
-@import "tailwindcss";
-@import "./theme/tokens.css";
-@import "./styles/base.css";
-@import "./styles/shell.css";
-@import "./styles/patterns.css";
-@import "./styles/motion.css";
+@import 'tailwindcss';
+@import './theme/tokens.css';
+@import './styles/base.css';
+@import './styles/shell.css';
+@import './styles/patterns.css';
+@import './styles/motion.css';
 
 /* 让 Tailwind 工具类使用同一套设计变量。 */
 @theme inline {

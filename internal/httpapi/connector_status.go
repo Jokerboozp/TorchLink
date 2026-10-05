@@ -64,7 +64,7 @@ func (s *Server) connectorStatus(w http.ResponseWriter, r *http.Request) {
 	tenant := claims(r).TenantID
 	profiles, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	if limited(r.Context()) {
@@ -73,7 +73,7 @@ func (s *Server) connectorStatus(w http.ResponseWriter, r *http.Request) {
 	items := []map[string]any{}
 	devices, err := s.engine.Repo.ListManagedDevices(r.Context(), tenant)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	sort.SliceStable(devices, func(i, j int) bool {
@@ -116,13 +116,13 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 	latest, _ := s.engine.Repo.GetLatestMessage(r.Context(), tenant, d.ID)
 	properties, _, err := s.engine.Repo.ListDeviceMessages(r.Context(), tenant, d.ID, model.PropertyReport, 1, 0)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	var profile *model.DeviceAccessProfile
 	all, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	if limited(r.Context()) {
@@ -192,12 +192,12 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	alarms, err := s.engine.Repo.ListAlarms(r.Context(), ports.AlarmFilter{TenantID: tenant, DeviceID: d.ID, Limit: 5})
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	revocations, err := s.engine.Repo.ListCredentialRevocations(r.Context(), tenant, d.ID, false)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	// A check starts at a caller-selected observation time, but never predates the
@@ -217,7 +217,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 	}
 	indexes, err := s.engine.Repo.ListRawIndexes(r.Context(), ports.RawFilter{TenantID: tenant, DeviceID: d.ID, Start: since, Limit: 30})
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	ingest := map[string]any{"configurationSaved": true, "rawReceived": false, "parsed": false, "stage": "WAITING_FOR_DATA", "since": since, "recentCount": 0, "simulationCount": 0, "continuouslyUpdating": false}

@@ -74,7 +74,7 @@ func main() {
 	adminToken := env("IOT_BACKUP_ADMIN_TOKEN", "change-me-backup-admin-token")
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
-		json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "UP"})
 	})
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
 		readyCtx, readyCancel := context.WithTimeout(r.Context(), 5*time.Second)

@@ -19,7 +19,7 @@ func (s *Server) publicAddresses() onboarding.PublicAddresses {
 	return onboarding.PublicAddresses{HTTP: publicEndpoint(s.cfg.DeviceHTTPPublicURL) != "", MQTT: publicEndpoint(s.cfg.MQTTPublicURL) != ""}
 }
 
-func enrollProblem(w http.ResponseWriter, err error) {
+func (s *Server) enrollProblem(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, model.ErrOnboardingChanged) {
 		problem(w, 409, "设备模板配置或验收记录已变化，请重新预检")
 		return
@@ -29,7 +29,7 @@ func enrollProblem(w http.ResponseWriter, err error) {
 		problem(w, e.Status, e.Message)
 		return
 	}
-	problem(w, 500, err.Error())
+	s.internalError(w, r, err)
 }
 
 // onboardingPreflight evaluates a saved template, or a template draft described
@@ -47,7 +47,7 @@ func (s *Server) onboardingPreflight(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.onboarding.Preflight(r.Context(), claims(r).TenantID, productID, draft, s.publicAddresses())
 	if err != nil {
-		enrollProblem(w, err)
+		s.enrollProblem(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
@@ -77,7 +77,7 @@ func (s *Server) onboardingEnroll(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err != nil {
-			enrollProblem(w, err)
+			s.enrollProblem(w, r, err)
 			return
 		}
 		if !ready {
@@ -91,7 +91,7 @@ func (s *Server) onboardingEnroll(w http.ResponseWriter, r *http.Request) {
 	}
 	result, err := s.onboarding.Enroll(r.Context(), claims(r).TenantID, q)
 	if err != nil {
-		enrollProblem(w, err)
+		s.enrollProblem(w, r, err)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")

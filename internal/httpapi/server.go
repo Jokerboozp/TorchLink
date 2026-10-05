@@ -7,12 +7,11 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"iot-platform/internal/aiworkflow"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -24,6 +23,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/gin-gonic/gin"
+
+	"iot-platform/internal/aiworkflow"
 	"iot-platform/internal/auth"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
@@ -37,9 +39,8 @@ import (
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
 	"iot-platform/internal/sites"
+	"iot-platform/internal/version"
 	"iot-platform/internal/video"
-
-	"github.com/gin-gonic/gin"
 )
 
 type ctxKey string
@@ -201,8 +202,28 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusForbidden, "admin tenant is not allowed")
 		return
 	}
-	token, _ := s.auth.Issue(in.Username, in.TenantID, "admin", nil, 8*time.Hour)
-	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": in.TenantID, "role": "admin", "permissions": []string{"*"}})
+	token, err := s.auth.IssueWithVersion(in.Username, in.TenantID, "admin", s.adminSessionVersion(), 8*time.Hour)
+	if err != nil {
+		problem(w, http.StatusInternalServerError, "无法签发登录凭据")
+		return
+	}
+	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": in.TenantID, "role": "admin", "permissions": []string{"*"}, "platformVersion": version.Version})
+}
+
+// adminSessionVersion derives the built-in administrator's session version
+// from its password: changing IOT_ADMIN_PASSWORD invalidates earlier tokens.
+func (s *Server) adminSessionVersion() int64 {
+	sum := sha256.Sum256([]byte("admin-session:" + s.cfg.AdminPassword))
+	return int64(binary.BigEndian.Uint64(sum[:8]) >> 1)
+}
+
+// reissueToken renews the caller's management token for background work,
+// keeping the session version that lets revocation apply to the copy.
+func (s *Server) reissueToken(c auth.Claims, ttl time.Duration) (string, error) {
+	if c.TokenUse == "user" {
+		return s.auth.IssueUser(c.Username, c.TenantID, c.SessionVersion, ttl)
+	}
+	return s.auth.IssueWithVersion(c.Username, c.TenantID, c.Role, c.SessionVersion, ttl)
 }
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
@@ -219,7 +240,9 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	}
 	for name, check := range checksToRun {
 		if err := check(ctx); err != nil {
-			checks[name] = err.Error()
+			// The probe is unauthenticated: report which dependency failed, not why.
+			s.log.Warn("readiness check failed", "dependency", name, "error", err)
+			checks[name] = "unavailable"
 			status = 503
 		} else {
 			checks[name] = "ok"
@@ -235,7 +258,7 @@ func (s *Server) products(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.ListProductsPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	for i := range items {
@@ -290,7 +313,7 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	if v.VerificationRules != nil {
 		rules, e := onboarding.NormalizeVerificationRules(*v.VerificationRules)
 		if e != nil {
-			enrollProblem(w, e)
+			s.enrollProblem(w, r, e)
 			return
 		}
 		v.VerificationRules = &rules
@@ -345,7 +368,7 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	v.UpdatedAt = now
 	if err = s.engine.Repo.SaveProduct(r.Context(), v); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	s.engine.ProtocolsChanged(c.TenantID)
@@ -358,7 +381,7 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 		}
 		v, err = s.engine.Repo.GetProduct(r.Context(), c.TenantID, v.ID)
 		if err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 	}
@@ -386,7 +409,7 @@ func (s *Server) protocolPackages(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.ListProtocolPackagesPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	writeList(w, 200, items, total, pagination, map[string]any{"parserTypes": parser.ManagedParserTypes()})
@@ -452,7 +475,7 @@ func (s *Server) saveProtocolPackage(w http.ResponseWriter, r *http.Request) {
 	}
 	v.UpdatedAt = now
 	if err := s.engine.Repo.SaveProtocolPackage(r.Context(), v); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	s.audit(r, "protocol.save", "protocolPackage", v.ID, map[string]any{"version": v.Version, "status": v.Status})
@@ -502,7 +525,7 @@ func (s *Server) deviceRegistry(w http.ResponseWriter, r *http.Request) {
 	// The scope-aware repository filters limited users before totals and pagination.
 	items, total, err := s.engine.Repo.ListManagedDevicesFiltered(r.Context(), filter, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	deviceIDs := make([]string, 0, len(items))
@@ -511,7 +534,7 @@ func (s *Server) deviceRegistry(w http.ResponseWriter, r *http.Request) {
 	}
 	childCounts, err := s.engine.Repo.CountManagedDeviceChildren(r.Context(), tenantID, deviceIDs)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	productIDs := make([]string, 0, len(items))
@@ -713,7 +736,7 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	v.UpdatedAt = now
 	if err := s.engine.Repo.SaveManagedDevice(r.Context(), v); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	if timingChanged {
@@ -897,12 +920,12 @@ func (s *Server) listRaw(w http.ResponseWriter, r *http.Request) {
 	filter.TenantID, filter.Limit, filter.Offset = c.TenantID, pagination.PageSize, pagination.Offset
 	items, err := s.engine.Repo.ListRawIndexes(r.Context(), filter)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	total, err := s.engine.Repo.CountRawIndexes(r.Context(), filter)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	ids := make([]string, 0, len(items))
@@ -961,7 +984,7 @@ func (s *Server) downloadRaw(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	filename := strings.Map(func(r rune) rune {
@@ -1035,17 +1058,17 @@ func (s *Server) downloadRawBatch(w http.ResponseWriter, r *http.Request) {
 	for i, item := range items {
 		body, err := json.MarshalIndent(item.Message, "", "  ")
 		if err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 		name := fmt.Sprintf("报文/%03d_%s.json", i+1, safeAttachmentName(item.Index.MessageID))
 		file, err := zw.Create(name)
 		if err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 		if _, err = file.Write(append(body, '\n')); err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 		manifest = append(manifest, item.Index)
@@ -1056,11 +1079,11 @@ func (s *Server) downloadRawBatch(w http.ResponseWriter, r *http.Request) {
 		_, err = manifestFile.Write(append(manifestBody, '\n'))
 	}
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	if err = zw.Close(); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	filename := fmt.Sprintf("原始报文_%s_%d条.zip", time.Now().Format("20060102_150405"), len(items))
@@ -1122,12 +1145,12 @@ func (s *Server) devices(w http.ResponseWriter, r *http.Request) {
 		items, total, err = s.engine.Repo.ListDeviceStatesPage(r.Context(), tenantID, pagination.PageSize, pagination.Offset)
 	}
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	_, online, err := s.engine.Repo.CountDeviceStates(r.Context(), tenantID, unregisteredOnly)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	writeList(w, 200, items, total, pagination, map[string]any{"online": online, "offline": total - online, "unregistered": unregisteredOnly})
@@ -1154,13 +1177,31 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		problem(w, 400, "property is required")
 		return
 	}
+	if !validPropertyName(property) {
+		problem(w, 422, "property name is invalid")
+		return
+	}
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.PropertyHistoryPage(r.Context(), claims(r).TenantID, r.PathValue("deviceId"), property, i64(q.Get("start")), i64(q.Get("end")), pagination.PageSize, pagination.Offset)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	writeList(w, 200, items, total, pagination, nil)
+}
+
+// validPropertyName bounds the free-form property name used by history
+// queries: non-identifier names reach the storage layer as string literals.
+func validPropertyName(name string) bool {
+	if len(name) > 256 {
+		return false
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 func (s *Server) stateEvent(w http.ResponseWriter, r *http.Request) {
 	var v model.DeviceState
@@ -1178,7 +1219,7 @@ func (s *Server) rules(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	v, total, err := s.engine.Repo.ListRulesPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	writeList(w, 200, v, total, pagination, nil)
@@ -1213,7 +1254,7 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 		v.ID = id
 		items, err := s.engine.Repo.ListRules(r.Context(), c.TenantID)
 		if err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 		found := false
@@ -1262,12 +1303,12 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 	}
 	if status == http.StatusOK && wasEnabled && !v.Enabled {
 		if err := s.engine.DisableRule(r.Context(), c.TenantID, v.ID); err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 	}
 	if err := s.engine.Repo.SaveRule(r.Context(), v); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	s.engine.RulesChanged(c.TenantID)
@@ -1289,12 +1330,12 @@ func (s *Server) alarms(w http.ResponseWriter, r *http.Request) {
 	filter := ports.AlarmFilter{TenantID: claims(r).TenantID, DeviceID: q.Get("deviceId"), Status: q.Get("status"), Level: q.Get("level"), Source: q.Get("source"), Start: i64(q.Get("start")), End: i64(q.Get("end")), Limit: pagination.PageSize, Offset: pagination.Offset}
 	items, err := s.engine.Repo.ListAlarms(r.Context(), filter)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	total, err := s.engine.Repo.CountAlarms(r.Context(), filter)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	deviceIDs := make([]string, 0, len(items))
@@ -1352,1209 +1393,6 @@ func (s *Server) alarmAction(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, v)
 }
 
-// aiAnalysis returns the newest analysis variant the caller's role may read.
-// Knowledge-based variants stay hidden from roles without knowledge access.
-func (s *Server) aiAnalysis(w http.ResponseWriter, r *http.Request) {
-	var latest model.AIAnalysis
-	found := false
-	for _, scope := range alarmAnalysisViewScopes(r.Context()) {
-		v, err := s.engine.Repo.GetAIAnalysis(r.Context(), claims(r).TenantID, r.PathValue("alarmId"), scope)
-		if errors.Is(err, model.ErrNotFound) {
-			continue
-		}
-		if err != nil {
-			problem(w, 500, err.Error())
-			return
-		}
-		if !found || v.CreatedAt > latest.CreatedAt {
-			latest, found = v, true
-		}
-	}
-	if !found {
-		problem(w, 404, "analysis not found or still pending")
-		return
-	}
-	write(w, 200, latest)
-}
-func (s *Server) aiProviders(w http.ResponseWriter, r *http.Request) {
-	pagination := parseListPagination(r)
-	items := []ports.AIPluginInfo{}
-	if s.engine.AIPlugins != nil {
-		items = s.engine.AIPlugins.List()
-	}
-	for index := range items {
-		if !s.canConfigureAI(r) {
-			items[index].DefaultBaseURL = ""
-		}
-	}
-	active := ports.AIPluginInfo{ID: "disabled", Name: "未启用", Enabled: false}
-	if provider, ok := s.engine.AI.(ports.AIInspectable); ok {
-		active = provider.ProviderInfo()
-	}
-	healthy := false
-	healthMessage := "AI 尚未启用"
-	if active.ID == "deepseek" && !active.Enabled {
-		healthMessage = "待配置 DeepSeek API Key"
-	}
-	if active.Enabled && s.engine.AI != nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-		defer cancel()
-		if err := s.engine.AI.Health(ctx); err != nil {
-			healthMessage = "连接异常"
-			if s.log != nil {
-				s.log.Warn("AI provider health check failed", "provider", active.ID, "model", active.Model, "error", err)
-			}
-		} else {
-			healthy = true
-			healthMessage = "连接正常"
-		}
-	}
-	active.DefaultBaseURL = ""
-	items, total := pageItems(items, pagination)
-	meta := map[string]any{"active": active, "healthy": healthy, "healthMessage": healthMessage, "mode": "plugin-harness"}
-	if s.aiProviderRuntime != nil {
-		meta["config"] = s.aiProviderConfigView(r, s.aiProviderRuntime.CurrentConfig(), active)
-	}
-	writeList(w, 200, items, total, pagination, meta)
-}
-
-func effectiveAIMaxTokens(value int) int {
-	if value < 128 || value > 8192 {
-		return 2048
-	}
-	return value
-}
-
-func (s *Server) aiProviderConfigView(r *http.Request, config ports.AIPluginConfig, info ports.AIPluginInfo) map[string]any {
-	key := strings.TrimSpace(config.APIKey)
-	view := map[string]any{
-		"provider":         config.Provider,
-		"providerName":     info.Name,
-		"model":            config.Model,
-		"maxTokens":        effectiveAIMaxTokens(config.MaxTokens),
-		"apiKeyConfigured": key != "",
-		"active":           info.Enabled,
-	}
-	if s.canConfigureAI(r) {
-		view["baseUrl"] = config.BaseURL
-		if key != "" {
-			view["apiKeyHint"] = key[:minInt(len(key), 4)] + "***"
-		}
-	}
-	return view
-}
-
-func (s *Server) aiProviderConfig(w http.ResponseWriter, r *http.Request) {
-	if s.aiProviderRuntime == nil {
-		problem(w, http.StatusServiceUnavailable, "AI provider runtime is unavailable")
-		return
-	}
-	info := s.aiProviderRuntime.ProviderInfo()
-	write(w, http.StatusOK, s.aiProviderConfigView(r, s.aiProviderRuntime.CurrentConfig(), info))
-}
-
-func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) {
-	if s.aiProviderRuntime == nil {
-		problem(w, http.StatusServiceUnavailable, "AI provider runtime is unavailable")
-		return
-	}
-	s.aiProviderUpdateMu.Lock()
-	defer s.aiProviderUpdateMu.Unlock()
-	var in struct {
-		Provider  string  `json:"provider"`
-		BaseURL   string  `json:"baseUrl"`
-		Model     string  `json:"model"`
-		APIKey    *string `json:"apiKey"`
-		MaxTokens *int    `json:"maxTokens"`
-	}
-	if decode(w, r, &in) != nil {
-		return
-	}
-	provider := strings.ToLower(strings.TrimSpace(in.Provider))
-	if provider != "deepseek" && provider != "openai-compatible" {
-		problem(w, http.StatusUnprocessableEntity, "模型来源必须是 deepseek 或 openai-compatible")
-		return
-	}
-	defer s.lockAISync()()
-	current := s.aiProviderRuntime.CurrentConfig()
-	if s.aiProviderStore != nil {
-		// Another replica may have saved since this process last reconciled;
-		// the stored settings decide the kept API key and the rollback target.
-		if saved, found, err := s.aiProviderStore.LoadAIProviderConfig(r.Context()); err != nil {
-			problem(w, http.StatusServiceUnavailable, "读取已保存的模型配置失败，请稍后重试")
-			return
-		} else if found {
-			current = saved
-		}
-	}
-	baseURL := strings.TrimRight(strings.TrimSpace(in.BaseURL), "/")
-	if baseURL == "" && provider == "deepseek" {
-		baseURL = "https://api.deepseek.com"
-	}
-	if err := validateAIProviderURL(baseURL); err != nil {
-		problem(w, http.StatusUnprocessableEntity, err.Error())
-		return
-	}
-	if len([]rune(baseURL)) > 2048 {
-		problem(w, http.StatusUnprocessableEntity, "baseUrl 不能超过 2048 个字符")
-		return
-	}
-	modelName := strings.TrimSpace(in.Model)
-	if modelName == "" {
-		if provider == current.Provider {
-			modelName = current.Model
-		}
-		if modelName == "" && s.engine.AIPlugins != nil {
-			for _, item := range s.engine.AIPlugins.List() {
-				if item.ID == provider {
-					modelName = item.DefaultModel
-					break
-				}
-			}
-		}
-	}
-	if !validAIModelName(modelName) {
-		problem(w, http.StatusUnprocessableEntity, "model 名称只能以字母或数字开头，并包含字母、数字、点、冒号、斜线、下划线或短横线")
-		return
-	}
-	apiKey := ""
-	if in.APIKey != nil {
-		apiKey = strings.TrimSpace(*in.APIKey)
-	} else if provider == current.Provider {
-		apiKey = current.APIKey
-	}
-	// Some compatible API services do not require an API key.
-	if provider == "deepseek" && apiKey == "" {
-		problem(w, http.StatusUnprocessableEntity, "DeepSeek 必须填写 API Key")
-		return
-	}
-	maxTokens := effectiveAIMaxTokens(current.MaxTokens)
-	if in.MaxTokens != nil {
-		if *in.MaxTokens < 128 || *in.MaxTokens > 8192 {
-			problem(w, http.StatusUnprocessableEntity, "最大输出词元必须在 128 到 8192 之间")
-			return
-		}
-		maxTokens = *in.MaxTokens
-	}
-	candidate := ports.AIPluginConfig{Provider: provider, BaseURL: baseURL, Model: modelName, APIKey: apiKey, MaxTokens: maxTokens}
-	configureCtx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
-	defer cancel()
-	if err := s.aiProviderRuntime.Configure(configureCtx, candidate); err != nil {
-		problem(w, http.StatusBadGateway, "模型服务配置无效，请检查地址、模型和接口密钥")
-		return
-	}
-	if s.aiWorkflowProvider != nil {
-		if err := s.aiWorkflowProvider.ConfigureProvider(configureCtx, candidate); err != nil {
-			// Restore the previous direct provider when the workflow sidecar
-			// rejects the same configuration, keeping both AI paths aligned.
-			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), 20*time.Second)
-			_ = s.aiProviderRuntime.Configure(rollbackCtx, current)
-			rollbackCancel()
-			if errors.Is(err, ports.ErrAIWorkflowRunsActive) {
-				problem(w, http.StatusConflict, "有 AI 工作流正在运行，请等待任务结束后重试；模型配置未保存，原配置继续生效")
-				return
-			}
-			problem(w, http.StatusBadGateway, "AI Workflow Harness 更新失败，Provider 未切换")
-			return
-		}
-	}
-	if s.aiProviderStore != nil {
-		persistCtx, persistCancel := context.WithTimeout(r.Context(), 5*time.Second)
-		err := s.aiProviderStore.SaveAIProviderConfig(persistCtx, candidate)
-		persistCancel()
-		if err != nil {
-			if s.log != nil {
-				s.log.Error("persist AI provider config", "provider", provider, "model", modelName, "error", err)
-			}
-			problem(w, http.StatusInternalServerError, "模型服务已生效，但配置保存失败")
-			return
-		}
-	}
-	s.audit(r, "ai.provider.update", "ai-provider", provider, map[string]any{"model": modelName, "apiKeyConfigured": apiKey != ""})
-	info := s.aiProviderRuntime.ProviderInfo()
-	write(w, http.StatusOK, s.aiProviderConfigView(r, candidate, info))
-}
-
-func validateAIProviderURL(raw string) error {
-	u, err := url.Parse(raw)
-	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") {
-		return errors.New("baseUrl 必须是没有凭据、查询参数或片段的 HTTP(S) 地址")
-	}
-	return nil
-}
-
-func minInt(left, right int) int {
-	if left < right {
-		return left
-	}
-	return right
-}
-
-func validAIModelName(value string) bool {
-	value = strings.TrimSpace(value)
-	if value == "" || len([]rune(value)) > 128 {
-		return false
-	}
-	for index, char := range value {
-		if index == 0 && !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9')) {
-			return false
-		}
-		if !((char >= 'a' && char <= 'z') || (char >= 'A' && char <= 'Z') || (char >= '0' && char <= '9') || strings.ContainsRune("._:/-", char)) {
-			return false
-		}
-	}
-	return true
-}
-
-func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		ports.AIPluginConfig
-		Question string `json:"question"`
-	}
-	if decode(w, r, &in) != nil {
-		return
-	}
-	if s.engine.AIPlugins == nil {
-		problem(w, 503, "AI plugin registry is unavailable")
-		return
-	}
-	provider := strings.ToLower(strings.TrimSpace(in.Provider))
-	if provider != "deepseek" && provider != "openai-compatible" {
-		problem(w, http.StatusUnprocessableEntity, "模型来源必须是 deepseek 或 openai-compatible")
-		return
-	}
-	in.Provider = provider
-	current := ports.AIPluginConfig{}
-	if s.aiProviderRuntime != nil {
-		current = s.aiProviderRuntime.CurrentConfig()
-	}
-	// The key is intentionally redacted from GET responses. When an
-	// administrator tests the already active API provider with a blank key,
-	// reuse the server-side key instead of forcing it to be entered again.
-	if strings.TrimSpace(in.APIKey) == "" && provider == strings.ToLower(strings.TrimSpace(current.Provider)) {
-		in.APIKey = current.APIKey
-	}
-	if strings.TrimSpace(in.Question) == "" {
-		in.Question = "请用一句话说明你已经连接到消防物联网 AI 测试台。"
-	}
-	if len([]rune(in.Question)) > 2000 {
-		problem(w, 422, "question is too long")
-		return
-	}
-	baseURL := strings.TrimSpace(in.BaseURL)
-	if baseURL == "" {
-		if provider == strings.ToLower(strings.TrimSpace(current.Provider)) {
-			baseURL = strings.TrimSpace(current.BaseURL)
-		}
-		if baseURL == "" && provider == "deepseek" {
-			baseURL = "https://api.deepseek.com"
-		}
-	}
-	if err := validateAIProviderURL(baseURL); err != nil {
-		problem(w, http.StatusUnprocessableEntity, err.Error())
-		return
-	}
-	in.BaseURL = baseURL
-	client, err := s.engine.AIPlugins.Create(in.AIPluginConfig)
-	if err != nil {
-		problem(w, 422, err.Error())
-		return
-	}
-	info := ports.AIPluginInfo{ID: in.Provider, Model: in.Model}
-	if provider, ok := client.(ports.AIInspectable); ok {
-		info = provider.ProviderInfo()
-	}
-	if !info.Enabled {
-		problem(w, 422, "请选择已启用的模型服务")
-		return
-	}
-	traceID := "ai_trace_" + randomHex(10)
-	started := time.Now()
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
-	defer cancel()
-	answer, callErr := client.Chat(ctx, claims(r).TenantID, in.Question)
-	latency := time.Since(started).Milliseconds()
-	audit := model.AIToolCallLog{ID: traceID, TenantID: claims(r).TenantID, Actor: claims(r).Username, Tool: "ai.provider.test", Input: map[string]any{"provider": info.ID, "model": info.Model, "questionLength": len([]rune(in.Question))}, Success: callErr == nil, CreatedAt: time.Now().UnixMilli()}
-	result := map[string]any{"traceId": traceID, "success": callErr == nil, "provider": info.ID, "providerName": info.Name, "model": info.Model, "latencyMs": latency}
-	if callErr != nil {
-		errorCode, publicError := safeProviderTestError(callErr)
-		audit.Error = errorCode
-		result["errorCode"] = errorCode
-		result["error"] = publicError
-	} else {
-		audit.Output = map[string]any{"answerLength": len([]rune(answer)), "latencyMs": latency}
-		result["answer"] = answer
-	}
-	auditCtx, auditCancel := context.WithTimeout(context.WithoutCancel(r.Context()), 3*time.Second)
-	defer auditCancel()
-	if auditErr := s.engine.Repo.SaveAIToolCall(auditCtx, audit); auditErr != nil {
-		if s.log != nil {
-			s.log.Error("persist AI provider test audit", "traceId", traceID, "error", auditErr)
-		}
-		problem(w, 500, "AI provider test completed but its audit trace could not be persisted")
-		return
-	}
-	write(w, 200, result)
-}
-func safeProviderTestError(err error) (string, string) {
-	if errors.Is(err, context.DeadlineExceeded) {
-		return "AI_PROVIDER_TIMEOUT", "模型服务请求超时，请检查服务状态后重试"
-	}
-	if errors.Is(err, context.Canceled) {
-		return "AI_PROVIDER_CANCELED", "模型服务请求已取消"
-	}
-	return "AI_PROVIDER_REQUEST_FAILED", "模型服务请求失败，请检查地址、接口密钥、模型和服务状态"
-}
-func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Question       string `json:"question"`
-		Workflow       string `json:"workflow,omitempty"`
-		WorkflowID     string `json:"workflowId,omitempty"`
-		ConversationID string `json:"conversationId,omitempty"`
-		Model          string `json:"model,omitempty"`
-		MaxTokens      int    `json:"maxTokens,omitempty"`
-	}
-	if decode(w, r, &in) != nil {
-		return
-	}
-	if s.engine.AIWorkflows != nil {
-		workflowID := in.WorkflowID
-		if workflowID == "" {
-			workflowID = in.Workflow
-		}
-		result, err := s.runAIWorkflow(r.Context(), claims(r), in.Question, workflowID, in.ConversationID, in.Model, in.MaxTokens, nil)
-		if err != nil {
-			if s.log != nil {
-				s.log.Warn("run AI workflow failed", "error", err)
-			}
-			problem(w, 502, "AI workflow request failed")
-			return
-		}
-		write(w, 200, result)
-		return
-	}
-	problem(w, http.StatusServiceUnavailable, aiworkflow.ErrAIWorkflowsUnavailable.Error())
-}
-
-func (s *Server) aiWorkflows(w http.ResponseWriter, r *http.Request) {
-	pagination := parseListPagination(r)
-	// 知识库页除聊天智能体外，还需要为告警研判智能体上传文档和配置检索策略；Harness 暂不可用时仍可管理这些文档。
-	forKnowledge := r.URL.Query().Get("purpose") == "knowledge"
-	if s.engine.AIWorkflows == nil {
-		items := []ports.AIWorkflowPlugin{}
-		if forKnowledge {
-			items = append(items, alarmAnalysisWorkflowPlugin())
-		}
-		items, total := pageItems(items, pagination)
-		writeList(w, 200, items, total, pagination, map[string]any{"configured": false, "mode": "local", "healthy": false, "healthMessage": "未配置 AI 工作流服务（Harness），智能助手问答暂不可用"})
-		return
-	}
-	items, err := s.engine.AIWorkflows.ListWorkflows(r.Context())
-	if err != nil {
-		if s.log != nil {
-			s.log.Warn("list AI workflows failed", "error", err)
-		}
-		writeList(w, 200, []ports.AIWorkflowPlugin{}, 0, pagination, map[string]any{"configured": true, "mode": "harness", "healthy": false, "healthMessage": "AI workflow harness is unavailable"})
-		return
-	}
-	if forKnowledge {
-		items = knowledgeWorkflowPlugins(items)
-	} else {
-		items = chatWorkflowPlugins(items)
-	}
-	items, total := pageItems(items, pagination)
-	writeList(w, 200, items, total, pagination, map[string]any{"configured": true, "mode": "harness", "healthy": true, "healthMessage": "AI workflow harness is reachable"})
-}
-
-func alarmAnalysisWorkflowPlugin() ports.AIWorkflowPlugin {
-	return ports.AIWorkflowPlugin{ID: model.AlarmAnalysisWorkflowID, Name: "AI 告警研判", Description: "告警详情中的智能研判；仅有知识库权限的角色手动研判时检索本智能体的文档。", Enabled: true, KnowledgeEnabled: true}
-}
-
-// knowledgeWorkflowPlugins lists the Agents that own knowledge documents: chat
-// Agents plus the alarm analysis Agent.
-func knowledgeWorkflowPlugins(items []ports.AIWorkflowPlugin) []ports.AIWorkflowPlugin {
-	visible := chatWorkflowPlugins(items)
-	for _, item := range items {
-		if item.ID == model.AlarmAnalysisWorkflowID {
-			return append(visible, item)
-		}
-	}
-	return append(visible, alarmAnalysisWorkflowPlugin())
-}
-
-func (s *Server) aiWorkflowManifests(w http.ResponseWriter, r *http.Request) {
-	pagination := parseListPagination(r)
-	manager, ok := s.engine.AIWorkflows.(ports.AIWorkflowAdminManager)
-	if !ok {
-		problem(w, http.StatusServiceUnavailable, "AI workflow harness does not support plugin management")
-		return
-	}
-	items, err := manager.ListWorkflowManifests(r.Context())
-	if err != nil {
-		if s.log != nil {
-			s.log.Warn("list AI workflow manifests failed", "error", err)
-		}
-		problem(w, http.StatusBadGateway, "AI workflow harness plugin catalog is unavailable")
-		return
-	}
-	items = chatWorkflowManifests(items)
-	items, total := pageItems(items, pagination)
-	writeList(w, http.StatusOK, items, total, pagination, map[string]any{
-		"configured":    true,
-		"mode":          "harness",
-		"healthy":       true,
-		"healthMessage": "AI workflow harness plugin catalog is reachable",
-	})
-}
-
-func (s *Server) saveAIWorkflow(w http.ResponseWriter, r *http.Request) {
-	manager, ok := s.engine.AIWorkflows.(ports.AIWorkflowManager)
-	if !ok {
-		problem(w, http.StatusServiceUnavailable, "AI workflow harness does not support dynamic agents")
-		return
-	}
-	var manifest ports.AIWorkflowManifest
-	if decode(w, r, &manifest) != nil {
-		return
-	}
-	if err := validateAIWorkflowManifest(manifest); err != nil {
-		problem(w, http.StatusUnprocessableEntity, err.Error())
-		return
-	}
-	defer s.lockAISync()()
-	plugin, err := manager.SaveWorkflow(r.Context(), manifest)
-	err = s.recordAIWorkflowChange(r.Context(), ports.StoredAIWorkflowManifest{ID: manifest.ID, Manifest: manifest}, err)
-	if err != nil {
-		if s.log != nil {
-			s.log.Warn("save dynamic AI workflow failed", "workflow", manifest.ID, "error", err)
-		}
-		problem(w, http.StatusBadGateway, "AI workflow harness rejected the agent manifest")
-		return
-	}
-	s.audit(r, "ai.workflow.agent.save", "ai-workflow", plugin.ID, map[string]any{"name": plugin.Name, "version": plugin.Version, "enabled": plugin.Enabled, "capabilities": len(plugin.Capabilities), "knowledgeEnabled": plugin.KnowledgeEnabled})
-	write(w, http.StatusCreated, plugin)
-}
-
-func (s *Server) updateAIWorkflow(w http.ResponseWriter, r *http.Request) {
-	manager, ok := s.engine.AIWorkflows.(ports.AIWorkflowManager)
-	if !ok {
-		problem(w, http.StatusServiceUnavailable, "AI workflow harness does not support dynamic agents")
-		return
-	}
-	var manifest ports.AIWorkflowManifest
-	if decode(w, r, &manifest) != nil {
-		return
-	}
-	workflowID := strings.TrimSpace(r.PathValue("id"))
-	if workflowID == "" || workflowID != manifest.ID {
-		problem(w, http.StatusUnprocessableEntity, "workflow path id must match the manifest id")
-		return
-	}
-	if err := validateAIWorkflowManifest(manifest); err != nil {
-		problem(w, http.StatusUnprocessableEntity, err.Error())
-		return
-	}
-	if catalog, supportsCatalog := s.engine.AIWorkflows.(ports.AIWorkflowAdminManager); supportsCatalog {
-		items, err := catalog.ListWorkflowManifests(r.Context())
-		if err != nil {
-			if s.log != nil {
-				s.log.Warn("check AI workflow before update failed", "workflow", manifest.ID, "error", err)
-			}
-			problem(w, http.StatusBadGateway, "AI workflow harness plugin catalog is unavailable")
-			return
-		}
-		found := false
-		for _, item := range items {
-			if item.ID == manifest.ID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			problem(w, http.StatusNotFound, "workflow plugin was not found")
-			return
-		}
-	}
-	defer s.lockAISync()()
-	plugin, err := manager.SaveWorkflow(r.Context(), manifest)
-	err = s.recordAIWorkflowChange(r.Context(), ports.StoredAIWorkflowManifest{ID: manifest.ID, Manifest: manifest}, err)
-	if err != nil {
-		if s.log != nil {
-			s.log.Warn("update dynamic AI workflow failed", "workflow", manifest.ID, "error", err)
-		}
-		problem(w, http.StatusBadGateway, "AI workflow harness rejected the agent manifest")
-		return
-	}
-	s.audit(r, "ai.workflow.agent.update", "ai-workflow", plugin.ID, map[string]any{"name": plugin.Name, "version": plugin.Version, "enabled": plugin.Enabled, "capabilities": len(plugin.Capabilities), "knowledgeEnabled": plugin.KnowledgeEnabled})
-	write(w, http.StatusOK, plugin)
-}
-
-func (s *Server) deleteAIWorkflow(w http.ResponseWriter, r *http.Request) {
-	manager, ok := s.engine.AIWorkflows.(ports.AIWorkflowAdminManager)
-	if !ok {
-		problem(w, http.StatusServiceUnavailable, "AI workflow harness does not support plugin management")
-		return
-	}
-	workflowID := strings.TrimSpace(r.PathValue("id"))
-	if !validWorkflowIdentifier(workflowID) {
-		problem(w, http.StatusUnprocessableEntity, "workflow id has an invalid format")
-		return
-	}
-	if ports.IsBuiltinAIWorkflow(workflowID) {
-		problem(w, http.StatusConflict, "built-in Agent ids cannot be deleted")
-		return
-	}
-	defer s.lockAISync()()
-	err := manager.DeleteWorkflow(r.Context(), workflowID)
-	if err = s.recordAIWorkflowChange(r.Context(), ports.StoredAIWorkflowManifest{ID: workflowID, Manifest: ports.AIWorkflowManifest{ID: workflowID}, Deleted: true}, err); err != nil {
-		if s.log != nil {
-			s.log.Warn("delete dynamic AI workflow failed", "workflow", workflowID, "error", err)
-		}
-		problem(w, http.StatusBadGateway, "AI workflow harness rejected the delete request")
-		return
-	}
-	s.audit(r, "ai.workflow.agent.delete", "ai-workflow", workflowID, nil)
-	write(w, http.StatusOK, map[string]any{"deleted": true, "id": workflowID})
-}
-
-// recordAIWorkflowChange stores a dynamic Agent change that at least one
-// Harness instance accepted; reconciliation brings the other instances along.
-// Without a store, any instance failure is reported to the caller.
-func (s *Server) recordAIWorkflowChange(ctx context.Context, change ports.StoredAIWorkflowManifest, err error) error {
-	if err != nil && (s.aiManifestStore == nil || !errors.Is(err, ports.ErrAIWorkflowPartial)) {
-		return err
-	}
-	if s.aiManifestStore != nil {
-		if storeErr := s.aiManifestStore.SaveAIWorkflowManifest(ctx, change); storeErr != nil {
-			return errors.Join(err, storeErr)
-		}
-	}
-	if err != nil && s.log != nil {
-		s.log.Warn("AI workflow change reached only some Harness instances; reconciliation completes it", "workflow", change.ID, "error", err)
-	}
-	return nil
-}
-
-func validateAIWorkflowManifest(manifest ports.AIWorkflowManifest) error {
-	if manifest.SchemaVersion != 1 || !validWorkflowIdentifier(manifest.ID) {
-		return errors.New("schemaVersion must be 1 and id must contain only letters, numbers, dot, underscore, colon or hyphen")
-	}
-	if ports.IsBuiltinAIWorkflow(manifest.ID) {
-		return errors.New("built-in Agent ids cannot be overwritten")
-	}
-	if !boundedText(manifest.Name, 128) || !boundedText(manifest.Description, 1024) || !boundedText(manifest.Version, 64) || !boundedText(manifest.Persona, 16384) || !validWorkflowModel(manifest.DefaultModel) {
-		return errors.New("name, description, version, persona and defaultModel are required and exceed no field limits")
-	}
-	if manifest.MaxTokens < 1 || manifest.MaxTokens > 8192 || len(manifest.Capabilities) < 1 || len(manifest.Capabilities) > 32 || len(manifest.AllowedTools) < 1 || len(manifest.AllowedTools) > 6 {
-		return errors.New("maxTokens must be 1..8192 and capabilities/allowedTools must be non-empty")
-	}
-	allowed := map[string]struct{}{
-		"mcp__iot__query_system_overview": {}, "mcp__iot__query_device_latest": {}, "mcp__iot__query_alarm_list": {}, "mcp__iot__query_alarm_detail": {},
-		"mcp__iot__query_property_history": {}, "mcp__iot__query_similar_alarms": {}, "mcp__iot__query_knowledge_base": {},
-		"mcp__iot__create_rule_draft": {},
-	}
-	seen := map[string]struct{}{}
-	capabilities := map[string]struct{}{}
-	for _, capability := range manifest.Capabilities {
-		if !boundedText(capability, 64) {
-			return errors.New("each capability must contain 1..64 characters")
-		}
-		if _, duplicate := capabilities[capability]; duplicate {
-			return fmt.Errorf("duplicate capability %q", capability)
-		}
-		capabilities[capability] = struct{}{}
-	}
-	for _, tool := range manifest.AllowedTools {
-		if _, ok := allowed[tool]; !ok {
-			return fmt.Errorf("tool %q is outside the read-only Agent whitelist", tool)
-		}
-		if _, duplicate := seen[tool]; duplicate {
-			return fmt.Errorf("duplicate tool %q", tool)
-		}
-		seen[tool] = struct{}{}
-	}
-	return nil
-}
-
-func validWorkflowIdentifier(value string) bool {
-	if value == "" || len(value) > 128 {
-		return false
-	}
-	for index, char := range value {
-		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || index > 0 && strings.ContainsRune("._:-", char) {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func validWorkflowModel(value string) bool {
-	if value == "" || len(value) > 128 {
-		return false
-	}
-	for index, char := range value {
-		if char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9' || index > 0 && strings.ContainsRune("._:/-", char) {
-			continue
-		}
-		return false
-	}
-	return true
-}
-
-func boundedText(value string, maximum int) bool {
-	length := len([]rune(strings.TrimSpace(value)))
-	return length > 0 && length <= maximum
-}
-
-func defaultWorkflowKnowledgeBinding(tenantID, workflowID string) model.WorkflowKnowledgeBinding {
-	return aiworkflow.DefaultWorkflowKnowledgeBinding(tenantID, workflowID)
-}
-
-func (s *Server) workflowKnowledgeBinding(w http.ResponseWriter, r *http.Request) {
-	c := claims(r)
-	workflowID := strings.TrimSpace(r.PathValue("id"))
-	if workflowID == "" || len(workflowID) > 128 {
-		problem(w, 422, "valid workflow id is required")
-		return
-	}
-	if r.Method == http.MethodGet {
-		binding, err := s.engine.Repo.GetWorkflowKnowledgeBinding(r.Context(), c.TenantID, workflowID)
-		if err != nil {
-			problem(w, 500, err.Error())
-			return
-		}
-		if binding.WorkflowID == "" {
-			binding = defaultWorkflowKnowledgeBinding(c.TenantID, workflowID)
-		}
-		write(w, 200, binding)
-		return
-	}
-	var in struct {
-		RetrievalMode string  `json:"retrievalMode"`
-		TopK          int     `json:"topK"`
-		MinScore      float64 `json:"minScore"`
-		NoMatchPolicy string  `json:"noMatchPolicy"`
-	}
-	if decode(w, r, &in) != nil {
-		return
-	}
-	if !oneOf(in.RetrievalMode, "auto", "always", "disabled") || !oneOf(in.NoMatchPolicy, "allow-model", "require-evidence") || in.TopK < 1 || in.TopK > 20 || in.MinScore < 0 || in.MinScore > 1 || in.RetrievalMode == "disabled" && in.NoMatchPolicy == "require-evidence" {
-		problem(w, 422, "invalid knowledge binding policy")
-		return
-	}
-	binding := model.WorkflowKnowledgeBinding{
-		TenantID: c.TenantID, WorkflowID: workflowID,
-		// Knowledge documents are directly associated with a workflow/Agent;
-		// this binding stores only retrieval policy, not another filter layer.
-		ProductIDs: nil, Categories: nil, Tags: nil,
-		RetrievalMode: in.RetrievalMode, TopK: in.TopK, MinScore: in.MinScore, NoMatchPolicy: in.NoMatchPolicy, UpdatedAt: time.Now().UnixMilli(),
-	}
-	if err := s.engine.Repo.SaveWorkflowKnowledgeBinding(r.Context(), binding); err != nil {
-		problem(w, 500, err.Error())
-		return
-	}
-	s.audit(r, "ai.workflow.knowledge-binding.save", "ai-workflow", workflowID, map[string]any{"retrievalMode": binding.RetrievalMode, "topK": binding.TopK})
-	write(w, 200, binding)
-}
-
-func (s *Server) aiChatStream(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Question       string `json:"question"`
-		Workflow       string `json:"workflow,omitempty"`
-		WorkflowID     string `json:"workflowId,omitempty"`
-		ConversationID string `json:"conversationId,omitempty"`
-		Model          string `json:"model,omitempty"`
-		MaxTokens      int    `json:"maxTokens,omitempty"`
-	}
-	if decode(w, r, &in) != nil {
-		return
-	}
-	if s.engine.AIWorkflows == nil {
-		problem(w, http.StatusServiceUnavailable, "未配置 AI 工作流服务（Harness），智能助手问答暂不可用")
-		return
-	}
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		problem(w, http.StatusInternalServerError, "streaming is not supported")
-		return
-	}
-	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache, no-transform")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-	w.WriteHeader(http.StatusOK)
-	flusher.Flush()
-
-	workflowID := in.WorkflowID
-	if workflowID == "" {
-		workflowID = in.Workflow
-	}
-	terminal := false
-	result, err := s.runAIWorkflow(r.Context(), claims(r), in.Question, workflowID, in.ConversationID, in.Model, in.MaxTokens, func(event ports.AIWorkflowEvent) error {
-		if event.Type == "run.completed" || event.Type == "run.failed" {
-			terminal = true
-		}
-		event = sanitizeWorkflowEvent(event)
-		if err := writeWorkflowSSE(w, event); err != nil {
-			return err
-		}
-		flusher.Flush()
-		return r.Context().Err()
-	})
-	if err != nil {
-		if r.Context().Err() == nil && !terminal {
-			_ = writeWorkflowSSE(w, ports.AIWorkflowEvent{Type: "run.failed", RunID: result.RunID, Code: "workflow_failed", Message: "AI workflow request failed"})
-			flusher.Flush()
-		}
-		return
-	}
-	if !terminal {
-		_ = writeWorkflowSSE(w, ports.AIWorkflowEvent{Type: "run.completed", RunID: result.RunID, WorkflowID: result.WorkflowID, Model: result.Model, Answer: result.Answer})
-		flusher.Flush()
-	}
-}
-
-func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, workflowID, conversationID, modelName string, maxTokens int, emit func(ports.AIWorkflowEvent) error) (ports.AIWorkflowResult, error) {
-	ctx = aiRunContext(ctx, c)
-	var authErr error
-	ctx, authErr = s.authorizeAIRun(ctx, c.TenantID, "")
-	if authErr != nil {
-		return ports.AIWorkflowResult{}, authErr
-	}
-	question = strings.TrimSpace(question)
-	if question == "" {
-		return ports.AIWorkflowResult{}, errors.New("question is required")
-	}
-	if len(question) > 8000 {
-		return ports.AIWorkflowResult{}, errors.New("question exceeds 8000 bytes")
-	}
-	if s.aiProviderRuntime != nil {
-		// The selected Provider owns the model for every AI surface. Keep the
-		// browser's run form from sending a stale per-workflow model override.
-		config := s.aiProviderRuntime.CurrentConfig()
-		if configuredModel := strings.TrimSpace(config.Model); configuredModel != "" {
-			modelName = configuredModel
-		}
-		if maxTokens <= 0 {
-			maxTokens = effectiveAIMaxTokens(config.MaxTokens)
-		}
-	}
-	knowledgeQuestion := question
-	runID := "ai_run_" + randomHex(10)
-	if conversationID == "" {
-		conversationID = runID
-	}
-	if c.TokenUse == "user" {
-		conversationID += "\x00" + requestAccessVersion(ctx, c)
-	}
-	conversationID = harnessConversationID(c.TenantID, c.Username, conversationID)
-	if maxTokens <= 0 {
-		maxTokens = 2048
-	}
-	if maxTokens > 8192 {
-		maxTokens = 8192
-	}
-	binding, err := s.engine.Repo.GetWorkflowKnowledgeBinding(ctx, c.TenantID, strings.TrimSpace(workflowID))
-	if err != nil {
-		return ports.AIWorkflowResult{RunID: runID}, fmt.Errorf("load workflow knowledge binding: %w", err)
-	}
-	if binding.WorkflowID == "" {
-		binding = defaultWorkflowKnowledgeBinding(c.TenantID, strings.TrimSpace(workflowID))
-	}
-	scopes := workflowScopes(ctx)
-	if len(intersectScopes(scopes, []string{auth.ScopeQueryKnowledgeBase})) == 0 {
-		if binding.RetrievalMode != "disabled" && binding.NoMatchPolicy == "require-evidence" {
-			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, errors.New("当前用户无此工作流所需的知识库访问权限")
-		}
-		binding.RetrievalMode = "disabled"
-	}
-	var knowledgeScope *auth.KnowledgeScope
-	if binding.RetrievalMode == "disabled" {
-		filteredScopes := make([]string, 0, len(scopes))
-		for _, scope := range scopes {
-			if scope != auth.ScopeQueryKnowledgeBase {
-				filteredScopes = append(filteredScopes, scope)
-			}
-		}
-		scopes = filteredScopes
-		question += "\n\n[平台知识策略] 此工作流已禁用知识库，不得调用知识库工具。"
-	} else {
-		knowledgeScope = &auth.KnowledgeScope{WorkflowID: binding.WorkflowID, TopK: binding.TopK, MinScore: binding.MinScore}
-		question += workflowKnowledgeInstruction(binding)
-	}
-	if binding.RetrievalMode != "disabled" && s.engine.KB == nil {
-		if binding.NoMatchPolicy == "require-evidence" {
-			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, errors.New("workflow knowledge base is unavailable")
-		}
-		question += "\n\n[平台知识策略] 知识库不可用，本次没有知识证据；不得声称依据知识库作答。"
-	}
-	if binding.RetrievalMode != "disabled" && s.engine.KB != nil {
-		callID := "knowledge_prefetch_" + randomHex(6)
-		if emit != nil {
-			_ = emit(ports.AIWorkflowEvent{Type: "tool.started", RunID: runID, WorkflowID: workflowID, Tool: "query_knowledge_base", CallID: callID, Data: map[string]any{"inputSummary": "按工作流绑定策略预检知识库"}})
-		}
-		hits, searchErr := s.searchWorkflowKnowledge(ctx, c.TenantID, knowledgeQuestion, binding)
-		success := searchErr == nil
-		if emit != nil {
-			_ = emit(ports.AIWorkflowEvent{Type: "tool.completed", RunID: runID, WorkflowID: workflowID, Tool: "query_knowledge_base", CallID: callID, Success: &success, Data: map[string]any{"outputSummary": fmt.Sprintf("召回 %d 条绑定知识", len(hits))}})
-		}
-		if searchErr != nil {
-			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, fmt.Errorf("prefetch workflow knowledge: %w", searchErr)
-		}
-		if len(hits) == 0 && binding.NoMatchPolicy == "require-evidence" {
-			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, errors.New("workflow requires matching knowledge evidence")
-		}
-		if len(hits) > 0 {
-			question, err = core.AppendKnowledgeEvidence(question, hits, 30<<10)
-			if err != nil {
-				return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, err
-			}
-		}
-	}
-	ctx, err = s.authorizeAIRun(ctx, c.TenantID, "")
-	if err != nil {
-		return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, err
-	}
-	if err = core.ValidateAIInput(question, 30<<10); err != nil {
-		return ports.AIWorkflowResult{RunID: runID}, err
-	}
-	mcpToken, err := s.auth.IssueHarnessForIdentity(c, runID, scopes, knowledgeScope, 2*time.Minute)
-	if err != nil {
-		return ports.AIWorkflowResult{RunID: runID}, fmt.Errorf("issue harness token: %w", err)
-	}
-	started := time.Now()
-	result, err := s.engine.AIWorkflows.StreamChat(ctx, ports.AIWorkflowRequest{TenantID: c.TenantID, Actor: c.Username, RunID: runID, ConversationID: strings.TrimSpace(conversationID), WorkflowID: strings.TrimSpace(workflowID), Question: question, Model: strings.TrimSpace(modelName), MaxTokens: maxTokens, MCPToken: mcpToken}, emit)
-	if result.RunID == "" {
-		result.RunID = runID
-	}
-	s.ai.RecordAIRun(aiworkflow.AIRunMeta{TenantID: c.TenantID, Actor: c.Username, WorkflowID: strings.TrimSpace(workflowID), Model: strings.TrimSpace(modelName), InputBytes: len(question), StartedAt: started}, result, err)
-	return result, err
-}
-
-func workflowKnowledgeInstruction(binding model.WorkflowKnowledgeBinding) string {
-	payload, _ := json.Marshal(map[string]any{"mode": binding.RetrievalMode, "workflowId": binding.WorkflowID, "topK": binding.TopK, "minScore": binding.MinScore, "noMatchPolicy": binding.NoMatchPolicy})
-	return "\n\n[平台知识策略] " + string(payload) + "。知识文档已直接绑定当前 Agent，只能检索该 Agent 的文档；服务端会强制收紧范围。"
-}
-
-func (s *Server) searchWorkflowKnowledge(ctx context.Context, tenantID, question string, binding model.WorkflowKnowledgeBinding) ([]ports.KnowledgeHit, error) {
-	return aiworkflow.SearchWorkflowKnowledge(ctx, s.engine.KB, tenantID, question, binding)
-}
-
-func harnessConversationID(tenantID, username, conversationID string) string {
-	sum := sha256.Sum256([]byte(tenantID + "\x00" + username + "\x00" + conversationID))
-	return "conv_" + hex.EncodeToString(sum[:])
-}
-
-func sanitizeWorkflowEvent(event ports.AIWorkflowEvent) ports.AIWorkflowEvent {
-	event.Data = sanitizeWorkflowData(event.Data)
-	return event
-}
-
-func sanitizeWorkflowData(data map[string]any) map[string]any {
-	if data == nil {
-		return nil
-	}
-	out := make(map[string]any, len(data))
-	for key, value := range data {
-		canonicalKey := strings.NewReplacer("_", "", "-", "").Replace(strings.ToLower(key))
-		if canonicalKey == "conversationid" || canonicalKey == "sessionid" || canonicalKey == "authorization" || canonicalKey == "apikey" ||
-			strings.HasSuffix(canonicalKey, "token") || strings.Contains(canonicalKey, "secret") || strings.Contains(canonicalKey, "password") ||
-			strings.Contains(canonicalKey, "credential") || strings.Contains(canonicalKey, "cookie") {
-			continue
-		}
-		out[key] = sanitizeWorkflowValue(value)
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func sanitizeWorkflowValue(value any) any {
-	switch typed := value.(type) {
-	case map[string]any:
-		return sanitizeWorkflowData(typed)
-	case []any:
-		items := make([]any, len(typed))
-		for i, item := range typed {
-			items[i] = sanitizeWorkflowValue(item)
-		}
-		return items
-	default:
-		return value
-	}
-}
-
-func writeWorkflowSSE(w io.Writer, event ports.AIWorkflowEvent) error {
-	if !allowedWorkflowEvent(event.Type) {
-		return fmt.Errorf("unsupported workflow event type %q", event.Type)
-	}
-	b, err := json.Marshal(event)
-	if err != nil {
-		return err
-	}
-	if len(b) > 64<<10 {
-		return errors.New("workflow event exceeds 64 KiB")
-	}
-	_, err = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", event.Type, b)
-	return err
-}
-
-func allowedWorkflowEvent(eventType string) bool {
-	switch eventType {
-	case "run.started", "text.delta", "tool.started", "tool.completed", "run.completed", "run.failed":
-		return true
-	default:
-		return false
-	}
-}
-func (s *Server) aiRuleDraft(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Text string `json:"text"`
-	}
-	if decode(w, r, &in) != nil {
-		return
-	}
-	rule, err := s.ai.DraftRule(aiRunContext(r.Context(), claims(r)), claims(r).TenantID, in.Text) /* 由 rule-drafter 工作流生成。 */
-	if err != nil {
-		problem(w, 502, err.Error())
-		return
-	}
-	c := claims(r)
-	rule.TenantID = c.TenantID
-	rule.Enabled = false
-	// AI drafts always start from the executable JSON condition form. A model
-	// response must not smuggle an already-active Gengine expression into the
-	// editor; the generated alternative is shown as a commented placeholder.
-	rule.Expression = ""
-	if rule.ID == "" {
-		rule.ID = "rule_draft_" + randomHex(8)
-	}
-	if rule.Match == "" {
-		rule.Match = "all"
-	}
-	if rule.Version == 0 {
-		rule.Version = 1
-	}
-	if rule.Level == "" {
-		rule.Level = "MEDIUM"
-	}
-	warnings, conflicts, validationErr := s.engine.ValidateRuleDraft(r.Context(), rule)
-	if validationErr != nil {
-		_ = s.engine.Repo.SaveAIToolCall(r.Context(), model.AIToolCallLog{ID: "tool_" + randomHex(8), TenantID: c.TenantID, Actor: c.Username, Tool: "ai.rule_draft.validate", Input: map[string]any{"text": in.Text}, Output: rule, Success: false, Error: validationErr.Error(), CreatedAt: time.Now().UnixMilli()})
-		problem(w, 422, validationErr.Error())
-		return
-	}
-	presentation, presentationErr := core.PresentRule(rule)
-	if presentationErr != nil {
-		problem(w, http.StatusInternalServerError, presentationErr.Error())
-		return
-	}
-	_ = s.engine.Repo.SaveAudit(r.Context(), model.AuditLog{ID: fmt.Sprintf("audit_%d", time.Now().UnixNano()), TenantID: c.TenantID, Actor: c.Username, Action: "ai.rule_draft", TargetType: "rule", TargetID: rule.ID, Details: map[string]any{"success": true}, CreatedAt: time.Now().UnixMilli()})
-	_ = s.engine.Repo.SaveAIToolCall(r.Context(), model.AIToolCallLog{ID: "tool_" + randomHex(8), TenantID: c.TenantID, Actor: c.Username, Tool: "ai.rule_draft", Input: map[string]any{"text": in.Text}, Output: rule, Success: true, CreatedAt: time.Now().UnixMilli()})
-	write(w, 200, map[string]any{"draft": rule, "presentation": presentation, "requiresHumanApproval": true, "schemaValid": true, "warnings": warnings, "conflicts": conflicts})
-}
-
-func (s *Server) aiReport(w http.ResponseWriter, r *http.Request) {
-	var in struct {
-		Period string `json:"period"`
-		Start  int64  `json:"start"`
-		End    int64  `json:"end"`
-	}
-	if decode(w, r, &in) != nil {
-		return
-	}
-	if in.Period == "" {
-		in.Period = "日报"
-	}
-	report, err := s.ai.GenerateReport(aiRunContext(r.Context(), claims(r)), claims(r).TenantID, in.Period, in.Start, in.End)
-	if err != nil {
-		problem(w, 502, err.Error())
-		return
-	}
-	write(w, 200, map[string]any{"period": in.Period, "start": in.Start, "end": in.End, "report": report})
-}
-func (s *Server) knowledgeDocs(w http.ResponseWriter, r *http.Request) {
-	pagination := parseListPagination(r)
-	items, total, err := s.engine.Repo.ListKnowledgeDocsPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
-	if err != nil {
-		problem(w, 500, err.Error())
-		return
-	}
-	_, persistent := s.engine.KB.(ports.EmbeddingRuntime)
-	indexMode := "local-memory"
-	if persistent {
-		indexMode = "postgres-pgvector"
-	}
-	meta := map[string]any{"indexMode": indexMode, "persistentIndex": persistent, "indexState": s.engine.KnowledgeReindex.Status()}
-	if embeddingModel := knowledgeEmbeddingModel(s); embeddingModel != "" {
-		meta["embeddingModel"] = embeddingModel
-	}
-	writeList(w, 200, items, total, pagination, meta)
-}
-
-// knowledgeEmbeddingModel names the vector space of the persistent index.
-func knowledgeEmbeddingModel(s *Server) string {
-	if index, ok := s.engine.KB.(interface{ EmbeddingModel() string }); ok {
-		return index.EmbeddingModel()
-	}
-	return ""
-}
-
-func (s *Server) knowledgeDocumentDetail(w http.ResponseWriter, r *http.Request) {
-	documentID := strings.TrimSpace(r.PathValue("id"))
-	if documentID == "" {
-		problem(w, http.StatusUnprocessableEntity, "document id is required")
-		return
-	}
-	documents, err := s.engine.Repo.ListKnowledgeDocs(r.Context(), claims(r).TenantID)
-	if err != nil {
-		problem(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-	var document model.KnowledgeDoc
-	for _, item := range documents {
-		if item.ID == documentID {
-			document = item
-			break
-		}
-	}
-	if document.ID == "" {
-		problem(w, http.StatusNotFound, "knowledge document not found")
-		return
-	}
-	inspector, ok := s.engine.KB.(ports.InspectableKnowledgeBase)
-	if !ok {
-		problem(w, http.StatusNotImplemented, "the configured knowledge index does not expose stored chunks")
-		return
-	}
-	chunks, err := inspector.ListKnowledgeChunks(r.Context(), claims(r).TenantID, document.ID)
-	if err != nil {
-		problem(w, http.StatusBadGateway, "load indexed chunks: "+err.Error())
-		return
-	}
-	write(w, http.StatusOK, map[string]any{
-		"document": document,
-		"index":    knowledgeIndexDetails(s, document, chunks),
-		"chunks":   chunks,
-	})
-}
-
-func knowledgeIndexDetails(s *Server, document model.KnowledgeDoc, chunks []model.KnowledgeChunk) map[string]any {
-	_, persistent := s.engine.KB.(ports.EmbeddingRuntime)
-	index := map[string]any{
-		"mode":           "local-memory",
-		"persistent":     persistent,
-		"vectorizer":     "local-token-similarity",
-		"embeddingModel": "",
-		"chunkCount":     len(chunks),
-		"extractedChars": document.Metadata["characters"],
-		"chunking": map[string]any{
-			"strategy":         "fixed-window-overlap",
-			"size":             core.KnowledgeChunkSize,
-			"overlap":          core.KnowledgeChunkOverlap,
-			"unit":             "Unicode 字符（rune/code point）",
-			"offsetConvention": "StartChar 包含，EndChar 不包含",
-			"normalization":    "先提取文件文本，再清洗 XML/HTML 标签、空白并去除首尾空白",
-		},
-	}
-	if persistent {
-		index["mode"] = "postgres-pgvector"
-		index["vectorizer"] = "external-embedding-api"
-		index["embeddingModel"] = knowledgeEmbeddingModel(s)
-	}
-	return index
-}
-
-func (s *Server) knowledgeUpload(w http.ResponseWriter, r *http.Request) {
-	const maxDocumentBytes = 32 << 20
-	if s.engine.KB == nil {
-		problem(w, 503, "knowledge base disabled")
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxDocumentBytes+(1<<20))
-	if err := r.ParseMultipartForm(1 << 20); err != nil {
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			problem(w, http.StatusRequestEntityTooLarge, "document exceeds 32 MiB")
-			return
-		}
-		problem(w, 400, "invalid multipart form")
-		return
-	}
-	if r.MultipartForm != nil {
-		defer r.MultipartForm.RemoveAll()
-	}
-	f, h, err := r.FormFile("file")
-	if err != nil {
-		problem(w, 400, "file is required")
-		return
-	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, maxDocumentBytes+1))
-	if err != nil {
-		problem(w, 400, err.Error())
-		return
-	}
-	if len(data) > maxDocumentBytes {
-		problem(w, http.StatusRequestEntityTooLarge, "document exceeds 32 MiB")
-		return
-	}
-	id := fmt.Sprintf("doc_%d", time.Now().UnixNano())
-	c := claims(r)
-	workflowID := strings.TrimSpace(r.FormValue("workflowId"))
-	if workflowID == "" || len(workflowID) > 128 {
-		problem(w, 422, "workflowId is required so every document is associated with an Agent")
-		return
-	}
-	productID := r.FormValue("productId")
-	category := strings.TrimSpace(r.FormValue("category"))
-	tags := cleanStringList(strings.Split(r.FormValue("tags"), ","), 16, 40)
-	if len(category) > 40 {
-		problem(w, 422, "category is too long")
-		return
-	}
-	filename := strings.NewReplacer("/", "_", "\\", "_", "..", "_").Replace(h.Filename)
-	bucket := "iot-knowledge-docs"
-	objectKey := fmt.Sprintf("%s/agents/%s/%s/%s", c.TenantID, workflowID, id, filename)
-	if _, err = s.engine.Archive.PutObject(r.Context(), bucket, objectKey, bytes.NewReader(data), int64(len(data)), h.Header.Get("Content-Type")); err != nil {
-		problem(w, 502, "store document: "+err.Error())
-		return
-	}
-	doc := model.KnowledgeDoc{ID: id, TenantID: c.TenantID, WorkflowID: workflowID, ProductID: productID, Category: category, Tags: tags, ObjectBucket: bucket, ObjectKey: objectKey, Filename: h.Filename, Status: "UPLOADED", CreatedAt: time.Now().UnixMilli()}
-	doc.Metadata = map[string]any{"size": len(data), "contentType": h.Header.Get("Content-Type"), "indexStage": "pending", "indexProgress": map[string]int{"done": 0, "total": 0}, "chunking": map[string]any{"strategy": "fixed-window-overlap", "size": core.KnowledgeChunkSize, "overlap": core.KnowledgeChunkOverlap, "unit": "unicode-code-points", "offsetConvention": "start-inclusive,end-exclusive"}}
-	if run := capacityRequestRunID(r); run != "" {
-		doc.Metadata["capacityRunId"] = run
-	}
-	if err = s.engine.Repo.SaveKnowledgeDoc(r.Context(), doc); err != nil {
-		problem(w, 500, "文档记录保存失败")
-		return
-	}
-	// The persistent worker recovers pending rows after a restart. Tests and
-	// explicitly in-memory development retain synchronous indexing.
-	if _, durable := s.engine.KB.(ports.EmbeddingRuntime); !durable {
-		result, indexErr := core.IndexKnowledgeDocument(r.Context(), s.engine.KB, doc, data)
-		if indexErr != nil {
-			doc.Status = "INDEX_FAILED"
-			doc.Metadata["indexError"] = indexErr.Error()
-			_ = s.engine.Repo.SaveKnowledgeDoc(r.Context(), doc)
-			problem(w, 422, indexErr.Error())
-			return
-		}
-		doc.Status = "INDEXED"
-		doc.Metadata["chunks"] = result.Chunks
-		doc.Metadata["characters"] = result.Characters
-		if err = s.engine.Repo.SaveKnowledgeDoc(r.Context(), doc); err != nil {
-			problem(w, 500, err.Error())
-			return
-		}
-		write(w, 201, doc)
-		return
-	}
-	s.audit(r, "knowledge.upload", "knowledge-document", doc.ID, map[string]any{"workflowId": workflowID})
-	write(w, 202, doc)
-}
 func (s *Server) mqttToken(w http.ResponseWriter, r *http.Request) {
 	c := claims(r)
 	scope := []string{fmt.Sprintf("/iot/parsed/%s/#", c.TenantID), fmt.Sprintf("/iot/alarm/%s/#", c.TenantID), fmt.Sprintf("/iot/device/state/%s/#", c.TenantID), fmt.Sprintf("/iot/ui-action/%s", c.TenantID)}
@@ -2650,7 +1488,7 @@ func (s *Server) deviceMQTTToken(w http.ResponseWriter, r *http.Request) {
 
 	token, err := s.auth.IssueWithACL(v.AccessKey, v.TenantID, "device", nil, acl, ttl)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	response := map[string]any{"username": v.AccessKey, "token": token, "expiresIn": int(ttl.Seconds()), "publishTopic": topic, "receiptTopic": receiptTopic, "websocketUrl": s.mqttWebSocketURL(r)}
@@ -2673,7 +1511,7 @@ func (s *Server) mqttLoadToken(w http.ResponseWriter, r *http.Request) {
 	acl := []auth.ACLRule{{Permission: "allow", Action: "publish", Topic: topic}}
 	token, err := s.auth.IssueWithACL("loadgen:"+c.Username, c.TenantID, "loadgen", nil, acl, time.Hour)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	s.audit(r, "mqtt.load-token.issue", "product", input.ProductID, map[string]any{"topic": topic, "expiresIn": 3600})
@@ -2695,7 +1533,7 @@ func (s *Server) videoCameras(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.ListVideoCameraMappingsPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	for index := range items {
@@ -2730,7 +1568,7 @@ func (s *Server) videoRelations(w http.ResponseWriter, r *http.Request) {
 	}
 	relations, err := s.engine.Repo.ListVideoCameraRelationsByTarget(r.Context(), claims(r).TenantID, relationType, targetID)
 	if err != nil {
-		problem(w, http.StatusInternalServerError, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	write(w, http.StatusOK, map[string]any{"items": relations, "relationType": relationType, "targetId": targetID})
@@ -2798,7 +1636,7 @@ func (s *Server) saveVideoCamera(w http.ResponseWriter, r *http.Request) {
 	v.SDKCredentialRef = ""
 	v.UpdatedAt = time.Now().UnixMilli()
 	if err := s.engine.Repo.SaveVideoCameraMapping(r.Context(), v); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	// Live configuration is stored separately and is never touched here; only
@@ -2823,7 +1661,7 @@ func secretHash(secret string) string {
 }
 func (s *Server) audit(r *http.Request, action, targetType, targetID string, details map[string]any) {
 	c := claims(r)
-	_ = s.engine.Repo.SaveAudit(r.Context(), model.AuditLog{ID: "audit_" + randomHex(10), TenantID: c.TenantID, Actor: c.Username, Action: action, TargetType: targetType, TargetID: targetID, Details: details, CreatedAt: time.Now().UnixMilli()})
+	s.engine.RecordAudit(r.Context(), model.AuditLog{ID: "audit_" + randomHex(10), TenantID: c.TenantID, Actor: c.Username, Action: action, TargetType: targetType, TargetID: targetID, Details: details, CreatedAt: time.Now().UnixMilli()})
 }
 
 type endpointHandler func(http.ResponseWriter, *http.Request)
@@ -2850,6 +1688,11 @@ func (s *Server) authorize(role string) gin.HandlerFunc {
 		}
 		if claimsValue.TokenUse != "" && claimsValue.TokenUse != "user" {
 			ginProblem(c, http.StatusForbidden, "此专用凭据不能用于管理接口")
+			c.Abort()
+			return
+		}
+		if claimsValue.TokenUse == "" && s.cfg.AdminUser != "" && claimsValue.Username == s.cfg.AdminUser && claimsValue.SessionVersion != s.adminSessionVersion() {
+			ginProblem(c, http.StatusUnauthorized, "管理员凭据已更新，请重新登录")
 			c.Abort()
 			return
 		}
@@ -3069,6 +1912,16 @@ func write(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
+
+// internalError answers an unexpected failure without exposing its text:
+// storage and dependency errors can carry hosts, SQL or credentials. The
+// reference in the response matches the logged error.
+func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error) {
+	reference := randomHex(6)
+	s.log.Error("request failed", "reference", reference, "method", r.Method, "path", r.URL.Path, "error", err)
+	write(w, http.StatusInternalServerError, map[string]any{"type": "about:blank", "title": http.StatusText(http.StatusInternalServerError), "status": http.StatusInternalServerError, "detail": "服务内部错误，请稍后重试；如持续出现请提供编号 " + reference + " 联系管理员", "traceId": reference})
+}
+
 func problem(w http.ResponseWriter, status int, detail string) {
 	write(w, status, map[string]any{"type": "about:blank", "title": http.StatusText(status), "status": status, "detail": detail})
 }

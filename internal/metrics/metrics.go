@@ -99,7 +99,7 @@ type rate struct {
 
 func New() *Registry {
 	counters := map[string]uint64{}
-	for _, name := range []string{"raw_archive_success_total", "raw_archive_failed_total", "raw_publish_failed_total", "parse_failed_total", "parse_success_total", "alarm_trigger_total", "video_alarm_ingest_total", "video_alarm_failed_total", "video_media_transfer_success_total", "video_media_transfer_failed_total", "ai_analysis_success_total", "ai_analysis_failed_total", "ai_analysis_timeout_total", "mqtt_archive_receipt_total", "dlq_published_total", "retention_failed_total", "retention_deleted_total", "notification_sent_total", "notification_failed_total"} {
+	for _, name := range []string{"raw_archive_success_total", "raw_archive_failed_total", "raw_publish_failed_total", "parse_failed_total", "parse_success_total", "alarm_trigger_total", "video_alarm_ingest_total", "video_alarm_failed_total", "video_media_transfer_success_total", "video_media_transfer_failed_total", "ai_analysis_success_total", "ai_analysis_failed_total", "ai_analysis_timeout_total", "mqtt_archive_receipt_total", "dlq_published_total", "retention_failed_total", "retention_deleted_total", "notification_sent_total", "notification_failed_total", "event_publish_failed_total", "audit_write_failed_total"} {
 		counters[name] = 0
 	}
 	gauges := map[string]float64{"storage_latency_ms": 0, "mqtt_inflight_messages": 0, "mqtt_subscription_count": 0, "mqtt_ws_client_count": 0, "kafka_lag": 0}
@@ -115,12 +115,12 @@ func (r *Registry) Inc(name string) {
 	r.mu.Unlock()
 }
 
-// SetProcessInfo exposes process_info{role,instance} 1 so per-instance
-// scrapes can be attributed without per-device labels.
-func (r *Registry) SetProcessInfo(role, instance string) {
+// SetProcessInfo exposes process_info{role,instance,version} 1 so
+// per-instance scrapes can be attributed without per-device labels.
+func (r *Registry) SetProcessInfo(role, instance, version string) {
 	q := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", "")
 	r.mu.Lock()
-	r.info = fmt.Sprintf("# TYPE process_info gauge\nprocess_info{role=\"%s\",instance=\"%s\"} 1\n", q.Replace(role), q.Replace(instance))
+	r.info = fmt.Sprintf("# TYPE process_info gauge\nprocess_info{role=\"%s\",instance=\"%s\",version=\"%s\"} 1\n", q.Replace(role), q.Replace(instance), q.Replace(version))
 	r.mu.Unlock()
 }
 func (r *Registry) Add(name string, v uint64)  { r.mu.Lock(); r.counters[name] += v; r.mu.Unlock() }

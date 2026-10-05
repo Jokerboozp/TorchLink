@@ -113,7 +113,7 @@ func (e *Service) runBusinessWorkflow(ctx context.Context, tenantID, workflowID,
 			return ports.AIWorkflowResult{}, errors.New("此工作流要求知识证据，但知识库不可用")
 		}
 		useKnowledge = false
-		prompt += "\n\n[平台知识策略] 知识库不可用，本次没有知识证据；不得声称依据知识库作答。"
+		prompt += aiprompt.KnowledgeUnavailable
 	}
 	var knowledge *ports.AIKnowledgeRunScope
 	if useKnowledge {
@@ -122,8 +122,8 @@ func (e *Service) runBusinessWorkflow(ctx context.Context, tenantID, workflowID,
 			if err != nil {
 				return ports.AIWorkflowResult{}, fmt.Errorf("检索 %s 绑定知识失败：%w", workflowID, err)
 			}
-			if keywordOnlyHits(hits) {
-				prompt += "\n\n[平台知识策略] 向量检索暂不可用，以下证据仅按关键词匹配，相关性可能较低，请据实判断。"
+			if KeywordOnlyHits(hits) {
+				prompt += aiprompt.KnowledgeKeywordOnly
 			}
 			if len(hits) == 0 && binding.NoMatchPolicy == "require-evidence" {
 				return ports.AIWorkflowResult{}, errors.New("此工作流要求匹配知识证据，但未检索到匹配内容")
@@ -134,7 +134,7 @@ func (e *Service) runBusinessWorkflow(ctx context.Context, tenantID, workflowID,
 					return ports.AIWorkflowResult{}, fmt.Errorf("知识证据超过 AI 输入预算：%w", err)
 				}
 			} else {
-				prompt += "\n\n[平台知识策略] 本次未检索到匹配知识，回答须说明证据不足。"
+				prompt += aiprompt.KnowledgeNoMatch
 			}
 		}
 		if knowledgeToolRequested {
@@ -160,10 +160,7 @@ func (e *Service) runBusinessWorkflow(ctx context.Context, tenantID, workflowID,
 		}
 		identity, _ = ports.AIRunIdentityFrom(ctx)
 	}
-	timeout := e.engine.BusinessRunTimeout
-	if timeout <= 0 {
-		timeout = defaultBusinessRunTimeout
-	}
+	timeout := e.businessRunTimeout()
 	// The MCP credential must outlive waiting for a Harness slot and the run.
 	token, err := e.engine.HarnessTokens.IssueBusinessRunToken(tenantID, identity, runID, workflowID, scopes, knowledge, businessRunCapacityWait+timeout+time.Minute)
 	if err != nil {
@@ -171,9 +168,9 @@ func (e *Service) runBusinessWorkflow(ctx context.Context, tenantID, workflowID,
 	}
 	if knowledge == nil {
 		if useKnowledge {
-			prompt += "\n\n[平台知识策略] 已附带授权范围的检索结果；本次未提供知识库工具，不得调用。"
+			prompt += aiprompt.KnowledgeEvidenceNoTool
 		} else {
-			prompt += "\n\n[平台知识策略] 本次运行未授权知识库，不得调用知识库工具。"
+			prompt += aiprompt.KnowledgeNotAuthorized
 		}
 	}
 	request := ports.AIWorkflowRequest{TenantID: tenantID, Actor: identity.Username, RunID: runID, ConversationID: runID, WorkflowID: workflowID, Question: prompt, MaxTokens: maxTokens, MCPToken: token, OneShot: true, Timeout: timeout}
@@ -193,7 +190,9 @@ func (e *Service) runBusinessWorkflow(ctx context.Context, tenantID, workflowID,
 	return result, err
 }
 
-func keywordOnlyHits(hits []ports.KnowledgeHit) bool {
+// KeywordOnlyHits reports whether retrieval fell back to keyword matching
+// because the vector service was unavailable.
+func KeywordOnlyHits(hits []ports.KnowledgeHit) bool {
 	for _, hit := range hits {
 		if hit.KeywordOnly {
 			return true
@@ -275,6 +274,20 @@ func (e *Service) DraftRule(ctx context.Context, tenantID, text string) (model.A
 	rule.TenantID, rule.Enabled, rule.Version = tenantID, false, 1
 	rule.CreatedAt, rule.UpdatedAt = now, now
 	return rule, nil
+}
+
+func (e *Service) businessRunTimeout() time.Duration {
+	if e.engine.BusinessRunTimeout > 0 {
+		return e.engine.BusinessRunTimeout
+	}
+	return defaultBusinessRunTimeout
+}
+
+// BusinessRunBudget is the longest a business run can take: waiting for a
+// free Harness slot plus the run itself. Callers that bound a run with their
+// own context derive the deadline from it so the inner budget is reachable.
+func (e *Service) BusinessRunBudget() time.Duration {
+	return businessRunCapacityWait + e.businessRunTimeout()
 }
 
 // businessRunCapacityWait bounds how long a business run waits for a free

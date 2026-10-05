@@ -44,7 +44,7 @@ func TestEmbeddingConfigurationPermissionsSecretsAndIndependentTest(t *testing.T
 	api.SetEmbeddingRuntime(runtime)
 	server := newTestHTTPServer(api)
 	defer server.Close()
-	admin, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+	admin, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -68,6 +68,8 @@
 | `ProtocolListenerFull` | TCP / UDP 会话达到上限 | 调整 `IOT_PROTOCOL_LISTENER_MAX_SESSIONS`，核对是否有异常重连的设备 |
 | `MQTTSubscriptionLost`、`MQTTDeliveryLoss`、`MQTTInboxBacklog`、`MQTTBrokerObservationMissing` | MQTT 订阅、投递或本地收件箱异常 | 检查 EMQX 状态与管理 API 配置、磁盘空间；收件箱积压在依赖恢复后自动排空 |
 | `AlarmNotificationFailures` | 火警通知多次重试仍失败 | 告警详情 → 通知记录查看失败原因；检查渠道地址、加签密钥、SMTP 账号和 `IOT_NOTIFY_ALLOWED_CIDRS`，修复后在通知页发送测试消息 |
+| `AlarmEventDeliveryFailures` | 告警事件未能推送到消息总线或实时通道 | 告警已入库，告警中心仍可查询；检查 Kafka / EMQX 状态和平台日志中的 `event delivery failed`，对外消息主题订阅方可能缺少这段时间的事件 |
+| `AuditWriteFailures` | 审计记录写入失败 | 操作已生效但缺少审计；检查 PostgreSQL 连接与磁盘，平台日志 `audit write failed` 列出租户与动作 |
 | `AIAnalysisFailures` | 研判工作流失败 | 检查 Harness 健康、DeepSeek Key 与额度、MCP 回调地址 |
 | `BackupFailures` | 备份、异地副本或恢复演练失败 | 备份中心查看失败任务；检查 RustFS、异地存储凭据、磁盘空间和 PostgreSQL 客户端版本 |
 | `RetentionFailures` | 历史数据清理失败 | Jobs 日志中 `retention purge failed` 的表与原因；不处理会使磁盘持续增长 |

@@ -5,17 +5,28 @@ import fs from 'node:fs'
 // liveVideo.js imports the API client; load only the pure helpers here.
 // Normalize CRLF first so the block removal below also matches core.autocrlf=true checkouts.
 const source = fs.readFileSync(new URL('../src/liveVideo.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
-const pure = source.replace(/^import .*$/gm, '').replace(/export const liveState[\s\S]*?export function resetLiveState\(\) \{[\s\S]*?\n\}\n/, '')
+const pure = source
+  .replace(/^import\s[^'"]*['"][^'"]+['"];?$/gm, '')
+  .replace(/export const liveState[\s\S]*?export function resetLiveState\(\) \{[\s\S]*?\n\}\n/, '')
 const mod = await import('data:text/javascript,' + encodeURIComponent(pure))
 
 test('camera live badge distinguishes configuration and test states', () => {
   assert.deepEqual(mod.cameraLiveBadge(undefined), { label: '未配置', tone: 'neutral' })
   assert.deepEqual(mod.cameraLiveBadge({ configured: true, enabled: false }), { label: '未启用', tone: 'neutral' })
   assert.deepEqual(mod.cameraLiveBadge({ configured: true, enabled: true }), { label: '未检测', tone: 'neutral' })
-  assert.deepEqual(mod.cameraLiveBadge({ configured: true, enabled: true, testStatus: 'AUTH_FAILED' }), { label: '认证失败', tone: 'danger' })
-  assert.deepEqual(mod.cameraLiveBadge({ configured: true, enabled: true, testStatus: 'TRANSCODE_REQUIRED' }), { label: '需转码播放', tone: 'info' })
+  assert.deepEqual(mod.cameraLiveBadge({ configured: true, enabled: true, testStatus: 'AUTH_FAILED' }), {
+    label: '认证失败',
+    tone: 'danger'
+  })
+  assert.deepEqual(mod.cameraLiveBadge({ configured: true, enabled: true, testStatus: 'TRANSCODE_REQUIRED' }), {
+    label: '需转码播放',
+    tone: 'info'
+  })
   // A real browser render outranks an older test result.
-  assert.deepEqual(mod.cameraLiveBadge({ configured: true, enabled: true, testStatus: 'MEDIA_UNAVAILABLE', lastPlayableAt: 1 }), { label: '可播放', tone: 'success' })
+  assert.deepEqual(mod.cameraLiveBadge({ configured: true, enabled: true, testStatus: 'MEDIA_UNAVAILABLE', lastPlayableAt: 1 }), {
+    label: '可播放',
+    tone: 'success'
+  })
 })
 
 test('browser capability detection never assumes H.265 support', () => {
@@ -25,7 +36,11 @@ test('browser capability detection never assumes H.265 support', () => {
     assert.deepEqual(mod.browserCaps(), { webrtcH265: false, hlsH265: false })
     globalThis.RTCRtpReceiver = { getCapabilities: () => ({ codecs: [{ mimeType: 'video/H264' }, { mimeType: 'video/H265' }] }) }
     assert.deepEqual(mod.browserCaps(), { webrtcH265: true, hlsH265: false })
-    globalThis.RTCRtpReceiver = { getCapabilities: () => { throw new Error('blocked') } }
+    globalThis.RTCRtpReceiver = {
+      getCapabilities: () => {
+        throw new Error('blocked')
+      }
+    }
     assert.equal(mod.browserCaps().webrtcH265, false)
   } finally {
     if (saved) globalThis.RTCRtpReceiver = saved

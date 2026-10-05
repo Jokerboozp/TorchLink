@@ -839,6 +839,15 @@ type KnowledgeDoc struct {
 	CreatedAt    int64          `json:"createdAt"`
 }
 
+// KnowledgeSummary totals one tenant's knowledge documents for the page header.
+type KnowledgeSummary struct {
+	Documents int   `json:"documents"`
+	Indexed   int   `json:"indexed"`
+	Failed    int   `json:"failed"`
+	Chunks    int64 `json:"chunks"`
+	Bytes     int64 `json:"bytes"`
+}
+
 // KnowledgeChunk is the extracted text slice that is sent to the vector
 // index. Character offsets are Unicode-code-point offsets in the normalized
 // extracted text, with StartChar inclusive and EndChar exclusive.

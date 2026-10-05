@@ -48,7 +48,7 @@ func (r *Repository) CleanupCapacityData(ctx context.Context, t string, q model.
 			table += "_local"
 			cluster = " ON CLUSTER " + r.opts.Cluster
 		}
-		query := fmt.Sprintf("ALTER TABLE %s%s DELETE WHERE tenant_id=%s AND product_id=%s%s SETTINGS mutations_sync=2", table, cluster, capacityQuote(t), capacityQuote(q.Product), scope)
+		query := fmt.Sprintf("ALTER TABLE %s%s DELETE WHERE tenant_id=%s AND product_id=%s%s SETTINGS mutations_sync=2", table, cluster, quote(t), quote(q.Product), scope)
 		if _, err = r.query(ctx, query, nil); err != nil {
 			return n, err
 		}
@@ -72,13 +72,10 @@ func (r *Repository) ListCapacityFixtureDevices(ctx context.Context, tenant, pro
 	return c.ListCapacityFixtureDevices(ctx, tenant, product, after, limit)
 }
 
-func capacityQuote(v string) string {
-	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(v) + "'"
-}
 func capacityStrings(v []string) string {
 	out := make([]string, len(v))
 	for i, s := range v {
-		out[i] = capacityQuote(s)
+		out[i] = quote(s)
 	}
 	return strings.Join(out, ",")
 }

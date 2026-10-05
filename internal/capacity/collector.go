@@ -48,8 +48,7 @@ func ParsePrometheus(r io.Reader) (map[string]float64, error) {
 		}
 		// The value follows the series; a label set may contain spaces.
 		cut := strings.LastIndexByte(line, '}')
-		rest := line
-		name := ""
+		var name, rest string
 		if cut >= 0 {
 			name, rest = line[:cut+1], strings.TrimSpace(line[cut+1:])
 		} else {

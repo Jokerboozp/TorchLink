@@ -11,7 +11,10 @@ export const permissionSections = [
 ]
 function featureGrants(group, level) {
   if (level === 'none') return []
-  return [group.id, ...group.actions.filter(action => level === 'manage' || (group.menu === 'ai' && chatActions.has(action.id))).map(action => action.id)]
+  return [
+    group.id,
+    ...group.actions.filter(action => level === 'manage' || (group.menu === 'ai' && chatActions.has(action.id))).map(action => action.id)
+  ]
 }
 export function featureLevel(group, permissions) {
   const ids = new Set([group.id, ...group.actions.map(action => action.id)])

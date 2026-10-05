@@ -89,7 +89,9 @@ function parsePayload(payload) {
 }
 
 function upper(value) {
-  return String(value ?? '').trim().toUpperCase()
+  return String(value ?? '')
+    .trim()
+    .toUpperCase()
 }
 
 function textValue(value) {
@@ -106,7 +108,9 @@ function firstText(...values) {
 }
 
 function timestampOf(data) {
-  const value = Number(data.lastTriggeredAt || data.triggeredAt || data.eventTime || data.reportedAt || data.receivedAt || data.createdAt || Date.now())
+  const value = Number(
+    data.lastTriggeredAt || data.triggeredAt || data.eventTime || data.reportedAt || data.receivedAt || data.createdAt || Date.now()
+  )
   if (!Number.isFinite(value) || value <= 0) return Date.now()
   return value < 100000000000 ? value * 1000 : value
 }
@@ -148,15 +152,59 @@ function hasFaultEvent(data) {
 }
 
 function detailText(data, kind) {
-  if (data.componentId) return [data.componentName || data.componentId, data.componentLocation, alarmType(data.alarmType)].filter(Boolean).join(' · ')
+  if (data.componentId)
+    return [data.componentName || data.componentId, data.componentLocation, alarmType(data.alarmType)].filter(Boolean).join(' · ')
   const event = asObject(data.event)
   const details = asObject(data.details)
   const nested = nestedMessage(data)
   const nestedEvent = asObject(nested?.event)
   const videoEvent = asObject(details?.videoEvent)
-  const candidate = kind === 'fault'
-    ? firstText(event?.message, event?.description, event?.name, event?.type, data.message, data.description, data.alarmContent, data.content, data.alarmName, details?.description, details?.reason, nestedEvent?.alarmContent, nestedEvent?.content, nestedEvent?.message, nestedEvent?.description, nestedEvent?.name, nestedEvent?.type, videoEvent?.alarmName, videoEvent?.description)
-    : firstText(data.alarmContent, data.alarm_content, data.content, data.message, data.description, data.reason, data.alarmReason, data.alarmName, details?.description, details?.reason, details?.ruleName, event?.message, event?.description, nestedEvent?.alarmContent, nestedEvent?.content, nestedEvent?.message, nestedEvent?.description, nestedEvent?.name, nestedEvent?.type, videoEvent?.alarmName, videoEvent?.description)
+  const candidate =
+    kind === 'fault'
+      ? firstText(
+          event?.message,
+          event?.description,
+          event?.name,
+          event?.type,
+          data.message,
+          data.description,
+          data.alarmContent,
+          data.content,
+          data.alarmName,
+          details?.description,
+          details?.reason,
+          nestedEvent?.alarmContent,
+          nestedEvent?.content,
+          nestedEvent?.message,
+          nestedEvent?.description,
+          nestedEvent?.name,
+          nestedEvent?.type,
+          videoEvent?.alarmName,
+          videoEvent?.description
+        )
+      : firstText(
+          data.alarmContent,
+          data.alarm_content,
+          data.content,
+          data.message,
+          data.description,
+          data.reason,
+          data.alarmReason,
+          data.alarmName,
+          details?.description,
+          details?.reason,
+          details?.ruleName,
+          event?.message,
+          event?.description,
+          nestedEvent?.alarmContent,
+          nestedEvent?.content,
+          nestedEvent?.message,
+          nestedEvent?.description,
+          nestedEvent?.name,
+          nestedEvent?.type,
+          videoEvent?.alarmName,
+          videoEvent?.description
+        )
   return candidate && !['FAULT', 'ALARM'].includes(upper(candidate)) ? candidate : ''
 }
 
@@ -167,10 +215,19 @@ function nestedMessage(data) {
 
 function normalizeAlert(data, kind, topic) {
   const alarmLevel = upper(data.alarmLevel || data.level || (kind === 'fault' ? 'HIGH' : 'HIGH')) || 'HIGH'
-  const alarmTypeValue = upper(data.alarmType || data.alarm_type || (kind === 'fault' ? 'DEVICE_FAULT' : 'MANUAL_ALARM')) || (kind === 'fault' ? 'DEVICE_FAULT' : 'MANUAL_ALARM')
+  const alarmTypeValue =
+    upper(data.alarmType || data.alarm_type || (kind === 'fault' ? 'DEVICE_FAULT' : 'MANUAL_ALARM')) ||
+    (kind === 'fault' ? 'DEVICE_FAULT' : 'MANUAL_ALARM')
   const alarmId = firstText(data.alarmId, data.id)
   const nested = nestedMessage(data)
-  const standardMessageId = firstText(data.messageId, data.message_id, data.triggerId, data.trigger_id, nested?.messageId, nested?.message_id)
+  const standardMessageId = firstText(
+    data.messageId,
+    data.message_id,
+    data.triggerId,
+    data.trigger_id,
+    nested?.messageId,
+    nested?.message_id
+  )
   const rawMessageId = firstText(data.rawMessageId, data.raw_message_id, nested?.rawMessageId, nested?.raw_message_id)
   const messageId = rawMessageId || standardMessageId
   const deviceId = firstText(data.deviceId, data.cameraId)
@@ -220,7 +277,13 @@ export function parseRealtimeAlert(topic, payload) {
 
 export function alertKeys(alert) {
   if (alert?.componentId && alert?.alarmId) return [String(alert.alarmId)]
-  return [...new Set([alert?.alarmId, alert?.triggerId, alert?.messageId, alert?.rawMessageId, alert?.standardMessageId, alert?.id].filter(Boolean).map(String))]
+  return [
+    ...new Set(
+      [alert?.alarmId, alert?.triggerId, alert?.messageId, alert?.rawMessageId, alert?.standardMessageId, alert?.id]
+        .filter(Boolean)
+        .map(String)
+    )
+  ]
 }
 
 export function alertTagType(level) {
@@ -237,7 +300,11 @@ export async function playAlarmTone() {
     audioContext ||= new AudioContext()
     if (audioContext.state === 'suspended') await audioContext.resume()
     const start = audioContext.currentTime
-    for (const [offset, frequency] of [[0, 880], [0.16, 660], [0.32, 880]]) {
+    for (const [offset, frequency] of [
+      [0, 880],
+      [0.16, 660],
+      [0.32, 880]
+    ]) {
       const oscillator = audioContext.createOscillator()
       const gain = audioContext.createGain()
       oscillator.type = 'sine'

@@ -99,7 +99,9 @@ func ProtocolChildren(t *testing.T, repo ports.Repository) {
 		t.Fatal("cross tenant child leaked")
 	}
 	child.Status = "DISABLED"
-	repo.SaveManagedDevice(ctx, child)
+	if err = repo.SaveManagedDevice(ctx, child); err != nil {
+		t.Fatal(err)
+	}
 	if _, _, err = repo.RegisterProtocolChild(ctx, p, "main-1", identity); err == nil {
 		t.Fatal("disabled child reenabled")
 	}

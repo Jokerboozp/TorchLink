@@ -25,7 +25,7 @@ func (s *Server) registerConfiguredChild(w http.ResponseWriter, r *http.Request)
 	}
 	profiles, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	var profile model.DeviceAccessProfile
@@ -70,7 +70,7 @@ func (s *Server) deviceChildren(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.ListManagedDeviceChildren(r.Context(), tenant, parent, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	out := []map[string]any{}

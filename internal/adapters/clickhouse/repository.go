@@ -436,7 +436,12 @@ func (r *Repository) batches() batchers {
 	return batchers{telemetry: r.telemetryBatch, raw: r.rawBatch}
 }
 
-func quote(v string) string { return "'" + strings.ReplaceAll(v, "'", "''") + "'" }
+// quote renders v as a ClickHouse string literal. ClickHouse string literals
+// accept backslash escapes, so a lone backslash before a doubled quote would
+// reopen the literal; both characters are escaped.
+func quote(v string) string {
+	return "'" + strings.NewReplacer(`\`, `\\`, `'`, `\'`).Replace(v) + "'"
+}
 
 // ClickHouse quotes UInt64 JSON counters by default. json.Number accepts both
 // quoted and unquoted integers without the precision loss of float64. Missing,

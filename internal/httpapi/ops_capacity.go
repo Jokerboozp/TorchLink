@@ -166,13 +166,7 @@ func (s *Server) capacityPlanBody(w http.ResponseWriter, r *http.Request, start 
 		if p, err := capacity.ParsePlan([]byte(req.Plan)); err == nil && p.Budget.MaximumWallTime.D() > 0 {
 			ttl = capacity.OperatorTokenTTL(p)
 		}
-		var token string
-		var err error
-		if c.TokenUse == "user" {
-			token, err = s.auth.IssueUser(c.Username, c.TenantID, c.SessionVersion, ttl)
-		} else {
-			token, err = s.auth.Issue(c.Username, c.TenantID, c.Role, nil, ttl)
-		}
+		token, err := s.reissueToken(c, ttl)
 		if err != nil {
 			problem(w, http.StatusInternalServerError, "无法为容量测试签发操作凭据")
 			return nil, false

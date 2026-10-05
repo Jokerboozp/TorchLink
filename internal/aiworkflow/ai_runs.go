@@ -67,7 +67,7 @@ func AIRunStatus(err error) string {
 	switch {
 	case err == nil:
 		return model.AIRunSucceeded
-	case errors.Is(err, ports.ErrAIWorkflowStopped):
+	case errors.Is(err, ports.ErrAIWorkflowStopped), errors.Is(err, context.Canceled):
 		return model.AIRunStopped
 	case errors.Is(err, context.DeadlineExceeded):
 		return model.AIRunTimeout

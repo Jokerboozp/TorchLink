@@ -103,7 +103,12 @@ export function createThemeOverrides(css) {
     },
     Dropdown: { borderRadius: t('--radius-lg'), optionColorHover: t('--surface-hover'), padding: '6px' },
     Popover: { borderRadius: t('--radius-lg') },
-    Radio: { buttonTextColorActive: t('--primary-text'), buttonColorActive: t('--primary-soft'), buttonBorderColorActive: t('--primary'), buttonTextColorHover: t('--text-strong') },
+    Radio: {
+      buttonTextColorActive: t('--primary-text'),
+      buttonColorActive: t('--primary-soft'),
+      buttonBorderColorActive: t('--primary'),
+      buttonTextColorHover: t('--text-strong')
+    },
     Card: {
       borderRadius: t('--radius-lg'),
       borderColor: t('--border'),
@@ -150,10 +155,19 @@ export function createThemeOverrides(css) {
     Dialog: { borderRadius: t('--radius-xl'), titleFontSize: t('--font-size-lg') },
     Message: { borderRadius: t('--radius-lg') },
     Notification: { borderRadius: t('--radius-lg') },
-    Drawer: { titleFontSize: t('--font-size-lg'), titleFontWeight: t('--font-weight-semibold'), headerPadding: '16px 24px', bodyPadding: '20px 24px' },
-    Descriptions: { thColor: t('--surface-muted'), thTextColor: t('--text-secondary'), tdTextColor: t('--text'), borderColor: t('--border') },
+    Drawer: {
+      titleFontSize: t('--font-size-lg'),
+      titleFontWeight: t('--font-weight-semibold'),
+      headerPadding: '16px 24px',
+      bodyPadding: '20px 24px'
+    },
+    Descriptions: {
+      thColor: t('--surface-muted'),
+      thTextColor: t('--text-secondary'),
+      tdTextColor: t('--text'),
+      borderColor: t('--border')
+    },
     Pagination: { itemBorderRadius: t('--radius-md') },
     Alert: { borderRadius: t('--radius-lg') }
   }
 }
-

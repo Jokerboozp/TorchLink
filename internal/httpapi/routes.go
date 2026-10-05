@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"iot-platform/internal/mcpserver"
+	"iot-platform/internal/version"
 )
 
 // routeModule registers the routes of one area of the API.
@@ -96,7 +97,9 @@ func (s *Server) deviceIngestRoutes() {
 func (s *Server) platformRoutes() {
 	s.router.POST("/api/v1/auth/login", s.endpoint(s.login))
 	s.router.POST("/api/v1/auth/password", s.endpoint(s.changeOwnPassword))
-	s.router.GET("/health/live", s.endpoint(func(w http.ResponseWriter, r *http.Request) { write(w, 200, map[string]string{"status": "ok"}) }))
+	s.router.GET("/health/live", s.endpoint(func(w http.ResponseWriter, r *http.Request) {
+		write(w, 200, map[string]string{"status": "ok", "version": version.Version})
+	}))
 	s.router.GET("/health/ready", s.endpoint(s.ready))
 	s.router.GET("/metrics", s.endpoint(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
@@ -231,6 +234,7 @@ func (s *Server) aiRoutes() {
 	s.router.DELETE("/api/v1/ai/workflows/:id", s.authorize("admin"), s.endpoint(s.deleteAIWorkflow, "id"))
 	s.router.GET("/api/v1/ai/workflows/:id/knowledge-binding", s.authorize("viewer"), s.endpoint(s.workflowKnowledgeBinding, "id"))
 	s.router.PUT("/api/v1/ai/workflows/:id/knowledge-binding", s.authorize("operator"), s.endpoint(s.workflowKnowledgeBinding, "id"))
+	s.router.POST("/api/v1/ai/workflows/:id/knowledge-binding/test", s.authorize("viewer"), s.endpoint(s.testWorkflowKnowledge, "id"))
 	s.router.POST("/api/v1/ai/chat", s.authorize("viewer"), s.endpoint(s.aiChat))
 	s.router.POST("/api/v1/ai/chat/stream", s.authorize("viewer"), s.endpoint(s.aiChatStream))
 	s.router.POST("/api/v1/ai/rule-draft", s.authorize("operator"), s.endpoint(s.aiRuleDraft))

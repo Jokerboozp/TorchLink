@@ -199,7 +199,7 @@ func TestCompatibleDeviceEditsCannotChangeTemplate(t *testing.T) {
 		}
 	}
 	api.cfg.AdminTenants = append(api.cfg.AdminTenants, "user-tenant")
-	adminToken, err := api.auth.Issue(api.cfg.AdminUser, "user-tenant", "admin", nil, time.Minute)
+	adminToken, err := api.auth.IssueWithVersion(api.cfg.AdminUser, "user-tenant", "admin", api.adminSessionVersion(), time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}

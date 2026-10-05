@@ -52,11 +52,7 @@ func capacityJobContext(r *http.Request) context.Context {
 }
 
 func (s *Server) capacityOperatorToken(r *http.Request) (string, error) {
-	c := claims(r)
-	if c.TokenUse == "user" {
-		return s.auth.IssueUser(c.Username, c.TenantID, c.SessionVersion, time.Hour)
-	}
-	return s.auth.Issue(c.Username, c.TenantID, c.Role, nil, time.Hour)
+	return s.reissueToken(claims(r), time.Hour)
 }
 
 func capacityFullScope(w http.ResponseWriter, r *http.Request) bool {

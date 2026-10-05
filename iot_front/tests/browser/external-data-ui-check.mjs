@@ -6,14 +6,16 @@ import { startBrowser } from '../helpers/browser.mjs'
 import { blankEndpoint } from '../../src/externalData.js'
 
 const origin = process.env.IOT_UI_PREVIEW_ORIGIN || 'http://127.0.0.1:5173'
-const endpoint = { ...blankEndpoint('source-1'), id:'endpoint-1', revision:1, name:'视频分析告警', enabled:false }
+const endpoint = { ...blankEndpoint('source-1'), id: 'endpoint-1', revision: 1, name: '视频分析告警', enabled: false }
 let browser
 try {
-  browser = await startBrowser({ args:['--use-mock-keychain', '--password-store=basic'] })
+  browser = await startBrowser({ args: ['--use-mock-keychain', '--password-store=basic'] })
   const { call, evaluate, until, errors } = browser
-  await call('Page.enable'); await call('Runtime.enable')
-  await call('Emulation.setDeviceMetricsOverride', { width:1440, height:1000, deviceScaleFactor:1, mobile:false })
-  await call('Page.addScriptToEvaluateOnNewDocument', { source:`
+  await call('Page.enable')
+  await call('Runtime.enable')
+  await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false })
+  await call('Page.addScriptToEvaluateOnNewDocument', {
+    source: `
     localStorage.clear();
     for (const [key,value] of Object.entries({iot_token:'fixture',iot_tenant:'fixture',iot_user:'operator',iot_role:'admin',iot_permissions:'["*"]'})) localStorage.setItem(key,value);
     window.__externalRequests=[];
@@ -39,51 +41,89 @@ try {
       }
       return new Response(JSON.stringify(body),{headers:{'Content-Type':'application/json'}});
     };
-  ` })
-  await call('Page.navigate', { url:origin })
+  `
+  })
+  await call('Page.navigate', { url: origin })
   await until(() => evaluate(`Boolean(document.querySelector('.nav-item[aria-label="外部数据接入"]'))`), 'external menu')
   await evaluate(`document.querySelector('.nav-item[aria-label="外部数据接入"]').click()`)
   await until(() => evaluate(`document.querySelector('.external-data-view')?.innerText.includes('视频分析平台')`), 'source list')
   const click = async text => {
-    const found = await evaluate(`(() => {const b=[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&b.innerText.trim()===${JSON.stringify(text)});if(!b)return false;b.click();return true})()`)
+    const found = await evaluate(
+      `(() => {const b=[...document.querySelectorAll('button')].find(b=>b.getClientRects().length&&b.innerText.trim()===${JSON.stringify(text)});if(!b)return false;b.click();return true})()`
+    )
     assert.equal(found, true, `button ${text}`)
   }
   const fill = async (label, value) => {
-    const found = await evaluate(`(() => {const item=[...document.querySelectorAll('.n-form-item')].find(e=>e.getClientRects().length&&e.querySelector('.n-form-item-label')?.innerText.includes(${JSON.stringify(label)}));const input=item?.querySelector('input,textarea');if(!input)return false;input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));return true})()`)
+    const found = await evaluate(
+      `(() => {const item=[...document.querySelectorAll('.n-form-item')].find(e=>e.getClientRects().length&&e.querySelector('.n-form-item-label')?.innerText.includes(${JSON.stringify(label)}));const input=item?.querySelector('input,textarea');if(!input)return false;input.value=${JSON.stringify(value)};input.dispatchEvent(new Event('input',{bubbles:true}));return true})()`
+    )
     assert.equal(found, true, `input ${label}`)
   }
   await click('编辑')
   await until(() => evaluate(`Boolean(document.querySelector('.external-editor'))`))
-  await fill('来源名称', '已编辑的视频来源'); await click('保存配置')
+  await fill('来源名称', '已编辑的视频来源')
+  await click('保存配置')
   await until(() => evaluate(`document.querySelector('.external-data-view')?.innerText.includes('已编辑的视频来源')`))
   const saved = await evaluate(`window.__externalRequests.find(x=>x.kind==='sources'&&x.method==='PUT').payload`)
-  assert.equal(saved.revision, 1); assert.equal(saved.auth.secretSet, true)
+  assert.equal(saved.revision, 1)
+  assert.equal(saved.auth.secretSet, true)
   assert.ok(!saved.auth.secret)
   await click('接入接口')
   await until(() => evaluate(`document.querySelector('.external-data-view')?.innerText.includes('视频分析告警')`))
-  await click('编辑'); await until(() => evaluate(`Boolean(document.querySelector('.editor-steps'))`))
+  await click('编辑')
+  await until(() => evaluate(`Boolean(document.querySelector('.editor-steps'))`))
   await click('下一步')
   await until(() => evaluate(`document.querySelector('.external-editor')?.innerText.includes('添加字段')`))
   assert.ok(await evaluate(`document.querySelectorAll('.field-rule').length >= 3`))
-  await click('下一步'); await click('保存配置')
+  await click('下一步')
+  await click('保存配置')
   await until(() => evaluate(`!document.querySelector('.external-editor')?.getClientRects().length`))
   await click('接收记录')
   await until(() => evaluate(`document.querySelector('.external-data-view')?.innerText.includes('等待编号绑定')`))
   await click('查看详情')
   await until(() => evaluate(`Boolean(document.querySelector('.raw-grid'))`))
-  assert.equal(await evaluate(`document.querySelector('.raw-grid').innerText.includes('eventCode') && document.querySelector('.raw-grid').innerText.includes('objectId')`), true)
-  await call('Emulation.setDeviceMetricsOverride', { width:390, height:844, deviceScaleFactor:1, mobile:false })
-  await until(() => evaluate(`getComputedStyle(document.querySelector('.raw-grid')).gridTemplateColumns.split(' ').length===1`), 'stacked narrow detail')
-  await until(() => evaluate(`(() => {const modal=document.querySelector('.n-modal');if(!modal)return false;const r=modal.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&getComputedStyle(modal).opacity==='1'})()`), 'narrow dialog remains within viewport')
+  assert.equal(
+    await evaluate(
+      `document.querySelector('.raw-grid').innerText.includes('eventCode') && document.querySelector('.raw-grid').innerText.includes('objectId')`
+    ),
+    true
+  )
+  await call('Emulation.setDeviceMetricsOverride', { width: 390, height: 844, deviceScaleFactor: 1, mobile: false })
+  await until(
+    () => evaluate(`getComputedStyle(document.querySelector('.raw-grid')).gridTemplateColumns.split(' ').length===1`),
+    'stacked narrow detail'
+  )
+  await until(
+    () =>
+      evaluate(
+        `(() => {const modal=document.querySelector('.n-modal');if(!modal)return false;const r=modal.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&getComputedStyle(modal).opacity==='1'})()`
+      ),
+    'narrow dialog remains within viewport'
+  )
   await evaluate(`new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)))`)
   const overflow = await evaluate(`document.documentElement.scrollWidth > innerWidth + 2`)
   assert.equal(overflow, false, 'no whole-page horizontal overflow')
-  const screenshot = await call('Page.captureScreenshot', { format:'png' })
+  const screenshot = await call('Page.captureScreenshot', { format: 'png' })
   await writeFile('/tmp/torchlink-external-data-narrow.png', Buffer.from(screenshot.data, 'base64'))
   await evaluate(`document.querySelector('.n-modal .n-card-header .n-base-close')?.click()`)
-  await call('Emulation.setDeviceMetricsOverride', { width:1440, height:1000, deviceScaleFactor:1, mobile:false })
+  await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false })
   await click('拉取任务')
   await until(() => evaluate(`document.querySelector('.external-data-view')?.innerText.includes('27 条')`))
   assert.deepEqual(errors, [])
-  console.log(JSON.stringify({result:'passed',checks:['source edit retains revision and saved secret','three-step endpoint editor','record raw/event comparison','390px responsive modal','actual job progress'],backend:'synthetic responses; no backend acceptance claim',screenshot:'/tmp/torchlink-external-data-narrow.png'}))
-} finally { await browser?.close() }
+  console.log(
+    JSON.stringify({
+      result: 'passed',
+      checks: [
+        'source edit retains revision and saved secret',
+        'three-step endpoint editor',
+        'record raw/event comparison',
+        '390px responsive modal',
+        'actual job progress'
+      ],
+      backend: 'synthetic responses; no backend acceptance claim',
+      screenshot: '/tmp/torchlink-external-data-narrow.png'
+    })
+  )
+} finally {
+  await browser?.close()
+}

@@ -5,7 +5,9 @@ export function useMediaQuery(query) {
   const media = typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query) : null
   const matches = ref(Boolean(media?.matches))
   if (!media) return matches
-  const update = event => { matches.value = event.matches }
+  const update = event => {
+    matches.value = event.matches
+  }
   media.addEventListener('change', update)
   onBeforeUnmount(() => media.removeEventListener('change', update))
   return matches

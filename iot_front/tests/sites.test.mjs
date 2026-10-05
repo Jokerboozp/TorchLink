@@ -4,13 +4,27 @@ import { pointFraction, siteTree } from '../src/sites.js'
 
 test('site tree nests buildings and floors and counts device-level points per unit', () => {
   const tree = siteTree({
-    units: [{ id: 'u1', name: '单位' }, { id: 'u2', name: '空单位' }],
+    units: [
+      { id: 'u1', name: '单位' },
+      { id: 'u2', name: '空单位' }
+    ],
     buildings: [{ id: 'b1', unitId: 'u1', name: '1 号楼' }],
-    floors: [{ id: 'f1', buildingId: 'b1', name: '1F', level: 1 }, { id: 'f3', buildingId: 'b1', name: '3F', level: 3 }, { id: 'b', buildingId: 'b1', name: 'B1', level: -1 }],
-    points: [{ deviceId: 'panel', unitId: 'u1' }, { deviceId: 'panel', componentId: 'c1', unitId: 'u1' }, { deviceId: 'pump', unitId: 'u1' }]
+    floors: [
+      { id: 'f1', buildingId: 'b1', name: '1F', level: 1 },
+      { id: 'f3', buildingId: 'b1', name: '3F', level: 3 },
+      { id: 'b', buildingId: 'b1', name: 'B1', level: -1 }
+    ],
+    points: [
+      { deviceId: 'panel', unitId: 'u1' },
+      { deviceId: 'panel', componentId: 'c1', unitId: 'u1' },
+      { deviceId: 'pump', unitId: 'u1' }
+    ]
   })
   assert.equal(tree[0].deviceCount, 2)
-  assert.deepEqual(tree[0].buildings[0].floors.map(f => f.name), ['3F', '1F', 'B1'])
+  assert.deepEqual(
+    tree[0].buildings[0].floors.map(f => f.name),
+    ['3F', '1F', 'B1']
+  )
   assert.equal(tree[1].deviceCount, 0)
 })
 

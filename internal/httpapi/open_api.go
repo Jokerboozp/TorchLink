@@ -215,8 +215,6 @@ type openIngestResult struct {
 	Error     string `json:"error,omitempty"`
 }
 
-var openIngestStatus = map[string]int{"DEVICE_NOT_FOUND": 404, "DEVICE_DISABLED": 422, "INVALID_MESSAGE": 422, "RATE_LIMITED": 429, "BACKPRESSURE": 429, "MESSAGE_CONFLICT": 409, "INGEST_FAILED": 503}
-
 // ingestOpenMessage sends one external message through the standard protocol,
 // so it is archived, parsed and evaluated by rules like any device report.
 func (s *Server) ingestOpenMessage(r *http.Request, index int, in openDeviceMessage) openIngestResult {

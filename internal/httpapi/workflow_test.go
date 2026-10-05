@@ -833,7 +833,7 @@ func TestRawFiltersHTTP(t *testing.T) {
 	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
-	token, err := api.auth.Issue("admin", "t", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("admin", "t", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -990,7 +990,7 @@ func TestBackupEndpointsProxyRecordsFilesAndAdminActions(t *testing.T) {
 	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
-	adminToken, err := api.auth.Issue("admin", "tenant_001", "admin", nil, time.Hour)
+	adminToken, err := api.auth.IssueWithVersion("admin", "tenant_001", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1056,7 +1056,7 @@ func TestBackupPlatformTenantBoundary(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		if r.Header.Get("Authorization") != "Bearer synthetic-backup-token" {
-			http.Error(w, "missing service credential", 401)
+			http.Error(w, "missing service credential", http.StatusUnauthorized)
 			return
 		}
 		write(w, 200, map[string]any{"tenantId": "other-tenant", "deviceId": "private-device"})
@@ -1116,7 +1116,7 @@ func TestBackupPlatformTenantBoundary(t *testing.T) {
 			}
 		}
 	}
-	root, _ := api.auth.Issue("root", "business", "admin", nil, time.Hour)
+	root, _ := api.auth.IssueWithVersion("root", "business", "admin", api.adminSessionVersion(), time.Hour)
 	for _, item := range req("GET", "/api/v1/access/permissions", root, nil, 200)["items"].([]any) {
 		if strings.Contains(item.(map[string]any)["id"].(string), "backups") {
 			t.Fatal("business tenant can grant platform backup access")
@@ -1160,7 +1160,7 @@ func TestReplayRateValidationHTTP(t *testing.T) {
 	api := New(cfg, &core.Engine{Repo: memory.NewRepository(), Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
-	token, err := api.auth.Issue("admin", "t", "admin", nil, time.Hour)
+	token, err := api.auth.IssueWithVersion("admin", "t", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1184,7 +1184,7 @@ func TestBackupEndpointSurfacesUpstreamFailureDetail(t *testing.T) {
 	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
-	adminToken, err := api.auth.Issue("admin", "tenant_001", "admin", nil, time.Hour)
+	adminToken, err := api.auth.IssueWithVersion("admin", "tenant_001", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -97,7 +97,6 @@ func SpreadsheetRows(data []byte) ([][]string, error) {
 			return nil, fmt.Errorf("parse spreadsheet worksheet %s: %w", f.Name, unmarshalErr)
 		}
 		for _, row := range sheet.Rows {
-			values := make([]string, 0, len(row.Cells))
 			positions := make([]int, 0, len(row.Cells))
 			maxColumn := -1
 			for index, cell := range row.Cells {
@@ -113,7 +112,7 @@ func SpreadsheetRows(data []byte) ([][]string, error) {
 			if maxColumn < 0 {
 				continue
 			}
-			values = make([]string, maxColumn+1)
+			values := make([]string, maxColumn+1)
 			for index, cell := range row.Cells {
 				value, valueErr := spreadsheetCellText(cell, shared)
 				if valueErr != nil {

@@ -2,8 +2,27 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { entryLevel, formatKpi, formatValue, parseLogFields, seriesName } from '../src/ops/format.js'
 import { parseRelative, rangeLabel, resolveRange } from '../src/ops/timeRange.js'
-import { alignSeries, framesToChart, framesToLogs, framesToTable, metricResultToChart, reduceValues, thresholdColor } from '../src/ops/frames.js'
-import { addPanel, compact, dependsOn, duplicatePanel, movePanel, newPanel, normalizeLayout, removePanel, sections, toggleRow } from '../src/ops/dashboard.js'
+import {
+  alignSeries,
+  framesToChart,
+  framesToLogs,
+  framesToTable,
+  metricResultToChart,
+  reduceValues,
+  thresholdColor
+} from '../src/ops/frames.js'
+import {
+  addPanel,
+  compact,
+  dependsOn,
+  duplicatePanel,
+  movePanel,
+  newPanel,
+  normalizeLayout,
+  removePanel,
+  sections,
+  toggleRow
+} from '../src/ops/dashboard.js'
 import { setupScript } from './helpers/vue.mjs'
 import vm from 'node:vm'
 import { readFileSync } from 'node:fs'
@@ -51,15 +70,41 @@ test('仪表盘单点和稀疏时序固定到查询时间窗，刷新和缩放�
   const source = setupScript(new URL('../src/components/ops/TimeSeriesChart.vue', import.meta.url))
   const to = Date.UTC(2026, 8, 27, 10)
   const from = to - 3600e3
-  const props = reactive({ times: [to - 1800e3], series: [{ name: 'errors', values: [2] }], timeRange: { from, to }, height: 240, unit: 'short' })
+  const props = reactive({
+    times: [to - 1800e3],
+    series: [{ name: 'errors', values: [2] }],
+    timeRange: { from, to },
+    height: 240,
+    unit: 'short'
+  })
   let plot
   class Plot {
-    constructor(options, data) { this.options = options; plot = this; this.setData(data) }
-    setData(data) { this.data = data; this.range = this.options.scales.x.range?.(this, data[0][0], data[0].at(-1)) }
+    constructor(options, data) {
+      this.options = options
+      plot = this
+      this.setData(data)
+    }
+    setData(data) {
+      this.data = data
+      this.range = this.options.scales.x.range?.(this, data[0][0], data[0].at(-1))
+    }
     destroy() {}
   }
   let cleanup
-  const context = vm.createContext({ ref, watch, defineProps: () => props, defineEmits: () => () => {}, onMounted() {}, onBeforeUnmount: fn => { cleanup = fn }, uPlot: Plot, formatValue, document: { documentElement: {} }, getComputedStyle: () => ({ getPropertyValue: () => '' }) })
+  const context = vm.createContext({
+    ref,
+    watch,
+    defineProps: () => props,
+    defineEmits: () => () => {},
+    onMounted() {},
+    onBeforeUnmount: fn => {
+      cleanup = fn
+    },
+    uPlot: Plot,
+    formatValue,
+    document: { documentElement: {} },
+    getComputedStyle: () => ({ getPropertyValue: () => '' })
+  })
   const chart = vm.runInContext(source + '\n;({host,build})', context)
   chart.host.value = { clientWidth: 800 }
   chart.build()
@@ -78,7 +123,10 @@ test('仪表盘单点和稀疏时序固定到查询时间窗，刷新和缩放�
 })
 
 test('多条序列按时间对齐，缺失点保持空值', () => {
-  const chart = alignSeries([{ name: 'a', timestamps: [1, 2], values: [1, 2] }, { name: 'b', timestamps: [2, 3], values: [5, null] }])
+  const chart = alignSeries([
+    { name: 'a', timestamps: [1, 2], values: [1, 2] },
+    { name: 'b', timestamps: [2, 3], values: [5, null] }
+  ])
   assert.deepEqual(chart.times, [1, 2, 3])
   assert.deepEqual(chart.series[1].values, [null, 5, null])
   const fromMetric = metricResultToChart({ series: [{ labels: { job: 'x' }, timestamps: [10], values: [3] }] }, '{{job}}')
@@ -87,8 +135,20 @@ test('多条序列按时间对齐，缺失点保持空值', () => {
 
 test('Grafana 数据帧转换为图表、表格和日志', () => {
   const frames = [
-    { refId: 'A', fields: [{ name: 'Time', type: 'time', values: [1000, 2000] }, { name: 'Value', type: 'number', labels: { job: 'a' }, config: { displayNameFromDS: 'A 服务' }, values: [1, 3] }] },
-    { refId: 'A', fields: [{ name: 'Time', type: 'time', values: [1000, 2000] }, { name: 'Value', type: 'number', labels: { job: 'b' }, values: [2, null] }] }
+    {
+      refId: 'A',
+      fields: [
+        { name: 'Time', type: 'time', values: [1000, 2000] },
+        { name: 'Value', type: 'number', labels: { job: 'a' }, config: { displayNameFromDS: 'A 服务' }, values: [1, 3] }
+      ]
+    },
+    {
+      refId: 'A',
+      fields: [
+        { name: 'Time', type: 'time', values: [1000, 2000] },
+        { name: 'Value', type: 'number', labels: { job: 'b' }, values: [2, null] }
+      ]
+    }
   ]
   const chart = framesToChart(frames)
   assert.equal(chart.series[0].name, 'A 服务')
@@ -97,19 +157,60 @@ test('Grafana 数据帧转换为图表、表格和日志', () => {
   const summary = framesToTable(frames)
   assert.equal(summary.rows.length, 2)
   assert.equal(summary.rows[0].__value, 3)
-  const table = framesToTable([{ fields: [{ name: 'Time', type: 'time', values: [1] }, { name: 'job', type: 'string', values: ['x'] }, { name: 'Value', type: 'number', values: [1] }] }])
-  assert.deepEqual(table.columns.map(c => c.key), ['Time', 'job', 'Value'])
-  const logs = framesToLogs([{ fields: [{ name: 'labels', type: 'other', values: [{ service_name: 'api' }] }, { name: 'Time', type: 'time', values: [5] }, { name: 'Line', type: 'string', values: ['hello'] }, { name: 'tsNs', type: 'string', values: ['5000001'] }] }])
+  const table = framesToTable([
+    {
+      fields: [
+        { name: 'Time', type: 'time', values: [1] },
+        { name: 'job', type: 'string', values: ['x'] },
+        { name: 'Value', type: 'number', values: [1] }
+      ]
+    }
+  ])
+  assert.deepEqual(
+    table.columns.map(c => c.key),
+    ['Time', 'job', 'Value']
+  )
+  const logs = framesToLogs([
+    {
+      fields: [
+        { name: 'labels', type: 'other', values: [{ service_name: 'api' }] },
+        { name: 'Time', type: 'time', values: [5] },
+        { name: 'Line', type: 'string', values: ['hello'] },
+        { name: 'tsNs', type: 'string', values: ['5000001'] }
+      ]
+    }
+  ])
   assert.deepEqual(logs[0], { ts: '5000001', timeMs: 5, line: 'hello', labels: { service_name: 'api' } })
 })
 
 test('阈值颜色使用主题变量，未设置阈值时使用正文颜色', () => {
-  const thresholds = { mode: 'absolute', steps: [{ color: 'green', value: null }, { color: 'orange', value: 80 }, { color: 'red', value: 95 }] }
+  const thresholds = {
+    mode: 'absolute',
+    steps: [
+      { color: 'green', value: null },
+      { color: 'orange', value: 80 },
+      { color: 'red', value: 95 }
+    ]
+  }
   assert.equal(thresholdColor(10, thresholds), 'var(--success)')
   assert.equal(thresholdColor(90, thresholds), 'var(--warning)')
   assert.equal(thresholdColor(99, thresholds), 'var(--danger)')
   assert.equal(thresholdColor(5, undefined), 'var(--text-strong)')
-  assert.equal(thresholdColor(50, { mode: 'percentage', steps: [{ color: 'green', value: null }, { color: 'red', value: 40 }] }, 0, 200), 'var(--success)')
+  assert.equal(
+    thresholdColor(
+      50,
+      {
+        mode: 'percentage',
+        steps: [
+          { color: 'green', value: null },
+          { color: 'red', value: 40 }
+        ]
+      },
+      0,
+      200
+    ),
+    'var(--success)'
+  )
 })
 
 const panel = (id, x, y, w, h, extra = {}) => ({ id, type: 'timeseries', gridPos: { x, y, w, h }, ...extra })
@@ -117,24 +218,51 @@ const panel = (id, x, y, w, h, extra = {}) => ({ id, type: 'timeseries', gridPos
 test('compact moves panels up without overlaps', () => {
   const panels = [panel(1, 0, 5, 12, 8), panel(2, 12, 20, 12, 8), panel(3, 0, 40, 24, 4)]
   compact(panels)
-  assert.deepEqual(panels.map(p => p.gridPos.y), [0, 0, 8])
+  assert.deepEqual(
+    panels.map(p => p.gridPos.y),
+    [0, 0, 8]
+  )
 })
 
 test('normalizeLayout stacks rows and keeps collapsed children inside the row', () => {
-  const dash = { panels: [panel(1, 0, 0, 24, 6), { id: 2, type: 'row', collapsed: false, gridPos: { x: 0, y: 10, w: 24, h: 1 }, panels: [] }, panel(3, 0, 30, 12, 5), { id: 4, type: 'row', collapsed: true, gridPos: { x: 0, y: 50, w: 24, h: 1 }, panels: [panel(5, 0, 90, 12, 4)] }] }
+  const dash = {
+    panels: [
+      panel(1, 0, 0, 24, 6),
+      { id: 2, type: 'row', collapsed: false, gridPos: { x: 0, y: 10, w: 24, h: 1 }, panels: [] },
+      panel(3, 0, 30, 12, 5),
+      { id: 4, type: 'row', collapsed: true, gridPos: { x: 0, y: 50, w: 24, h: 1 }, panels: [panel(5, 0, 90, 12, 4)] }
+    ]
+  }
   normalizeLayout(dash)
-  assert.deepEqual(dash.panels.map(p => [p.id, p.gridPos.y]), [[1, 0], [2, 6], [3, 7], [4, 12]])
+  assert.deepEqual(
+    dash.panels.map(p => [p.id, p.gridPos.y]),
+    [
+      [1, 0],
+      [2, 6],
+      [3, 7],
+      [4, 12]
+    ]
+  )
   assert.equal(dash.panels[3].panels[0].gridPos.y, 13)
   assert.equal(sections(dash).length, 3)
 })
 
 test('toggleRow moves panels between the row and the top level', () => {
-  const dash = { panels: [{ id: 1, type: 'row', collapsed: false, panels: [], gridPos: { x: 0, y: 0, w: 24, h: 1 } }, panel(2, 0, 1, 12, 4), panel(3, 12, 1, 12, 4)] }
+  const dash = {
+    panels: [
+      { id: 1, type: 'row', collapsed: false, panels: [], gridPos: { x: 0, y: 0, w: 24, h: 1 } },
+      panel(2, 0, 1, 12, 4),
+      panel(3, 12, 1, 12, 4)
+    ]
+  }
   toggleRow(dash, 1)
   assert.equal(dash.panels.length, 1)
   assert.equal(dash.panels[0].panels.length, 2)
   toggleRow(dash, 1)
-  assert.deepEqual(dash.panels.map(p => p.id), [1, 2, 3])
+  assert.deepEqual(
+    dash.panels.map(p => p.id),
+    [1, 2, 3]
+  )
 })
 
 test('add, duplicate, move and remove keep ids unique and layout compact', () => {
@@ -142,7 +270,10 @@ test('add, duplicate, move and remove keep ids unique and layout compact', () =>
   addPanel(dash, newPanel(dash, 'stat'))
   addPanel(dash, newPanel(dash, 'timeseries'))
   duplicatePanel(dash, 2)
-  assert.deepEqual(dash.panels.map(p => p.id), [1, 2, 3])
+  assert.deepEqual(
+    dash.panels.map(p => p.id),
+    [1, 2, 3]
+  )
   movePanel(dash, 3, 'up')
   const ids = dash.panels.map(p => p.id)
   assert.equal(new Set(ids).size, 3)
@@ -158,7 +289,14 @@ test('dependsOn detects Grafana variable reference syntaxes', () => {
   assert.ok(!dependsOn({ query: 'label_values(up{job="$jobs"}, instance)' }, 'job'))
 })
 
-const alert = (i, extra = {}) => ({ fingerprint: `alert-${String(i).padStart(5, '0')}`, startsAt: new Date(1700000000000 + i * 1000).toISOString(), state: i % 2 ? 'active' : 'suppressed', labels: { severity: i % 3 ? 'warning' : 'critical' }, receivers: ['mail'], ...extra })
+const alert = (i, extra = {}) => ({
+  fingerprint: `alert-${String(i).padStart(5, '0')}`,
+  startsAt: new Date(1700000000000 + i * 1000).toISOString(),
+  state: i % 2 ? 'active' : 'suppressed',
+  labels: { severity: i % 3 ? 'warning' : 'critical' },
+  receivers: ['mail'],
+  ...extra
+})
 
 test('万条告警排序只解析一次时间，分页不丢失记录且顺序稳定', () => {
   const input = Array.from({ length: 10000 }, (_, i) => alert(i))
@@ -184,8 +322,14 @@ test('分组跨页共享容量，多接收人统计按告警指纹去重', () =>
     { receiver: 'empty', labels: {}, alerts: [] }
   ])
   const visible = pageAlertGroups(groups, 2, 2)
-  assert.deepEqual(visible.map(g => g.alerts.length), [1, 1])
-  assert.deepEqual(visible.map(g => g.total), [3, 2])
+  assert.deepEqual(
+    visible.map(g => g.alerts.length),
+    [1, 1]
+  )
+  assert.deepEqual(
+    visible.map(g => g.total),
+    [3, 2]
+  )
   const stats = summarizeAlerts(groups.flatMap(g => g.alerts))
   assert.deepEqual(stats.summary, { total: 4, active: 2, suppressed: 2, critical: 2 })
   assert.deepEqual(stats.receivers, ['mail', 'other'])
@@ -206,12 +350,54 @@ function pageHarness() {
       if (current !== version) throw Object.assign(new Error('stale'), { name: 'AbortError' })
       return result
     },
-    cancel() { version++ }
+    cancel() {
+      version++
+    }
   }
   const source = setupScript(new URL('../src/views/OpsAlertsView.vue', import.meta.url))
-  const context = vm.createContext({ ref, shallowRef, computed, watch, can: () => true, defineEmits: () => () => {}, onMounted() {}, onBeforeUnmount() {}, latest: () => runner, summarizeAlerts, sortAlerts, prepareAlertGroups, pageAlertGroups, clampAlertPage, opsErrorText: e => e.message, document: { hidden: false }, opsGet: (path, params) => new Promise((resolve, reject) => pending.push({ path, params, resolve, reject })), setInterval: fn => { poll = fn; return 1 }, clearInterval() {}, setTimeout: fn => { timers.set(++timerID, fn); return timerID }, clearTimeout: id => timers.delete(id) })
-  vm.runInContext(source + '\nthis.page = {loadAlerts, grouped, alerts, visibleAlerts, visibleGroups, alertStats, alertPage, alertPageSize, alertsLoading, alertsError, filters, scheduleAlerts, tab}', context)
-  return { ...context.page, pending, poll: () => poll(), debounce: () => { for (const fn of timers.values()) fn(); timers.clear() } }
+  const context = vm.createContext({
+    ref,
+    shallowRef,
+    computed,
+    watch,
+    can: () => true,
+    defineEmits: () => () => {},
+    onMounted() {},
+    onBeforeUnmount() {},
+    latest: () => runner,
+    summarizeAlerts,
+    sortAlerts,
+    prepareAlertGroups,
+    pageAlertGroups,
+    clampAlertPage,
+    opsErrorText: e => e.message,
+    document: { hidden: false },
+    opsGet: (path, params) => new Promise((resolve, reject) => pending.push({ path, params, resolve, reject })),
+    setInterval: fn => {
+      poll = fn
+      return 1
+    },
+    clearInterval() {},
+    setTimeout: fn => {
+      timers.set(++timerID, fn)
+      return timerID
+    },
+    clearTimeout: id => timers.delete(id)
+  })
+  vm.runInContext(
+    source +
+      '\nthis.page = {loadAlerts, grouped, alerts, visibleAlerts, visibleGroups, alertStats, alertPage, alertPageSize, alertsLoading, alertsError, filters, scheduleAlerts, tab}',
+    context
+  )
+  return {
+    ...context.page,
+    pending,
+    poll: () => poll(),
+    debounce: () => {
+      for (const fn of timers.values()) fn()
+      timers.clear()
+    }
+  }
 }
 
 test('页面只渲染当前页，刷新保留页码并在数据减少时回退', async () => {
@@ -240,7 +426,10 @@ test('分组模式只请求分组接口，过期请求不影响新请求的加�
   const first = p.loadAlerts()
   p.grouped.value = true
   await nextTick()
-  assert.deepEqual(p.pending.map(r => r.path), ['/api/v1/ops/alerts', '/api/v1/ops/alerts/groups'])
+  assert.deepEqual(
+    p.pending.map(r => r.path),
+    ['/api/v1/ops/alerts', '/api/v1/ops/alerts/groups']
+  )
   p.pending[0].resolve({ items: [alert(1)] })
   await first
   assert.equal(p.alertsLoading.value, true)
@@ -292,7 +481,11 @@ test('容量测试进度只按真实测量窗口计算，结束的运行停止�
   assert.equal(statusTone('RUNNING'), 'warning')
   assert.equal(boundText(null), '—')
   assert.match(boundText(1234.5), /1,234\.5 条\/秒/)
-  assert.deepEqual(phaseSummary([{ verdict: 'passed' }, { verdict: 'failed' }, { verdict: 'passed' }]), { passed: 2, failed: 1, inconclusive: 0 })
+  assert.deepEqual(phaseSummary([{ verdict: 'passed' }, { verdict: 'failed' }, { verdict: 'passed' }]), {
+    passed: 2,
+    failed: 1,
+    inconclusive: 0
+  })
 })
 
 test('容量测试表单草稿按租户和用户恢复，忽略损坏或越界字段', async () => {
@@ -300,7 +493,12 @@ test('容量测试表单草稿按租户和用户恢复，忽略损坏或越界�
   const storage = new Map()
   const store = { getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value) }
   const alice = { tenant: 't1', user: 'alice' }
-  saveDraft(store, alice, { form: { ...defaultForm('capacity'), devices: 300, tenant: 'x' }, advanced: true, planText: 'schemaVersion: 1', environment: 'self' })
+  saveDraft(store, alice, {
+    form: { ...defaultForm('capacity'), devices: 300, tenant: 'x' },
+    advanced: true,
+    planText: 'schemaVersion: 1',
+    environment: 'self'
+  })
   const draft = loadDraft(store, alice)
   assert.equal(draft.form.preset, 'capacity')
   assert.equal(draft.form.devices, 300)
@@ -335,39 +533,104 @@ test('历史清理只显示实际数量与进度，全部保留的预览不能�
   assert.equal(capacity.cleanupCountText(''), '—')
   assert.equal(capacity.cleanupCountText(0), '0')
   assert.equal(capacity.historyCleanupProgress({ processed: 1, total: 4 }), 25)
-  for (const job of [{ status:'SUCCEEDED' }, { processed:1,total:0 }, { processed:5,total:4 }, { processed:null,total:4 }]) assert.equal(capacity.historyCleanupProgress(job), null)
-  assert.equal(capacity.historyCleanupHasTargets({ runs:0, products:[], devices:0, rawMessages:0 }), false)
-  assert.equal(capacity.historyCleanupHasTargets({ runs:0, products:[{ productId:'cap-standard' }] }), true)
-  assert.equal(capacity.historyCleanupHasTargets({ runs:2, products:[] }), true)
-  assert.deepEqual(capacity.cleanupCountItems({ devices:0,rawMessages:4,cacheKeys:undefined }), [{ key:'devices',label:'设备',value:0 },{ key:'rawMessages',label:'测试原文',value:4 }])
-  assert.deepEqual(capacity.cleanupRuntimeItems({ retainedRequests:12 }), [{ key:'retainedRequests',label:'已发送 retained 清除请求',value:12 }])
-  const partial={status:'SUCCEEDED',warnings:['共享队列保留'],counts:{warnings:['共享队列保留','收件箱保留']}}
-  assert.deepEqual(capacity.historyCleanupWarnings(partial),['共享队列保留','收件箱保留'])
-  assert.equal(capacity.historyCleanupResultText(partial),'已完成可清理部分')
-  assert.equal(capacity.historyCleanupResultText({status:'SUCCEEDED',error:'结果存储失败'}),'清理结果需确认')
-  const counts={rawMessages:1,standardMessages:2,alarms:3,devices:4,products:5,rules:6,resources:7,audits:8,accessReferences:9,retainedRequests:10}
-  const removed=capacity.cleanupCountItems(counts),runtime=capacity.cleanupRuntimeItems(counts)
-  assert.equal(removed.length,9)
-  assert.equal(runtime.length,1)
-  for (const item of [...removed,...runtime]) assert.equal(item.value,counts[item.key])
-  assert.equal(removed.some(item=>item.key==='retainedRequests'),false,'retained clear requests are never labelled as deleted messages')
+  for (const job of [{ status: 'SUCCEEDED' }, { processed: 1, total: 0 }, { processed: 5, total: 4 }, { processed: null, total: 4 }])
+    assert.equal(capacity.historyCleanupProgress(job), null)
+  assert.equal(capacity.historyCleanupHasTargets({ runs: 0, products: [], devices: 0, rawMessages: 0 }), false)
+  assert.equal(capacity.historyCleanupHasTargets({ runs: 0, products: [{ productId: 'cap-standard' }] }), true)
+  assert.equal(capacity.historyCleanupHasTargets({ runs: 2, products: [] }), true)
+  assert.deepEqual(capacity.cleanupCountItems({ devices: 0, rawMessages: 4, cacheKeys: undefined }), [
+    { key: 'devices', label: '设备', value: 0 },
+    { key: 'rawMessages', label: '测试原文', value: 4 }
+  ])
+  assert.deepEqual(capacity.cleanupRuntimeItems({ retainedRequests: 12 }), [
+    { key: 'retainedRequests', label: '已发送 retained 清除请求', value: 12 }
+  ])
+  const partial = { status: 'SUCCEEDED', warnings: ['共享队列保留'], counts: { warnings: ['共享队列保留', '收件箱保留'] } }
+  assert.deepEqual(capacity.historyCleanupWarnings(partial), ['共享队列保留', '收件箱保留'])
+  assert.equal(capacity.historyCleanupResultText(partial), '已完成可清理部分')
+  assert.equal(capacity.historyCleanupResultText({ status: 'SUCCEEDED', error: '结果存储失败' }), '清理结果需确认')
+  const counts = {
+    rawMessages: 1,
+    standardMessages: 2,
+    alarms: 3,
+    devices: 4,
+    products: 5,
+    rules: 6,
+    resources: 7,
+    audits: 8,
+    accessReferences: 9,
+    retainedRequests: 10
+  }
+  const removed = capacity.cleanupCountItems(counts),
+    runtime = capacity.cleanupRuntimeItems(counts)
+  assert.equal(removed.length, 9)
+  assert.equal(runtime.length, 1)
+  for (const item of [...removed, ...runtime]) assert.equal(item.value, counts[item.key])
+  assert.equal(
+    removed.some(item => item.key === 'retainedRequests'),
+    false,
+    'retained clear requests are never labelled as deleted messages'
+  )
 })
 
 function capacityPage({ get, send, allow = true } = {}) {
-  const calls = [], messages = [], timers = [], grants = reactive(new Set(allow ? ['DELETE /api/v1/ops/capacity/runs/:id'] : []))
-  const session = reactive({ tenant:'tenant',user:'operator',accessVersion:'v1' })
+  const calls = [],
+    messages = [],
+    timers = [],
+    grants = reactive(new Set(allow ? ['DELETE /api/v1/ops/capacity/runs/:id'] : []))
+  const session = reactive({ tenant: 'tenant', user: 'operator', accessVersion: 'v1' })
   let cleanup
-  const job = { id:'history-job',environment:'self',status:'RUNNING',phase:'清理历史产品',processed:0,total:2 }
-  const preview = { runs:1,products:[{ productId:'cap-standard',name:'容量测试标准设备 cap-standard',deviceCount:3,rawMessages:10 }],devices:3,rawMessages:10,warnings:['监控历史保留'] }
-  const context = vm.createContext({ ...capacity,computed,reactive,ref,watch,session,defineEmits:()=>()=>{},onMounted(){},onBeforeUnmount(fn){cleanup=fn},can:path=>grants.has(path),
-    window:{sessionStorage:{getItem:()=>JSON.stringify({environment:'self',form:capacity.defaultForm()})}},
-    UiMessage:Object.fromEntries(['info','success','warning','error'].map(kind=>[kind,value=>messages.push([kind,value])])),UiMessageBox:{confirm:async()=>{}},opsErrorText:error=>error.message,
-    opsGet:async(path,params)=>{calls.push({method:'GET',path,params});if(get)return get(path,params);if(path.endsWith('/cleanup/status'))return{job:structuredClone(job)};if(path.endsWith('/capacity/cleanup'))return{preview:structuredClone(preview),job:null};if(path.endsWith('/status'))return{enabled:true,reachable:true};return{items:[],total:0}},
-    opsSend:async(method,path,body)=>{calls.push({method,path,body});return send ? send(method,path,body) : {job:structuredClone(job)}},
-    setTimeout(fn,delay){timers.push({fn,delay});return timers.length},clearTimeout(id){if(timers[id-1])timers[id-1].cleared=true}
+  const job = { id: 'history-job', environment: 'self', status: 'RUNNING', phase: '清理历史产品', processed: 0, total: 2 }
+  const preview = {
+    runs: 1,
+    products: [{ productId: 'cap-standard', name: '容量测试标准设备 cap-standard', deviceCount: 3, rawMessages: 10 }],
+    devices: 3,
+    rawMessages: 10,
+    warnings: ['监控历史保留']
+  }
+  const context = vm.createContext({
+    ...capacity,
+    computed,
+    reactive,
+    ref,
+    watch,
+    session,
+    defineEmits: () => () => {},
+    onMounted() {},
+    onBeforeUnmount(fn) {
+      cleanup = fn
+    },
+    can: path => grants.has(path),
+    window: { sessionStorage: { getItem: () => JSON.stringify({ environment: 'self', form: capacity.defaultForm() }) } },
+    UiMessage: Object.fromEntries(['info', 'success', 'warning', 'error'].map(kind => [kind, value => messages.push([kind, value])])),
+    UiMessageBox: { confirm: async () => {} },
+    opsErrorText: error => error.message,
+    opsGet: async (path, params) => {
+      calls.push({ method: 'GET', path, params })
+      if (get) return get(path, params)
+      if (path.endsWith('/cleanup/status')) return { job: structuredClone(job) }
+      if (path.endsWith('/capacity/cleanup')) return { preview: structuredClone(preview), job: null }
+      if (path.endsWith('/status')) return { enabled: true, reachable: true }
+      return { items: [], total: 0 }
+    },
+    opsSend: async (method, path, body) => {
+      calls.push({ method, path, body })
+      return send ? send(method, path, body) : { job: structuredClone(job) }
+    },
+    setTimeout(fn, delay) {
+      timers.push({ fn, delay })
+      return timers.length
+    },
+    clearTimeout(id) {
+      if (timers[id - 1]) timers[id - 1].cleared = true
+    }
   })
-  const state = vm.runInContext(setupScript(new URL('../src/views/OpsCapacityView.vue',import.meta.url))+';({loadHistoryStatus,previewHistoryCleanup,confirmHistoryCleanup,historyJob,historyPreview,historyDialog,historyError,historyRunning,historyPending,historyReady,historyCleaning,cleanupBlocked,environment,activeRunId,cleaningRunId,moduleStatus,loadRuns,start,cleanupRun,rowActions,stateLabel})',context)
-  return {...state,calls,messages,timers,grants,session,job,preview,dispose:()=>cleanup()}
+  const state = vm.runInContext(
+    setupScript(new URL('../src/views/OpsCapacityView.vue', import.meta.url)) +
+      ';({loadHistoryStatus,previewHistoryCleanup,confirmHistoryCleanup,historyJob,historyPreview,historyDialog,historyError,historyRunning,historyPending,historyReady,historyCleaning,cleanupBlocked,environment,activeRunId,cleaningRunId,moduleStatus,loadRuns,start,cleanupRun,rowActions,stateLabel})',
+    context
+  )
+  return { ...state, calls, messages, timers, grants, session, job, preview, dispose: () => cleanup() }
 }
 
 test('容量测试提前结束后，列表与详情仍展示后台失败原因', async () => {
@@ -384,9 +647,17 @@ test('容量测试提前结束后，列表与详情仍展示后台失败原因',
       if (found) return found
     }
   }
-  const statusColumn = find(ast, node => node.tag === 'ui-table-column' && node.props.some(prop => prop.name === 'label' && prop.value?.content === '状态'))
+  const statusColumn = find(
+    ast,
+    node => node.tag === 'ui-table-column' && node.props.some(prop => prop.name === 'label' && prop.value?.content === '状态')
+  )
   const statusSlot = statusColumn.children.find(node => node.tag === 'template')
-  const detailDialog = find(ast, node => node.tag === 'ui-dialog' && node.props.some(prop => prop.name === 'bind' && prop.arg?.content === 'model-value' && prop.exp?.content === 'Boolean(detail)'))
+  const detailDialog = find(
+    ast,
+    node =>
+      node.tag === 'ui-dialog' &&
+      node.props.some(prop => prop.name === 'bind' && prop.arg?.content === 'model-value' && prop.exp?.content === 'Boolean(detail)')
+  )
   const templates = [statusSlot.children.map(node => node.loc.source).join(''), detailDialog.loc.source]
   const page = capacityPage()
   const message = 'prepare failed: device enrolment incomplete (0/2); results: 409=2'
@@ -394,9 +665,18 @@ test('容量测试提前结束后，列表与详情仍展示后台失败原因',
     const run = { runId: 'early-failure', status, verdict: 'inconclusive', classification: 'inconclusive', message, completed: [] }
     for (const template of templates) {
       const render = new Function('Vue', compile(template, { mode: 'function', prefixIdentifiers: true }).code)(Vue)
-      const app = Vue.createSSRApp({ render, setup: () => ({ ...capacity, row: run, detail: run, stateLabel: page.stateLabel, formatTime: () => '—', can: () => false }) })
+      const app = Vue.createSSRApp({
+        render,
+        setup: () => ({ ...capacity, row: run, detail: run, stateLabel: page.stateLabel, formatTime: () => '—', can: () => false })
+      })
       app.component('StatusDot', { props: ['label'], setup: props => () => Vue.h('span', props.label) })
-      for (const name of ['ui-dialog', 'ui-descriptions', 'ui-descriptions-item']) app.component(name, { setup: (_, { slots }) => () => Vue.h('div', slots.default?.()) })
+      for (const name of ['ui-dialog', 'ui-descriptions', 'ui-descriptions-item'])
+        app.component(name, {
+          setup:
+            (_, { slots }) =>
+            () =>
+              Vue.h('div', slots.default?.())
+        })
       for (const name of ['ui-table', 'ui-table-column', 'ui-empty', 'ui-button']) app.component(name, { setup: () => () => Vue.h('div') })
       const html = await renderToString(app)
       assert.ok(html.includes(message), `${status} must retain its failure reason in both views`)
@@ -407,104 +687,178 @@ test('容量测试提前结束后，列表与详情仍展示后台失败原因',
 })
 
 test('清理全部取消和权限不足均不发送删除请求', async () => {
-  const denied=capacityPage({allow:false})
-  await denied.previewHistoryCleanup();await denied.loadHistoryStatus();await denied.confirmHistoryCleanup()
-  assert.equal(denied.calls.length,0)
-  const page=capacityPage()
+  const denied = capacityPage({ allow: false })
+  await denied.previewHistoryCleanup()
+  await denied.loadHistoryStatus()
+  await denied.confirmHistoryCleanup()
+  assert.equal(denied.calls.length, 0)
+  const page = capacityPage()
   await page.previewHistoryCleanup()
-  assert.equal(page.historyPreview.value.products[0].deviceCount,3)
-  page.historyDialog.value=false;await page.confirmHistoryCleanup()
-  assert.equal(page.calls.some(call=>call.method==='POST'),false)
-  await page.previewHistoryCleanup();page.grants.clear();await nextTick();await page.confirmHistoryCleanup()
-  assert.equal(page.calls.some(call=>call.method==='POST'),false)
-  assert.equal(page.historyDialog.value,false)
+  assert.equal(page.historyPreview.value.products[0].deviceCount, 3)
+  page.historyDialog.value = false
+  await page.confirmHistoryCleanup()
+  assert.equal(
+    page.calls.some(call => call.method === 'POST'),
+    false
+  )
+  await page.previewHistoryCleanup()
+  page.grants.clear()
+  await nextTick()
+  await page.confirmHistoryCleanup()
+  assert.equal(
+    page.calls.some(call => call.method === 'POST'),
+    false
+  )
+  assert.equal(page.historyDialog.value, false)
 })
 
 test('历史清理202后继续轮询，只有服务端明确成功才报告完成', async () => {
-  const page=capacityPage()
-  await page.previewHistoryCleanup();await page.confirmHistoryCleanup()
-  const sent=page.calls.find(call=>call.method==='POST')
-  assert.deepEqual(JSON.parse(JSON.stringify(sent.body)),{environment:'self'})
-  assert.equal(page.historyRunning.value,true)
-  assert.equal(page.messages.some(([kind])=>kind==='success'),false)
-  assert(page.timers.some(timer=>timer.delay===3000&&!timer.cleared))
-  page.job.status='SUCCEEDED';page.job.processed=2
+  const page = capacityPage()
+  await page.previewHistoryCleanup()
+  await page.confirmHistoryCleanup()
+  const sent = page.calls.find(call => call.method === 'POST')
+  assert.deepEqual(JSON.parse(JSON.stringify(sent.body)), { environment: 'self' })
+  assert.equal(page.historyRunning.value, true)
+  assert.equal(
+    page.messages.some(([kind]) => kind === 'success'),
+    false
+  )
+  assert(page.timers.some(timer => timer.delay === 3000 && !timer.cleared))
+  page.job.status = 'SUCCEEDED'
+  page.job.processed = 2
   await page.loadHistoryStatus(true)
-  assert.equal(page.historyRunning.value,false)
-  assert.equal(page.messages.filter(([kind])=>kind==='success').length,1)
+  assert.equal(page.historyRunning.value, false)
+  assert.equal(page.messages.filter(([kind]) => kind === 'success').length, 1)
   await page.loadHistoryStatus(true)
-  assert.equal(page.messages.filter(([kind])=>kind==='success').length,1,'refreshing a finished job does not repeat success')
+  assert.equal(page.messages.filter(([kind]) => kind === 'success').length, 1, 'refreshing a finished job does not repeat success')
 })
 
 test('清理失败可重新预览重试，冲突409使旧确认失效', async () => {
-  let reject=false
-  const page=capacityPage({send:async()=>{if(reject)throw Object.assign(new Error('范围变化'),{status:409});return{job:{id:'history-job',environment:'self',status:'RUNNING',processed:0,total:2}}}})
-  await page.previewHistoryCleanup();await page.confirmHistoryCleanup()
-  page.job.status='FAILED';page.job.error='收件箱仍在处理中'
-  await page.loadHistoryStatus(true)
-  assert.equal(page.historyJob.value.error,'收件箱仍在处理中')
-  assert.equal(page.messages.some(([kind])=>kind==='success'),false)
-  reject=true
-  await page.previewHistoryCleanup();await page.confirmHistoryCleanup()
-  assert.equal(page.historyPreview.value,null)
-  const attempts=page.calls.filter(call=>call.method==='POST').length
+  let reject = false
+  const page = capacityPage({
+    send: async () => {
+      if (reject) throw Object.assign(new Error('范围变化'), { status: 409 })
+      return { job: { id: 'history-job', environment: 'self', status: 'RUNNING', processed: 0, total: 2 } }
+    }
+  })
+  await page.previewHistoryCleanup()
   await page.confirmHistoryCleanup()
-  assert.equal(page.calls.filter(call=>call.method==='POST').length,attempts)
+  page.job.status = 'FAILED'
+  page.job.error = '收件箱仍在处理中'
+  await page.loadHistoryStatus(true)
+  assert.equal(page.historyJob.value.error, '收件箱仍在处理中')
+  assert.equal(
+    page.messages.some(([kind]) => kind === 'success'),
+    false
+  )
+  reject = true
+  await page.previewHistoryCleanup()
+  await page.confirmHistoryCleanup()
+  assert.equal(page.historyPreview.value, null)
+  const attempts = page.calls.filter(call => call.method === 'POST').length
+  await page.confirmHistoryCleanup()
+  assert.equal(page.calls.filter(call => call.method === 'POST').length, attempts)
 })
 
 test('清理任务消失或查询失败都不能误报成功，单次清理与历史清理互斥', async () => {
-  let response={job:{id:'history-job',status:'RUNNING',processed:0,total:2}}
-  let failed=false
-  const page=capacityPage({get:async path=>{if(failed)throw new Error('暂时无法连接控制服务');return path.endsWith('/cleanup/status')?response:{items:[],total:0}}})
+  let response = { job: { id: 'history-job', status: 'RUNNING', processed: 0, total: 2 } }
+  let failed = false
+  const page = capacityPage({
+    get: async path => {
+      if (failed) throw new Error('暂时无法连接控制服务')
+      return path.endsWith('/cleanup/status') ? response : { items: [], total: 0 }
+    }
+  })
   await page.loadHistoryStatus()
-  response={job:null};await page.loadHistoryStatus(true)
-  assert.equal(page.historyRunning.value,true)
-  assert.match(page.historyError.value,/尚不能判定/)
-  failed=true;await page.loadHistoryStatus(true)
-  assert.equal(page.historyRunning.value,true)
-  assert.match(page.historyError.value,/无法连接/)
-  await page.cleanupRun({runId:'finished',status:'FINISHED'})
-  assert.equal(page.calls.some(call=>call.method==='DELETE'),false)
-  assert.equal(page.messages.some(([kind])=>kind==='success'),false)
+  response = { job: null }
+  await page.loadHistoryStatus(true)
+  assert.equal(page.historyRunning.value, true)
+  assert.match(page.historyError.value, /尚不能判定/)
+  failed = true
+  await page.loadHistoryStatus(true)
+  assert.equal(page.historyRunning.value, true)
+  assert.match(page.historyError.value, /无法连接/)
+  await page.cleanupRun({ runId: 'finished', status: 'FINISHED' })
+  assert.equal(
+    page.calls.some(call => call.method === 'DELETE'),
+    false
+  )
+  assert.equal(
+    page.messages.some(([kind]) => kind === 'success'),
+    false
+  )
 })
 
 test('全局历史清理状态独立于单次运行，阻止并行操作并持续刷新', async () => {
-  const page=capacityPage({get:async path=>path.endsWith('/runs')?{items:[],total:0,cleaningAll:true,cleaningRunId:''}:{job:null}})
-  await page.loadRuns();await nextTick()
-  assert.equal(page.historyCleaning.value,true)
-  assert.equal(page.cleaningRunId.value,'')
-  assert.equal(page.cleanupBlocked.value,true)
-  assert(page.timers.some(timer=>timer.delay===3000&&!timer.cleared))
-  await page.start();await page.cleanupRun({runId:'finished',status:'FINISHED'});await page.previewHistoryCleanup()
-  assert.equal(page.calls.some(call=>call.method==='POST'||call.method==='DELETE'),false)
-  assert.equal(page.calls.some(call=>call.path.endsWith('/runs/finished')),false,'history cleanup must never trigger a per-run 404 completion check')
-  assert.equal(page.rowActions({runId:'finished',status:'FINISHED'}).find(action=>action.key==='cleanup').disabled,true)
+  const page = capacityPage({
+    get: async path => (path.endsWith('/runs') ? { items: [], total: 0, cleaningAll: true, cleaningRunId: '' } : { job: null })
+  })
+  await page.loadRuns()
+  await nextTick()
+  assert.equal(page.historyCleaning.value, true)
+  assert.equal(page.cleaningRunId.value, '')
+  assert.equal(page.cleanupBlocked.value, true)
+  assert(page.timers.some(timer => timer.delay === 3000 && !timer.cleared))
+  await page.start()
+  await page.cleanupRun({ runId: 'finished', status: 'FINISHED' })
+  await page.previewHistoryCleanup()
+  assert.equal(
+    page.calls.some(call => call.method === 'POST' || call.method === 'DELETE'),
+    false
+  )
+  assert.equal(
+    page.calls.some(call => call.path.endsWith('/runs/finished')),
+    false,
+    'history cleanup must never trigger a per-run 404 completion check'
+  )
+  assert.equal(page.rowActions({ runId: 'finished', status: 'FINISHED' }).find(action => action.key === 'cleanup').disabled, true)
 })
 
 test('受理但未返回有效job时保持待确认，控制服务不可达时不能预览或提交', async () => {
-  const page=capacityPage({send:async()=>({}),get:async path=>path.endsWith('/capacity/cleanup')?{preview:{runs:1,products:[],devices:0,rawMessages:0},job:null}:path.endsWith('/cleanup/status')?{job:null}:{items:[],total:0}})
-  await page.previewHistoryCleanup();await page.confirmHistoryCleanup()
-  assert.equal(page.historyPending.value,true)
-  assert.equal(page.historyRunning.value,true)
-  assert.match(page.historyError.value,/尚不能判定/)
-  assert.equal(page.messages.some(([kind])=>kind==='success'),false)
-  const unreachable=capacityPage()
-  unreachable.moduleStatus.value={enabled:true,reachable:false}
-  await unreachable.previewHistoryCleanup();await unreachable.confirmHistoryCleanup()
-  assert.equal(unreachable.calls.length,0)
+  const page = capacityPage({
+    send: async () => ({}),
+    get: async path =>
+      path.endsWith('/capacity/cleanup')
+        ? { preview: { runs: 1, products: [], devices: 0, rawMessages: 0 }, job: null }
+        : path.endsWith('/cleanup/status')
+          ? { job: null }
+          : { items: [], total: 0 }
+  })
+  await page.previewHistoryCleanup()
+  await page.confirmHistoryCleanup()
+  assert.equal(page.historyPending.value, true)
+  assert.equal(page.historyRunning.value, true)
+  assert.match(page.historyError.value, /尚不能判定/)
+  assert.equal(
+    page.messages.some(([kind]) => kind === 'success'),
+    false
+  )
+  const unreachable = capacityPage()
+  unreachable.moduleStatus.value = { enabled: true, reachable: false }
+  await unreachable.previewHistoryCleanup()
+  await unreachable.confirmHistoryCleanup()
+  assert.equal(unreachable.calls.length, 0)
 })
 
 test('历史清理恢复最近任务，身份切换或离页后的迟到预览不会打开确认框', async () => {
-  const restored=capacityPage();await restored.loadHistoryStatus()
-  assert.equal(restored.historyJob.value.id,'history-job')
-  assert.equal(restored.historyRunning.value,true)
+  const restored = capacityPage()
+  await restored.loadHistoryStatus()
+  assert.equal(restored.historyJob.value.id, 'history-job')
+  assert.equal(restored.historyRunning.value, true)
   let finish
-  const page=capacityPage({get:async path=>path.endsWith('/capacity/cleanup')?new Promise(resolve=>finish=resolve):{job:null}})
-  const request=page.previewHistoryCleanup()
-  page.session.user='another';await nextTick()
-  finish({preview:page.preview,job:null});await request
-  assert.equal(page.historyDialog.value,false)
-  const disposed=capacityPage({get:async()=>new Promise(resolve=>finish=resolve)})
-  const late=disposed.previewHistoryCleanup();disposed.dispose();finish({preview:disposed.preview});await late
-  assert.equal(disposed.historyDialog.value,false)
+  const page = capacityPage({
+    get: async path => (path.endsWith('/capacity/cleanup') ? new Promise(resolve => (finish = resolve)) : { job: null })
+  })
+  const request = page.previewHistoryCleanup()
+  page.session.user = 'another'
+  await nextTick()
+  finish({ preview: page.preview, job: null })
+  await request
+  assert.equal(page.historyDialog.value, false)
+  const disposed = capacityPage({ get: async () => new Promise(resolve => (finish = resolve)) })
+  const late = disposed.previewHistoryCleanup()
+  disposed.dispose()
+  finish({ preview: disposed.preview })
+  await late
+  assert.equal(disposed.historyDialog.value, false)
 })

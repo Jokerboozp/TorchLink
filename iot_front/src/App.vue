@@ -82,26 +82,42 @@ const OpsCapacityView = defineAsyncComponent(() => import('./views/OpsCapacityVi
 
 const authenticated = ref(Boolean(session.token))
 const active = ref('dashboard')
-const readStoredCollapse = () => { try { return localStorage.getItem('iot:sidebar-collapsed') === 'true' } catch { return false } }
+const readStoredCollapse = () => {
+  try {
+    return localStorage.getItem('iot:sidebar-collapsed') === 'true'
+  } catch {
+    return false
+  }
+}
 const collapsed = ref(readStoredCollapse())
-watch(collapsed, value => { try { localStorage.setItem('iot:sidebar-collapsed', String(value)) } catch { /* 浏览器禁用存储时只影响本次折叠状态。 */ } })
+watch(collapsed, value => {
+  try {
+    localStorage.setItem('iot:sidebar-collapsed', String(value))
+  } catch {
+    /* 浏览器禁用存储时只影响本次折叠状态。 */
+  }
+})
 const narrow = useMediaQuery('(max-width: 767px)')
 const navOpen = ref(false)
-watch(narrow, value => { if (!value) navOpen.value = false })
+watch(narrow, value => {
+  if (!value) navOpen.value = false
+})
 const contentArea = ref(null)
 const pageKey = ref(0)
 const loginLoading = ref(false)
 const globalAlertPopup = ref(null)
 const loginForm = ref({ tenantId: 'tenant_001', username: 'admin', password: '' })
 const identity = ref({ tenant: session.tenant, user: session.user, role: session.role })
+// 平台版本只用于排查与反馈问题，来自 /api/v1/auth/me。
+const platformVersion = ref('')
 const currentUser = computed(() => identity.value.user || loginForm.value.username || '账户')
-const currentRole = computed(() => ({ admin: '管理员', operator: '运维人员', viewer: '访客' }[identity.value.role] || '平台用户'))
+const currentRole = computed(() => ({ admin: '管理员', operator: '运维人员', viewer: '访客' })[identity.value.role] || '平台用户')
 
 // layout=full 的页面占满内容高度；header=false 的页面使用自己的介绍区。
 const pages = {
   dashboard: { ...pageGuide.dashboard, icon: LayoutDashboard, component: DashboardView },
   alarms: { ...pageGuide.alarms, icon: Bell, component: AlarmsView },
-  inspection: { ...pageGuide.inspection, icon: ClipboardCheck, component: HealthInspectionView, header: false },
+  inspection: { ...pageGuide.inspection, icon: ClipboardCheck, component: HealthInspectionView },
   raw: { ...pageGuide.raw, icon: FileText, component: RawView },
   rules: { ...pageGuide.rules, icon: SlidersHorizontal, component: RulesView },
   notifications: { ...pageGuide.notifications, icon: Megaphone, component: NotificationsView },
@@ -114,8 +130,8 @@ const pages = {
   messageTopics: { ...pageGuide.messageTopics, icon: Network, component: MessageTopicsView },
   integration: { ...pageGuide.integration, icon: FlaskConical, component: TestDeviceView },
   ai: { ...pageGuide.ai, icon: Bot, component: AiView, layout: 'full' },
-  knowledge: { ...pageGuide.knowledge, icon: Library, component: KnowledgeView, header: false },
-  aiProviders: { ...pageGuide.aiProviders, icon: BrainCircuit, component: AiProvidersView, header: false },
+  knowledge: { ...pageGuide.knowledge, icon: Library, component: KnowledgeView },
+  aiProviders: { ...pageGuide.aiProviders, icon: BrainCircuit, component: AiProvidersView },
   backups: { ...pageGuide.backups, icon: Database, component: BackupsView },
   access: { ...pageGuide.access, icon: ShieldCheck, component: AccessView },
   duty: { ...pageGuide.duty, icon: CalendarDays, component: DutyView },
@@ -131,7 +147,10 @@ const pages = {
 }
 const menuGroups = [
   { label: '运行监控', items: ['dashboard', 'alarms', 'notifications', 'inspection', 'raw', 'rules'] },
-  { label: '设备与接入', items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'externalData', 'messageTopics', 'integration'] },
+  {
+    label: '设备与接入',
+    items: ['devices', 'products', 'profiles', 'protocols', 'cameras', 'externalData', 'messageTopics', 'integration']
+  },
   { label: '智能助手', items: ['ai', 'knowledge', 'aiProviders'] },
   { label: '消防管理', items: ['sites', 'duty', 'extinguishers', 'fireStations'] },
   { label: '运维中心', items: ['opsOverview', 'opsMetrics', 'opsLogs', 'opsDashboards', 'opsAlerts', 'opsCapacity'] },
@@ -145,27 +164,47 @@ const showHeader = computed(() => current.value.layout !== 'full' && current.val
 const capacityModuleOn = ref(true)
 async function refreshModules() {
   if (!authenticated.value || !can('menu:opsCapacity')) return
-  try { capacityModuleOn.value = (await api('/api/v1/ops/capacity/status')).enabled !== false } catch { capacityModuleOn.value = true }
+  try {
+    capacityModuleOn.value = (await api('/api/v1/ops/capacity/status')).enabled !== false
+  } catch {
+    capacityModuleOn.value = true
+  }
 }
-const navigable = name => can('menu:' + name) && !(name === 'profiles' && can('menu:products')) && !(name === 'opsCapacity' && !capacityModuleOn.value)
-const visibleGroups = computed(() => menuGroups.map(group => ({ ...group, items: group.items.filter(navigable) })).filter(group => group.items.length))
+const navigable = name =>
+  can('menu:' + name) && !(name === 'profiles' && can('menu:products')) && !(name === 'opsCapacity' && !capacityModuleOn.value)
+const visibleGroups = computed(() =>
+  menuGroups.map(group => ({ ...group, items: group.items.filter(navigable) })).filter(group => group.items.length)
+)
 const firstAllowedPage = () => visibleGroups.value[0]?.items[0] || ''
 
-watch(() => permissionState.accessVersion + '\n' + permissionState.items.join('\n'), (value, old) => {
-  if (!authenticated.value || value === old) return
-  // 智能助手的回答可在其他页面后台生成；授权变化后停止旧授权下的运行。
-  resetAIConversation()
-  if (!can('menu:' + active.value)) active.value = firstAllowedPage()
-  pageKey.value++
-})
+watch(
+  () => permissionState.accessVersion + '\n' + permissionState.items.join('\n'),
+  (value, old) => {
+    if (!authenticated.value || value === old) return
+    // 智能助手的回答可在其他页面后台生成；授权变化后停止旧授权下的运行。
+    resetAIConversation()
+    if (!can('menu:' + active.value)) active.value = firstAllowedPage()
+    pageKey.value++
+  }
+)
+
+// 回到窗口时同步权限；实时轮询已在后台更新权限，30 秒内的重复焦点不再请求。
+let lastFocusSync = 0
+function syncOnFocus() {
+  if (Date.now() - lastFocusSync < 30000) return
+  void syncIdentity()
+}
 
 async function syncIdentity() {
   if (!authenticated.value) return
+  lastFocusSync = Date.now()
   try {
-    await refreshPermissions()
+    platformVersion.value = (await refreshPermissions())?.platformVersion || ''
     if (!routeApplied) applyRoute(true)
     else if (!can('menu:' + active.value)) active.value = firstAllowedPage()
-  } catch (error) { notifyError(error) }
+  } catch (error) {
+    notifyError(error)
+  }
   refreshModules()
 }
 
@@ -173,28 +212,32 @@ async function syncIdentity() {
 let routeApplied = false
 function applyRoute(replace) {
   routeApplied = true
-  const { page, detail } = parsePath(window.location.pathname, pages)
+  const { page, detail } = parsePath(window.location.pathname, pages, window.location.search)
   if (page && can('menu:' + page)) openPage(page, detail, { history: false, force: true })
   else active.value = firstAllowedPage()
-  if (replace || !page || !can('menu:' + page)) window.history.replaceState(null, '', pathFor(active.value, page === active.value ? detail : null) + window.location.search)
+  if (replace || !page || !can('menu:' + page))
+    window.history.replaceState(null, '', pathFor(active.value, page === active.value ? detail : null))
 }
-function onPopState() { if (authenticated.value) applyRoute(false) }
+function onPopState() {
+  if (authenticated.value) applyRoute(false)
+}
 
 // 管理员设置或重置密码后，首次登录只拿到改密凭据，修改成功后才建立会话。
 const passwordDialog = ref(false)
 const passwordChange = ref({ required: false, token: '', current: '' })
 function startSession(data, username) {
-    session.save(data, username)
-    identity.value = { tenant: data.tenantId || '', user: username, role: data.role || '' }
-    authenticated.value = true
-    permissionState.accessVersion = data.accessVersion || ''
-    permissionState.items = data.permissions || []
-    permissionState.ready = true
-    // 登录前打开的深链接（例如通知中的告警详情）在登录后继续打开。
-    applyRoute(true)
-    refreshModules()
-    loginForm.value.password = ''
-    if (can(['menu:devices', 'menu:alarms', 'menu:dashboard', 'menu:raw'])) connect()
+  session.save(data, username)
+  identity.value = { tenant: data.tenantId || '', user: username, role: data.role || '' }
+  platformVersion.value = data.platformVersion || ''
+  authenticated.value = true
+  permissionState.accessVersion = data.accessVersion || ''
+  permissionState.items = data.permissions || []
+  permissionState.ready = true
+  // 登录前打开的深链接（例如通知中的告警详情）在登录后继续打开。
+  applyRoute(true)
+  refreshModules()
+  loginForm.value.password = ''
+  if (can(['menu:devices', 'menu:alarms', 'menu:dashboard', 'menu:raw'])) connect()
 }
 
 async function login() {
@@ -240,16 +283,22 @@ function logout() {
 
 function handleAccountCommand(command) {
   if (command === 'logout') logout()
-  if (command === 'password') { passwordChange.value = { required: false, token: '', current: '' }; passwordDialog.value = true }
+  if (command === 'password') {
+    passwordChange.value = { required: false, token: '', current: '' }
+    passwordDialog.value = true
+  }
 }
 
 function openPage(name, detail, { history = true, force = false } = {}) {
-  if (name === 'profiles' && can('menu:products')) { name = 'products'; detail = detail && { ...detail, tab: 'access' } }
+  if (name === 'profiles' && can('menu:products')) {
+    name = 'products'
+    detail = detail && { ...detail, tab: 'access' }
+  }
   if (!pages[name] || !can('menu:' + name)) return
   navOpen.value = false
   if (history) {
     const path = pathFor(name, detail)
-    if (path !== window.location.pathname) window.history.pushState(null, '', path)
+    if (path !== window.location.pathname + window.location.search) window.history.pushState(null, '', path)
   }
   if (active.value === name && !detail && !force) return
   sessionStorage.removeItem('iot:navigation-detail')
@@ -288,7 +337,9 @@ async function openCameraAction(cameraId, actionId) {
         return
       }
     }
-  } catch { /* 无权观看或模块不可用时退回资料定位。 */ }
+  } catch {
+    /* 无权观看或模块不可用时退回资料定位。 */
+  }
   openPage('cameras', { cameraId, actionId })
   UiMessage.info(`规则联动：已定位摄像头信息 ${cameraId}`)
 }
@@ -301,7 +352,24 @@ function handleUIAction(payload) {
       void openCameraAction(action.cameraId, event.id)
       return
     }
-    const allowedPages = new Set(['dashboard', 'devices', 'products', 'protocols', 'profiles', 'integration', 'cameras', 'externalData', 'alarms', 'inspection', 'raw', 'rules', 'knowledge', 'aiProviders', 'ai', 'backups'])
+    const allowedPages = new Set([
+      'dashboard',
+      'devices',
+      'products',
+      'protocols',
+      'profiles',
+      'integration',
+      'cameras',
+      'externalData',
+      'alarms',
+      'inspection',
+      'raw',
+      'rules',
+      'knowledge',
+      'aiProviders',
+      'ai',
+      'backups'
+    ])
     if (action.type === 'OPEN_PAGE' && allowedPages.has(action.page)) {
       openPage(action.page)
       UiMessage.warning('规则联动：已打开相关业务页面')
@@ -326,7 +394,7 @@ function unauthorized() {
 onMounted(async () => {
   window.addEventListener('iot:unauthorized', unauthorized)
   window.addEventListener('popstate', onPopState)
-  window.addEventListener('focus', syncIdentity)
+  window.addEventListener('focus', syncOnFocus)
   window.addEventListener('keydown', closeNavigationOnEscape)
   await syncIdentity()
   if (authenticated.value && can(['menu:devices', 'menu:alarms', 'menu:dashboard', 'menu:raw'])) connect()
@@ -335,7 +403,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('iot:unauthorized', unauthorized)
   window.removeEventListener('popstate', onPopState)
-  window.removeEventListener('focus', syncIdentity)
+  window.removeEventListener('focus', syncOnFocus)
   window.removeEventListener('keydown', closeNavigationOnEscape)
   stopRealtime()
 })
@@ -355,9 +423,18 @@ onBeforeUnmount(() => {
           <p>从设备接入、实时监测到告警处置，在一个工作台掌握现场运行情况。</p>
         </div>
         <ul class="login-features">
-          <li><Network /><div><strong>多协议接入</strong><span>标准 HTTP / MQTT、TCP / UDP 与 Modbus 设备统一登记</span></div></li>
-          <li><Bell /><div><strong>实时告警</strong><span>设备上报告警与规则告警在同一处确认和处置</span></div></li>
-          <li><ClipboardCheck /><div><strong>智能巡检</strong><span>在线情况、上报时效与活动告警一次汇总</span></div></li>
+          <li>
+            <Network />
+            <div><strong>多协议接入</strong><span>标准 HTTP / MQTT、TCP / UDP 与 Modbus 设备统一登记</span></div>
+          </li>
+          <li>
+            <Bell />
+            <div><strong>实时告警</strong><span>设备上报告警与规则告警在同一处确认和处置</span></div>
+          </li>
+          <li>
+            <ClipboardCheck />
+            <div><strong>智能巡检</strong><span>在线情况、上报时效与活动告警一次汇总</span></div>
+          </li>
         </ul>
       </section>
       <section class="login-form-panel">
@@ -372,11 +449,26 @@ onBeforeUnmount(() => {
             </div>
             <div class="login-field">
               <label for="username">用户名</label>
-              <ui-input id="username" v-model="loginForm.username" size="large" autocomplete="username" placeholder="请输入用户名" required />
+              <ui-input
+                id="username"
+                v-model="loginForm.username"
+                size="large"
+                autocomplete="username"
+                placeholder="请输入用户名"
+                required
+              />
             </div>
             <div class="login-field">
               <label for="password">密码</label>
-              <ui-input id="password" v-model="loginForm.password" size="large" type="password" autocomplete="current-password" placeholder="请输入密码" required />
+              <ui-input
+                id="password"
+                v-model="loginForm.password"
+                size="large"
+                type="password"
+                autocomplete="current-password"
+                placeholder="请输入密码"
+                required
+              />
             </div>
           </div>
           <ui-button native-type="submit" type="primary" size="large" class="login-submit" :loading="loginLoading">进入平台</ui-button>
@@ -432,17 +524,23 @@ onBeforeUnmount(() => {
             </nav>
           </div>
           <div class="app-topbar__actions">
-            <button v-if="can('menu:alarms')" class="topbar-button" type="button" aria-label="告警提醒设置" @click="openAlertSettings"><Settings2 /><span>告警提醒</span></button>
+            <button v-if="can('menu:alarms')" class="topbar-button" type="button" aria-label="告警提醒设置" @click="openAlertSettings">
+              <Settings2 /><span>告警提醒</span>
+            </button>
             <ui-dropdown class="account-dropdown" trigger="click" @command="handleAccountCommand">
               <button class="account" type="button" aria-label="打开用户菜单">
                 <span class="account__avatar" aria-hidden="true">{{ currentRole.slice(0, 1) }}</span>
-                <span class="account__copy"><strong>{{ currentUser === 'admin' ? '管理员' : currentUser }}</strong><small>{{ currentRole }}</small></span>
+                <span class="account__copy"
+                  ><strong>{{ currentUser === 'admin' ? '管理员' : currentUser }}</strong
+                  ><small>{{ currentRole }}</small></span
+                >
                 <ChevronDown class="account__chevron" />
               </button>
               <template #dropdown>
                 <ui-dropdown-menu>
                   <ui-dropdown-item v-if="identity.role !== 'admin'" command="password"><KeyRound />修改密码</ui-dropdown-item>
                   <ui-dropdown-item command="logout"><LogOut />退出登录</ui-dropdown-item>
+                  <ui-dropdown-item v-if="platformVersion" disabled command="version">平台版本 {{ platformVersion }}</ui-dropdown-item>
                 </ui-dropdown-menu>
               </template>
             </ui-dropdown>
@@ -453,13 +551,25 @@ onBeforeUnmount(() => {
             <h1>{{ current.title }}</h1>
             <p v-if="current.sub">{{ current.sub }}</p>
           </header>
-          <component :is="current.component" v-if="permissionState.ready && current.component" :key="`${active}-${pageKey}`" v-bind="current.props || {}" @navigate="openPage" />
+          <component
+            :is="current.component"
+            v-if="permissionState.ready && current.component"
+            :key="`${active}-${pageKey}`"
+            v-bind="current.props || {}"
+            @navigate="openPage"
+          />
           <ui-empty v-else-if="permissionState.ready" description="尚未分配菜单权限，请联系管理员" />
         </main>
       </div>
     </div>
     <GlobalAlertPopup v-if="authenticated && permissionState.ready && can('menu:alarms')" ref="globalAlertPopup" @navigate="openPage" />
     <LivePlayerDialog v-if="authenticated" v-model="livePlayerVisible" :camera="livePlayerCamera" />
-    <PasswordChangeDialog v-model="passwordDialog" :required="passwordChange.required" :change-token="passwordChange.token" :current-password="passwordChange.current" @changed="passwordChanged" />
+    <PasswordChangeDialog
+      v-model="passwordDialog"
+      :required="passwordChange.required"
+      :change-token="passwordChange.token"
+      :current-password="passwordChange.current"
+      @changed="passwordChanged"
+    />
   </ui-config-provider>
 </template>

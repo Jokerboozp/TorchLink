@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -213,6 +214,27 @@ func TestMemoryPropertyHistoryPaginationKeepsLatestPageChronological(t *testing.
 	}
 	if total != 3 || len(items) != 2 || items[0]["timestamp"] != int64(2) || items[1]["timestamp"] != int64(3) {
 		t.Fatalf("history page=%#v total=%d, want timestamps 2,3 and total 3", items, total)
+	}
+}
+
+func TestPropertyHistoryRejectsControlCharactersInPropertyName(t *testing.T) {
+	repo := memory.NewRepository()
+	if err := repo.SaveManagedDevice(context.Background(), model.ManagedDevice{ID: "device_001", TenantID: "tenant-a", ProductID: "product_001"}); err != nil {
+		t.Fatal(err)
+	}
+	api := New(config.Config{JWTSecret: "audit-only-secret-at-least-32-characters"}, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	token, err := api.auth.Issue("audit", "tenant-a", "viewer", nil, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for query, want := range map[string]int{"property=temp-c": http.StatusOK, "property=x%09y": http.StatusUnprocessableEntity, "property=" + strings.Repeat("a", 257): http.StatusUnprocessableEntity} {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/devices/device_001/properties/history?"+query, nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		api.Handler().ServeHTTP(w, r)
+		if w.Code != want {
+			t.Fatalf("%s: status=%d want %d", query, w.Code, want)
+		}
 	}
 }
 
@@ -446,7 +468,7 @@ func TestWorkerRolesServeOnlyHealthAndMetrics(t *testing.T) {
 		cfg := config.Load()
 		cfg.ProcessRole, cfg.InstanceID = role, role+"-1"
 		registry := metrics.New()
-		registry.SetProcessInfo(role, cfg.InstanceID)
+		registry.SetProcessInfo(role, cfg.InstanceID, "dev")
 		server := New(cfg, engine, registry, log)
 		call := func(path string) *httptest.ResponseRecorder {
 			w := httptest.NewRecorder()
@@ -456,7 +478,7 @@ func TestWorkerRolesServeOnlyHealthAndMetrics(t *testing.T) {
 		if w := call("/api/v1/devices"); w.Code != 404 {
 			t.Fatal(role, "worker served a business route", w.Code)
 		}
-		if w := call("/metrics"); w.Code != 200 || !strings.Contains(w.Body.String(), `process_info{role="`+role+`",instance="`+role+`-1"} 1`) {
+		if w := call("/metrics"); w.Code != 200 || !strings.Contains(w.Body.String(), `process_info{role="`+role+`",instance="`+role+`-1",version="dev"} 1`) {
 			t.Fatal(role, "worker metrics not attributable", w.Code)
 		}
 		w := call("/health/ready")
@@ -517,5 +539,49 @@ func TestVideoRoutesFollowTheControlOwner(t *testing.T) {
 	local = true
 	if code := call("/api/v1/video/status"); code == 503 || forwarded.Load() != 2 {
 		t.Fatal("owner did not serve its own live routes", code)
+	}
+}
+
+// Built-in administrator tokens carry a version derived from the configured
+// password, so a password change invalidates tokens issued before it.
+func TestBuiltinAdminTokenRevokedByPasswordChange(t *testing.T) {
+	cfg := config.Config{AdminUser: "root", AdminPassword: "first-password", JWTSecret: "admin-version-secret-at-least-32-characters"}
+	api := New(cfg, &core.Engine{Repo: memory.NewRepository()}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	stale, err := api.auth.IssueWithVersion("root", "tenant-a", "admin", api.adminSessionVersion()+1, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := api.auth.IssueWithVersion("root", "tenant-a", "admin", api.adminSessionVersion(), time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for token, want := range map[string]int{stale: http.StatusUnauthorized, current: http.StatusOK} {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/products", nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		api.Handler().ServeHTTP(w, r)
+		if w.Code != want {
+			t.Fatalf("status=%d want %d", w.Code, want)
+		}
+	}
+}
+
+// Unexpected failures answer a reference instead of the error text, which can
+// carry dependency hosts or credentials; the log keeps the detail.
+func TestInternalErrorHidesDetailAndLogsReference(t *testing.T) {
+	var logs bytes.Buffer
+	api := New(config.Config{JWTSecret: "internal-error-secret-at-least-32-characters"}, &core.Engine{Repo: memory.NewRepository()}, metrics.New(), slog.New(slog.NewTextHandler(&logs, nil)))
+	w := httptest.NewRecorder()
+	api.internalError(w, httptest.NewRequest(http.MethodGet, "/api/v1/products", nil), errors.New("dial tcp 10.0.0.5:5432: password authentication failed"))
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	reference, _ := body["traceId"].(string)
+	if w.Code != http.StatusInternalServerError || reference == "" || strings.Contains(w.Body.String(), "10.0.0.5") {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(logs.String(), reference) || !strings.Contains(logs.String(), "10.0.0.5") {
+		t.Fatalf("log lacks reference or detail: %s", logs.String())
 	}
 }

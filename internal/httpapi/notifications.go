@@ -173,7 +173,7 @@ func (s *Server) saveNotificationChannel(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if secret, err = n.Cipher.Open(c.TenantID, c.ID, sealed); err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 	}

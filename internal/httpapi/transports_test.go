@@ -682,7 +682,6 @@ func TestTCPParentChildSourceChain(t *testing.T) {
 	upload("sensor", tcpChildSource)
 	upload("parent", tcpParentSource)
 	profiles := []model.DeviceAccessProfile{}
-	peers := []net.Conn{}
 	for i, mode := range []string{"listen", "dial"} {
 		socket, e := net.Listen("tcp", "127.0.0.1:0")
 		if e != nil {
@@ -717,7 +716,6 @@ func TestTCPParentChildSourceChain(t *testing.T) {
 			t.Fatal("connection", e)
 		}
 		defer peer.Close()
-		peers = append(peers, peer)
 		peer.SetDeadline(time.Now().Add(10 * time.Second))
 		// Child information before the registration handshake must not be ACKed.
 		if mode == "listen" {
