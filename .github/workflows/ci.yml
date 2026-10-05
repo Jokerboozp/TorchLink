@@ -61,19 +61,34 @@ jobs:
           if [ -n "$unformatted" ]; then echo "$unformatted"; exit 1; fi
       - name: go vet
         run: go vet ./cmd/... ./internal/... ./deploy/toolaccounts
+      - name: 依赖清单整洁
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+      - name: golangci-lint（规则见 .golangci.yml）
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
+          golangci-lint run ./cmd/... ./internal/... ./deploy/toolaccounts
       - name: 后端测试（真实 PostgreSQL / ClickHouse / Redis）
         run: |
           status=0
           go test -count=1 -json ./cmd/... ./internal/... ./deploy/toolaccounts > "$RUNNER_TEMP/go-test.json" || status=$?
           python3 scripts/ci/annotate-go-test.py "$RUNNER_TEMP/go-test.json"
           exit $status
+      - name: 并发路径竞态检测
+        run: go test -race -count=1 ./internal/core/... ./internal/protocolruntime/... ./internal/durablequeue/... ./internal/adapters/mqtt/... ./internal/adapters/kafka/... ./internal/externaldata/...
       - name: 独立协议 module 测试
-        working-directory: protocol-packages/gb26875-dahua
-        run: go test ./...
+        run: |
+          for module in protocol-packages/gb26875-dahua dev/*/; do
+            echo "::group::$module"
+            (cd "$module" && go vet ./... && go test ./...)
+            echo "::endgroup::"
+          done
       - name: 依赖漏洞检查
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@latest
+          go install golang.org/x/vuln/cmd/govulncheck@v1.8.0
           govulncheck ./...
+          for module in protocol-packages/gb26875-dahua dev/*/; do (cd "$module" && govulncheck ./...); done
 
   frontend:
     runs-on: ubuntu-24.04
@@ -91,6 +106,8 @@ jobs:
           cache: npm
           cache-dependency-path: iot_front/package-lock.json
       - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
       - run: npm test
       - run: npm run build
       - name: 依赖漏洞检查（提示，不阻断；npm 审计服务偶尔不可用）
@@ -106,9 +123,13 @@ jobs:
           persist-credentials: false
       - name: 部署脚本冒烟（模拟 Docker，真实 Compose 解析）
         run: |
-          printf '#!/bin/sh\nexec docker compose "$@"\n' > "$RUNNER_TEMP/docker-compose"
-          chmod +x "$RUNNER_TEMP/docker-compose"
-          bash scripts/tests/deployment-smoke.sh "$RUNNER_TEMP/docker-compose"
+          compose="$(docker info --format '{{range .ClientInfo.Plugins}}{{if eq .Name "compose"}}{{.Path}}{{end}}{{end}}')"
+          test -x "$compose"
+          echo "COMPOSE_EXE=$compose" >> "$GITHUB_ENV"
+          bash scripts/tests/deployment-smoke.sh "$compose"
+      - name: PowerShell 部署脚本冒烟
+        shell: pwsh
+        run: ./scripts/tests/deployment-smoke.ps1 -ComposeExe $env:COMPOSE_EXE
       - name: PowerShell 脚本语法检查
         shell: pwsh
         run: |
