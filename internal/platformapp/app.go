@@ -122,6 +122,9 @@ func Run(forcedRole string) {
 	videoStore, _ := repo.(ports.VideoStore)
 	knowledgeStore, _ := repo.(ports.KnowledgeReindexStore)
 	aiRunStore, _ := repo.(ports.AIRunStore)
+	// Captured before the ClickHouse and Redis decorators, which embed only
+	// ports.Repository and hide the dynamic Agent store.
+	manifestStore, _ := repo.(ports.AIWorkflowManifestStore)
 	signalStore, _ := repo.(ports.DeviceSignalStore)
 	telemetryStats, _ := repo.(ports.DeviceTelemetryStats)
 	var aiProviderStore ports.AIProviderConfigStore
@@ -141,6 +144,7 @@ func Run(forcedRole string) {
 		videoStore = r
 		knowledgeStore = r
 		aiRunStore = r
+		manifestStore = r
 		signalStore, telemetryStats = r, r
 		if store, ok := any(r).(ports.AIProviderConfigStore); ok {
 			aiProviderStore = store
@@ -438,7 +442,6 @@ func Run(forcedRole string) {
 			engine.HarnessTokens = auth.New(cfg.JWTSecret)
 			log.Info("AI workflow harness enabled", "urls", cfg.AIHarnessURL, "instances", harness.Size(), "model", providerConfig.Model)
 		}
-		manifestStore, _ := repo.(ports.AIWorkflowManifestStore)
 		aiSync = aiadapter.NewProviderSync(runtimeAI, harness, aiProviderStore, manifestStore, completeProvider)
 		// Compose starts the Harness after the API (it calls the platform MCP
 		// endpoint), so the first pass may fail; later passes also follow
@@ -669,7 +672,6 @@ func Run(forcedRole string) {
 		api.SetAIWorkflowProvider(harness)
 	}
 	if aiSync != nil {
-		manifestStore, _ := repo.(ports.AIWorkflowManifestStore)
 		api.SetAISync(aiSync, manifestStore)
 	}
 	api.SetProtocolListeners(protocolListeners)
