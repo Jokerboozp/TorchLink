@@ -749,6 +749,12 @@ func (c *controller) prepare(ctx context.Context) error {
 					}
 				}
 				errs = append(errs, fmt.Sprintf("%s: MQTT 连接 %d/%d 成功，失败 %s；拒绝以不同设备规模测量%s", h.target.Name, res.MQTTConnected, len(h.mqtt), codeSummary(res.Failures), detail))
+			case res.RealtimeSubscribers < cfg.Modules.RealtimeSubs:
+				detail := ""
+				if res.Failures["realtime_connect_bad_credentials"] > 0 {
+					detail = "；broker 拒绝订阅凭据，请核对 MQTT JWT 认证密钥与平台 IOT_JWT_SECRET 一致"
+				}
+				errs = append(errs, fmt.Sprintf("%s: 实时推送订阅 %d/%d 成功，失败 %s；无法测量推送%s", h.target.Name, res.RealtimeSubscribers, cfg.Modules.RealtimeSubs, codeSummary(res.Failures), detail))
 			default:
 				c.event("agent_prepared", "", "", fmt.Sprintf("%s http=%d mqtt=%d tcp=%d", h.target.Name, res.HTTPDevices, res.MQTTConnected, res.TCPDevices))
 			}

@@ -322,7 +322,7 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 
 这些用户名和密码是连接工具中填写的登录凭据，服务地址见[端口与地址](#端口与地址)：
 
-- MQTT 使用 `IOT_MQTT_TOOL_USERNAME` / `IOT_MQTT_TOOL_PASSWORD`，可发布和订阅；设备及浏览器仍使用 JWT。
+- MQTT 使用 `IOT_MQTT_TOOL_USERNAME` / `IOT_MQTT_TOOL_PASSWORD`，可发布和订阅；设备及浏览器仍使用 JWT。EMQX 先查内置账号，同名用户密码不符即拒绝，因此管理端订阅凭据的用户名带 `web:` 前缀，与工具账号（默认 `admin`）分开。
 - Kafka 选择 `SASL_PLAINTEXT`、`SCRAM-SHA-256`（启用 TLS 时选择 `SASL_SSL`），连接对外 Kafka 端口，填写配置中的用户名和密码。
 - ClickHouse 工具账号通过 `GRANT CURRENT GRANTS` 继承初始化连接账号实际可授予的权限。
 

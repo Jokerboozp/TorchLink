@@ -269,8 +269,8 @@ func (w *Worker) Prepare(ctx context.Context, req PrepareRequest) (PrepareResult
 	w.prepareModules(ctx, run)
 	if run.modules.realtime != nil {
 		res.RealtimeSubscribers = len(run.modules.realtime.clients)
-		if f := run.modules.realtime.failures; f > 0 {
-			res.Failures["realtime_subscribe"] += uint64(f)
+		for code, n := range run.modules.realtime.failures {
+			res.Failures["realtime_"+code] += uint64(n)
 		}
 	}
 	// Opening many connections can outlast the lease; the lease counts from

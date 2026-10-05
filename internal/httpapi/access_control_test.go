@@ -114,6 +114,18 @@ func TestAccessControlLifecycleAndIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	req("GET", "/api/v1/device-registry", broker, nil, 403)
+	// Console broker credentials never collide with broker built-in accounts
+	// (the MQTT tool account defaults to the admin name) and never work as
+	// console tokens, for the built-in administrator either.
+	grant := req("POST", "/api/v1/mqtt/token", root, nil, 200)
+	if grant["username"] != "web:root" {
+		t.Fatalf("broker username = %v", grant["username"])
+	}
+	claims, err := api.auth.Parse(grant["token"].(string))
+	if err != nil || claims.Username != "web:root" || claims.TokenUse != "browser-mqtt" {
+		t.Fatalf("broker claims = %+v, %v", claims, err)
+	}
+	req("GET", "/api/v1/device-registry", grant["token"].(string), nil, 403)
 }
 
 func TestUserPermissionsCombineRolesAndIndividualGrants(t *testing.T) {

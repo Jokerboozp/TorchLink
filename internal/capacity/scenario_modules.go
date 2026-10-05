@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/eclipse/paho.mqtt.golang/packets"
 )
 
 // ModuleConfig carries what agents need for business-module streams.
@@ -81,6 +83,8 @@ func (w *Worker) prepareModules(ctx context.Context, r *workerRun) {
 	}
 	if n := cfg.Modules.RealtimeSubs; n > 0 && cfg.MQTT != "" {
 		st.realtime = connectRealtime(ctx, r.http.query, cfg, n, r.req.RunID)
+	} else if n > 0 {
+		st.realtime = &realtimeSubscribers{rec: &streamRecorder{}, failures: map[string]int{"no_mqtt_url": n}}
 	}
 }
 
@@ -376,13 +380,13 @@ func knowledgeDocument(runID string, seq int64, n int) []byte {
 type realtimeSubscribers struct {
 	mu       sync.Mutex
 	clients  []mqtt.Client
-	failures int
+	failures map[string]int
 	rec      *streamRecorder
 	measure  atomic.Bool
 }
 
 func connectRealtime(ctx context.Context, c *http.Client, cfg AgentConfig, n int, runID string) *realtimeSubscribers {
-	rs := &realtimeSubscribers{rec: &streamRecorder{}}
+	rs := &realtimeSubscribers{rec: &streamRecorder{}, failures: map[string]int{}}
 	for i := 0; i < n; i++ {
 		status, body, err := jsonCall(ctx, c, http.MethodPost, cfg.API+"/api/v1/mqtt/token", cfg.OperatorToken, nil)
 		var tok struct {
@@ -391,13 +395,7 @@ func connectRealtime(ctx context.Context, c *http.Client, cfg AgentConfig, n int
 			Subscriptions []string `json:"subscriptions"`
 		}
 		if err != nil || status != 200 || json.Unmarshal(body, &tok) != nil {
-			rs.failures++
-			continue
-		}
-		o := mqtt.NewClientOptions().AddBroker(cfg.MQTT).SetClientID(fmt.Sprintf("cap-ui-%s-%d", runID[max(0, len(runID)-6):], i)).SetUsername(tok.Username).SetPassword(tok.Token).SetAutoReconnect(true).SetCleanSession(true).SetConnectTimeout(cfg.RequestTimeout.D())
-		client := mqtt.NewClient(o)
-		if t := client.Connect(); !t.WaitTimeout(cfg.RequestTimeout.D()) || t.Error() != nil {
-			rs.failures++
+			rs.failures["token_"+codeOf(status, err)]++
 			continue
 		}
 		filters := map[string]byte{}
@@ -406,9 +404,23 @@ func connectRealtime(ctx context.Context, c *http.Client, cfg AgentConfig, n int
 				filters[s] = 0
 			}
 		}
-		if t := client.SubscribeMultiple(filters, rs.receive); !t.WaitTimeout(cfg.RequestTimeout.D()) || t.Error() != nil {
+		if len(filters) == 0 {
+			rs.failures["no_alarm_or_state_scope"]++
+			continue
+		}
+		o := mqtt.NewClientOptions().AddBroker(cfg.MQTT).SetClientID(fmt.Sprintf("cap-ui-%s-%d", runID[max(0, len(runID)-6):], i)).SetUsername(tok.Username).SetPassword(tok.Token).SetAutoReconnect(true).SetCleanSession(true).SetConnectTimeout(cfg.RequestTimeout.D())
+		client := mqtt.NewClient(o)
+		if t := client.Connect(); !t.WaitTimeout(cfg.RequestTimeout.D()) {
+			rs.failures["connect_timeout"]++
+			continue
+		} else if err := t.Error(); err != nil {
+			rs.failures[realtimeConnectCode(err)]++
+			continue
+		}
+		t := client.SubscribeMultiple(filters, rs.receive)
+		if !t.WaitTimeout(cfg.RequestTimeout.D()) || t.Error() != nil || subscribeDenied(t.(*mqtt.SubscribeToken).Result()) {
 			client.Disconnect(100)
-			rs.failures++
+			rs.failures["subscribe_denied"]++
 			continue
 		}
 		rs.mu.Lock()
@@ -416,6 +428,26 @@ func connectRealtime(ctx context.Context, c *http.Client, cfg AgentConfig, n int
 		rs.mu.Unlock()
 	}
 	return rs
+}
+
+func realtimeConnectCode(err error) string {
+	switch {
+	case errors.Is(err, packets.ErrorRefusedBadUsernameOrPassword):
+		return "connect_bad_credentials"
+	case errors.Is(err, packets.ErrorRefusedNotAuthorised):
+		return "connect_not_authorized"
+	}
+	return "connect_error"
+}
+
+// subscribeDenied reports a SUBACK failure code (0x80) for any filter.
+func subscribeDenied(granted map[string]byte) bool {
+	for _, q := range granted {
+		if q == 0x80 {
+			return true
+		}
+	}
+	return false
 }
 
 // receive records push latency from the event time (alarm trigger or

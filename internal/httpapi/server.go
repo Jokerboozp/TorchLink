@@ -2572,24 +2572,14 @@ func (s *Server) mqttToken(w http.ResponseWriter, r *http.Request) {
 		if p["menu:alarms"] || p["menu:dashboard"] {
 			scope = append(scope, fmt.Sprintf("/iot/alarm/%s/#", c.TenantID))
 		}
-		token, err := s.auth.IssueBrowserMQTT(c.Username, c.TenantID, scope, 15*time.Minute)
-		if err != nil {
-			problem(w, 500, "创建消息令牌失败")
-			return
-		}
-		write(w, 200, map[string]any{"username": c.Username, "token": token, "expiresIn": 900, "subscriptions": scope, "websocketUrl": s.mqttWebSocketURL(r)})
-		return
 	}
-	acl := make([]auth.ACLRule, 0, len(scope))
-	for _, topic := range scope {
-		acl = append(acl, auth.ACLRule{Permission: "allow", Action: "subscribe", Topic: topic})
-	}
-	token, err := s.auth.IssueWithACL(c.Username, c.TenantID, c.Role, scope, acl, 15*time.Minute)
+	// Broker-only credentials: never usable as a console token.
+	token, err := s.auth.IssueBrowserMQTT(c.Username, c.TenantID, scope, 15*time.Minute)
 	if err != nil {
-		problem(w, 500, err.Error())
+		problem(w, 500, "创建消息令牌失败")
 		return
 	}
-	write(w, 200, map[string]any{"username": c.Username, "token": token, "expiresIn": 900, "subscriptions": scope, "websocketUrl": s.mqttWebSocketURL(r)})
+	write(w, 200, map[string]any{"username": auth.BrowserMQTTUsername(c.Username), "token": token, "expiresIn": 900, "subscriptions": scope, "websocketUrl": s.mqttWebSocketURL(r)})
 }
 
 // standardDeviceTokenTTL keeps standard device tokens short unless revoked

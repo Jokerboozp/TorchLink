@@ -87,7 +87,16 @@ func (m *Manager) IssueWithACL(user, tenant, role string, scopes []string, acl [
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString(m.secret)
 }
 
+// BrowserMQTTUsername is the broker username of console subscriptions. The
+// prefix keeps it apart from broker built-in accounts (the MQTT tool account
+// defaults to admin): EMQX rejects a known built-in user on a password
+// mismatch without trying the JWT authenticator.
+func BrowserMQTTUsername(user string) string { return "web:" + user }
+
+// IssueBrowserMQTT issues subscribe-only broker credentials for the console;
+// the username claim is BrowserMQTTUsername(user).
 func (m *Manager) IssueBrowserMQTT(user, tenant string, scopes []string, ttl time.Duration) (string, error) {
+	user = BrowserMQTTUsername(user)
 	now := time.Now()
 	acl := []ACLRule{}
 	for _, scope := range scopes {
