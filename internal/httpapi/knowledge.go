@@ -3,7 +3,6 @@ package httpapi
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -12,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"iot-platform/internal/aiprompt"
 	"iot-platform/internal/aiworkflow"
 	"iot-platform/internal/core"
 	"iot-platform/internal/model"
@@ -143,23 +141,8 @@ func (s *Server) testWorkflowKnowledge(w http.ResponseWriter, r *http.Request) {
 	write(w, http.StatusOK, map[string]any{"items": items, "keywordOnly": aiworkflow.KeywordOnlyHits(hits), "durationMs": time.Since(started).Milliseconds()})
 }
 
-func workflowKnowledgeInstruction(binding model.WorkflowKnowledgeBinding) string {
-	payload, _ := json.Marshal(map[string]any{"mode": binding.RetrievalMode, "workflowId": binding.WorkflowID, "topK": binding.TopK, "minScore": binding.MinScore, "noMatchPolicy": binding.NoMatchPolicy})
-	return aiprompt.KnowledgeBinding(payload)
-}
-
 func (s *Server) searchWorkflowKnowledge(ctx context.Context, tenantID, question string, binding model.WorkflowKnowledgeBinding) ([]ports.KnowledgeHit, error) {
 	return aiworkflow.SearchWorkflowKnowledge(ctx, s.engine.KB, tenantID, question, binding)
-}
-
-// knowledgeSources lists where prefetched evidence came from so the browser
-// can cite it; passage text stays with the model.
-func knowledgeSources(hits []ports.KnowledgeHit) []any {
-	sources := make([]any, 0, len(hits))
-	for _, hit := range hits {
-		sources = append(sources, map[string]any{"documentId": hit.DocumentID, "filename": hit.Filename, "chunkIndex": hit.ChunkIndex, "score": math.Round(hit.Score*100) / 100})
-	}
-	return sources
 }
 
 func (s *Server) knowledgeDocs(w http.ResponseWriter, r *http.Request) {

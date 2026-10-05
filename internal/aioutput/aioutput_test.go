@@ -48,6 +48,7 @@ func TestExtractJSONMatchesBracesOutsideStrings(t *testing.T) {
 		{"braces in strings", "```json\n{\"summary\":\"温度 {85} 摄氏度 \\\" }\",\"n\":{\"x\":1}}\n```", `{"summary":"温度 {85} 摄氏度 \" }","n":{"x":1}}`},
 		{"first of two", `{"summary":"one"} {"summary":"two"}`, `{"summary":"one"}`},
 		{"unterminated", `{"summary":"a"`, `{"summary":"a"`},
+		{"trailing commas", "```json\n{\"summary\":\"a, }\",\"items\":[1,2,],\n}\n```", "{\"summary\":\"a, }\",\"items\":[1,2]\n}"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			if got := ExtractJSON(test.content); got != test.want {

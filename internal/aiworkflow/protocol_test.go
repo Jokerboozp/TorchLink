@@ -8,6 +8,7 @@ import (
 	"io"
 	"iot-platform/internal/core"
 	"log/slog"
+	"strings"
 	"testing"
 
 	aiadapter "iot-platform/internal/adapters/ai"
@@ -47,6 +48,11 @@ func TestGenerateProtocolAssistant(t *testing.T) {
 	}
 	if draft.Source != "" || draft.ParserType != parser.ModbusCoilParserName || len(draft.Fields) != 1 || draft.Preview != nil {
 		t.Fatalf("unexpected generated draft %#v", draft)
+	}
+	// Without a sample the draft still reports that it is unverified.
+	unsampled, err := engine.GenerateProtocolAssistant(aitest.Context(context.Background()), "tenant-test", ProtocolAssistantInput{PointTable: "温度：第 2 字节，单位 0.1 度"})
+	if err != nil || len(unsampled.Warnings) == 0 || !strings.Contains(strings.Join(unsampled.Warnings, " "), "未提供样本报文") {
+		t.Fatalf("unsampled draft warnings %#v err=%v", unsampled.Warnings, err)
 	}
 }
 

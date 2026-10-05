@@ -598,6 +598,7 @@ test('stream emits only the public NDJSON event vocabulary and suppresses reason
     'tool.completed',
     'run.completed',
   ])
+  assert.equal(events[0].workflowVersion, '1.0.0')
   assert.deepEqual(events.at(-1).usage, { inputTokens: 127, outputTokens: 33, cacheReadTokens: 64, reasoningTokens: 5 })
   assert.equal(events.at(-1).toolCalls, 3)
   assert.equal(events[3].success, true)

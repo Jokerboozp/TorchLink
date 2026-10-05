@@ -1058,7 +1058,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 	if !strings.Contains(captured.Question, "平台知识策略") || !strings.Contains(captured.Question, "ops-assistant") {
 		t.Fatalf("knowledge policy was not supplied to harness: %q", captured.Question)
 	}
-	if captured.ConversationID == "browser-controlled" || captured.ConversationID != harnessConversationID("tenant-a", "alice", "browser-controlled") {
+	if captured.ConversationID == "browser-controlled" || captured.ConversationID != aiworkflow.ChatConversationID("tenant-a", "alice", "browser-controlled") {
 		t.Fatalf("conversation ID was not tenant scoped: %q", captured.ConversationID)
 	}
 	if captured.MaxTokens != 8192 {
@@ -1141,11 +1141,11 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 }
 
 func TestHarnessConversationIDIsStableAndTenantScoped(t *testing.T) {
-	a := harnessConversationID("tenant-a", "alice", "conversation-1")
-	if a != harnessConversationID("tenant-a", "alice", "conversation-1") {
+	a := aiworkflow.ChatConversationID("tenant-a", "alice", "conversation-1")
+	if a != aiworkflow.ChatConversationID("tenant-a", "alice", "conversation-1") {
 		t.Fatal("conversation derivation is not stable")
 	}
-	if a == harnessConversationID("tenant-b", "alice", "conversation-1") || a == harnessConversationID("tenant-a", "bob", "conversation-1") {
+	if a == aiworkflow.ChatConversationID("tenant-b", "alice", "conversation-1") || a == aiworkflow.ChatConversationID("tenant-a", "bob", "conversation-1") {
 		t.Fatal("conversation derivation is not tenant/user scoped")
 	}
 	if !strings.HasPrefix(a, "conv_") || strings.Contains(a, "tenant-a") || strings.Contains(a, "alice") {

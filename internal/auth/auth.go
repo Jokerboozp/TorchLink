@@ -182,6 +182,16 @@ func (m *Manager) IssueBusinessRunToken(tenantID string, identity ports.AIRunIde
 	if strings.TrimSpace(workflowID) == "" {
 		return "", errors.New("business workflow is required")
 	}
+	return m.issueRunToken(tenantID, identity, runID, workflowID, scopes, knowledge, ttl)
+}
+
+// IssueChatRunToken implements ports.HarnessTokenIssuer for assistant chat;
+// the MCP endpoint then checks the caller's assistant permission.
+func (m *Manager) IssueChatRunToken(tenantID string, identity ports.AIRunIdentity, runID string, scopes []string, knowledge *ports.AIKnowledgeRunScope, ttl time.Duration) (string, error) {
+	return m.issueRunToken(tenantID, identity, runID, "", scopes, knowledge, ttl)
+}
+
+func (m *Manager) issueRunToken(tenantID string, identity ports.AIRunIdentity, runID, workflowID string, scopes []string, knowledge *ports.AIKnowledgeRunScope, ttl time.Duration) (string, error) {
 	parent := Claims{Username: identity.Username, TenantID: tenantID, SessionVersion: identity.SessionVersion, Workflow: workflowID}
 	if identity.ManagedUser {
 		parent.TokenUse = "user"

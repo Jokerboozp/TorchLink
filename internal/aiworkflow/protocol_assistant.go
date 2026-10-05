@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"iot-platform/internal/aioutput"
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 )
@@ -114,6 +115,10 @@ func (e *Service) GenerateProtocolAssistant(ctx context.Context, tenant string, 
 		} else {
 			draft.Preview = preview
 		}
+	} else {
+		// Without a sample the config is only checked for shape; publishing
+		// still needs a real sample to pass the preview.
+		draft.Warnings = append(draft.Warnings, protocolAssistantConfigWarnings(draft)...)
 	}
 	return draft, nil
 }
@@ -140,7 +145,7 @@ func buildProtocolAssistantPrompt(in ProtocolAssistantInput) string {
 
 func decodeProtocolAssistant(content string) (model.ProtocolAssistantDraft, error) {
 	var raw map[string]any
-	if err := json.Unmarshal([]byte(extractAssistantJSON(content)), &raw); err != nil {
+	if err := json.Unmarshal([]byte(aioutput.ExtractJSON(content)), &raw); err != nil {
 		return model.ProtocolAssistantDraft{}, fmt.Errorf("decode protocol draft JSON: %w", err)
 	}
 	b, err := json.Marshal(raw)
@@ -249,14 +254,19 @@ func assistantSampleValue(format, payload string) any {
 	return payload
 }
 
-func extractAssistantJSON(content string) string {
-	content = strings.TrimSpace(strings.TrimPrefix(content, "```json"))
-	content = strings.TrimSuffix(strings.TrimSpace(content), "```")
-	start, end := strings.Index(content, "{"), strings.LastIndex(content, "}")
-	if start >= 0 && end > start {
-		return content[start : end+1]
+func protocolAssistantConfigWarnings(draft model.ProtocolAssistantDraft) []string {
+	warnings := []string{"未提供样本报文，解析配置尚未经过实际报文验证，发布前请用样本预览。"}
+	switch draft.ParserType {
+	case parser.ModbusCoilParserName:
+		if err := parser.ValidateModbusCoilConfig(draft.Config); err != nil {
+			warnings = append(warnings, "线圈点表配置无效："+err.Error())
+		}
+	case "configurable_json_parser", "configurable_hex_parser":
+		if len(draft.Config) == 0 {
+			warnings = append(warnings, "模型没有生成解析配置，请补充样本后重新生成。")
+		}
 	}
-	return content
+	return warnings
 }
 
 func validProtocolAssistantMessageType(value model.MessageType) bool {

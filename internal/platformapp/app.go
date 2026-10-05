@@ -442,6 +442,7 @@ func Run(forcedRole string) {
 			}
 			engine.AIWorkflows = harness
 			engine.BusinessRunTimeout = cfg.AIBusinessTimeout
+			engine.ChatRunTimeout = cfg.AIHarnessTimeout
 			// Business AI runs (alarm analysis, inspection, reports, protocol
 			// assistant, rule drafts) sign their MCP credentials with the API secret.
 			engine.HarnessTokens = auth.New(cfg.JWTSecret)

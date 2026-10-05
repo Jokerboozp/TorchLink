@@ -290,6 +290,8 @@ type AIWorkflowEvent struct {
 	// Usage and ToolCalls are reported on run.completed and run.failed.
 	Usage     *model.AIUsage `json:"usage,omitempty"`
 	ToolCalls int            `json:"toolCalls,omitempty"`
+	// WorkflowVersion is the Agent manifest version, sent on run.started.
+	WorkflowVersion string `json:"workflowVersion,omitempty"`
 }
 
 type AIWorkflowResult struct {
@@ -302,6 +304,8 @@ type AIWorkflowResult struct {
 	Usage         model.AIUsage `json:"usage"`
 	UsageReported bool          `json:"usageReported,omitempty"`
 	ToolCalls     int           `json:"toolCalls,omitempty"`
+	// WorkflowVersion is the Agent manifest version that handled the run.
+	WorkflowVersion string `json:"workflowVersion,omitempty"`
 }
 
 type AIWorkflowRuntime interface {

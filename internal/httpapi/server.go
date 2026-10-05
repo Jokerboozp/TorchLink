@@ -116,6 +116,11 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		aiAnalysisEstimateMs:       45000,
 		events:                     newEventSnapshots(),
 	}
+	if engine.HarnessTokens == nil {
+		// Chat and business runs sign MCP credentials with the API secret
+		// unless the process wired a dedicated issuer.
+		engine.HarnessTokens = s.auth
+	}
 	s.ai = aiworkflow.New(engine, s)
 	s.onboarding.LoadRaw = engine.GetRaw
 	s.onboarding.RequirePrepared = true
@@ -1761,7 +1766,7 @@ func (s *Server) authorizeHarness() gin.HandlerFunc {
 					c.Abort()
 					return
 				}
-			} else if !permissions["menu:ai"] || !(permissions["POST /api/v1/ai/chat"] || permissions["POST /api/v1/ai/chat/stream"]) {
+			} else if !chatAllowed(permissions) {
 				ginProblem(c, http.StatusForbidden, "无智能助手访问权限")
 				c.Abort()
 				return

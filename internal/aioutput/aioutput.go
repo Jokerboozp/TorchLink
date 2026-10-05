@@ -16,12 +16,24 @@ import (
 
 // ExtractJSON returns the first complete JSON object inside a model answer.
 // Braces are matched outside strings, so text before or after the object
-// (even text with braces of its own) does not shift its bounds. Without a
-// complete object the answer is returned unchanged and fails to decode.
+// (even text with braces of its own, such as a Markdown code fence) does not
+// shift its bounds. When no object is valid, trailing commas before a closing
+// bracket are removed once, a common model slip. Without a complete object the
+// answer is returned unchanged and fails to decode.
 func ExtractJSON(s string) string {
+	if object, ok := firstJSONObject(s); ok {
+		return object
+	}
+	if object, ok := firstJSONObject(withoutTrailingCommas(s)); ok {
+		return object
+	}
+	return s
+}
+
+func firstJSONObject(s string) (string, bool) {
 	for start := strings.IndexByte(s, '{'); start >= 0; {
 		if end := matchingBrace(s, start); end > start && json.Valid([]byte(s[start:end+1])) {
-			return s[start : end+1]
+			return s[start : end+1], true
 		}
 		next := strings.IndexByte(s[start+1:], '{')
 		if next < 0 {
@@ -29,7 +41,35 @@ func ExtractJSON(s string) string {
 		}
 		start += next + 1
 	}
-	return s
+	return "", false
+}
+
+// withoutTrailingCommas drops commas, outside strings, that are followed only
+// by whitespace and a closing brace or bracket.
+func withoutTrailingCommas(s string) string {
+	var b strings.Builder
+	inString, escaped := false, false
+	for i := 0; i < len(s); i++ {
+		ch := s[i]
+		switch {
+		case inString && escaped:
+			escaped = false
+		case inString && ch == '\\':
+			escaped = true
+		case inString && ch == '"':
+			inString = false
+		case inString:
+		case ch == '"':
+			inString = true
+		case ch == ',':
+			rest := strings.TrimLeft(s[i+1:], " \t\r\n")
+			if rest != "" && (rest[0] == '}' || rest[0] == ']') {
+				continue
+			}
+		}
+		b.WriteByte(ch)
+	}
+	return b.String()
 }
 
 // matchingBrace returns the index of the brace closing the object that opens

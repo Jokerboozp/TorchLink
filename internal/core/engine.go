@@ -67,6 +67,9 @@ type Engine struct {
 	PublishExternalTopics bool
 	// BusinessRunTimeout bounds one business AI run (zero: 4 minutes).
 	BusinessRunTimeout time.Duration
+	// ChatRunTimeout is the Harness client's limit for one chat turn
+	// (zero: 90 seconds); chat MCP credentials outlive it by a minute.
+	ChatRunTimeout time.Duration
 }
 
 func New(repo ports.Repository, archive ports.Archive, bus ports.EventBus, realtime ports.RealtimePublisher, parsers *parser.Registry, log *slog.Logger) *Engine {

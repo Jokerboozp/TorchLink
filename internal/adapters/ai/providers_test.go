@@ -229,7 +229,7 @@ func TestHarnessClientSeparatesCredentialsAndParsesNDJSON(t *testing.T) {
 				t.Fatal(err)
 			}
 			w.Header().Set("Content-Type", "application/x-ndjson")
-			_, _ = fmt.Fprintln(w, `{"type":"run.started"}`)
+			_, _ = fmt.Fprintln(w, `{"type":"run.started","workflowVersion":"1.2.0"}`)
 			_, _ = fmt.Fprintln(w, `{"type":"text.delta","delta":"hello "}`)
 			_, _ = fmt.Fprintln(w, `{"type":"tool.completed","callId":"call-1","tool":"query_alarm_list","success":true}`)
 			_, _ = fmt.Fprintln(w, `{"type":"text.delta","delta":"world"}`)
@@ -267,7 +267,7 @@ func TestHarnessClientSeparatesCredentialsAndParsesNDJSON(t *testing.T) {
 	if err != nil || result.Answer != "hello world" || strings.Join(types, ",") != "run.started,text.delta,tool.completed,text.delta,run.completed" {
 		t.Fatalf("result=%#v events=%v err=%v", result, types, err)
 	}
-	if !result.UsageReported || result.Usage != (model.AIUsage{InputTokens: 120, OutputTokens: 30, CacheReadTokens: 64, ReasoningTokens: 5}) || result.ToolCalls != 2 {
+	if !result.UsageReported || result.Usage != (model.AIUsage{InputTokens: 120, OutputTokens: 30, CacheReadTokens: 64, ReasoningTokens: 5}) || result.ToolCalls != 2 || result.WorkflowVersion != "1.2.0" {
 		t.Fatalf("usage was not taken from run.completed: %#v", result)
 	}
 	if _, leaked := streamBody["mcpToken"]; leaked {

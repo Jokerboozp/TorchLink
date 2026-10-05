@@ -490,6 +490,8 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 			result.Answer = event.Answer
 		}
 		switch event.Type {
+		case "run.started":
+			result.WorkflowVersion = event.WorkflowVersion
 		case "tool.started":
 			toolStarts++
 		case "run.completed", "run.failed":

@@ -80,9 +80,11 @@ type AIKnowledgeRunScope struct {
 	MinScore   float64
 }
 
-// HarnessTokenIssuer signs the short-lived MCP credential of a business run.
+// HarnessTokenIssuer signs the short-lived MCP credential of a Harness run:
+// business runs are bound to their workflow, chat runs to the assistant.
 type HarnessTokenIssuer interface {
 	IssueBusinessRunToken(tenantID string, identity AIRunIdentity, runID, workflowID string, scopes []string, knowledge *AIKnowledgeRunScope, ttl time.Duration) (string, error)
+	IssueChatRunToken(tenantID string, identity AIRunIdentity, runID string, scopes []string, knowledge *AIKnowledgeRunScope, ttl time.Duration) (string, error)
 }
 
 // AIRunFilter selects finished AI runs; Start and End bound StartedAt in
