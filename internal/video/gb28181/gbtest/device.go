@@ -66,7 +66,6 @@ type Device struct {
 	active  map[string]*sipgo.DialogServerSession
 	calls   map[string]Invite
 	byes    int
-	queries map[string]int
 }
 
 // Start listens on a UDP port of 127.0.0.1 and serves platform requests.
@@ -92,7 +91,7 @@ func Start(ctx context.Context, cfg Config) (*Device, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Device{cfg: cfg, ua: ua, srv: srv, client: client, conn: conn, active: map[string]*sipgo.DialogServerSession{}, calls: map[string]Invite{}, queries: map[string]int{}}
+	d := &Device{cfg: cfg, ua: ua, srv: srv, client: client, conn: conn, active: map[string]*sipgo.DialogServerSession{}, calls: map[string]Invite{}}
 	d.dialogs = sipgo.NewDialogServerCache(client, sip.ContactHeader{Address: sip.Uri{Scheme: "sip", User: cfg.ID, Host: cfg.Host, Port: laddr.Port}})
 	srv.OnMessage(d.onMessage)
 	srv.OnInvite(d.onInvite)
@@ -112,9 +111,6 @@ func Start(ctx context.Context, cfg Config) (*Device, error) {
 	}()
 	return d, nil
 }
-
-// Addr is the device's SIP address.
-func (d *Device) Addr() string { return d.conn.LocalAddr().String() }
 
 func (d *Device) Close() {
 	_ = d.conn.Close()
@@ -185,9 +181,6 @@ func (d *Device) onMessage(req *sip.Request, tx sip.ServerTransaction) {
 	body := string(req.Body())
 	sn := between(body, "<SN>", "</SN>")
 	cmd := between(body, "<CmdType>", "</CmdType>")
-	d.mu.Lock()
-	d.queries[cmd]++
-	d.mu.Unlock()
 	go func() {
 		ctx := context.Background()
 		switch cmd {
@@ -298,13 +291,6 @@ func (d *Device) Active() int {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	return len(d.active)
-}
-
-// Queries counts platform queries by command.
-func (d *Device) Queries(cmd string) int {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	return d.queries[cmd]
 }
 
 // HangUp ends every call from the device side (BYE), like a device that

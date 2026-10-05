@@ -186,10 +186,6 @@ func TestGenerateFixedHexMappingAndPreview(t *testing.T) {
 
 type protocolAssistantAI struct{}
 
-func (protocolAssistantAI) Chat(context.Context, string, string) (string, error) {
-	return "巡检建议", nil
-}
-func (protocolAssistantAI) Health(context.Context) error { return nil }
 func (protocolAssistantAI) GenerateJSON(context.Context, string, string, string) (string, error) {
 	return `{"name":"测试 Go 协议","protocol":"test-modbus","transport":"MODBUS_TCP","payloadFormat":"hex","parserType":"modbus_coil_parser","messageType":"PROPERTY_REPORT","config":{"frame":"tcp","startAddress":0,"functionCode":1,"fields":[{"name":"smoke","coilAddress":0}]},"fields":[{"name":"smoke","label":"烟雾","type":"boolean","coilAddress":0,"dataType":"BOOL"}]}`, nil
 }

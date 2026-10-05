@@ -182,7 +182,7 @@ func TestKafkaClusterSettingsFailBeforeDeployment(t *testing.T) {
 
 func TestToolDefaultsPreserveIndependentInternalSecrets(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "secrets.yaml")
-	if _, err := EnsureSecrets(path); err != nil {
+	if _, err := EnsureSecretsWith(path, SecretInputs{}); err != nil {
 		t.Fatal(err)
 	}
 	s, err := LoadSecrets(path)
@@ -215,7 +215,7 @@ func TestToolDefaultsPreserveIndependentInternalSecrets(t *testing.T) {
 	body, _ := os.ReadFile(path)
 	body = []byte(strings.Replace(string(body), "adminPassword: "+s.AdminPassword, "adminPassword: change-me", 1))
 	_ = os.WriteFile(path, body, 0o600)
-	if _, err = EnsureSecrets(path); err != nil {
+	if _, err = EnsureSecretsWith(path, SecretInputs{}); err != nil {
 		t.Fatal(err)
 	}
 	again, err := LoadSecrets(path)
@@ -685,7 +685,7 @@ func TestLocalLoadBalancersReplaceExternalOnes(t *testing.T) {
 
 func TestEnsureSecretsFillsOnlyMissingValues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "s", "secrets.yaml")
-	generated, err := EnsureSecrets(path)
+	generated, err := EnsureSecretsWith(path, SecretInputs{})
 	if err != nil || len(generated) < 15 {
 		t.Fatal(err, generated)
 	}
@@ -705,12 +705,12 @@ func TestEnsureSecretsFillsOnlyMissingValues(t *testing.T) {
 	body = []byte(strings.Replace(strings.Replace(string(body), "adminPassword: "+s.AdminPassword, "adminPassword: Operator-Chosen-1", 1), "redisPassword: "+s.RedisPassword, "redisPassword: change-me", 1) + "deepseekApiKey: sk-test\n")
 	body = []byte(strings.Replace(string(body), "deepseekApiKey: \"\"\n", "", 1))
 	_ = os.WriteFile(path, body, 0o600)
-	generated, err = EnsureSecrets(path)
+	generated, err = EnsureSecretsWith(path, SecretInputs{})
 	again, _ := LoadSecrets(path)
 	if err != nil || !reflect.DeepEqual(generated, []string{"redisPassword"}) || again.AdminPassword != "Operator-Chosen-1" || again.RedisPassword == "change-me" || again.DeepSeekAPIKey != "sk-test" || again.JWTSecret != s.JWTSecret {
 		t.Fatal(err, generated, again.AdminPassword)
 	}
-	if generated, _ = EnsureSecrets(path); generated != nil {
+	if generated, _ = EnsureSecretsWith(path, SecretInputs{}); generated != nil {
 		t.Fatal("a complete file is left untouched", generated)
 	}
 }

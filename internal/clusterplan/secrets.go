@@ -65,15 +65,6 @@ func ValidateServicePassword(p string) error {
 	return nil
 }
 
-// EnsureSecrets creates or completes the private secrets file: every missing
-// or placeholder tool credential gets its configured default, while internal
-// secrets remain random. Existing values are never replaced, so re-running a
-// deployment keeps the passwords the cluster was initialised with. The file
-// is written with mode 0600. It returns the names of generated values.
-func EnsureSecrets(path string) ([]string, error) {
-	return EnsureSecretsWith(path, SecretInputs{})
-}
-
 // SecretInputs are operator-supplied values from the deployment wizard.
 type SecretInputs struct {
 	// ServicePassword sets every unset human-facing service password.
@@ -82,8 +73,12 @@ type SecretInputs struct {
 	DeepSeekAPIKey string
 }
 
-// EnsureSecretsWith is EnsureSecrets with wizard inputs applied to the
-// values that are still unset.
+// EnsureSecretsWith creates or completes the private secrets file: every
+// missing or placeholder tool credential gets its configured default, while
+// internal secrets remain random. Wizard inputs apply to the values that are
+// still unset. Existing values are never replaced, so re-running a deployment
+// keeps the passwords the cluster was initialised with. The file is written
+// with mode 0600. It returns the names of generated values.
 func EnsureSecretsWith(path string, in SecretInputs) ([]string, error) {
 	servicePassword := in.ServicePassword
 	if servicePassword != "" {

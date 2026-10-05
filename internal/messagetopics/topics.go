@@ -46,15 +46,6 @@ func validateDestination(tenant, protocol, target string) error {
 	return nil
 }
 
-func findRoute(cfg model.MessageTopicConfig, id string) (model.MessageTopicRoute, bool) {
-	for _, route := range cfg.Topics {
-		if route.ID == id {
-			return route, true
-		}
-	}
-	return model.MessageTopicRoute{}, false
-}
-
 // AccumulateQueryExposure only widens a topic's data boundary. Call before
 // saving a query, including on a disabled topic.
 func AccumulateQueryExposure(cfg *model.MessageTopicConfig, topicID string, query model.MessageTopicQuery) error {

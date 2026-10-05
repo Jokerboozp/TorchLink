@@ -3,7 +3,6 @@ package embedding
 import (
 	"context"
 	"encoding/json"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -168,22 +167,6 @@ func TestOpenAIRetryPolicyByPurpose(t *testing.T) {
 	calls, last = 0, time.Time{}
 	if _, err = client.Embed(context.Background(), []string{"x"}, ports.EmbedQuery); err == nil || calls != queryAttempts {
 		t.Fatalf("query retried too long: calls=%d err=%v", calls, err)
-	}
-	if !IsTransientEmbeddingError(err) {
-		t.Fatal("rate limit not classified as transient", err)
-	}
-	listener, _ := net.Listen("tcp", "127.0.0.1:0")
-	down := "http://" + listener.Addr().String()
-	listener.Close()
-	unreachable, _ := NewOpenAI(Config{BaseURL: down, Model: "m", Dimensions: 2})
-	if _, err = unreachable.Embed(context.Background(), []string{"x"}, ports.EmbedDocument); err == nil || !IsTransientEmbeddingError(err) {
-		t.Fatal("unreachable service not transient", err)
-	}
-	unauthorized := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
-	defer unauthorized.Close()
-	denied, _ := NewOpenAI(Config{BaseURL: unauthorized.URL, Model: "m", Dimensions: 2})
-	if _, err = denied.Embed(context.Background(), []string{"x"}, ports.EmbedDocument); err == nil || IsTransientEmbeddingError(err) {
-		t.Fatal("credential failure must not be retried later", err)
 	}
 }
 

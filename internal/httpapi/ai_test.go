@@ -484,7 +484,6 @@ func protocolAssistantXLSXFixture(t *testing.T) []byte {
 
 type protocolEndpointAI struct{}
 
-func (protocolEndpointAI) Chat(context.Context, string, string) (string, error) { return "ok", nil }
 func (protocolEndpointAI) RuleDraft(context.Context, string, string) (model.AlarmRule, error) {
 	return model.AlarmRule{
 		Name:        "AI 高温烟雾规则",
@@ -500,7 +499,6 @@ func (protocolEndpointAI) RuleDraft(context.Context, string, string) (model.Alar
 		Actions:  []model.RuleAction{{Type: "OPEN_PAGE", Page: "alarms"}},
 	}, nil
 }
-func (protocolEndpointAI) Health(context.Context) error { return nil }
 func (protocolEndpointAI) GenerateJSON(context.Context, string, string, string) (string, error) {
 	return `{"name":"端点测试协议","protocol":"endpoint-modbus","transport":"MODBUS_TCP","payloadFormat":"hex","parserType":"modbus_coil_parser","messageType":"PROPERTY_REPORT","config":{"frame":"tcp","startAddress":0,"functionCode":1,"fields":[{"name":"smoke","coilAddress":0}]},"fields":[{"name":"smoke","label":"烟雾","type":"boolean","coilAddress":0,"dataType":"BOOL"}]}`, nil
 }

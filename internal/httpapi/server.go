@@ -4,7 +4,6 @@ import (
 	"archive/zip"
 	"bytes"
 	"context"
-	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -2825,13 +2824,6 @@ func secretHash(secret string) string {
 func (s *Server) audit(r *http.Request, action, targetType, targetID string, details map[string]any) {
 	c := claims(r)
 	_ = s.engine.Repo.SaveAudit(r.Context(), model.AuditLog{ID: "audit_" + randomHex(10), TenantID: c.TenantID, Actor: c.Username, Action: action, TargetType: targetType, TargetID: targetID, Details: details, CreatedAt: time.Now().UnixMilli()})
-}
-func verifySignature(secret, ts string, body []byte, sig string) bool {
-	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write([]byte(ts))
-	_, _ = mac.Write(body)
-	expected := hex.EncodeToString(mac.Sum(nil))
-	return hmac.Equal([]byte(strings.ToLower(sig)), []byte(expected))
 }
 
 type endpointHandler func(http.ResponseWriter, *http.Request)

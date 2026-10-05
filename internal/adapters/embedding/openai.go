@@ -186,12 +186,6 @@ func (e embeddingHTTPError) Transient() bool {
 	return retryable
 }
 
-// IsTransientEmbeddingError reports failures worth retrying later: the
-// service was unreachable, overloaded or rate limited.
-func IsTransientEmbeddingError(err error) bool {
-	return ports.IsTransient(err) || errors.Is(err, context.DeadlineExceeded)
-}
-
 func parseRetryAfter(value string) time.Duration {
 	if seconds, err := strconv.Atoi(strings.TrimSpace(value)); err == nil && seconds > 0 {
 		return time.Duration(seconds) * time.Second

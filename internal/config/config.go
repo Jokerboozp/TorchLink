@@ -453,13 +453,3 @@ func duration(name string, fallback time.Duration) time.Duration {
 	}
 	return v
 }
-func parsePairs(v string) map[string]string {
-	out := map[string]string{}
-	for _, pair := range strings.Split(v, ",") {
-		p := strings.SplitN(pair, ":", 2)
-		if len(p) == 2 {
-			out[strings.TrimSpace(p[0])] = strings.TrimSpace(p[1])
-		}
-	}
-	return out
-}
