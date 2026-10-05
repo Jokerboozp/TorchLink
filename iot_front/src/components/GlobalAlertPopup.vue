@@ -22,7 +22,7 @@ const popupAlerts = ref([])
 const settingsVisible = ref(false)
 const settings = reactive({ ...DEFAULT_ALERT_SETTINGS })
 const settingsDraft = reactive({ ...DEFAULT_ALERT_SETTINGS })
-const storageIdentity = { tenant: session.tenant, user: session.user }
+const storageIdentity = () => ({ tenant: session.tenant, user: session.user })
 const seenAlerts = new Map()
 
 const quietHoursLabel = computed(() => {
@@ -49,10 +49,21 @@ function isDuplicate(alert) {
   return false
 }
 
+// 同一浏览器可能同时打开多个平台页面；每次提醒前读取最新保存的设置，避免其他页面关闭警报声后本页仍按旧设置播放。
+function syncSettings() {
+  Object.assign(settings, loadAlertSettings(window.localStorage, storageIdentity()))
+  if (!settings.popupEnabled || currentQuietHours()) popupAlerts.value = []
+}
+
+function handleStorage(event) {
+  if (event.storageArea === window.localStorage) syncSettings()
+}
+
 function handleRealtime(event) {
   const alert = parseRealtimeAlert(event?.detail?.topic, event?.detail?.payload)
   if (!alert || isDuplicate(alert)) return
 
+  syncSettings()
   const quiet = currentQuietHours()
   if (settings.soundEnabled && !quiet) void playAlarmTone()
   if (!settings.popupEnabled || quiet) return
@@ -88,7 +99,7 @@ function openSettings() {
 function saveSettingsForm() {
   const next = normalizeAlertSettings(settingsDraft)
   Object.assign(settings, next)
-  saveAlertSettings(window.localStorage, storageIdentity, next)
+  saveAlertSettings(window.localStorage, storageIdentity(), next)
   if (!next.popupEnabled || currentQuietHours()) popupAlerts.value = []
   settingsVisible.value = false
   UiMessage.success('告警提醒设置已保存')
@@ -103,12 +114,14 @@ async function testSound() {
 defineExpose({ openSettings })
 
 onMounted(() => {
-  Object.assign(settings, loadAlertSettings(window.localStorage, storageIdentity))
+  syncSettings()
   window.addEventListener('iot:realtime', handleRealtime)
+  window.addEventListener('storage', handleStorage)
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('iot:realtime', handleRealtime)
+  window.removeEventListener('storage', handleStorage)
 })
 </script>
 
