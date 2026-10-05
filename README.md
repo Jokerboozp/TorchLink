@@ -37,7 +37,7 @@
 
 ## 快速运行
 
-首次准备按 [本地运行](docs/DEPLOYMENT.md#本地运行) 执行 `scripts/setup-local.sh`（Linux / macOS）或 `.ps1`（Windows）；依赖放在 OrbStack 时使用 [虚拟机调试步骤](docs/DEPLOYMENT.md#orbstack-虚拟机本地调试)。Go、Node.js 版本分别以 `go.mod`、`iot_front/package.json` 为准。
+首次准备按 [本地运行](docs/DEPLOY_LOCAL.md#本地运行) 执行 `scripts/setup-local.sh`（Linux / macOS）或 `.ps1`（Windows）；依赖放在 OrbStack 时使用 [虚拟机调试步骤](docs/DEPLOY_LOCAL.md#orbstack-虚拟机本地调试)。Go、Node.js 版本分别以 `go.mod`、`iot_front/package.json` 为准。
 
 准备完成后，从仓库根目录在三个独立终端启动：
 
@@ -55,8 +55,8 @@ go run ./cmd/backup-service --env-file .env.local
 | --- | --- |
 | 本地开发 | `compose.local.yaml`、`.env.local`、`scripts/setup-local.*` |
 | 在线部署 | `compose.yaml`、`.env.online`、`scripts/deploy-online.*`；见 [部署维护](docs/DEPLOYMENT.md) |
-| 离线交付 | `scripts/package-offline.*` 默认输出完整 `.tar`、SHA256 校验文件及目录；解包后运行 `scripts/deploy-offline.*`，配置为包内 `.env.offline`；见 [离线部署](docs/DEPLOYMENT.md#离线部署) |
-| 多机集群 | `scripts/cluster-up.*` 向导，或按清单渲染、分阶段部署与升级；见 [集群部署](docs/DEPLOYMENT.md#集群部署) |
+| 离线交付 | `scripts/package-offline.*` 默认输出完整 `.tar`、SHA256 校验文件及目录；解包后运行 `scripts/deploy-offline.*`，配置为包内 `.env.offline`；见 [离线部署](docs/DEPLOY_OFFLINE.md#离线部署) |
+| 多机集群 | `scripts/cluster-up.*` 向导，或按清单渲染、分阶段部署与升级；见 [集群部署](docs/DEPLOY_CLUSTER.md#集群部署) |
 
 脚本统一使用 `.sh`（Linux / macOS）和 `.ps1`（Windows PowerShell）入口。直播与容量模块的默认部署行为、关闭及重新启用方式分别见 [摄像头部署](docs/DEPLOYMENT.md#摄像头部署) 和 [容量测试模块](docs/DEPLOYMENT.md#容量测试模块)。
 
@@ -93,7 +93,7 @@ flowchart LR
 
 PostgreSQL 保存业务数据和索引，ClickHouse 按配置承载原文及遥测；Redis 提供缓存，Kafka / Redpanda 承载内部消息，EMQX 负责 MQTT。RustFS 保存知识原件和备份制品，外部 API 提供对话与推理，随平台部署的 embedding / reranker 服务提供向量计算与重排；PostgreSQL + pgvector 提供持久知识检索，Harness 保留自定义 Agent 与业务工作流。
 
-默认 `combined` 进程可拆分为 `api`、`gateway`、`parser`、`processor`、`jobs`，按角色分配资源；集群工具校验故障域、端口和连接预算，生成各节点配置并部署。默认 Compose 为单节点，集群示例也有单实例组件，具体见 [进程职责](docs/DEPLOYMENT.md#进程职责) 与 [高可用边界](docs/DEPLOYMENT.md#高可用边界)。工具可用不代表目标集群已经通过容量或故障切换验收。
+默认 `combined` 进程可拆分为 `api`、`gateway`、`parser`、`processor`、`jobs`，按角色分配资源；集群工具校验故障域、端口和连接预算，生成各节点配置并部署。默认 Compose 为单节点，集群示例也有单实例组件，具体见 [进程职责](docs/DEPLOY_CLUSTER.md#进程职责) 与 [高可用边界](docs/DEPLOY_CLUSTER.md#高可用边界)。工具可用不代表目标集群已经通过容量或故障切换验收。
 
 原文先归档再解析，只有成功解析的数据才对外发布结果。Go Worker 以服务账户权限运行，协议源码应来自可信开发者；AI 规则草稿默认禁用，确认后启用。设备数据导出不替代数据库、配置及凭据备份。
 
@@ -118,7 +118,7 @@ go test ./...
 
 | 指南 | 内容 |
 | --- | --- |
-| [部署与本地调试](docs/DEPLOYMENT.md) | 本机/虚拟机、在线/离线、集群与角色拆分、模块开关、迁移、维护和备份 |
+| [部署总览](docs/DEPLOYMENT.md) | 本机/虚拟机、在线/离线、集群与角色拆分的分页入口，以及端口、模块开关、迁移、维护和备份 |
 | [开发与测试](docs/DEVELOPMENT.md) | 源码与脚本入口、前端约定、查询契约、回归、演示工具、容量测试与目标环境验收 |
 | [运维手册](docs/OPERATIONS.md) | 部署组合与最小生产组合、升级与回滚、故障切换、恢复、平台告警处置 |
 | [外部数据接入](docs/EXTERNAL_DATA.md) | 外部系统、推送/拉取、字段映射、编号对应、去重恢复、任务与权限 |

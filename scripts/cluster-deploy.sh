@@ -179,4 +179,4 @@ if selected_stage edge || selected_stage workers || [ "$stage_filter" = all ]; t
   done < "$rendered/deploy-plan.txt"
   [ "$failed" = 0 ] || { echo "some platform processes are not ready; see docker compose logs on those nodes" >&2; exit 1; }
 fi
-echo "cluster $name deployed; run a quick capacity check before opening traffic (docs/DEPLOYMENT.md#集群部署)"
+echo "cluster $name deployed; run a quick capacity check before opening traffic (docs/DEPLOY_CLUSTER.md#集群部署)"
