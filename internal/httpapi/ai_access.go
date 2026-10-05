@@ -25,6 +25,7 @@ func workflowScopes(ctx context.Context) []string {
 		auth.ScopeQueryDeviceLatest:    p["menu:devices"],
 		auth.ScopeQueryPropertyHistory: p["menu:devices"],
 		auth.ScopeQueryAlarmList:       allowsRoute(p, "GET", "/api/v1/alarms"),
+		auth.ScopeQueryAlarmDetail:     allowsRoute(p, "GET", "/api/v1/alarms"),
 		auth.ScopeQuerySimilarAlarms:   allowsRoute(p, "GET", "/api/v1/alarms"),
 		auth.ScopeQueryKnowledgeBase:   p["menu:knowledge"],
 		auth.ScopeCreateRuleDraft:      allowsRoute(p, "POST", "/api/v1/ai/rule-draft"),

@@ -2041,7 +2041,7 @@ func validateAIWorkflowManifest(manifest ports.AIWorkflowManifest) error {
 		return errors.New("maxTokens must be 1..8192 and capabilities/allowedTools must be non-empty")
 	}
 	allowed := map[string]struct{}{
-		"mcp__iot__query_system_overview": {}, "mcp__iot__query_device_latest": {}, "mcp__iot__query_alarm_list": {},
+		"mcp__iot__query_system_overview": {}, "mcp__iot__query_device_latest": {}, "mcp__iot__query_alarm_list": {}, "mcp__iot__query_alarm_detail": {},
 		"mcp__iot__query_property_history": {}, "mcp__iot__query_similar_alarms": {}, "mcp__iot__query_knowledge_base": {},
 		"mcp__iot__create_rule_draft": {},
 	}

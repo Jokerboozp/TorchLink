@@ -521,9 +521,15 @@ func testAssistantDeviceScope(t *testing.T, inherited bool) {
 		if !strings.Contains(text, "alarm-allowed") || strings.Contains(text, "hidden") || strings.Contains(text, "foreign") {
 			t.Fatalf("%s leaked data: %s", name, text)
 		}
-		if text = tool(first.MCPToken, name, map[string]any{"deviceId": "hidden"}, false); text != "[]" {
+		if text = tool(first.MCPToken, name, map[string]any{"deviceId": "hidden"}, false); !strings.Contains(text, `"items":[]`) || !strings.Contains(text, `"total":0`) {
 			t.Fatal("device filter bypass", text)
 		}
+	}
+	if text := tool(first.MCPToken, "query_alarm_detail", map[string]any{"alarmId": "alarm-allowed"}, false); !strings.Contains(text, `"deviceId":"allowed"`) {
+		t.Fatal("granted alarm detail unavailable", text)
+	}
+	for _, id := range []string{"alarm-hidden", "alarm-foreign"} {
+		tool(first.MCPToken, "query_alarm_detail", map[string]any{"alarmId": id}, true)
 	}
 	tool(first.MCPToken, "query_device_latest", map[string]any{"deviceId": "allowed"}, false)
 	for _, id := range []string{"hidden", "foreign"} {
@@ -601,7 +607,7 @@ func testAssistantDeviceScope(t *testing.T, inherited bool) {
 	req("PUT", "/api/v1/access/users/reader", root, user, 200)
 	token = login("reader", "scope-reader-password")["accessToken"].(string)
 	none := chat(token)
-	if text := tool(none.MCPToken, "query_alarm_list", nil, false); text != "[]" {
+	if text := tool(none.MCPToken, "query_alarm_list", nil, false); !strings.Contains(text, `"items":[]`) || !strings.Contains(text, `"total":0`) {
 		t.Fatal("missing scope leaks alarms", text)
 	}
 	tool(none.MCPToken, "query_device_latest", map[string]any{"deviceId": "allowed"}, true)

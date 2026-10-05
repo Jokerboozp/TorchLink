@@ -79,6 +79,7 @@ const agentToolDocs = [
   { name:'mcp__iot__query_system_overview', label:'系统状态与数量统计' },
   { name:'mcp__iot__query_device_latest', label:'设备最新状态' },
   { name:'mcp__iot__query_alarm_list', label:'告警列表' },
+  { name:'mcp__iot__query_alarm_detail', label:'单条告警详情' },
   { name:'mcp__iot__query_property_history', label:'设备属性历史' },
   { name:'mcp__iot__query_similar_alarms', label:'相似告警查询' },
   { name:'mcp__iot__query_knowledge_base', label:'知识库检索' },

@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -47,17 +48,28 @@ func newServer(engine *core.Engine, harness bool, endpoint string) http.Handler 
 		v, err := engine.Repo.GetDeviceState(ctx, tenant, req.GetString("deviceId", ""))
 		return auditedResult(ctx, engine, "query_device_latest", map[string]any{"deviceId": req.GetString("deviceId", "")}, v, err)
 	})
-	s.AddTool(mcp.NewTool("query_alarm_list", mcp.WithDescription("按状态、等级、设备和时间范围查询当前租户告警"), mcp.WithString("deviceId"), mcp.WithString("status"), mcp.WithString("level"), mcp.WithNumber("start"), mcp.WithNumber("end"), mcp.WithNumber("limit")), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(mcp.NewTool("query_alarm_list", mcp.WithDescription("按状态、等级、设备和时间范围分页查询当前租户告警摘要（不含遥测明细）；需要明细时用 query_alarm_detail"), mcp.WithString("deviceId"), mcp.WithString("status"), mcp.WithString("level"), mcp.WithNumber("start"), mcp.WithNumber("end"), mcp.WithNumber("limit", mcp.Description("默认 20，最多 50")), mcp.WithNumber("offset")), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		tenant, err := tenantForTool(ctx, auth.ScopeQueryAlarmList, harness)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		limit := req.GetInt("limit", 100)
-		if harness {
-			limit = boundedLimit(limit, 100, 100)
+		filter := ports.AlarmFilter{TenantID: tenant, DeviceID: req.GetString("deviceId", ""), Status: req.GetString("status", ""), Level: req.GetString("level", ""), Start: int64(req.GetInt("start", 0)), End: int64(req.GetInt("end", 0))}
+		v, err := alarmPage(ctx, engine, filter, "", req)
+		return auditedResult(ctx, engine, "query_alarm_list", map[string]any{"deviceId": filter.DeviceID, "status": filter.Status, "level": filter.Level}, v, err)
+	})
+	s.AddTool(mcp.NewTool("query_alarm_detail", mcp.WithDescription("按告警 ID 查询当前租户单条告警的完整信息，包括遥测明细、位置、摄像头与核实结论"), mcp.WithString("alarmId", mcp.Required(), mcp.Description("告警 ID"))), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		tenant, err := tenantForTool(ctx, auth.ScopeQueryAlarmDetail, harness)
+		if err != nil {
+			return mcp.NewToolResultError(err.Error()), nil
 		}
-		v, err := engine.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenant, DeviceID: req.GetString("deviceId", ""), Status: req.GetString("status", ""), Level: req.GetString("level", ""), Start: int64(req.GetInt("start", 0)), End: int64(req.GetInt("end", 0)), Limit: limit})
-		return auditedResult(ctx, engine, "query_alarm_list", map[string]any{"deviceId": req.GetString("deviceId", ""), "status": req.GetString("status", ""), "level": req.GetString("level", "")}, v, err)
+		id := req.GetString("alarmId", "")
+		// The scoped repository reports an alarm of an ungranted device the
+		// same way as a missing one.
+		v, err := engine.Repo.GetAlarm(ctx, tenant, id)
+		if err != nil {
+			err = errors.New("告警不存在或无访问权限")
+		}
+		return auditedResult(ctx, engine, "query_alarm_detail", map[string]any{"alarmId": id}, v, err)
 	})
 	s.AddTool(mcp.NewTool("query_property_history", mcp.WithDescription("查询当前租户内设备属性历史趋势"), mcp.WithString("deviceId", mcp.Required()), mcp.WithString("propertyCode", mcp.Required()), mcp.WithNumber("start", mcp.Required()), mcp.WithNumber("end", mcp.Required()), mcp.WithNumber("limit")), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		tenant, err := tenantForTool(ctx, auth.ScopeQueryPropertyHistory, harness)
@@ -71,17 +83,14 @@ func newServer(engine *core.Engine, harness bool, endpoint string) http.Handler 
 		v, err := engine.Repo.PropertyHistory(ctx, tenant, req.GetString("deviceId", ""), req.GetString("propertyCode", ""), int64(req.GetInt("start", 0)), int64(req.GetInt("end", int(time.Now().UnixMilli()))), limit)
 		return auditedResult(ctx, engine, "query_property_history", map[string]any{"deviceId": req.GetString("deviceId", ""), "propertyCode": req.GetString("propertyCode", "")}, v, err)
 	})
-	s.AddTool(mcp.NewTool("query_similar_alarms", mcp.WithDescription("查询同设备、同类型的历史告警"), mcp.WithString("deviceId", mcp.Required()), mcp.WithNumber("limit")), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(mcp.NewTool("query_similar_alarms", mcp.WithDescription("查询同设备的历史告警摘要，可按告警类型过滤；按时间倒序分页"), mcp.WithString("deviceId", mcp.Required()), mcp.WithString("alarmType", mcp.Description("告警类型，如 SMOKE_DETECTED；为空时不限类型")), mcp.WithNumber("limit", mcp.Description("默认 20，最多 50")), mcp.WithNumber("offset")), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		tenant, err := tenantForTool(ctx, auth.ScopeQuerySimilarAlarms, harness)
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
-		limit := req.GetInt("limit", 20)
-		if harness {
-			limit = boundedLimit(limit, 20, 50)
-		}
-		v, err := engine.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenant, DeviceID: req.GetString("deviceId", ""), Limit: limit})
-		return auditedResult(ctx, engine, "query_similar_alarms", map[string]any{"deviceId": req.GetString("deviceId", "")}, v, err)
+		alarmType := strings.ToUpper(strings.TrimSpace(req.GetString("alarmType", "")))
+		v, err := alarmPage(ctx, engine, ports.AlarmFilter{TenantID: tenant, DeviceID: req.GetString("deviceId", "")}, alarmType, req)
+		return auditedResult(ctx, engine, "query_similar_alarms", map[string]any{"deviceId": req.GetString("deviceId", ""), "alarmType": alarmType}, v, err)
 	})
 	s.AddTool(mcp.NewTool("query_knowledge_base", mcp.WithDescription("按当前 Agent 直接绑定的知识文档检索设备手册、SOP 与维修知识"), mcp.WithString("question", mcp.Required()), mcp.WithString("workflowId", mcp.Required()), mcp.WithNumber("limit"), mcp.WithNumber("minScore")), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		tenant, err := tenantForTool(ctx, auth.ScopeQueryKnowledgeBase, harness)
@@ -301,6 +310,55 @@ func buildSystemOverview(ctx context.Context, engine *core.Engine, tenant string
 	}
 	return result, nil
 
+}
+
+// alarmPageLimit and alarmPageMax bound the alarm summaries one tool call
+// returns, keeping tool results small for the model's context.
+const (
+	alarmPageLimit = 20
+	alarmPageMax   = 50
+)
+
+// alarmPage returns one page of alarm summaries (telemetry details and camera
+// payloads omitted) with the filtered total and the next offset, or -1 when
+// there are no more. alarmType, when set, filters the alarm type.
+func alarmPage(ctx context.Context, engine *core.Engine, filter ports.AlarmFilter, alarmType string, req mcp.CallToolRequest) (map[string]any, error) {
+	limit := boundedLimit(req.GetInt("limit", alarmPageLimit), alarmPageLimit, alarmPageMax)
+	offset := max(req.GetInt("offset", 0), 0)
+	filter.Summary = true
+	items := []model.Alarm{}
+	total := 0
+	if alarmType == "" {
+		filter.Limit, filter.Offset = limit, offset
+		page, err := engine.Repo.ListAlarms(ctx, filter)
+		if err != nil {
+			return nil, err
+		}
+		if total, err = engine.Repo.CountAlarms(ctx, filter); err != nil {
+			return nil, err
+		}
+		items = page
+	} else {
+		// The alarm filter has no type column, so matching summaries are
+		// streamed and paged here.
+		err := engine.Repo.EachAlarm(ctx, filter, func(a model.Alarm) error {
+			if a.AlarmType == alarmType {
+				if total >= offset && len(items) < limit {
+					items = append(items, a)
+				}
+				total++
+			}
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	next := offset + len(items)
+	if next >= total {
+		next = -1
+	}
+	return map[string]any{"items": items, "total": total, "nextOffset": next}, nil
 }
 
 type healthChecker interface{ Health(context.Context) error }

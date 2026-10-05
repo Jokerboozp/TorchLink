@@ -2,6 +2,8 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -39,7 +41,7 @@ func TestHarnessToolSurfaceIsReadOnlyAndScopeChecked(t *testing.T) {
 		t.Fatalf("tools/list status=%d body=%s", listResponse.Code, listResponse.Body.String())
 	}
 	body := listResponse.Body.String()
-	for _, tool := range []string{"query_system_overview", "query_device_latest", "query_alarm_list", "query_property_history", "query_similar_alarms", "query_knowledge_base", "create_rule_draft"} {
+	for _, tool := range []string{"query_system_overview", "query_device_latest", "query_alarm_list", "query_alarm_detail", "query_property_history", "query_similar_alarms", "query_knowledge_base", "create_rule_draft"} {
 		if !strings.Contains(body, `"name":"`+tool+`"`) {
 			t.Fatalf("missing read tool %q: %s", tool, body)
 		}
@@ -116,5 +118,71 @@ func TestBoundedLimit(t *testing.T) {
 		if got := boundedLimit(test.value, test.fallback, test.maximum); got != test.want {
 			t.Fatalf("boundedLimit(%d, %d, %d)=%d want=%d", test.value, test.fallback, test.maximum, got, test.want)
 		}
+	}
+}
+
+// Alarm tools return small pages of summaries with the total and next offset;
+// the detail tool returns one full alarm.
+func TestAlarmToolsReturnSummaryPages(t *testing.T) {
+	repo := memory.NewRepository()
+	ctx := context.Background()
+	for i := range 30 {
+		alarmType := "SMOKE_DETECTED"
+		if i%3 == 0 {
+			alarmType = "HIGH_TEMPERATURE"
+		}
+		a := model.Alarm{ID: fmt.Sprintf("alarm-%02d", i), RuleID: fmt.Sprintf("rule-%02d", i), TenantID: "tenant-a", DeviceID: "device-1", AlarmType: alarmType, Status: "ACTIVE", LastTriggeredAt: int64(1000 + i),
+			Details: map[string]any{"telemetry": strings.Repeat("x", 100)}, Cameras: []model.CameraSummary{{CameraID: "cam"}}}
+		if _, _, err := repo.UpsertAlarm(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	handler := NewHarness(&core.Engine{Repo: repo})
+	claims := auth.Claims{Username: "alice", TenantID: "tenant-a", TokenUse: "harness", RunID: "run-page", Scopes: auth.HarnessReadScopes(), RegisteredClaims: jwt.RegisteredClaims{Audience: jwt.ClaimStrings{auth.HarnessAudience}}}
+	call := func(name string, args map[string]any) map[string]any {
+		t.Helper()
+		params, _ := json.Marshal(map[string]any{"name": name, "arguments": args})
+		req := httptest.NewRequest(http.MethodPost, "http://localhost/mcp/harness", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":`+string(params)+`}`))
+		req.Header.Set("Content-Type", "application/json")
+		req = req.WithContext(auth.ContextWithClaims(context.Background(), claims))
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, req)
+		var envelope struct {
+			Result struct {
+				Content []struct{ Text string } `json:"content"`
+				IsError bool                    `json:"isError"`
+			} `json:"result"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil || envelope.Result.IsError || len(envelope.Result.Content) == 0 {
+			t.Fatalf("%s failed: %s", name, response.Body.String())
+		}
+		out := map[string]any{}
+		if err := json.Unmarshal([]byte(envelope.Result.Content[0].Text), &out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	page := call("query_alarm_list", map[string]any{})
+	items := page["items"].([]any)
+	if len(items) != 20 || page["total"] != float64(30) || page["nextOffset"] != float64(20) {
+		t.Fatalf("default page: %d items total=%v next=%v", len(items), page["total"], page["nextOffset"])
+	}
+	if first := items[0].(map[string]any); first["details"] != nil || first["cameras"] != nil || first["alarmId"] != "alarm-29" {
+		t.Fatalf("list must return newest summaries only: %v", first)
+	}
+	if last := call("query_alarm_list", map[string]any{"limit": 500, "offset": 20}); len(last["items"].([]any)) != 10 || last["nextOffset"] != float64(-1) {
+		t.Fatalf("last page: %v", last)
+	}
+	similar := call("query_similar_alarms", map[string]any{"deviceId": "device-1", "alarmType": "high_temperature", "limit": 4, "offset": 4})
+	if similar["total"] != float64(10) || len(similar["items"].([]any)) != 4 || similar["nextOffset"] != float64(8) {
+		t.Fatalf("similar page: %v", similar)
+	}
+	for _, item := range similar["items"].([]any) {
+		if item.(map[string]any)["alarmType"] != "HIGH_TEMPERATURE" {
+			t.Fatalf("type filter ignored: %v", item)
+		}
+	}
+	if detail := call("query_alarm_detail", map[string]any{"alarmId": "alarm-03"}); detail["details"] == nil || detail["alarmId"] != "alarm-03" {
+		t.Fatalf("detail: %v", detail)
 	}
 }

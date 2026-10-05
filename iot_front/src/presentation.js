@@ -43,5 +43,5 @@ export function errorMessage(error) {
 
 const capabilityNames = { chat:'对话问答', 'alarm-analysis':'告警研判', 'rule-draft':'规则草稿', 'json-output':'JSON 输出', fallback:'备用响应', 'tool-call':'工具调用', 'tool-calling':'工具调用', knowledge:'知识检索', 'knowledge-retrieval':'知识检索', 'device-query':'设备查询' }
 export const capabilityName = value => displayName(capabilityNames, value, '扩展能力')
-const toolNames = { query_system_overview:'查询系统概况', query_device_latest:'查询设备最新状态', query_alarm_list:'查询告警', query_property_history:'查询属性历史', query_similar_alarms:'查询相似告警', query_knowledge_base:'检索知识库', create_rule_draft:'生成规则草稿' }
+const toolNames = { query_system_overview:'查询系统概况', query_device_latest:'查询设备最新状态', query_alarm_list:'查询告警', query_alarm_detail:'查询告警详情', query_property_history:'查询属性历史', query_similar_alarms:'查询相似告警', query_knowledge_base:'检索知识库', create_rule_draft:'生成规则草稿' }
 export const toolName = value => displayName(toolNames, String(value || '').replace(/^mcp__iot__/, ''), '业务查询工具')
