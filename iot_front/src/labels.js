@@ -31,7 +31,7 @@ export const businessStatuses = {
   ALARM: '告警中',
   OFFLINE: '离线',
   SUSPECTED_OFFLINE: '疑似离线',
-  NEVER_SEEN: '从未上线',
+  NEVER_SEEN: '尚未上报',
   UNKNOWN: '未知'
 }
 export const connectionStatuses = { CONNECTED: '已连接', DISCONNECTED: '未连接', UNKNOWN: '未知' }

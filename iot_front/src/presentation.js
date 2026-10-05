@@ -1,3 +1,4 @@
+import { businessStatuses, connectionStatuses } from './labels.js'
 // 专业名称保留通用写法，状态和操作说明使用中文；显示名称不用于构造请求或改写原始报文。
 const transportNames = {
   MQTT: 'MQTT',
@@ -24,7 +25,10 @@ export const aiProviderOptions = [
   { id: 'deepseek', label: 'DeepSeek', description: '默认模型服务，填写 API Key 即可使用。' },
   { id: 'openai-compatible', label: 'OpenAI 兼容 API', description: '连接第三方 OpenAI 兼容 API，统一用于对话、研判、巡检和协议助手。' }
 ]
+// 设备业务与连接状态复用 labels.js，避免同一状态在不同页面显示不同文案。
 const statusNames = {
+  ...businessStatuses,
+  ...connectionStatuses,
   INDEXED: '已建立索引',
   INDEXING: '索引建立中',
   INDEX_FAILED: '索引失败',
@@ -35,17 +39,10 @@ const statusNames = {
   ERROR: '异常',
   ENABLED: '已启用',
   DISABLED: '已停用',
-  ONLINE: '在线',
-  OFFLINE: '离线',
   WAITING: '等待心跳',
   LISTENING: '监听中',
   CONNECTING: '连接中',
-  CONNECTED: '已连接',
-  DISCONNECTED: '未连接',
   ACTIVE: '活跃',
-  NEVER_SEEN: '尚未上报',
-  ALARM: '告警中',
-  SUSPECTED_OFFLINE: '疑似离线',
   DRAFT: '草稿',
   VALIDATED: '已校验',
   PUBLISHED: '已发布',
