@@ -24,6 +24,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # Full history lists the commits since the previous release in the notes.
+          fetch-depth: 0
 
       - name: 检查打包环境
         run: |
@@ -130,7 +132,12 @@ jobs:
             printf '提交：`%s`\n\n' "$GITHUB_SHA"
             printf 'Linux x86_64 完整离线包，包含应用、依赖镜像、Docker 安装文件和完整 docs/ 指南。知识文档与向量保存在 PostgreSQL + pgvector。\n\n'
             printf '下载全部分卷、SHA256SUMS 和 DEPLOY.txt，按 DEPLOY.txt 校验、解压和部署。新安装管理员和工具账号默认 admin/admin123，应用数据库账号保留 iot，连接密码默认 admin123；JWT、内部令牌和加密密钥在目标机独立随机生成。升级前保留原 .env.offline。\n\n'
-            printf '对话使用 DeepSeek API，向量计算使用外部 Embedding API，需分别配置密钥并保持联网。构建通过不代表目标服务器部署验收。\n'
+            printf '对话使用 DeepSeek API，需配置密钥并保持联网；知识向量与重排默认由包内的 embedding / reranker 服务完成。构建通过不代表目标服务器部署验收。\n'
+            previous="$(gh api "repos/$GH_REPO/releases/latest" --jq .tag_name 2>/dev/null || true)"
+            if [ -n "$previous" ] && git rev-parse -q --verify "refs/tags/$previous" >/dev/null; then
+              printf '\n## 自 %s 以来的变更\n\n' "$previous"
+              git log --no-merges --format='- %s（%h）' "$previous..$GITHUB_SHA" | head -n 200
+            fi
           } > "$notes"
           gh release create "$tag" --target "$GITHUB_SHA" --draft \
             --title "$tag" --notes-file "$notes"

@@ -74,10 +74,21 @@ go run ./cmd/backup-service --env-file .env.local
 | `.github/workflows/offline-bundle.yml` | Linux amd64 离线包构建、校验和公开 Release |
 | `docs/` | 当前开发、接入和运维指南，见 [文档索引](#文档入口) |
 
-```text
-设备 → 接入 → 原文归档 / 幂等索引 → 内部队列 → 解析 → 属性 / 事件 → 规则 / 告警
-                                                           ↓
-                                                   管理端 / AI 工作流
+```mermaid
+flowchart LR
+  D[设备 / 第三方系统] -->|MQTT · HTTP · TCP/UDP · Modbus| G[接入网关]
+  G --> A[原文归档 / 幂等索引]
+  A --> Q[(内部队列 Kafka)]
+  Q --> P[解析 Parser]
+  P -->|StandardMessage| S[(PostgreSQL / ClickHouse)]
+  P --> R[规则 / 告警]
+  R --> N[告警通知]
+  R --> T[对外消息主题]
+  S --> API[平台 API]
+  R --> API
+  API --> W[管理端 Web]
+  API --> H[Harness AI 工作流]
+  H -->|MCP 只读工具| API
 ```
 
 PostgreSQL 保存业务数据和索引，ClickHouse 按配置承载原文及遥测；Redis 提供缓存，Kafka / Redpanda 承载内部消息，EMQX 负责 MQTT。RustFS 保存知识原件和备份制品，外部 API 提供对话与推理，随平台部署的 embedding / reranker 服务提供向量计算与重排；PostgreSQL + pgvector 提供持久知识检索，Harness 保留自定义 Agent 与业务工作流。
@@ -114,3 +125,7 @@ go test ./...
 | [设备接入与协议](docs/INTEGRATION.md) | 模板准备与验收、草稿与批量登记、配置更新和回滚、HTTP/MQTT、TCP/Modbus、协议开发、消息主题与开放 API |
 | [平台功能与边界](docs/PLATFORM.md) | 设备与告警、消防管理入口、用户权限、AI/知识库、巡检报告、运维中心、摄像头直播与视频事件 |
 | [消防管理](docs/FIRE_SAFETY.md) | 排班与换班审批、灭火器巡检整改、消防站出勤、接口权限与持久化 |
+| [接口清单](docs/API.md) | 由路由生成的全部 HTTP 接口，按资源分组，标注所属菜单与单独授权的操作 |
+| [变更记录](CHANGELOG.md) | 每个发布版本的主要变化 |
+
+参与开发见 [CONTRIBUTING.md](CONTRIBUTING.md)，安全问题按 [SECURITY.md](SECURITY.md) 私密报告。本软件为专有软件，许可见 [LICENSE](LICENSE)。
