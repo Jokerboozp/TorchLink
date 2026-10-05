@@ -2,7 +2,8 @@
 // 设备详情、告警详情共用的关联摄像头列表：资料定位始终显示，直播入口按模块状态和权限显示。
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { Video } from '@lucide/vue'
-import { api } from '../api'
+import { api, isAbort } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { cameraLocation, liveState, liveUsable, loadLiveStatus } from '../liveVideo'
 import LivePlayerDialog from './LivePlayerDialog.vue'
 
@@ -15,7 +16,7 @@ const loading = ref(false)
 const error = ref('')
 const playerVisible = ref(false)
 const playerCamera = ref(null)
-let version = 0
+const loader = useListLoader(loading)
 
 const liveOn = computed(() => liveUsable())
 const liveHint = computed(() => {
@@ -26,34 +27,31 @@ const liveHint = computed(() => {
 })
 
 async function load() {
-  const current = ++version
   error.value = ''
-  loading.value = true
   try {
-    await loadLiveStatus()
-    let rows = props.cameras ? props.cameras.map(item => ({ ...item })) : []
-    if (!props.cameras && props.deviceId)
-      rows = (await api(`/api/v1/video/devices/${encodeURIComponent(props.deviceId)}/cameras`)).items || []
-    else if (liveUsable()) {
-      // 告警摘要只含安全的摄像头元数据；逐个确认当前用户能否观看。
-      rows = await Promise.all(
-        rows.map(async row => {
-          try {
-            return { ...row, ...(await api(`/api/v1/video/cameras/${encodeURIComponent(row.cameraId)}`)) }
-          } catch {
-            return { ...row, liveAvailable: false }
-          }
-        })
-      )
-    }
-    if (current === version) items.value = rows
+    items.value = await loader.run(async signal => {
+      await loadLiveStatus()
+      let rows = props.cameras ? props.cameras.map(item => ({ ...item })) : []
+      if (!props.cameras && props.deviceId)
+        rows = (await api(`/api/v1/video/devices/${encodeURIComponent(props.deviceId)}/cameras`, { signal })).items || []
+      else if (liveUsable()) {
+        // 告警摘要只含安全的摄像头元数据；逐个确认当前用户能否观看。
+        rows = await Promise.all(
+          rows.map(async row => {
+            try {
+              return { ...row, ...(await api(`/api/v1/video/cameras/${encodeURIComponent(row.cameraId)}`, { signal })) }
+            } catch {
+              return { ...row, liveAvailable: false }
+            }
+          })
+        )
+      }
+      return rows
+    })
   } catch (cause) {
-    if (current === version) {
-      error.value = cause?.message || '读取关联摄像头失败'
-      items.value = props.cameras || []
-    }
-  } finally {
-    if (current === version) loading.value = false
+    if (isAbort(cause)) return
+    error.value = cause?.message || '读取关联摄像头失败'
+    items.value = props.cameras || []
   }
 }
 
@@ -64,9 +62,7 @@ function watchLive(row) {
 
 // 以摄像头标识作为依赖，父组件重新渲染生成的新数组不会触发重复请求。
 watch(() => `${props.deviceId}|${props.cameras ? props.cameras.map(item => item.cameraId).join(',') : '-'}`, load, { immediate: true })
-onBeforeUnmount(() => {
-  version++
-})
+onBeforeUnmount(loader.cancel)
 </script>
 
 <template>

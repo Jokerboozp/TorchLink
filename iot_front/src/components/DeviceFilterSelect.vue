@@ -3,7 +3,8 @@
 // 只搜索当前用户可见的设备（设备登记接口按用户设备范围返回）。
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { NSelect } from 'naive-ui'
-import { api } from '../api'
+import { api, isAbort } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { can } from '../permissions'
 
 const props = defineProps({
@@ -13,20 +14,17 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'change'])
 const options = ref([])
 const loading = ref(false)
+const loader = useListLoader(loading)
 let timer = 0
-let version = 0
 
 // 没有设备读取权限时不搜索，仍可直接输入设备编号（例如尚未登记的设备）。
 const searchable = () => can('GET /api/v1/device-registry')
 async function search(keyword) {
   if (!searchable()) return
-  const current = ++version
-  loading.value = true
   try {
     const query = new URLSearchParams({ page: '1', pageSize: '20' })
     if (keyword.trim()) query.set('q', keyword.trim())
-    const data = await api(`/api/v1/device-registry?${query}`)
-    if (current !== version) return
+    const data = await loader.run(signal => api(`/api/v1/device-registry?${query}`, { signal }))
     const found = (data.items || []).map(row => ({
       label: `${row.device?.name || row.device?.id}（${row.device?.id}）`,
       value: row.device?.id
@@ -34,10 +32,8 @@ async function search(keyword) {
     // 已选中的设备不在本次结果中时仍保留，避免显示成裸编号。
     const selected = options.value.find(option => option.value === props.modelValue)
     options.value = selected && !found.some(option => option.value === selected.value) ? [selected, ...found] : found
-  } catch {
-    if (current === version) options.value = options.value.filter(option => option.value === props.modelValue)
-  } finally {
-    if (current === version) loading.value = false
+  } catch (error) {
+    if (!isAbort(error)) options.value = options.value.filter(option => option.value === props.modelValue)
   }
 }
 function onSearch(keyword) {
@@ -60,7 +56,10 @@ watch(
   },
   { immediate: true }
 )
-onBeforeUnmount(() => window.clearTimeout(timer))
+onBeforeUnmount(() => {
+  window.clearTimeout(timer)
+  loader.cancel()
+})
 </script>
 
 <template>

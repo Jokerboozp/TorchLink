@@ -1,7 +1,8 @@
 <script setup>
 // 告警详情中的通知记录：各级通知的渠道、接收人、发送状态与失败原因。
-import { ref, watch } from 'vue'
-import { api } from '../api'
+import { onBeforeUnmount, ref, watch } from 'vue'
+import { api, isAbort } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { taskStatuses, taskTone } from '../notifications'
 import StatusDot from './layout/StatusDot.vue'
 
@@ -10,25 +11,21 @@ const items = ref([]),
   enabled = ref(true),
   loading = ref(false),
   error = ref('')
-let version = 0
+const loader = useListLoader(loading)
 async function load() {
-  const current = ++version
-  loading.value = true
   error.value = ''
   try {
-    const data = await api(`/api/v1/alarms/${encodeURIComponent(props.alarmId)}/notifications`)
-    if (current !== version) return
+    const data = await loader.run(signal => api(`/api/v1/alarms/${encodeURIComponent(props.alarmId)}/notifications`, { signal }))
     items.value = data.items || []
     enabled.value = data.enabled !== false
   } catch (e) {
-    if (current === version) error.value = e.message || '读取通知记录失败'
-  } finally {
-    if (current === version) loading.value = false
+    if (!isAbort(e)) error.value = e.message || '读取通知记录失败'
   }
 }
 const time = value => (value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '')
 const stageText = item => (item.kind === 'recovery' ? '恢复通知' : item.stage === 0 ? '第 1 级' : `第 ${item.stage + 1} 级（升级）`)
 watch(() => props.alarmId, load, { immediate: true })
+onBeforeUnmount(loader.cancel)
 defineExpose({ load })
 </script>
 

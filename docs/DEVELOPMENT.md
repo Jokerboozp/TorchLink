@@ -149,6 +149,7 @@ Vue 3 + Vite，沿用 Naive UI、Tailwind CSS 和 Lucide；依赖与 Node 版本
 - 颜色、字号、间距、圆角与阴影集中在 `src/theme/tokens.css`；`naiveTheme.js` 解析变量生成 Naive UI 主题，不用散落的颜色值或 `!important` 覆盖组件。
 - 元素布局在 `styles/base.css`，应用框架在 `shell.css`，减少动态效果在 `motion.css`，共用业务样式在 `patterns.css`；页面专用样式留在对应 Vue 文件。
 - 列表复用 `FilterBar`、`DataTableCard`、`StatusDot`、`RowActions`，窄屏侧栏为抽屉，长弹窗正文独立滚动。权限控制使用 `src/permissions.js`，实际授权仍由服务端校验。
+- 列表与详情读取用 `src/composables/useListLoader.js`：新请求中止旧请求，只采用最后一次结果，卸载时 `cancel()`；需要在身份或权限变化后作废结果的场景（如消息主题、批量接入）另用身份版本号判断。
 - Node 测试保留实际行为、失败分支与隔离边界；不用固定菜单数量、文案、样式写法或复制版本号的断言代替功能检查。
 
 ### 页面地址

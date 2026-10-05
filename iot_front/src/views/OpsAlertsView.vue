@@ -3,6 +3,7 @@
 // 本页查看当前告警、规则状态和历史，管理静默与通知路由；消防业务告警不在此处理。
 import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import { BellOff, LineChart, RefreshCw } from '@lucide/vue'
+import DataTableCard from '../components/layout/DataTableCard.vue'
 import { can } from '../permissions'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { formatDuration, relativeTime } from '../ops/format.js'
@@ -307,108 +308,108 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <MatcherEditor v-model="filters" :labels="labelHints" add-text="按标签筛选" :max="8" />
-          <ui-alert v-if="alertsError" type="error" :title="alertsError" :closable="false" show-icon />
-
-          <template v-if="!grouped">
-            <ui-table
-              :data="visibleAlerts"
-              size="small"
-              row-key="fingerprint"
-              :empty-text="alertsLoading ? '正在读取…' : '当前没有监控告警'"
-            >
-              <ui-table-column label="级别" width="80"
-                ><template #default="{ row }"
-                  ><StatusDot
-                    :tone="severityTone[row.labels.severity] || 'neutral'"
-                    :label="severityText[row.labels.severity] || row.labels.severity || '—'" /></template
-              ></ui-table-column>
-              <ui-table-column label="告警" min-width="260">
-                <template #default="{ row }">
-                  <button type="button" class="link" @click="filterBy('alertname', row.labels.alertname)">
-                    {{ row.labels.alertname }}
-                  </button>
-                  <p class="alert-summary-text">{{ row.annotations?.summary || row.annotations?.description || '' }}</p>
-                </template>
-              </ui-table-column>
-              <ui-table-column label="标签" min-width="260"
-                ><template #default="{ row }"
-                  ><span class="labels"
-                    ><ui-tag v-for="[k, v] in otherLabels(row.labels)" :key="k" size="small">{{ k }}={{ v }}</ui-tag></span
-                  ></template
-                ></ui-table-column
+          <DataTableCard :error="alertsError" @retry="loadAlerts">
+            <template v-if="!grouped">
+              <ui-table
+                :data="visibleAlerts"
+                size="small"
+                row-key="fingerprint"
+                :empty-text="alertsLoading ? '正在读取…' : '当前没有监控告警'"
               >
-              <ui-table-column label="开始" width="120"
-                ><template #default="{ row }"
-                  ><span :title="new Date(row.startsAt).toLocaleString('zh-CN', { hour12: false })">{{
-                    relativeTime(row.startsAt)
-                  }}</span></template
-                ></ui-table-column
-              >
-              <ui-table-column label="通知状态" width="120"
-                ><template #default="{ row }"
-                  ><StatusDot :tone="notificationState(row).tone" :label="notificationState(row).text" /></template
-              ></ui-table-column>
-              <ui-table-column label="接收人" min-width="120"
-                ><template #default="{ row }">{{ (row.receivers || []).join('、') || '—' }}</template></ui-table-column
-              >
-              <ui-table-column label="操作" width="130">
-                <template #default="{ row }">
-                  <div class="table-actions table-actions--start">
-                    <ui-button
-                      v-if="canMetrics && row.expr"
-                      text
-                      size="small"
-                      title="在指标中心查看表达式"
-                      aria-label="在指标中心查看表达式"
-                      @click="openExpr(row)"
-                      ><LineChart
-                    /></ui-button>
-                    <ui-button v-if="canSilence" text size="small" @click="newSilence(row)">静默</ui-button>
-                  </div>
-                </template>
-              </ui-table-column>
-            </ui-table>
-          </template>
-          <template v-else>
-            <ui-empty v-if="!groups.length && !alertsLoading" description="当前没有监控告警" :image-size="64" />
-            <ui-card v-for="group in visibleGroups" :key="group.key" shadow="never" class="surface-card">
-              <template #header
-                ><div class="card-header">
-                  <div>
-                    <strong>{{
-                      Object.entries(group.labels)
-                        .map(([k, v]) => `${k}=${v}`)
-                        .join('，') || '未分组'
-                    }}</strong
-                    ><small
-                      >接收人 {{ group.receiver }} · {{ group.total }} 条告警<span v-if="group.total !== group.alerts.length">
-                        · 本页 {{ group.alerts.length }} 条</span
-                      ></small
-                    >
-                  </div>
-                </div></template
-              >
-              <div v-for="alert in group.alerts" :key="alert.fingerprint" class="group-alert">
-                <StatusDot :tone="severityTone[alert.labels.severity] || 'neutral'" :label="alert.labels.alertname" />
-                <span class="labels"
-                  ><ui-tag v-for="[k, v] in otherLabels(alert.labels)" :key="k" size="small">{{ k }}={{ v }}</ui-tag></span
+                <ui-table-column label="级别" width="80"
+                  ><template #default="{ row }"
+                    ><StatusDot
+                      :tone="severityTone[row.labels.severity] || 'neutral'"
+                      :label="severityText[row.labels.severity] || row.labels.severity || '—'" /></template
+                ></ui-table-column>
+                <ui-table-column label="告警" min-width="260">
+                  <template #default="{ row }">
+                    <button type="button" class="link" @click="filterBy('alertname', row.labels.alertname)">
+                      {{ row.labels.alertname }}
+                    </button>
+                    <p class="alert-summary-text">{{ row.annotations?.summary || row.annotations?.description || '' }}</p>
+                  </template>
+                </ui-table-column>
+                <ui-table-column label="标签" min-width="260"
+                  ><template #default="{ row }"
+                    ><span class="labels"
+                      ><ui-tag v-for="[k, v] in otherLabels(row.labels)" :key="k" size="small">{{ k }}={{ v }}</ui-tag></span
+                    ></template
+                  ></ui-table-column
                 >
-                <small>{{ relativeTime(alert.startsAt) }}开始</small>
-              </div>
-            </ui-card>
-          </template>
-          <div class="alert-pagination">
-            <span class="muted">{{ grouped ? '通知分组内' : '' }}共 {{ alertTotal }} 条，每页最多 {{ alertPageSize }} 条</span>
-            <ui-pagination
-              v-model:current-page="alertPage"
-              v-model:page-size="alertPageSize"
-              :total="alertTotal"
-              :page-sizes="[20, 50, 100]"
-              layout="sizes, prev, pager, next"
-              :disabled="alertsLoading"
-              aria-label="当前告警分页"
-            />
-          </div>
+                <ui-table-column label="开始" width="120"
+                  ><template #default="{ row }"
+                    ><span :title="new Date(row.startsAt).toLocaleString('zh-CN', { hour12: false })">{{
+                      relativeTime(row.startsAt)
+                    }}</span></template
+                  ></ui-table-column
+                >
+                <ui-table-column label="通知状态" width="120"
+                  ><template #default="{ row }"
+                    ><StatusDot :tone="notificationState(row).tone" :label="notificationState(row).text" /></template
+                ></ui-table-column>
+                <ui-table-column label="接收人" min-width="120"
+                  ><template #default="{ row }">{{ (row.receivers || []).join('、') || '—' }}</template></ui-table-column
+                >
+                <ui-table-column label="操作" width="130">
+                  <template #default="{ row }">
+                    <div class="table-actions table-actions--start">
+                      <ui-button
+                        v-if="canMetrics && row.expr"
+                        text
+                        size="small"
+                        title="在指标中心查看表达式"
+                        aria-label="在指标中心查看表达式"
+                        @click="openExpr(row)"
+                        ><LineChart
+                      /></ui-button>
+                      <ui-button v-if="canSilence" text size="small" @click="newSilence(row)">静默</ui-button>
+                    </div>
+                  </template>
+                </ui-table-column>
+              </ui-table>
+            </template>
+            <div v-else class="alert-groups">
+              <ui-empty v-if="!groups.length && !alertsLoading" description="当前没有监控告警" :image-size="64" />
+              <ui-card v-for="group in visibleGroups" :key="group.key" shadow="never" class="surface-card">
+                <template #header
+                  ><div class="card-header">
+                    <div>
+                      <strong>{{
+                        Object.entries(group.labels)
+                          .map(([k, v]) => `${k}=${v}`)
+                          .join('，') || '未分组'
+                      }}</strong
+                      ><small
+                        >接收人 {{ group.receiver }} · {{ group.total }} 条告警<span v-if="group.total !== group.alerts.length">
+                          · 本页 {{ group.alerts.length }} 条</span
+                        ></small
+                      >
+                    </div>
+                  </div></template
+                >
+                <div v-for="alert in group.alerts" :key="alert.fingerprint" class="group-alert">
+                  <StatusDot :tone="severityTone[alert.labels.severity] || 'neutral'" :label="alert.labels.alertname" />
+                  <span class="labels"
+                    ><ui-tag v-for="[k, v] in otherLabels(alert.labels)" :key="k" size="small">{{ k }}={{ v }}</ui-tag></span
+                  >
+                  <small>{{ relativeTime(alert.startsAt) }}开始</small>
+                </div>
+              </ui-card>
+            </div>
+            <div class="alert-pagination">
+              <span class="muted">{{ grouped ? '通知分组内' : '' }}共 {{ alertTotal }} 条，每页最多 {{ alertPageSize }} 条</span>
+              <ui-pagination
+                v-model:current-page="alertPage"
+                v-model:page-size="alertPageSize"
+                :total="alertTotal"
+                :page-sizes="[20, 50, 100]"
+                layout="sizes, prev, pager, next"
+                :disabled="alertsLoading"
+                aria-label="当前告警分页"
+              />
+            </div>
+          </DataTableCard>
         </div>
       </ui-tab-pane>
 
@@ -427,50 +428,51 @@ onBeforeUnmount(() => {
               <ui-button v-if="can('menu:opsLogs')" size="small" @click="manageRules('loki')">管理日志规则</ui-button>
             </div>
           </div>
-          <ui-alert v-if="rulesError" type="error" :title="rulesError" :closable="false" />
           <ui-alert v-for="w in ruleWarnings" :key="w" type="warning" :title="w" :closable="false" />
-          <ui-table :data="ruleRows" size="small" row-key="key" :empty-text="rulesLoading ? '正在读取…' : '没有告警规则'">
-            <ui-table-column label="状态" width="130"
-              ><template #default="{ row }"
-                ><StatusDot
-                  :tone="stateTone[row.state] || 'neutral'"
-                  :label="`${stateText[row.state] || row.state || '未知'}${row.activeAlerts ? `（${row.activeAlerts}）` : ''}`" /></template
-            ></ui-table-column>
-            <ui-table-column label="规则" min-width="200"
-              ><template #default="{ row }"
-                ><strong>{{ row.name }}</strong>
-                <p class="alert-summary-text">{{ row.annotations?.summary || '' }}</p></template
-              ></ui-table-column
-            >
-            <ui-table-column label="来源" width="150"
-              ><template #default="{ row }"
-                >{{ row.source === 'loki' ? '日志（Loki）' : '指标（Prometheus）' }}<br /><small class="muted"
-                  >{{ row.group }}{{ row.managed ? '' : ' · 部署配置' }}</small
-                ></template
-              ></ui-table-column
-            >
-            <ui-table-column label="级别" width="80"
-              ><template #default="{ row }">{{
-                severityText[row.labels?.severity] || row.labels?.severity || '—'
-              }}</template></ui-table-column
-            >
-            <ui-table-column label="表达式" min-width="280"
-              ><template #default="{ row }"
-                ><code class="expr">{{ row.expr }}</code></template
-              ></ui-table-column
-            >
-            <ui-table-column label="持续" width="70"
-              ><template #default="{ row }">{{ row.for || '—' }}</template></ui-table-column
-            >
-            <ui-table-column label="评估" min-width="140"
-              ><template #default="{ row }"
-                ><span v-if="row.lastError" class="tone-danger">{{ row.lastError }}</span
-                ><span v-else class="muted">{{
-                  row.lastEvaluation && !row.lastEvaluation.startsWith('0001') ? relativeTime(row.lastEvaluation) : '—'
-                }}</span></template
-              ></ui-table-column
-            >
-          </ui-table>
+          <DataTableCard :error="rulesError" @retry="loadRules">
+            <ui-table :data="ruleRows" size="small" row-key="key" :empty-text="rulesLoading ? '正在读取…' : '没有告警规则'">
+              <ui-table-column label="状态" width="130"
+                ><template #default="{ row }"
+                  ><StatusDot
+                    :tone="stateTone[row.state] || 'neutral'"
+                    :label="`${stateText[row.state] || row.state || '未知'}${row.activeAlerts ? `（${row.activeAlerts}）` : ''}`" /></template
+              ></ui-table-column>
+              <ui-table-column label="规则" min-width="200"
+                ><template #default="{ row }"
+                  ><strong>{{ row.name }}</strong>
+                  <p class="alert-summary-text">{{ row.annotations?.summary || '' }}</p></template
+                ></ui-table-column
+              >
+              <ui-table-column label="来源" width="150"
+                ><template #default="{ row }"
+                  >{{ row.source === 'loki' ? '日志（Loki）' : '指标（Prometheus）' }}<br /><small class="muted"
+                    >{{ row.group }}{{ row.managed ? '' : ' · 部署配置' }}</small
+                  ></template
+                ></ui-table-column
+              >
+              <ui-table-column label="级别" width="80"
+                ><template #default="{ row }">{{
+                  severityText[row.labels?.severity] || row.labels?.severity || '—'
+                }}</template></ui-table-column
+              >
+              <ui-table-column label="表达式" min-width="280"
+                ><template #default="{ row }"
+                  ><code class="expr">{{ row.expr }}</code></template
+                ></ui-table-column
+              >
+              <ui-table-column label="持续" width="70"
+                ><template #default="{ row }">{{ row.for || '—' }}</template></ui-table-column
+              >
+              <ui-table-column label="评估" min-width="140"
+                ><template #default="{ row }"
+                  ><span v-if="row.lastError" class="tone-danger">{{ row.lastError }}</span
+                  ><span v-else class="muted">{{
+                    row.lastEvaluation && !row.lastEvaluation.startsWith('0001') ? relativeTime(row.lastEvaluation) : '—'
+                  }}</span></template
+                ></ui-table-column
+              >
+            </ui-table>
+          </DataTableCard>
         </div>
       </ui-tab-pane>
 
@@ -490,43 +492,46 @@ onBeforeUnmount(() => {
               @refresh="loadHistory"
             />
           </div>
-          <ui-alert v-if="historyError" type="error" :title="historyError" :closable="false" />
           <ui-alert v-if="historyTruncated" type="warning" :closable="false" title="结果过多，只显示部分告警序列，请缩小时间范围" />
-          <ui-table
-            :data="history"
-            size="small"
-            :row-key="row => `${JSON.stringify(row.labels)}-${row.start}`"
-            :empty-text="historyLoading ? '正在读取…' : '所选时间范围内没有触发过的告警'"
-          >
-            <ui-table-column label="告警" min-width="200"
-              ><template #default="{ row }"
-                ><StatusDot :tone="severityTone[row.labels.severity] || 'neutral'" :label="row.labels.alertname" /><span class="labels"
-                  ><ui-tag v-for="[k, v] in otherLabels(row.labels).filter(([k]) => k !== 'alertstate')" :key="k" size="small"
-                    >{{ k }}={{ v }}</ui-tag
-                  ></span
-                ></template
-              ></ui-table-column
+          <DataTableCard :error="historyError" @retry="loadHistory">
+            <ui-table
+              :data="history"
+              size="small"
+              :row-key="row => `${JSON.stringify(row.labels)}-${row.start}`"
+              :empty-text="historyLoading ? '正在读取…' : '所选时间范围内没有触发过的告警'"
             >
-            <ui-table-column label="开始" width="170"
-              ><template #default="{ row }">{{ new Date(row.start).toLocaleString('zh-CN', { hour12: false }) }}</template></ui-table-column
-            >
-            <ui-table-column label="结束" width="170"
-              ><template #default="{ row }"
-                ><span v-if="row.active" class="tone-danger">仍在触发</span
-                ><span v-else>{{ new Date(row.end).toLocaleString('zh-CN', { hour12: false }) }}</span></template
-              ></ui-table-column
-            >
-            <ui-table-column label="持续" width="120"
-              ><template #default="{ row }">{{
-                formatDuration(((row.active ? Date.now() : row.end) - row.start) / 1000)
-              }}</template></ui-table-column
-            >
-            <ui-table-column label="时间线" min-width="220"
-              ><template #default="{ row }"
-                ><div class="timeline">
-                  <span class="timeline__bar" :class="{ 'is-active': row.active }" :style="barStyle(row)" /></div></template
-            ></ui-table-column>
-          </ui-table>
+              <ui-table-column label="告警" min-width="200"
+                ><template #default="{ row }"
+                  ><StatusDot :tone="severityTone[row.labels.severity] || 'neutral'" :label="row.labels.alertname" /><span class="labels"
+                    ><ui-tag v-for="[k, v] in otherLabels(row.labels).filter(([k]) => k !== 'alertstate')" :key="k" size="small"
+                      >{{ k }}={{ v }}</ui-tag
+                    ></span
+                  ></template
+                ></ui-table-column
+              >
+              <ui-table-column label="开始" width="170"
+                ><template #default="{ row }">{{
+                  new Date(row.start).toLocaleString('zh-CN', { hour12: false })
+                }}</template></ui-table-column
+              >
+              <ui-table-column label="结束" width="170"
+                ><template #default="{ row }"
+                  ><span v-if="row.active" class="tone-danger">仍在触发</span
+                  ><span v-else>{{ new Date(row.end).toLocaleString('zh-CN', { hour12: false }) }}</span></template
+                ></ui-table-column
+              >
+              <ui-table-column label="持续" width="120"
+                ><template #default="{ row }">{{
+                  formatDuration(((row.active ? Date.now() : row.end) - row.start) / 1000)
+                }}</template></ui-table-column
+              >
+              <ui-table-column label="时间线" min-width="220"
+                ><template #default="{ row }"
+                  ><div class="timeline">
+                    <span class="timeline__bar" :class="{ 'is-active': row.active }" :style="barStyle(row)" /></div></template
+              ></ui-table-column>
+            </ui-table>
+          </DataTableCard>
         </div>
       </ui-tab-pane>
 
@@ -542,45 +547,46 @@ onBeforeUnmount(() => {
               <ui-button v-if="canSilence" size="small" type="primary" @click="newSilence(null)"><BellOff />新建静默</ui-button>
             </div>
           </div>
-          <ui-alert v-if="silencesError" type="error" :title="silencesError" :closable="false" />
-          <ui-table :data="visibleSilences" size="small" row-key="id" :empty-text="silencesLoading ? '正在读取…' : '没有静默'">
-            <ui-table-column label="状态" width="90"
-              ><template #default="{ row }"
-                ><StatusDot
-                  :tone="row.state === 'active' ? 'warning' : row.state === 'pending' ? 'info' : 'neutral'"
-                  :label="silenceText[row.state] || row.state" /></template
-            ></ui-table-column>
-            <ui-table-column label="匹配条件" min-width="260"
-              ><template #default="{ row }"
-                ><span class="labels"
-                  ><ui-tag v-for="m in row.matchers" :key="matcherText(m)" size="small">{{ matcherText(m) }}</ui-tag></span
-                ></template
-              ></ui-table-column
-            >
-            <ui-table-column label="原因" min-width="180"
-              ><template #default="{ row }">{{ row.comment }}</template></ui-table-column
-            >
-            <ui-table-column label="时间" min-width="220"
-              ><template #default="{ row }"
-                >{{ new Date(row.startsAt).toLocaleString('zh-CN', { hour12: false }) }} 至
-                {{ new Date(row.endsAt).toLocaleString('zh-CN', { hour12: false }) }}</template
-              ></ui-table-column
-            >
-            <ui-table-column label="创建人" width="120"
-              ><template #default="{ row }">{{ row.createdBy }}</template></ui-table-column
-            >
-            <ui-table-column label="操作" width="130">
-              <template #default="{ row }">
-                <div class="table-actions table-actions--start">
-                  <template v-if="row.state !== 'expired'">
-                    <ui-button v-if="canEditSilence" text size="small" @click="editSilence(row)">编辑</ui-button>
-                    <ui-button v-if="canExpire" text size="small" type="danger" @click="expire(row)">解除</ui-button>
-                  </template>
-                  <ui-button v-else-if="canSilence" text size="small" @click="editSilence(row, true)">再次静默</ui-button>
-                </div>
-              </template>
-            </ui-table-column>
-          </ui-table>
+          <DataTableCard :error="silencesError" @retry="loadSilences">
+            <ui-table :data="visibleSilences" size="small" row-key="id" :empty-text="silencesLoading ? '正在读取…' : '没有静默'">
+              <ui-table-column label="状态" width="90"
+                ><template #default="{ row }"
+                  ><StatusDot
+                    :tone="row.state === 'active' ? 'warning' : row.state === 'pending' ? 'info' : 'neutral'"
+                    :label="silenceText[row.state] || row.state" /></template
+              ></ui-table-column>
+              <ui-table-column label="匹配条件" min-width="260"
+                ><template #default="{ row }"
+                  ><span class="labels"
+                    ><ui-tag v-for="m in row.matchers" :key="matcherText(m)" size="small">{{ matcherText(m) }}</ui-tag></span
+                  ></template
+                ></ui-table-column
+              >
+              <ui-table-column label="原因" min-width="180"
+                ><template #default="{ row }">{{ row.comment }}</template></ui-table-column
+              >
+              <ui-table-column label="时间" min-width="220"
+                ><template #default="{ row }"
+                  >{{ new Date(row.startsAt).toLocaleString('zh-CN', { hour12: false }) }} 至
+                  {{ new Date(row.endsAt).toLocaleString('zh-CN', { hour12: false }) }}</template
+                ></ui-table-column
+              >
+              <ui-table-column label="创建人" width="120"
+                ><template #default="{ row }">{{ row.createdBy }}</template></ui-table-column
+              >
+              <ui-table-column label="操作" width="130">
+                <template #default="{ row }">
+                  <div class="table-actions table-actions--start">
+                    <template v-if="row.state !== 'expired'">
+                      <ui-button v-if="canEditSilence" text size="small" @click="editSilence(row)">编辑</ui-button>
+                      <ui-button v-if="canExpire" text size="small" type="danger" @click="expire(row)">解除</ui-button>
+                    </template>
+                    <ui-button v-else-if="canSilence" text size="small" @click="editSilence(row, true)">再次静默</ui-button>
+                  </div>
+                </template>
+              </ui-table-column>
+            </ui-table>
+          </DataTableCard>
         </div>
       </ui-tab-pane>
 
@@ -631,6 +637,13 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--border);
+}
+.alert-groups {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
 }
 .w-120 {
   width: 120px;

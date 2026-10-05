@@ -8,6 +8,7 @@ import { ApiError, api, apiAll, formatTime, isAbort, notifyError, session } from
 import { useListLoader } from '../composables/useListLoader'
 import { errorMessage } from '../presentation'
 import { useUnsavedGuard } from '../composables/unsavedGuard.js'
+import DataTableCard from '../components/layout/DataTableCard.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import KnowledgeIndexStatus from '../components/KnowledgeIndexStatus.vue'
 import { confirmDelete } from '../deleteAction'
@@ -444,9 +445,6 @@ function removeDocument(row) {
     </header>
 
     <ui-alert v-if="agentError" :title="agentError" type="warning" :closable="false" show-icon />
-    <ui-alert v-if="documentsError" :title="documentsError" type="error" :closable="false" show-icon
-      ><ui-button size="small" plain :loading="loading" @click="load">重新加载文档</ui-button></ui-alert
-    >
     <ui-alert
       v-if="documentsLoaded && !runtime.persistentIndex"
       title="当前使用内存索引，服务重启后需要重新建立文档检索索引。"
@@ -501,14 +499,23 @@ function removeDocument(row) {
 
     <ui-tabs v-model="activeTab" class="knowledge-tabs">
       <ui-tab-pane name="documents" label="文档">
-        <section class="knowledge-panel documents-panel" aria-label="已上传文档">
-          <div class="knowledge-panel-heading">
-            <div>
+        <DataTableCard
+          aria-label="已上传文档"
+          :error="documentsError"
+          :page="page"
+          :page-size="pageSize"
+          :total="total"
+          @retry="load"
+          @update:page="changePage"
+          @update:page-size="changePageSize"
+        >
+          <template #header>
+            <div class="documents-heading">
               <h2>已上传文档</h2>
               <p>查看文档的归属、索引状态和内容切片。</p>
             </div>
             <ui-button :loading="loading" @click="load">刷新列表</ui-button>
-          </div>
+          </template>
 
           <ui-table v-loading="loading" :data="documents" class="knowledge-table">
             <ui-table-column label="文档" min-width="270"
@@ -558,22 +565,9 @@ function removeDocument(row) {
                 ><RowActions :actions="documentActions(row)" />
               </div>
             </article>
-            <ui-empty v-if="!loading && !documents.length" description="还没有知识文档" />
+            <ui-empty v-if="!loading && !documentsError && !documents.length" description="还没有知识文档" />
           </div>
-
-          <div class="list-pagination knowledge-pagination">
-            <ui-pagination
-              v-model:current-page="page"
-              v-model:page-size="pageSize"
-              :total="total"
-              :page-sizes="[20, 50, 100]"
-              layout="total, sizes, prev, pager, next"
-              hide-on-single-page
-              @current-change="changePage"
-              @size-change="changePageSize"
-            />
-          </div>
-        </section>
+        </DataTableCard>
       </ui-tab-pane>
 
       <ui-tab-pane name="policy" label="检索策略">
@@ -978,12 +972,17 @@ function removeDocument(row) {
   gap: 16px;
   padding: 22px 24px 14px;
 }
-.knowledge-panel-heading h2 {
+.documents-heading {
+  min-width: 0;
+}
+.knowledge-panel-heading h2,
+.documents-heading h2 {
   margin: 0;
   font-size: 18px;
   line-height: 1.3;
 }
-.knowledge-panel-heading p {
+.knowledge-panel-heading p,
+.documents-heading p {
   margin: 5px 0 0;
   color: var(--text-muted);
   font-size: 13px;
@@ -1020,9 +1019,6 @@ function removeDocument(row) {
 .document-name small {
   color: var(--text-muted);
   font-size: 12px;
-}
-.knowledge-pagination {
-  border-top: 1px solid var(--border);
 }
 .knowledge-mobile-list {
   display: none;
@@ -1423,7 +1419,8 @@ function removeDocument(row) {
   .knowledge-panel-heading {
     padding: 18px 16px 10px;
   }
-  .knowledge-panel-heading p {
+  .knowledge-panel-heading p,
+  .documents-heading p {
     display: none;
   }
   .knowledge-table {
@@ -1479,14 +1476,6 @@ function removeDocument(row) {
   .knowledge-mobile-document-foot small {
     color: var(--text-muted);
     font-size: 12px;
-  }
-  .knowledge-pagination {
-    justify-content: center;
-    padding: 10px;
-  }
-  .knowledge-pagination :deep(.n-pagination-suffix),
-  .knowledge-pagination :deep(.n-pagination-prefix) {
-    display: none;
   }
   .knowledge-policy-target {
     margin: 0 16px;

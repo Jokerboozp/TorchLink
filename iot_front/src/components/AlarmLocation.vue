@@ -2,7 +2,8 @@
 // 告警位置：显示单位、建筑、楼层与点位；有平面图坐标时在图上标出告警位置。
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { MapPin } from '@lucide/vue'
-import { apiBlob } from '../api'
+import { apiBlob, isAbort } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { errorMessage } from '../presentation'
 
 const props = defineProps({ alarm: { type: Object, required: true } })
@@ -13,29 +14,25 @@ const text = computed(() =>
 const planUrl = ref(''),
   loading = ref(false),
   error = ref('')
-let version = 0
+const loader = useListLoader(loading)
 function release() {
   if (planUrl.value) URL.revokeObjectURL(planUrl.value)
   planUrl.value = ''
 }
 async function loadPlan() {
-  const current = ++version
   release()
   error.value = ''
-  if (!location.value?.floorId || location.value.x == null) return
-  loading.value = true
+  if (!location.value?.floorId || location.value.x == null) return loader.cancel()
   try {
-    const blob = await apiBlob(`/api/v1/alarms/${encodeURIComponent(props.alarm.alarmId)}/location-plan`)
-    if (current === version) planUrl.value = URL.createObjectURL(blob)
+    const blob = await loader.run(signal => apiBlob(`/api/v1/alarms/${encodeURIComponent(props.alarm.alarmId)}/location-plan`, { signal }))
+    planUrl.value = URL.createObjectURL(blob)
   } catch (e) {
-    if (current === version) error.value = errorMessage(e)
-  } finally {
-    if (current === version) loading.value = false
+    if (!isAbort(e)) error.value = errorMessage(e)
   }
 }
 watch(() => `${props.alarm.alarmId}:${location.value?.floorId || ''}:${location.value?.x ?? ''}`, loadPlan, { immediate: true })
 onBeforeUnmount(() => {
-  version++
+  loader.cancel()
   release()
 })
 </script>
