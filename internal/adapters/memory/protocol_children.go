@@ -8,6 +8,19 @@ import (
 )
 
 func (r *Repository) ListManagedDeviceChildren(ctx context.Context, tenant, parent string, limit, offset int) ([]model.ManagedDevice, int, error) {
+	return r.listChildren(ctx, tenant, parent, nil, limit, offset)
+}
+
+func (r *Repository) ListManagedDeviceChildrenForDevices(ctx context.Context, tenant, parent string, ids []string, limit, offset int) ([]model.ManagedDevice, int, error) {
+	allowed := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		allowed[id] = true
+	}
+	return r.listChildren(ctx, tenant, parent, allowed, limit, offset)
+}
+
+// listChildren pages a parent's children; a non-nil allowed set restricts them.
+func (r *Repository) listChildren(ctx context.Context, tenant, parent string, allowed map[string]bool, limit, offset int) ([]model.ManagedDevice, int, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, 0, err
 	}
@@ -15,7 +28,7 @@ func (r *Repository) ListManagedDeviceChildren(ctx context.Context, tenant, pare
 	defer r.mu.RUnlock()
 	items := []model.ManagedDevice{}
 	for _, d := range r.devices {
-		if d.TenantID == tenant && d.GatewayID == parent {
+		if d.TenantID == tenant && d.GatewayID == parent && (allowed == nil || allowed[d.ID]) {
 			items = append(items, cloneManaged(d))
 		}
 	}

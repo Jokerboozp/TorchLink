@@ -58,6 +58,14 @@ func ProtocolChildren(t *testing.T, repo ports.Repository) {
 		t.Fatal(items, total, err)
 	}
 	child := items[0]
+	if got, total, err := repo.ListManagedDeviceChildrenForDevices(ctx, tenant, "main-1", []string{child.ID}, 20, 0); err != nil || total != 1 || len(got) != 1 {
+		t.Fatal("granted child hidden", got, total, err)
+	}
+	for _, ids := range [][]string{nil, {"main-2"}} {
+		if got, total, err := repo.ListManagedDeviceChildrenForDevices(ctx, tenant, "main-1", ids, 20, 0); err != nil || total != 0 || len(got) != 0 {
+			t.Fatal("ungranted child listed", ids, got, total, err)
+		}
+	}
 	if child.ProductID != "sensor" || child.GatewayID != "main-1" || child.SecretHash != "" {
 		t.Fatal(child)
 	}

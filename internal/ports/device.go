@@ -12,6 +12,9 @@ type DeviceStore interface {
 	RegisterProtocolDevice(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, bool, error)
 	RegisterProtocolChild(context.Context, model.DeviceAccessProfile, string, model.ChildIdentity) (model.ManagedDevice, bool, error)
 	ListManagedDeviceChildren(context.Context, string, string, int, int) ([]model.ManagedDevice, int, error)
+	// ListManagedDeviceChildrenForDevices pages a parent's children among
+	// deviceIDs (a user's device grant); an empty list matches nothing.
+	ListManagedDeviceChildrenForDevices(ctx context.Context, tenant, parent string, deviceIDs []string, limit, offset int) ([]model.ManagedDevice, int, error)
 	ChangeDeviceCredential(context.Context, string, string, string, string, int64) (model.ManagedDevice, model.CredentialRevocation, error)
 	ListCredentialRevocations(context.Context, string, string, bool) ([]model.CredentialRevocation, error)
 	UpdateCredentialRevocation(context.Context, model.CredentialRevocation) error

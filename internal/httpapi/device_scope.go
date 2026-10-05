@@ -165,39 +165,31 @@ func (s *Server) unscopedRepo() ports.Repository {
 	}
 	return s.engine.Repo
 }
-func pageSlice[T any](items []T, limit, offset int) []T {
-	if offset < 0 {
-		offset = 0
-	}
-	if offset > len(items) {
-		offset = len(items)
-	}
-	end := len(items)
-	if limit > 0 && offset+limit < end {
-		end = offset + limit
-	}
-	return items[offset:end]
-}
 
 // Filtering occurs before pagination and totals. The wrapper is shared, while
 // the scope lives only in the authenticated request context; background ingest
 // and internal maintenance retain their existing repository behavior.
 func (r *deviceScopeRepository) ListManagedDevices(ctx context.Context, t string) ([]model.ManagedDevice, error) {
-	rows, e := r.Repository.ListManagedDevices(ctx, t)
-	if e != nil {
-		return nil, e
+	if !limited(ctx) {
+		return r.Repository.ListManagedDevices(ctx, t)
 	}
+	// Limited users read only their grant, page by page, from the store.
 	out := []model.ManagedDevice{}
-	for _, v := range rows {
-		if deviceAllowed(ctx, t, v.ID) {
-			if !deviceAllowed(ctx, t, v.GatewayID) {
-				v.GatewayID = ""
-			}
-			out = append(out, v)
+	for offset := 0; ; offset += scopedListPage {
+		rows, _, err := r.ListManagedDevicesFiltered(ctx, ports.DeviceFilter{TenantID: t}, scopedListPage, offset)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rows...)
+		if len(rows) < scopedListPage {
+			return out, nil
 		}
 	}
-	return out, nil
 }
+
+// scopedListPage is the page size used to read a limited user's devices.
+const scopedListPage = 500
+
 func (r *deviceScopeRepository) ListManagedDevicesPage(ctx context.Context, t string, l, o int) ([]model.ManagedDevice, int, error) {
 	if !limited(ctx) {
 		return r.Repository.ListManagedDevicesPage(ctx, t, l, o)
@@ -236,14 +228,16 @@ func (r *deviceScopeRepository) ListManagedDeviceChildren(ctx context.Context, t
 	if !limited(ctx) {
 		return r.Repository.ListManagedDeviceChildren(ctx, t, id, l, o)
 	}
-	rows, e := r.ListManagedDevices(ctx, t)
-	out := []model.ManagedDevice{}
-	for _, v := range rows {
-		if v.GatewayID == id {
-			out = append(out, v)
-		}
+	return r.Repository.ListManagedDeviceChildrenForDevices(ctx, t, id, grantedIDs(ctx, t), l, o)
+}
+func (r *deviceScopeRepository) ListManagedDeviceChildrenForDevices(ctx context.Context, t, id string, ids []string, l, o int) ([]model.ManagedDevice, int, error) {
+	if !deviceAllowed(ctx, t, id) {
+		return nil, 0, errDeviceScope
 	}
-	return pageSlice(out, l, o), len(out), e
+	if limited(ctx) {
+		ids = r.scopedIDs(ctx, t, ids)
+	}
+	return r.Repository.ListManagedDeviceChildrenForDevices(ctx, t, id, ids, l, o)
 }
 func (r *deviceScopeRepository) CountManagedDeviceChildren(ctx context.Context, t string, ids []string) (map[string]int, error) {
 	if !limited(ctx) {
@@ -253,14 +247,7 @@ func (r *deviceScopeRepository) CountManagedDeviceChildren(ctx context.Context, 
 }
 func (r *deviceScopeRepository) ListDeviceStates(ctx context.Context, t string) ([]model.DeviceState, error) {
 	if !limited(ctx) {
-		rows, e := r.Repository.ListDeviceStates(ctx, t)
-		out := []model.DeviceState{}
-		for _, v := range rows {
-			if deviceAllowed(ctx, t, v.DeviceID) {
-				out = append(out, v)
-			}
-		}
-		return out, e
+		return r.Repository.ListDeviceStates(ctx, t)
 	}
 	// Read only the granted devices' states, newest first like the store does.
 	states, e := r.Repository.GetDeviceStatesByIDs(ctx, t, grantedIDs(ctx, t))
@@ -296,14 +283,10 @@ func (r *deviceScopeRepository) CountDeviceStates(ctx context.Context, t string,
 	if unregistered {
 		return 0, 0, nil
 	}
-	rows, e := r.ListDeviceStates(ctx, t)
-	online := 0
-	for _, v := range rows {
-		if v.BusinessStatus == "ONLINE" || v.BusinessStatus == "ALARM" {
-			online++
-		}
-	}
-	return len(rows), online, e
+	// Counted in the store over the granted devices only.
+	overview, err := r.Repository.DeviceOverviewCounts(ctx, t, true, grantedIDs(ctx, t))
+	online := overview.BusinessStatus["ONLINE"] + overview.BusinessStatus["ALARM"]
+	return overview.Reported + overview.DiscoveredUnregistered, online, err
 }
 
 // scopedDevices narrows a list query to the request's granted devices so the

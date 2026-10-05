@@ -794,6 +794,29 @@ func TestScopedChildCountsStayInStorage(t *testing.T) {
 	}
 }
 
+// Children and state counts of a limited user are paged and counted by the
+// store over the grant, without reading the tenant's registry.
+func TestScopedChildrenAndStateCountsStayInStorage(t *testing.T) {
+	base := &noFullRegistryRepo{Repository: memory.NewRepository()}
+	ctx := context.WithValue(context.Background(), deviceScopeKey{}, deviceScope{Tenant: "t", IDs: map[string]bool{"g": true, "c1": true, "c3": true}})
+	for _, d := range []model.ManagedDevice{{ID: "g"}, {ID: "c1", GatewayID: "g"}, {ID: "c2", GatewayID: "g"}, {ID: "c3", GatewayID: "g"}} {
+		d.TenantID, d.AccessKey = "t", "ak-"+d.ID
+		_ = base.SaveManagedDevice(ctx, d)
+		_ = base.UpsertDeviceState(ctx, model.DeviceState{TenantID: "t", DeviceID: d.ID, BusinessStatus: "ONLINE"})
+	}
+	repo := ScopedRepository(base)
+	page, total, err := repo.ListManagedDeviceChildren(ctx, "t", "g", 1, 1)
+	if err != nil || total != 2 || len(page) != 1 || page[0].ID != "c3" || base.fullReads != 0 {
+		t.Fatalf("children page=%v total=%d reads=%d err=%v", page, total, base.fullReads, err)
+	}
+	if all, online, err := repo.CountDeviceStates(ctx, "t", false); err != nil || all != 3 || online != 3 {
+		t.Fatalf("state counts all=%d online=%d err=%v", all, online, err)
+	}
+	if devices, err := repo.ListManagedDevices(ctx, "t"); err != nil || len(devices) != 3 || base.fullReads != 0 {
+		t.Fatalf("devices=%v reads=%d err=%v", devices, base.fullReads, err)
+	}
+}
+
 // Overview counts for a limited user cover only granted devices and their
 // alarms, and are computed by the store.
 func TestScopedOverviewCountsStayInStorage(t *testing.T) {

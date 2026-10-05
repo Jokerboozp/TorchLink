@@ -8,11 +8,19 @@ import (
 )
 
 func (r *Repository) ListManagedDeviceChildren(ctx context.Context, tenant, parent string, limit, offset int) ([]model.ManagedDevice, int, error) {
+	return r.listChildren(ctx, tenant, parent, false, nil, limit, offset)
+}
+
+func (r *Repository) ListManagedDeviceChildrenForDevices(ctx context.Context, tenant, parent string, ids []string, limit, offset int) ([]model.ManagedDevice, int, error) {
+	return r.listChildren(ctx, tenant, parent, true, ids, limit, offset)
+}
+
+func (r *Repository) listChildren(ctx context.Context, tenant, parent string, restrict bool, ids []string, limit, offset int) ([]model.ManagedDevice, int, error) {
 	var total int
-	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM device_registry WHERE tenant_id=$1 AND body->>'gatewayId'=$2`, tenant, parent).Scan(&total); err != nil {
+	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM device_registry WHERE tenant_id=$1 AND body->>'gatewayId'=$2 AND (NOT $3::boolean OR id=ANY($4::text[]))`, tenant, parent, restrict, ids).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := r.pool.Query(ctx, `SELECT body,secret_hash FROM device_registry WHERE tenant_id=$1 AND body->>'gatewayId'=$2 ORDER BY id LIMIT $3 OFFSET $4`, tenant, parent, max(1, min(limit, 100)), max(0, offset))
+	rows, err := r.pool.Query(ctx, `SELECT body,secret_hash FROM device_registry WHERE tenant_id=$1 AND body->>'gatewayId'=$2 AND (NOT $3::boolean OR id=ANY($4::text[])) ORDER BY id LIMIT $5 OFFSET $6`, tenant, parent, restrict, ids, max(1, min(limit, 100)), max(0, offset))
 	if err != nil {
 		return nil, 0, err
 	}
