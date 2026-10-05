@@ -466,3 +466,34 @@ func TestGengineExpressionCompiledOnceAndSharedConcurrently(t *testing.T) {
 		t.Fatalf("broken expression reparsed %d times", compiles)
 	}
 }
+
+func TestAcknowledgedRuleAlarmRecoversAndReleasesDevice(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	if err := repo.SaveRule(ctx, model.AlarmRule{ID: "rule-ack-recover", TenantID: "tenant-a", ProductID: "sensor", Name: "高温", AlarmType: "HIGH_TEMPERATURE", Level: "HIGH", Enabled: true, Conditions: []model.RuleCondition{{Field: "temperature", Operator: ">", Value: 80}}, Recovery: []model.RuleCondition{{Field: "temperature", Operator: "<", Value: 50}}}); err != nil {
+		t.Fatal(err)
+	}
+	e := newRuleTestEngine(t, repo, &ruleTestClock{now: time.Unix(1000, 0)})
+	if err := e.handleStandard(ctx, standardRuleMessage("ack-raise", 1000000)); err != nil {
+		t.Fatal(err)
+	}
+	active, err := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "tenant-a", Status: "ACTIVE"})
+	if err != nil || len(active) != 1 {
+		t.Fatalf("rule did not raise an alarm: %#v err=%v", active, err)
+	}
+	if _, err = e.SetAlarmStatus(ctx, "tenant-a", active[0].ID, "ACKED", "operator"); err != nil {
+		t.Fatal(err)
+	}
+	cool, _ := json.Marshal(model.StandardMessage{MessageID: "ack-recover", RawMessageID: "raw-ack-recover", TenantID: "tenant-a", ProductID: "sensor", DeviceID: "device-a", MessageType: model.PropertyReport, Timestamp: 1001000, Properties: map[string]any{"temperature": 30}})
+	if err = e.handleStandard(ctx, cool); err != nil {
+		t.Fatal(err)
+	}
+	got, err := repo.GetAlarm(ctx, "tenant-a", active[0].ID)
+	if err != nil || got.Status != "RECOVERED" {
+		t.Fatalf("acknowledged rule alarm was not recovered: %#v err=%v", got, err)
+	}
+	state, err := repo.GetDeviceState(ctx, "tenant-a", "device-a")
+	if err != nil || state.BusinessStatus == "ALARM" {
+		t.Fatalf("device stayed in ALARM after its only alarm recovered: %#v err=%v", state, err)
+	}
+}

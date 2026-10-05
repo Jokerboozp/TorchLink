@@ -970,3 +970,41 @@ func TestEventDeliveryAndAuditFailuresAreCounted(t *testing.T) {
 		t.Fatalf("failures not counted: %v", metrics)
 	}
 }
+
+// The device stays ALARM while any alarm is still open and returns to
+// ONLINE only after the last one is recovered or closed.
+func TestDeviceStatusFollowsRemainingOpenAlarms(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	e := New(repo, nil, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := repo.UpsertDeviceState(ctx, model.DeviceState{TenantID: "t1", ProductID: "sensor", DeviceID: "device_1", BusinessStatus: "ONLINE"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"alarm_a", "alarm_b", "alarm_c"} {
+		if _, _, err := repo.UpsertAlarm(ctx, model.Alarm{ID: id, TenantID: "t1", DeviceID: "device_1", RuleID: "rule_" + id, AlarmType: "TEMP_" + id, AlarmLevel: "HIGH", Status: "ACTIVE", Source: "device"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	status := func() string {
+		t.Helper()
+		state, err := repo.GetDeviceState(ctx, "t1", "device_1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return state.BusinessStatus
+	}
+	steps := []struct{ alarm, action, want string }{
+		{"alarm_a", "ACKED", "ALARM"},
+		{"alarm_a", "RECOVERED", "ALARM"},
+		{"alarm_b", "SUPPRESSED", "ALARM"},
+		{"alarm_c", "RECOVERED", "ONLINE"},
+	}
+	for _, step := range steps {
+		if _, err := e.SetAlarmStatus(ctx, "t1", step.alarm, step.action, "operator"); err != nil {
+			t.Fatalf("%s %s: %v", step.alarm, step.action, err)
+		}
+		if got := status(); got != step.want {
+			t.Fatalf("after %s %s device status = %s, want %s", step.alarm, step.action, got, step.want)
+		}
+	}
+}

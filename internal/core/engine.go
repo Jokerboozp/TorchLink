@@ -970,28 +970,32 @@ func (e *Engine) raiseRuleAlarm(ctx context.Context, rule model.AlarmRule, msg m
 	return saved, created, nil
 }
 func (e *Engine) recoverRuleAlarm(ctx context.Context, rule model.AlarmRule, msg model.StandardMessage) error {
-	alarms, err := e.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: msg.TenantID, DeviceID: msg.DeviceID, Status: "ACTIVE", Limit: 100})
-	if err != nil {
-		return err
-	}
-	for _, listed := range alarms {
-		if listed.RuleID != rule.ID {
-			continue
-		}
-		a, written, err := e.mutateAlarm(ctx, listed.TenantID, listed.ID, func(a *model.Alarm) (bool, error) {
-			if a.Status != "ACTIVE" {
-				return false, nil
-			}
-			a.Status = "RECOVERED"
-			a.RecoveredAt = e.Clock.Now().UnixMilli()
-			return true, nil
-		})
+	// Acknowledged alarms are still open: a recovery report must close them
+	// the same way as direct and component alarms, or the device stays ALARM.
+	for _, status := range []string{"ACTIVE", "ACKED"} {
+		alarms, err := e.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: msg.TenantID, DeviceID: msg.DeviceID, Status: status, Limit: 100})
 		if err != nil {
 			return err
 		}
-		if written {
-			payload, _ := json.Marshal(a)
-			e.publishEvent(ctx, model.TopicAlarmRecovered, a.ID, a.MQTTTopic("recovered"), payload)
+		for _, listed := range alarms {
+			if listed.RuleID != rule.ID {
+				continue
+			}
+			a, written, err := e.mutateAlarm(ctx, listed.TenantID, listed.ID, func(a *model.Alarm) (bool, error) {
+				if a.Status != "ACTIVE" && a.Status != "ACKED" {
+					return false, nil
+				}
+				a.Status = "RECOVERED"
+				a.RecoveredAt = e.Clock.Now().UnixMilli()
+				return true, nil
+			})
+			if err != nil {
+				return err
+			}
+			if written {
+				payload, _ := json.Marshal(a)
+				e.publishEvent(ctx, model.TopicAlarmRecovered, a.ID, a.MQTTTopic("recovered"), payload)
+			}
 		}
 	}
 	return nil
