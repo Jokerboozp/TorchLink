@@ -75,6 +75,20 @@ const server = http.createServer(async (req, res) => {
           event: { messageId: '<unique>', event: { type: 'heartbeat' } }
         }
       } /* 仅返回合成数据，不写入业务服务。 */
+    else if (req.method === 'POST' && u.pathname.endsWith('/knowledge-binding/test'))
+      data = {
+        items: [
+          {
+            documentId: 'document-demo',
+            filename: '消防设备手册',
+            chunkIndex: 1,
+            score: 0.812,
+            content: '烟感持续报警时，先查看现场是否有烟雾或明火，再核对设备状态。'
+          }
+        ],
+        keywordOnly: false,
+        durationMs: 42
+      }
     else if (req.method !== 'GET') {
       res.statusCode = 503
       data = { message: '界面验收环境不执行实际业务操作' }
@@ -115,6 +129,7 @@ const server = http.createServer(async (req, res) => {
           }
         ]),
         persistentIndex: true,
+        summary: { documents: 1, indexed: 1, failed: 0, chunks: 3, bytes: 2048 },
         indexMode: 'postgres-pgvector',
         embeddingModel: 'text-embedding-v4'
       }

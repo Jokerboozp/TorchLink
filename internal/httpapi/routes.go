@@ -231,6 +231,7 @@ func (s *Server) aiRoutes() {
 	s.router.DELETE("/api/v1/ai/workflows/:id", s.authorize("admin"), s.endpoint(s.deleteAIWorkflow, "id"))
 	s.router.GET("/api/v1/ai/workflows/:id/knowledge-binding", s.authorize("viewer"), s.endpoint(s.workflowKnowledgeBinding, "id"))
 	s.router.PUT("/api/v1/ai/workflows/:id/knowledge-binding", s.authorize("operator"), s.endpoint(s.workflowKnowledgeBinding, "id"))
+	s.router.POST("/api/v1/ai/workflows/:id/knowledge-binding/test", s.authorize("viewer"), s.endpoint(s.testWorkflowKnowledge, "id"))
 	s.router.POST("/api/v1/ai/chat", s.authorize("viewer"), s.endpoint(s.aiChat))
 	s.router.POST("/api/v1/ai/chat/stream", s.authorize("viewer"), s.endpoint(s.aiChatStream))
 	s.router.POST("/api/v1/ai/rule-draft", s.authorize("operator"), s.endpoint(s.aiRuleDraft))

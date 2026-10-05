@@ -148,6 +148,9 @@ func routeAction(method, path string) string {
 			return "删除" + resource
 		}
 	}
+	if strings.HasSuffix(path, "/knowledge-binding/test") {
+		return "测试知识检索"
+	}
 	if strings.Contains(path, "/knowledge-binding") {
 		return "配置知识检索策略"
 	}

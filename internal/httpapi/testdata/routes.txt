@@ -245,6 +245,7 @@ POST /api/v1/ai/reports
 POST /api/v1/ai/rule-draft
 POST /api/v1/ai/runs/:id/stop
 POST /api/v1/ai/workflows
+POST /api/v1/ai/workflows/:id/knowledge-binding/test
 POST /api/v1/alarms/:id/actions
 POST /api/v1/alarms/:id/attachments
 POST /api/v1/alarms/:id/disposition

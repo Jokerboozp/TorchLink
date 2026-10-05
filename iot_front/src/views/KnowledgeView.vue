@@ -48,9 +48,14 @@ const activeTab = ref('documents')
 
 const canUpload = computed(() => can('POST /api/v1/knowledge/documents'))
 const canManageBinding = computed(() => can('PUT /api/v1/ai/workflows/:id/knowledge-binding'))
-const indexedCount = computed(() => documents.value.filter(item => item.status === 'INDEXED').length)
-const totalChunks = computed(() => documents.value.reduce((sum, item) => sum + Number(item.metadata?.chunks || 0), 0))
-const totalSize = computed(() => documents.value.reduce((sum, item) => sum + Number(item.metadata?.size || 0), 0))
+// 概况统计由服务端按整个租户汇总，不随翻页变化。
+const summary = ref({ documents: 0, indexed: 0, failed: 0, chunks: 0, bytes: 0 })
+// 检索测试：用当前表单的召回数量和相似度试检索一次，不保存策略也不调用对话模型。
+const testQuestion = ref('')
+const testing = ref(false)
+const testResult = ref(null)
+const testError = ref('')
+const canTestBinding = computed(() => can('POST /api/v1/ai/workflows/:id/knowledge-binding/test'))
 const selectedBindingAgent = computed(() => agents.value.find(item => agentKey(item) === bindingWorkflowId.value))
 
 function agentKey(item) {
@@ -107,6 +112,7 @@ async function load(silent = false) {
         embeddingModel: data.embeddingModel || '',
         indexState: data.indexState || { state: 'ready' }
       }
+      summary.value = { documents: 0, indexed: 0, failed: 0, chunks: 0, bytes: 0, ...data.summary }
       documentsLoaded.value = true
       if (detailDialog.value && selectedDocument.value) {
         const previous = selectedDocument.value
@@ -156,6 +162,31 @@ async function loadBinding() {
     if (requestId === bindingRequestId) bindingError.value = error.message || '知识库策略读取失败'
   } finally {
     if (requestId === bindingRequestId) bindingLoading.value = false
+  }
+}
+
+function changeBindingAgent() {
+  testResult.value = null
+  testError.value = ''
+  loadBinding()
+}
+
+async function testBinding() {
+  const question = testQuestion.value.trim()
+  if (!question || !bindingWorkflowId.value || testing.value) return
+  const workflow = bindingWorkflowId.value
+  testing.value = true
+  testError.value = ''
+  try {
+    const value = await api(`/api/v1/ai/workflows/${encodeURIComponent(workflow)}/knowledge-binding/test`, {
+      method: 'POST',
+      body: JSON.stringify({ question, topK: knowledgeBinding.value.topK, minScore: knowledgeBinding.value.minScore })
+    })
+    if (bindingWorkflowId.value === workflow) testResult.value = { ...value, items: Array.isArray(value.items) ? value.items : [] }
+  } catch (error) {
+    testError.value = error.message || '检索测试失败'
+  } finally {
+    testing.value = false
   }
 }
 
@@ -375,12 +406,14 @@ function removeDocument(row) {
         ><small>当前租户全部文档</small>
       </div>
       <div>
-        <span>本页已索引</span><strong>{{ documentsLoaded ? indexedCount : '—' }}</strong
-        ><small>当前页可供检索</small>
+        <span>已索引</span><strong>{{ documentsLoaded ? summary.indexed : '—' }}</strong
+        ><small :class="{ 'knowledge-stat-warn': summary.failed }">{{
+          documentsLoaded ? (summary.failed ? `${summary.failed} 份索引失败` : '可供检索') : '等待读取'
+        }}</small>
       </div>
       <div>
-        <span>本页内容分片</span><strong>{{ documentsLoaded ? totalChunks : '—' }}</strong
-        ><small>{{ documentsLoaded ? formatBytes(totalSize) : '等待读取' }}</small>
+        <span>内容分片</span><strong>{{ documentsLoaded ? summary.chunks : '—' }}</strong
+        ><small>{{ documentsLoaded ? `原件共 ${formatBytes(summary.bytes)}` : '等待读取' }}</small>
       </div>
       <div class="knowledge-index-state">
         <span>索引存储</span
@@ -494,7 +527,7 @@ function removeDocument(row) {
                 filterable
                 :disabled="bindingSaving"
                 placeholder="选择智能体"
-                @change="loadBinding"
+                @change="changeBindingAgent"
                 ><ui-option
                   v-for="agent in agents"
                   :key="agentKey(agent)"
@@ -565,6 +598,43 @@ function removeDocument(row) {
                 >
               </div>
             </ui-form>
+            <div v-if="canTestBinding" class="knowledge-policy-section knowledge-test">
+              <div class="knowledge-section-copy">
+                <h3>检索测试</h3>
+                <p>按上方召回数量和最低相似度试检索一次，查看该智能体会引用哪些片段；不保存策略，也不调用对话模型。</p>
+              </div>
+              <div class="knowledge-test-body">
+                <div class="knowledge-test-input">
+                  <ui-input
+                    v-model="testQuestion"
+                    maxlength="500"
+                    placeholder="例如：烟感持续报警如何处置"
+                    aria-label="测试问题"
+                    @keydown.enter.prevent="testBinding"
+                  /><ui-button :loading="testing" :disabled="!testQuestion.trim() || !bindingWorkflowId" @click="testBinding"
+                    >试检索</ui-button
+                  >
+                </div>
+                <ui-alert v-if="testError" :title="testError" type="error" :closable="false" show-icon />
+                <template v-else-if="testResult">
+                  <small class="knowledge-test-meta"
+                    >召回 {{ testResult.items.length }} 条 · 用时 {{ testResult.durationMs ?? 0 }} 毫秒{{
+                      testResult.keywordOnly ? ' · 向量服务不可用，仅按关键词匹配' : ''
+                    }}</small
+                  >
+                  <ol v-if="testResult.items.length" class="knowledge-test-hits">
+                    <li v-for="hit in testResult.items" :key="`${hit.documentId}-${hit.chunkIndex}`">
+                      <div>
+                        <strong>{{ hit.filename || hit.documentId }}</strong
+                        ><small>第 {{ Number(hit.chunkIndex) + 1 }} 段 · 相似度 {{ Number(hit.score).toFixed(3) }}</small>
+                      </div>
+                      <p>{{ hit.content }}</p>
+                    </li>
+                  </ol>
+                  <ui-empty v-else description="没有达到最低相似度的片段；可降低相似度或补充文档" :image-size="56" />
+                </template>
+              </div>
+            </div>
           </template>
         </section>
       </ui-tab-pane>
@@ -907,6 +977,57 @@ function removeDocument(row) {
 }
 .knowledge-policy-form {
   padding: 6px 24px 16px;
+}
+.knowledge-stat-warn {
+  color: var(--warning-text) !important;
+}
+.knowledge-policy-section.knowledge-test {
+  margin: 0 24px;
+  border-top: 1px solid var(--border);
+  border-bottom: 0;
+}
+.knowledge-test-body {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.knowledge-test-input {
+  display: flex;
+  gap: 8px;
+}
+.knowledge-test-meta {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.knowledge-test-hits {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.knowledge-test-hits li {
+  padding: 10px 12px;
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.knowledge-test-hits li > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+}
+.knowledge-test-hits small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.knowledge-test-hits p {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 1.6;
 }
 .knowledge-policy-section {
   padding: 20px 0;

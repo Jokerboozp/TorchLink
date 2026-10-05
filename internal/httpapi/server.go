@@ -2159,6 +2159,56 @@ func (s *Server) workflowKnowledgeBinding(w http.ResponseWriter, r *http.Request
 	write(w, 200, binding)
 }
 
+// testWorkflowKnowledge runs one search with the policy being edited, without
+// saving it or calling a model, so operators can see what an Agent would cite.
+// Results stay inside the caller's tenant and the Agent's own documents.
+func (s *Server) testWorkflowKnowledge(w http.ResponseWriter, r *http.Request) {
+	c := claims(r)
+	workflowID := strings.TrimSpace(r.PathValue("id"))
+	var in struct {
+		Question string  `json:"question"`
+		TopK     int     `json:"topK"`
+		MinScore float64 `json:"minScore"`
+	}
+	if decode(w, r, &in) != nil {
+		return
+	}
+	question := ports.BoundKnowledgeQuery(in.Question)
+	if workflowID == "" || len(workflowID) > 128 || question == "" || in.TopK < 1 || in.TopK > 20 || in.MinScore < 0 || in.MinScore > 1 {
+		problem(w, http.StatusUnprocessableEntity, "请填写测试问题，召回数量 1–20，最低相似度 0–1")
+		return
+	}
+	if s.engine.KB == nil {
+		problem(w, http.StatusServiceUnavailable, "知识库检索服务未配置")
+		return
+	}
+	binding, err := s.engine.Repo.GetWorkflowKnowledgeBinding(r.Context(), c.TenantID, workflowID)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	if binding.WorkflowID == "" {
+		binding = defaultWorkflowKnowledgeBinding(c.TenantID, workflowID)
+	}
+	binding.TopK, binding.MinScore = in.TopK, in.MinScore
+	started := time.Now()
+	hits, err := s.searchWorkflowKnowledge(r.Context(), c.TenantID, question, binding)
+	if err != nil {
+		s.log.Warn("knowledge test search failed", "workflowId", workflowID, "error", err)
+		problem(w, http.StatusBadGateway, "知识检索失败，请检查向量服务状态后重试")
+		return
+	}
+	items := make([]map[string]any, 0, len(hits))
+	for _, hit := range hits {
+		content := []rune(hit.Content)
+		if len(content) > 600 {
+			content = append(content[:600], '…')
+		}
+		items = append(items, map[string]any{"documentId": hit.DocumentID, "filename": hit.Filename, "chunkIndex": hit.ChunkIndex, "score": math.Round(hit.Score*1000) / 1000, "keywordOnly": hit.KeywordOnly, "content": string(content)})
+	}
+	write(w, http.StatusOK, map[string]any{"items": items, "keywordOnly": aiworkflow.KeywordOnlyHits(hits), "durationMs": time.Since(started).Milliseconds()})
+}
+
 func (s *Server) aiChatStream(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		Question       string `json:"question"`
@@ -2559,7 +2609,12 @@ func (s *Server) knowledgeDocs(w http.ResponseWriter, r *http.Request) {
 	if persistent {
 		indexMode = "postgres-pgvector"
 	}
-	meta := map[string]any{"indexMode": indexMode, "persistentIndex": persistent, "indexState": s.engine.KnowledgeReindex.Status()}
+	summary, err := s.engine.Repo.KnowledgeDocSummary(r.Context(), claims(r).TenantID)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	meta := map[string]any{"indexMode": indexMode, "persistentIndex": persistent, "indexState": s.engine.KnowledgeReindex.Status(), "summary": summary}
 	if embeddingModel := knowledgeEmbeddingModel(s); embeddingModel != "" {
 		meta["embeddingModel"] = embeddingModel
 	}

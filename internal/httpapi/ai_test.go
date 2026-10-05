@@ -1255,6 +1255,32 @@ func TestKnowledgeUploadAndTenantScopedList(t *testing.T) {
 		t.Fatalf("knowledge documents leaked across tenants: %#v", isolated)
 	}
 	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/knowledge/documents/"+item["id"].(string), otherTenantToken, nil, http.StatusNotFound)
+	if summary := listed["summary"].(map[string]any); summary["documents"] != float64(1) || summary["indexed"] != float64(1) || summary["chunks"] != float64(1) {
+		t.Fatalf("knowledge summary should count the whole tenant: %#v", summary)
+	}
+	if summary := isolated["summary"].(map[string]any); summary["documents"] != float64(0) {
+		t.Fatalf("knowledge summary leaked across tenants: %#v", summary)
+	}
+
+	// Retrieval test searches only the caller's tenant and the named Agent.
+	testPath := func(workflowID string) string {
+		return server.URL + "/api/v1/ai/workflows/" + workflowID + "/knowledge-binding/test"
+	}
+	probe := map[string]any{"question": "高温烟雾告警处置", "topK": 3, "minScore": 0}
+	found := requestJSON(t, server.Client(), http.MethodPost, testPath("ops-assistant"), viewerToken, probe, http.StatusOK)
+	hits := found["items"].([]any)
+	if len(hits) != 1 || hits[0].(map[string]any)["documentId"] != item["id"] || !strings.Contains(hits[0].(map[string]any)["content"].(string), "现场人员复核") {
+		t.Fatalf("retrieval test did not return the Agent's document: %#v", found)
+	}
+	for name, response := range map[string]map[string]any{
+		"other agent":  requestJSON(t, server.Client(), http.MethodPost, testPath("other-agent"), viewerToken, probe, http.StatusOK),
+		"other tenant": requestJSON(t, server.Client(), http.MethodPost, testPath("ops-assistant"), otherTenantToken, probe, http.StatusOK),
+	} {
+		if len(response["items"].([]any)) != 0 {
+			t.Fatalf("retrieval test leaked to %s: %#v", name, response)
+		}
+	}
+	requestJSON(t, server.Client(), http.MethodPost, testPath("ops-assistant"), viewerToken, map[string]any{"question": " ", "topK": 3}, http.StatusUnprocessableEntity)
 }
 
 type inspectionReadCounter struct {

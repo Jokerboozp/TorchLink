@@ -1243,6 +1243,36 @@ func (r *Repository) ListKnowledgeDocsPage(ctx context.Context, tenant string, l
 	return page(items, offset, limit), len(items), nil
 }
 
+func (r *Repository) KnowledgeDocSummary(ctx context.Context, tenant string) (model.KnowledgeSummary, error) {
+	items, err := r.ListKnowledgeDocs(ctx, tenant)
+	if err != nil {
+		return model.KnowledgeSummary{}, err
+	}
+	number := func(v any) int64 {
+		switch n := v.(type) {
+		case int:
+			return int64(n)
+		case int64:
+			return n
+		case float64:
+			return int64(n)
+		}
+		return 0
+	}
+	v := model.KnowledgeSummary{Documents: len(items)}
+	for _, item := range items {
+		switch item.Status {
+		case "INDEXED":
+			v.Indexed++
+			v.Chunks += number(item.Metadata["chunks"])
+		case "INDEX_FAILED":
+			v.Failed++
+		}
+		v.Bytes += number(item.Metadata["size"])
+	}
+	return v, nil
+}
+
 func (r *Repository) SaveWorkflowKnowledgeBinding(_ context.Context, v model.WorkflowKnowledgeBinding) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
