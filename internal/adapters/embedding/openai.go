@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -93,7 +94,7 @@ func (o *OpenAI) Embed(ctx context.Context, inputs []string, purpose ports.Embed
 			}
 			batch = prefixed
 		}
-		vectors, err := o.embedBatch(ctx, batch)
+		vectors, err := o.embedBatch(ctx, batch, purpose)
 		if err != nil {
 			return nil, err
 		}
@@ -113,27 +114,92 @@ func (o *OpenAI) Embed(ctx context.Context, inputs []string, purpose ports.Embed
 	return out, nil
 }
 
-func (o *OpenAI) embedBatch(ctx context.Context, inputs []string) ([][]float32, error) {
-	for attempt := 0; ; attempt++ {
+// Retry policy: indexing rides out rate limits and short outages; a query
+// gets one quick retry because its caller falls back to keyword search.
+var (
+	documentAttempts  = 6
+	queryAttempts     = 2
+	retryBaseDelay    = time.Second
+	retryMaxDelay     = 30 * time.Second
+	queryRetryDelay   = 200 * time.Millisecond
+	maxRetryAfterWait = time.Minute
+)
+
+func (o *OpenAI) embedBatch(ctx context.Context, inputs []string, purpose ports.EmbedPurpose) ([][]float32, error) {
+	attempts, delay := documentAttempts, retryBaseDelay
+	if purpose == ports.EmbedQuery {
+		attempts, delay = queryAttempts, queryRetryDelay
+	}
+	for attempt := 1; ; attempt++ {
 		vectors, err := o.requestBatch(ctx, inputs)
-		var status embeddingHTTPError
-		if err == nil || attempt == 2 || ctx.Err() != nil || !errors.As(err, &status) || (status != 429 && status != 502 && status != 503 && status != 504) {
+		wait, retryable := retryDelay(err, delay)
+		if err == nil || !retryable || attempt >= attempts || ctx.Err() != nil {
 			return vectors, err
 		}
-		timer := time.NewTimer(time.Duration(1<<attempt) * 250 * time.Millisecond)
+		timer := time.NewTimer(wait)
 		select {
 		case <-ctx.Done():
 			timer.Stop()
 			return nil, ctx.Err()
 		case <-timer.C:
 		}
+		delay = min(2*delay, retryMaxDelay)
 	}
 }
 
-type embeddingHTTPError int
+// retryDelay reports whether err is transient and how long to wait: the
+// service's Retry-After when given, otherwise the backoff delay.
+func retryDelay(err error, backoff time.Duration) (time.Duration, bool) {
+	var status embeddingHTTPError
+	switch {
+	case errors.Is(err, errEmbeddingUnavailable):
+		return backoff, true
+	case errors.As(err, &status) && (status.code == 429 || status.code == 500 || status.code == 502 || status.code == 503 || status.code == 504):
+		if status.retryAfter > 0 {
+			return min(status.retryAfter, maxRetryAfterWait), true
+		}
+		return backoff, true
+	}
+	return 0, false
+}
+
+type unavailableError struct{}
+
+func (unavailableError) Error() string   { return "embedding service unavailable" }
+func (unavailableError) Transient() bool { return true }
+
+// errEmbeddingUnavailable covers connection failures and timeouts.
+var errEmbeddingUnavailable error = unavailableError{}
+
+type embeddingHTTPError struct {
+	code       int
+	retryAfter time.Duration
+}
 
 func (e embeddingHTTPError) Error() string {
-	return fmt.Sprintf("embedding service returned HTTP %d", int(e))
+	return fmt.Sprintf("embedding service returned HTTP %d", e.code)
+}
+
+// Transient marks overload and rate limiting; other statuses need a fix.
+func (e embeddingHTTPError) Transient() bool {
+	_, retryable := retryDelay(e, 0)
+	return retryable
+}
+
+// IsTransientEmbeddingError reports failures worth retrying later: the
+// service was unreachable, overloaded or rate limited.
+func IsTransientEmbeddingError(err error) bool {
+	return ports.IsTransient(err) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func parseRetryAfter(value string) time.Duration {
+	if seconds, err := strconv.Atoi(strings.TrimSpace(value)); err == nil && seconds > 0 {
+		return time.Duration(seconds) * time.Second
+	}
+	if at, err := http.ParseTime(value); err == nil {
+		return time.Until(at)
+	}
+	return 0
 }
 
 func (o *OpenAI) requestBatch(ctx context.Context, inputs []string) ([][]float32, error) {
@@ -155,12 +221,12 @@ func (o *OpenAI) requestBatch(ctx context.Context, inputs []string) ([][]float32
 	}
 	resp, err := o.http.Do(req)
 	if err != nil {
-		return nil, errors.New("embedding service unavailable")
+		return nil, errEmbeddingUnavailable
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode/100 != 2 {
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
-		return nil, embeddingHTTPError(resp.StatusCode)
+		return nil, embeddingHTTPError{code: resp.StatusCode, retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"))}
 	}
 	var parsed struct {
 		Data []struct {

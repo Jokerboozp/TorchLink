@@ -62,7 +62,7 @@ func (r *Repository) ClaimKnowledgeDocument(ctx context.Context) (model.Knowledg
 	defer tx.Rollback(ctx)
 	var id, tenant string
 	err = tx.QueryRow(ctx, `SELECT id,tenant_id FROM ai_knowledge_doc
- WHERE status IN ('UPLOADED','DELETING') OR (status='INDEXING' AND COALESCE((metadata->>'indexLeaseUntil')::bigint,0)<(extract(epoch from now())*1000)::bigint)
+ WHERE status='DELETING' OR (status='UPLOADED' AND COALESCE((metadata->>'indexRetryAt')::bigint,0)<=(extract(epoch from now())*1000)::bigint) OR (status='INDEXING' AND COALESCE((metadata->>'indexLeaseUntil')::bigint,0)<(extract(epoch from now())*1000)::bigint)
  ORDER BY created_at,id FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&id, &tenant)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.KnowledgeDoc{}, false, nil

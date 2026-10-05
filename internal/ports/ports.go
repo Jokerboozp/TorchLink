@@ -2,7 +2,9 @@ package ports
 
 import (
 	"context"
+	"errors"
 	"io"
+	"strings"
 	"time"
 
 	"iot-platform/internal/externaldata"
@@ -536,6 +538,29 @@ type KnowledgeHit struct {
 	EndChar        int      `json:"endChar"`
 	CharacterCount int      `json:"characterCount"`
 	OverlapChars   int      `json:"overlapChars"`
+	// KeywordOnly marks a hit found by keyword matching alone because the
+	// vector service was unavailable; Score is then the keyword match share.
+	KeywordOnly bool `json:"keywordOnly,omitempty"`
+}
+
+// IsTransient reports errors that mark themselves as worth retrying later
+// (an unreachable or rate-limited external service).
+func IsTransient(err error) bool {
+	var t interface{ Transient() bool }
+	return errors.As(err, &t) && t.Transient()
+}
+
+// MaxKnowledgeQueryRunes bounds a retrieval question: it is embedded as one
+// input, and a question longer than a few sentences only dilutes the match.
+const MaxKnowledgeQueryRunes = 512
+
+// BoundKnowledgeQuery trims a retrieval question to MaxKnowledgeQueryRunes.
+func BoundKnowledgeQuery(q string) string {
+	q = strings.TrimSpace(q)
+	if r := []rune(q); len(r) > MaxKnowledgeQueryRunes {
+		q = strings.TrimSpace(string(r[:MaxKnowledgeQueryRunes]))
+	}
+	return q
 }
 
 // KnowledgeDocumentJobs is used by the trusted background indexer. Claims

@@ -214,8 +214,10 @@ async function upload() {
   }
 }
 
+// Failed documents, and documents waiting for an automatic retry, can be retried now.
+const retryable = document => document?.status === 'INDEX_FAILED' || (document?.status === 'UPLOADED' && Boolean(document.metadata?.indexRetryAt))
 async function retryDocument(document) {
-  if (!can('POST /api/v1/knowledge/documents/:id/retry') || document.status !== 'INDEX_FAILED' || retrying.value.includes(document.id)) return
+  if (!can('POST /api/v1/knowledge/documents/:id/retry') || !retryable(document) || retrying.value.includes(document.id)) return
   retrying.value = [...retrying.value, document.id]
   try {
     const updated = await api(`/api/v1/knowledge/documents/${encodeURIComponent(document.id)}/retry`, { method:'POST' })
@@ -232,7 +234,7 @@ async function retryDocument(document) {
 
 function documentActions(row) {
   return [{ key:'detail', label:'查看详情', onClick:() => showDocument(row) },
-    { key:'retry', label:'重试索引', hidden:row.status !== 'INDEX_FAILED', loading:retrying.value.includes(row.id), disabled:retrying.value.includes(row.id), permission:'POST /api/v1/knowledge/documents/:id/retry', onClick:() => retryDocument(row) },
+    { key:'retry', label:'重试索引', hidden:!retryable(row), loading:retrying.value.includes(row.id), disabled:retrying.value.includes(row.id), permission:'POST /api/v1/knowledge/documents/:id/retry', onClick:() => retryDocument(row) },
     { key:'delete', label:row.status === 'DELETING' ? '删除中' : '删除', disabled:row.status === 'DELETING', type:'danger', permission:'DELETE /api/v1/knowledge/documents/:id', onClick:() => removeDocument(row) }]
 }
 
@@ -361,7 +363,7 @@ function removeDocument(row) { return confirmDelete({ label:row.filename, path:`
         <section v-if="selectedDetail?.index" class="knowledge-index-rules"><div class="knowledge-detail-section-heading"><h3>索引与切片规则</h3><span>{{ selectedDetail.index.mode }} · {{ selectedDetail.index.vectorizer }}</span></div><div class="knowledge-rule-grid"><div><small>切片策略</small><strong>{{ selectedDetail.index.chunking?.strategy === 'fixed-window-overlap' ? '固定窗口 + 重叠' : selectedDetail.index.chunking?.strategy }}</strong></div><div><small>窗口 / 重叠</small><strong>{{ selectedDetail.index.chunking?.size }} / {{ selectedDetail.index.chunking?.overlap }} 字符</strong></div><div><small>提取文本</small><strong>{{ selectedDetail.index.extractedChars || 0 }} 字符</strong></div><div><small>实际分片</small><strong>{{ selectedDetail.index.chunkCount }}</strong></div></div><p v-if="selectedDetail.index.embeddingModel">向量模型：{{ selectedDetail.index.embeddingModel }}</p></section>
         <section v-if="selectedDetail" class="knowledge-chunks"><div class="knowledge-detail-section-heading"><h3>切片内容</h3><span>{{ selectedDetail.chunks?.length || 0 }} 个分片，点击逐条查看</span></div><div v-if="selectedDetail.chunks?.length" class="knowledge-chunk-list"><details v-for="(row, index) in selectedDetail.chunks" :key="row.chunkId || index" :open="index === 0" class="knowledge-chunk"><summary><span class="knowledge-chunk-number">{{ index + 1 }}</span><span>字符范围 [{{ row.startChar }}, {{ row.endChar }})</span><ui-tag :type="row.vectorized ? 'success' : 'info'" size="small">{{ row.vectorized ? '向量化完成' : '非向量索引' }}</ui-tag></summary><div class="knowledge-chunk-body"><p>{{ row.content }}</p><small>重叠 {{ row.overlapChars || 0 }} 字符 · {{ row.characterCount }} 字符 · {{ row.chunkId }}</small></div></details></div><ui-empty v-else description="索引中没有可查看的切片" :image-size="56" /></section>
       </div>
-      <template #footer><ui-button v-if="selectedDocument?.status === 'INDEX_FAILED'" v-permission="'POST /api/v1/knowledge/documents/:id/retry'" type="primary" :loading="retrying.includes(selectedDocument.id)" :disabled="retrying.includes(selectedDocument.id)" @click="retryDocument(selectedDocument)">重试索引</ui-button><ui-button @click="detailDialog=false">关闭</ui-button></template>
+      <template #footer><ui-button v-if="retryable(selectedDocument)" v-permission="'POST /api/v1/knowledge/documents/:id/retry'" type="primary" :loading="retrying.includes(selectedDocument.id)" :disabled="retrying.includes(selectedDocument.id)" @click="retryDocument(selectedDocument)">重试索引</ui-button><ui-button @click="detailDialog=false">关闭</ui-button></template>
     </ui-dialog>
   </div>
 </template>

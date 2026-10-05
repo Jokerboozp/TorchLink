@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -236,7 +237,7 @@ func TestBusinessFirstHarnessRequestContainsScopedKnowledgeEvidence(t *testing.T
 					t.Error("knowledge must be retrieved before the first HTTP Harness request")
 				}
 			})
-			result, err := engine.runBusinessWorkflow(ctx, "t1", feature.workflow, "高温 核实", feature.tools, 2048)
+			result, err := engine.runBusinessWorkflow(ctx, "t1", feature.workflow, "高温 核实", "高温 核实", feature.tools, 2048)
 			if err != nil || result.Answer != "已接收知识证据" {
 				t.Fatalf("run result: %#v err=%v", result, err)
 			}
@@ -275,7 +276,7 @@ func TestBusinessKnowledgePermissionAndRequiredEvidenceBeforeHarness(t *testing.
 				t.Fatal(err)
 			}
 			received := installBusinessHarnessHTTP(t, engine, nil)
-			_, err := engine.runBusinessWorkflow(ctx, "t1", WorkflowOpsReport, "高温 核实", []string{"query_alarm_list", "query_knowledge_base"}, 2048)
+			_, err := engine.runBusinessWorkflow(ctx, "t1", WorkflowOpsReport, "高温 核实", "高温 核实", []string{"query_alarm_list", "query_knowledge_base"}, 2048)
 			if len(index.Requests()) != 0 {
 				t.Fatal("a caller without knowledge permission must not prefetch")
 			}
@@ -302,7 +303,7 @@ func TestBusinessKnowledgeEvidenceStaysInsideHarnessInputBudget(t *testing.T) {
 	index := &businessKnowledgeIndex{Local: knowledge.NewLocal(), hits: []ports.KnowledgeHit{{DocumentID: "manual", ChunkID: "manual-1", WorkflowID: WorkflowProtocolAssist, Content: strings.Repeat("知识", 6000)}}}
 	engine.KB = index
 	received := installBusinessHarnessHTTP(t, engine, nil)
-	if _, err := engine.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowProtocolAssist, strings.Repeat("上", 7000), []string{"query_knowledge_base"}, 2048); err != nil {
+	if _, err := engine.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowProtocolAssist, strings.Repeat("上", 7000), "上", []string{"query_knowledge_base"}, 2048); err != nil {
 		t.Fatal(err)
 	}
 	request := <-received
@@ -337,7 +338,7 @@ func TestBusinessKnowledgeFailuresNeverReachHarness(t *testing.T) {
 				question = strings.Repeat("文", 11000)
 			}
 			received := installBusinessHarnessHTTP(t, engine, nil)
-			if _, err := engine.runBusinessWorkflow(ctx, "t1", WorkflowProtocolAssist, question, []string{"query_knowledge_base"}, 2048); err == nil || len(received) != 0 {
+			if _, err := engine.runBusinessWorkflow(ctx, "t1", WorkflowProtocolAssist, question, question, []string{"query_knowledge_base"}, 2048); err == nil || len(received) != 0 {
 				t.Fatalf("%s must fail before the first Harness request: %v", failure, err)
 			}
 			if strings.Contains(failure, "mismatched") || failure == "managed-missing-tenant" {
@@ -352,7 +353,7 @@ func TestBusinessKnowledgeFailuresNeverReachHarness(t *testing.T) {
 func TestBusinessMissingKnowledgeAllowModelAndAlarmPrefetchGuards(t *testing.T) {
 	engine, _, workflows := newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) { return "结论", nil })
 	engine.KB = nil
-	if _, err := engine.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowOpsReport, "高温", []string{"query_knowledge_base"}, 2048); err != nil {
+	if _, err := engine.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowOpsReport, "高温", "高温", []string{"query_knowledge_base"}, 2048); err != nil {
 		t.Fatal(err)
 	}
 	claims, _ := aitest.Claims(workflows.Last())
@@ -777,7 +778,7 @@ func TestKnowledgeEvidenceFitsCharacterAndEscapedJSONBudgets(t *testing.T) {
 func TestBusinessRunsAreOneShotWithTheirOwnTimeout(t *testing.T) {
 	e, _, workflows := newBusinessEngine(t, nil)
 	e.BusinessRunTimeout = 7 * time.Minute
-	if _, err := e.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowOpsReport, "高温", []string{"query_alarm_list"}, 2048); err != nil {
+	if _, err := e.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowOpsReport, "高温", "高温", []string{"query_alarm_list"}, 2048); err != nil {
 		t.Fatal(err)
 	}
 	request := workflows.Last()
@@ -790,5 +791,37 @@ func TestBusinessRunsAreOneShotWithTheirOwnTimeout(t *testing.T) {
 	}
 	if left := time.Until(claims.ExpiresAt.Time); left < businessRunCapacityWait+7*time.Minute {
 		t.Fatalf("credential expires in %s, before a waiting run could finish", left)
+	}
+}
+
+// Business features retrieve with a short question about their topic. Their
+// prompt carries data (device snapshots, statistics) that must not be sent to
+// the vector service: it can exceed the model's input limit and dilutes the
+// match. Keyword-only evidence is marked in the prompt.
+func TestBusinessFeaturesRetrieveWithShortQuestions(t *testing.T) {
+	ctx := aitest.Context(context.Background())
+	e, repo, workflows := newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) { return "结论", nil })
+	index := &businessKnowledgeIndex{Local: knowledge.NewLocal(), hits: []ports.KnowledgeHit{{DocumentID: "sop", ChunkID: "c1", WorkflowID: WorkflowHealthInspection, Content: "烟感离线处置", KeywordOnly: true}}}
+	e.KB = index
+	for i := 0; i < 300; i++ {
+		id := fmt.Sprintf("smoke-detector-with-a-long-device-identifier-%03d", i)
+		if err := repo.SaveManagedDevice(ctx, model.ManagedDevice{ID: id, TenantID: "t1", ProductID: "smoke", Name: id, AccessKey: "key-" + id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	report, err := e.InspectDeviceHealth(ctx, "t1")
+	if err != nil || report.AIAdvice != "结论" {
+		t.Fatalf("inspection %+v %v", report.Warnings, err)
+	}
+	requests := index.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("retrievals %d", len(requests))
+	}
+	q := requests[0].Question
+	if utf8.RuneCountInString(q) > ports.MaxKnowledgeQueryRunes || strings.Contains(q, "{") || strings.Contains(q, "smoke-detector-with") || !strings.Contains(q, "smoke") {
+		t.Fatalf("inspection retrieval question %q", q)
+	}
+	if !strings.Contains(workflows.Last().Question, "仅按关键词匹配") {
+		t.Fatal("keyword-only evidence is not marked")
 	}
 }

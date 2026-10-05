@@ -146,6 +146,18 @@ func TestHybridRetrievalAddsLexicalCandidateAndKeepsPositions(t *testing.T) {
 	}
 }
 
+func TestKeywordFallbackRanksByMatchedTermsAndMarksHits(t *testing.T) {
+	hits := []ports.KnowledgeHit{
+		{DocumentID: "partial", Content: "烟感 维护"},
+		{DocumentID: "full", Content: "烟感离线 复位 维护步骤"},
+		{DocumentID: "none", Content: "水泵"},
+	}
+	ranked := rankKeywordHits(hits, keywordTokens("烟感 离线 复位"), 5, .25)
+	if len(ranked) != 2 || ranked[0].DocumentID != "full" || !ranked[0].KeywordOnly || ranked[0].Score <= ranked[1].Score {
+		t.Fatalf("unexpected keyword ranking %#v", ranked)
+	}
+}
+
 // Uses a disposable schema in an explicitly supplied PostgreSQL database.
 // The embedder is deterministic; this test never calls an external model API.
 func TestPostgresKnowledgePersistenceScopesAndAtomicRebuild(t *testing.T) {
@@ -232,6 +244,30 @@ func TestPostgresKnowledgePersistenceScopesAndAtomicRebuild(t *testing.T) {
 		}
 	}
 	assertOne(index, "烟雾告警复位")
+	// An unavailable vector service falls back to keywords with the same scope.
+	embedder.err = errors.New("embedding service unavailable")
+	if hits, queryErr := index.SearchKnowledge(ctx, request); queryErr != nil || len(hits) != 1 || hits[0].DocumentID != "doc-a" || !hits[0].KeywordOnly {
+		t.Fatalf("keyword fallback hits=%#v err=%v", hits, queryErr)
+	}
+	embedder.err = nil
+	// A waiting retry is claimed only once its time has passed.
+	retryDoc := model.KnowledgeDoc{ID: "retry", TenantID: "a", WorkflowID: "ops", ObjectBucket: "archive", ObjectKey: "retry", Filename: "manual.txt", Status: "UPLOADED", Metadata: map[string]any{"indexRetryAt": time.Now().Add(time.Hour).UnixMilli()}}
+	if err = repo.SaveKnowledgeDoc(ctx, retryDoc); err != nil {
+		t.Fatal(err)
+	}
+	if _, claimed, claimErr := repo.ClaimKnowledgeDocument(ctx); claimErr != nil || claimed {
+		t.Fatalf("waiting retry claimed early: %v %v", claimed, claimErr)
+	}
+	retryDoc.Metadata["indexRetryAt"] = time.Now().Add(-time.Second).UnixMilli()
+	if _, err = repo.UpdateKnowledgeDocument(ctx, retryDoc); err != nil {
+		t.Fatal(err)
+	}
+	if doc, claimed, claimErr := repo.ClaimKnowledgeDocument(ctx); claimErr != nil || !claimed || doc.ID != "retry" {
+		t.Fatalf("due retry not claimed: %v %v %v", doc.ID, claimed, claimErr)
+	}
+	if _, err = pool.Exec(ctx, `DELETE FROM ai_knowledge_doc WHERE id='retry'`); err != nil {
+		t.Fatal(err)
+	}
 	if err = repo.SaveKnowledgeDoc(ctx, queueDoc); err != nil {
 		t.Fatal(err)
 	}

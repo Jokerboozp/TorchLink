@@ -9,8 +9,10 @@ const active = computed(() => ['PENDING','UPLOADED','INDEXING'].includes(props.d
 const done = computed(() => Math.max(0, Number(props.document.metadata?.indexProgress?.done || 0)))
 const total = computed(() => Math.max(0, Number(props.document.metadata?.indexProgress?.total || 0)))
 const percentage = computed(() => total.value > 0 ? Math.min(100, Math.floor(done.value / total.value * 100)) : null)
-const label = computed(() => ['PENDING','UPLOADED'].includes(props.document.status) ? '等待建立索引' : statusLabel(props.document.status))
-const progressLabel = computed(() => active.value && total.value > 0 ? `${done.value} / ${total.value} 个分片已处理` : active.value ? '等待索引任务处理' : '')
+const retryAt = computed(() => props.document.status === 'UPLOADED' ? Number(props.document.metadata?.indexRetryAt || 0) : 0)
+const label = computed(() => retryAt.value ? '等待自动重试' : ['PENDING','UPLOADED'].includes(props.document.status) ? '等待建立索引' : statusLabel(props.document.status))
+const retryLabel = computed(() => retryAt.value ? `向量服务暂时不可用，将于 ${new Date(retryAt.value).toLocaleTimeString('zh-CN', { hour:'2-digit', minute:'2-digit' })} 第 ${Number(props.document.metadata?.indexAttempts || 1) + 1} 次尝试` : '')
+const progressLabel = computed(() => retryAt.value ? retryLabel.value : active.value && total.value > 0 ? `${done.value} / ${total.value} 个分片已处理` : active.value ? '等待索引任务处理' : '')
 </script>
 
 <template>
@@ -18,7 +20,7 @@ const progressLabel = computed(() => active.value && total.value > 0 ? `${done.v
     <ui-tag :type="failed ? 'danger' : document.status === 'INDEXED' ? 'success' : 'info'" effect="light">{{ label }}</ui-tag>
     <template v-if="active"><ui-progress v-if="percentage != null" :percentage="percentage" :stroke-width="5" :show-text="false" /><small>{{ progressLabel }}</small></template>
     <small v-if="deleting">正在清理原文件和索引</small>
-    <small v-if="failed && document.metadata?.indexError" class="index-error">{{ document.metadata.indexError }}</small>
+    <small v-if="(failed || retryAt) && document.metadata?.indexError" class="index-error">{{ document.metadata.indexError }}</small>
   </div>
 </template>
 

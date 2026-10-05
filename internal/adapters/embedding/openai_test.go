@@ -3,13 +3,22 @@ package embedding
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"iot-platform/internal/ports"
 )
+
+func TestMain(m *testing.M) {
+	// Production delays are seconds; tests keep the policy, not the waits.
+	retryBaseDelay, retryMaxDelay, queryRetryDelay = time.Millisecond, 4*time.Millisecond, time.Millisecond
+	os.Exit(m.Run())
+}
 
 func TestOpenAIEmbedBatchesAndPrefixesQueries(t *testing.T) {
 	var batches [][]string
@@ -124,5 +133,56 @@ func TestOpenAITransientRetryAndCredentialErrorRedaction(t *testing.T) {
 				t.Fatalf("transient recovery: calls=%d err=%v", calls, err)
 			}
 		})
+	}
+}
+
+// Indexing rides out rate limits (honouring Retry-After) and unreachable
+// services; a query gives up after one retry so search can fall back.
+func TestOpenAIRetryPolicyByPurpose(t *testing.T) {
+	calls, waits := 0, []time.Duration{}
+	var last time.Time
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		if !last.IsZero() {
+			waits = append(waits, time.Since(last))
+		}
+		last = time.Now()
+		calls++
+		if calls < 4 {
+			w.Header().Set("Retry-After", "1")
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`{"data":[{"index":0,"embedding":[1,2]}]}`))
+	}))
+	defer server.Close()
+	client, err := NewOpenAI(Config{BaseURL: server.URL, Model: "m", Dimensions: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = client.Embed(context.Background(), []string{"x"}, ports.EmbedDocument); err != nil || calls != 4 {
+		t.Fatalf("indexing did not ride out the rate limit: calls=%d err=%v", calls, err)
+	}
+	if len(waits) == 0 || waits[0] < 900*time.Millisecond {
+		t.Fatalf("Retry-After not honoured: %v", waits)
+	}
+	calls, last = 0, time.Time{}
+	if _, err = client.Embed(context.Background(), []string{"x"}, ports.EmbedQuery); err == nil || calls != queryAttempts {
+		t.Fatalf("query retried too long: calls=%d err=%v", calls, err)
+	}
+	if !IsTransientEmbeddingError(err) {
+		t.Fatal("rate limit not classified as transient", err)
+	}
+	listener, _ := net.Listen("tcp", "127.0.0.1:0")
+	down := "http://" + listener.Addr().String()
+	listener.Close()
+	unreachable, _ := NewOpenAI(Config{BaseURL: down, Model: "m", Dimensions: 2})
+	if _, err = unreachable.Embed(context.Background(), []string{"x"}, ports.EmbedDocument); err == nil || !IsTransientEmbeddingError(err) {
+		t.Fatal("unreachable service not transient", err)
+	}
+	unauthorized := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
+	defer unauthorized.Close()
+	denied, _ := NewOpenAI(Config{BaseURL: unauthorized.URL, Model: "m", Dimensions: 2})
+	if _, err = denied.Embed(context.Background(), []string{"x"}, ports.EmbedDocument); err == nil || IsTransientEmbeddingError(err) {
+		t.Fatal("credential failure must not be retried later", err)
 	}
 }

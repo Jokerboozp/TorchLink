@@ -110,7 +110,8 @@ func (s *Server) retryKnowledgeDocument(w http.ResponseWriter, r *http.Request) 
 		if doc.ID != r.PathValue("id") {
 			continue
 		}
-		if doc.Status == "INDEXING" || doc.Status == "UPLOADED" {
+		// A document waiting for an automatic retry may be retried at once.
+		if _, waiting := doc.Metadata["indexRetryAt"]; doc.Status == "INDEXING" || doc.Status == "UPLOADED" && !waiting {
 			problem(w, 409, "文档正在等待或执行索引")
 			return
 		}
@@ -125,6 +126,8 @@ func (s *Server) retryKnowledgeDocument(w http.ResponseWriter, r *http.Request) 
 		doc.Metadata["indexStage"] = "pending"
 		doc.Metadata["indexProgress"] = map[string]int{"done": 0, "total": 0}
 		delete(doc.Metadata, "indexError")
+		delete(doc.Metadata, "indexRetryAt")
+		delete(doc.Metadata, "indexAttempts")
 		if s.knowledgeJobs != nil {
 			updated, err := s.knowledgeJobs.UpdateKnowledgeDocument(r.Context(), doc)
 			if err != nil {

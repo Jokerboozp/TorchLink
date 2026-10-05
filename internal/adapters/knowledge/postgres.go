@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -541,7 +542,8 @@ func (p *Postgres) SearchKnowledge(ctx context.Context, input ports.KnowledgeSea
 	if strings.TrimSpace(input.TenantID) == "" {
 		return nil, errors.New("knowledge tenant scope is required")
 	}
-	if strings.TrimSpace(input.Question) == "" {
+	input.Question = ports.BoundKnowledgeQuery(input.Question)
+	if input.Question == "" {
 		return []ports.KnowledgeHit{}, nil
 	}
 	version, err := p.readVersion(ctx)
@@ -563,19 +565,26 @@ func (p *Postgres) SearchKnowledge(ctx context.Context, input ports.KnowledgeSea
 	if !searchable {
 		return []ports.KnowledgeHit{}, nil
 	}
-	vectors, err := p.embedder.Embed(ctx, []string{input.Question}, ports.EmbedQuery)
-	if err != nil {
-		return nil, fmt.Errorf("knowledge query embedding: %w", err)
-	}
-	if err = validateVectors(vectors, 1, p.options.Dimensions); err != nil {
-		return nil, err
-	}
 	limit := min(max(input.Limit, 1), 100)
 	if input.Limit <= 0 {
 		limit = 5
 	}
 	candidateLimit := min(max(limit*5, 30), 500)
 	terms := keywordTokens(input.Question)
+	// A slow or failing vector service must not stall or fail every AI run;
+	// retrieval then continues on keywords alone and says so in each hit.
+	embedCtx, cancel := context.WithTimeout(ctx, queryEmbeddingTimeout)
+	vectors, err := p.embedder.Embed(embedCtx, []string{input.Question}, ports.EmbedQuery)
+	cancel()
+	if err == nil {
+		err = validateVectors(vectors, 1, p.options.Dimensions)
+	}
+	if err != nil {
+		if len(terms) == 0 || ctx.Err() != nil {
+			return nil, fmt.Errorf("knowledge query embedding: %w", err)
+		}
+		return p.keywordSearch(ctx, where, args, terms, candidateLimit, limit, input.MinScore)
+	}
 	vector := fmt.Sprintf(`embedding::public.vector(%d) OPERATOR(public.<=>) $6::public.vector(%d)`, p.options.Dimensions, p.options.Dimensions)
 	fields := `document_id,chunk_id,workflow_id,product_id,category,tags,content,chunk_index,start_char,end_char,character_count,overlap_chars,(SELECT d.filename FROM ai_knowledge_doc d WHERE d.id=ai_knowledge_chunk.document_id AND d.tenant_id=ai_knowledge_chunk.tenant_id)`
 	args = append(args, vectorLiteral(vectors[0]), candidateLimit)
@@ -616,6 +625,45 @@ func (p *Postgres) SearchKnowledge(ctx context.Context, input ports.KnowledgeSea
 		return nil, err
 	}
 	return mergeKnowledgeHits(semantic, lexical, terms, limit, input.MinScore), nil
+}
+
+// queryEmbeddingTimeout bounds the vector service call of one search.
+const queryEmbeddingTimeout = 10 * time.Second
+
+// keywordSearch ranks chunks by the share of question terms they contain.
+func (p *Postgres) keywordSearch(ctx context.Context, where string, args []any, terms []string, candidates, limit int, minScore float64) ([]ports.KnowledgeHit, error) {
+	fields := `document_id,chunk_id,workflow_id,product_id,category,tags,content,chunk_index,start_char,end_char,character_count,overlap_chars,(SELECT d.filename FROM ai_knowledge_doc d WHERE d.id=ai_knowledge_chunk.document_id AND d.tenant_id=ai_knowledge_chunk.tenant_id)`
+	args = append(args, terms, candidates)
+	query := `SELECT ` + fields + `,0::float8 AS score FROM ai_knowledge_chunk WHERE ` + where + ` AND keyword_tokens && $6::text[] ORDER BY cardinality(ARRAY(SELECT unnest(keyword_tokens) INTERSECT SELECT unnest($6::text[]))) DESC LIMIT $7`
+	tx, err := p.pool.BeginTx(ctx, pgx.TxOptions{AccessMode: pgx.ReadOnly})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	hits, err := queryKnowledgeHits(ctx, tx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return rankKeywordHits(hits, terms, limit, minScore), tx.Commit(ctx)
+}
+
+func rankKeywordHits(hits []ports.KnowledgeHit, terms []string, limit int, minScore float64) []ports.KnowledgeHit {
+	out := make([]ports.KnowledgeHit, 0, len(hits))
+	for _, hit := range hits {
+		keywords := keywordTokens(hit.Content)
+		matched := 0
+		for _, term := range terms {
+			if containsAll(keywords, []string{term}) {
+				matched++
+			}
+		}
+		hit.Score, hit.KeywordOnly = float64(matched)/float64(max(1, len(terms))), true
+		if hit.Score > 0 && hit.Score >= minScore {
+			out = append(out, hit)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+	return out[:min(limit, len(out))]
 }
 
 func queryKnowledgeHits(ctx context.Context, tx pgx.Tx, query string, args ...any) ([]ports.KnowledgeHit, error) {

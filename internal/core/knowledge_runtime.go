@@ -262,11 +262,24 @@ func (k *KnowledgeRuntime) processDocument(ctx context.Context) error {
 		}
 	}
 	delete(doc.Metadata, "indexLeaseUntil")
-	if indexErr != nil {
+	attempts := metadataInt(doc.Metadata["indexAttempts"])
+	switch {
+	case indexErr != nil && transientIndexError(indexErr) && attempts < len(knowledgeRetryDelays):
+		// The vector service was unreachable or rate limited: queue the
+		// document again later instead of failing it for a passing outage.
+		doc.Status = "UPLOADED"
+		doc.Metadata["indexStage"] = "retry_wait"
+		doc.Metadata["indexError"] = indexErr.Error()
+		doc.Metadata["indexAttempts"] = attempts + 1
+		doc.Metadata["indexRetryAt"] = time.Now().Add(knowledgeRetryDelays[attempts]).UnixMilli()
+	case indexErr != nil:
 		doc.Status = "INDEX_FAILED"
 		doc.Metadata["indexStage"] = "failed"
 		doc.Metadata["indexError"] = indexErr.Error()
-	} else {
+		delete(doc.Metadata, "indexRetryAt")
+	default:
+		delete(doc.Metadata, "indexAttempts")
+		delete(doc.Metadata, "indexRetryAt")
 		doc.Status = "INDEXED"
 		doc.Metadata["indexStage"] = "ready"
 		delete(doc.Metadata, "indexError")
@@ -277,6 +290,32 @@ func (k *KnowledgeRuntime) processDocument(ctx context.Context) error {
 	}
 	_, err = k.jobs.UpdateKnowledgeDocument(ctx, doc)
 	return err
+}
+
+// knowledgeRetryDelays spaces automatic re-indexing after transient failures;
+// the document fails for good once they are used up.
+var knowledgeRetryDelays = []time.Duration{time.Minute, 5 * time.Minute, 15 * time.Minute, time.Hour}
+
+// transientIndexError: an unreachable or rate-limited vector service, or a
+// job that ran out of time while the service was slow.
+func transientIndexError(err error) bool {
+	var content KnowledgeContentError
+	if errors.As(err, &content) {
+		return false
+	}
+	return ports.IsTransient(err) || errors.Is(err, context.DeadlineExceeded)
+}
+
+func metadataInt(v any) int {
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case int64:
+		return int(n)
+	}
+	return 0
 }
 
 func (k *KnowledgeRuntime) Index(ctx context.Context, t, p, id string, b []byte) error {
@@ -302,7 +341,10 @@ func (k *KnowledgeRuntime) DeleteKnowledgeDocument(ctx context.Context, t, id, w
 	return k.current().(ports.KnowledgeDocumentDeleter).DeleteKnowledgeDocument(ctx, t, id, w)
 }
 func (k *KnowledgeRuntime) EmbeddingModel() string {
-	return k.current().(ports.RebuildableKnowledgeBase).EmbeddingModel()
+	if index, ok := k.current().(interface{ EmbeddingModel() string }); ok {
+		return index.EmbeddingModel()
+	}
+	return ""
 }
 
 // KnowledgeEvidence formats traceable excerpts as untrusted input data.

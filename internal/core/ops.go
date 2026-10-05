@@ -69,7 +69,11 @@ func (e *Engine) GenerateReport(ctx context.Context, tenantID, period string, st
 	if len(mustJSON(prompt)) > 20000 {
 		return "", fmt.Errorf("报告统计摘要超出输入预算，请缩短报告时段")
 	}
-	result, err := e.runBusinessWorkflow(ctx, tenantID, WorkflowOpsReport, prompt, []string{"query_device_latest", "query_alarm_list", "query_property_history", "query_similar_alarms", "query_knowledge_base"}, 8192)
+	var alarmTypes []string
+	for _, a := range alarms {
+		alarmTypes = append(alarmTypes, boundedText(a.AlarmType, 80))
+	}
+	result, err := e.runBusinessWorkflow(ctx, tenantID, WorkflowOpsReport, prompt, retrievalQuery("消防物联网运维 告警处置建议", alarmTypes), []string{"query_device_latest", "query_alarm_list", "query_property_history", "query_similar_alarms", "query_knowledge_base"}, 8192)
 	_ = e.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenantID, Actor: "ai-report-generator", Action: "ai.report", TargetType: "report", TargetID: id("report"), Details: map[string]any{"period": period, "start": start, "end": end, "runId": result.RunID, "success": err == nil}, CreatedAt: e.Clock.Now().UnixMilli()})
 	return result.Answer, err
 }
