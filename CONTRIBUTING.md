@@ -9,4 +9,4 @@
 5. 新增或修改 HTTP 路由后在仓库根目录运行 `IOT_UPDATE_ROUTES=1 go test ./internal/httpapi -run TestRegisteredRoutesMatchSnapshot`，更新路由快照与 [接口清单](docs/API.md)；
 6. 运行 `git diff --check`，在说明中写清实际改动、已运行的检查和未验证的范围。
 
-本软件为专有软件（见 [LICENSE](LICENSE)），提交即表示同意按该许可将贡献归入本软件。安全问题按 [SECURITY.md](SECURITY.md) 私密报告。
+本软件按 MIT 许可证开源（见 [LICENSE](LICENSE)），提交即表示同意以同一许可证发布贡献。安全问题按 [SECURITY.md](SECURITY.md) 私密报告。

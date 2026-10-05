@@ -128,4 +128,4 @@ go test ./...
 | [接口清单](docs/API.md) | 由路由生成的全部 HTTP 接口，按资源分组，标注所属菜单与单独授权的操作 |
 | [变更记录](CHANGELOG.md) | 每个发布版本的主要变化 |
 
-参与开发见 [CONTRIBUTING.md](CONTRIBUTING.md)，安全问题按 [SECURITY.md](SECURITY.md) 私密报告。本软件为专有软件，许可见 [LICENSE](LICENSE)。
+参与开发见 [CONTRIBUTING.md](CONTRIBUTING.md)，安全问题按 [SECURITY.md](SECURITY.md) 私密报告。本软件按 MIT 许可证开源，许可见 [LICENSE](LICENSE)。
