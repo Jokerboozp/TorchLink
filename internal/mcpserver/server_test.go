@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -203,5 +204,21 @@ func TestBrowserCreateRuleDraftRequiresBuiltinAdmin(t *testing.T) {
 	}
 	if rules, err := repo.ListRules(context.Background(), "tenant-a"); err != nil || len(rules) != 0 {
 		t.Fatalf("draft was saved: rules=%#v err=%v", rules, err)
+	}
+}
+
+// Tool call logs keep small results whole and summarise large ones.
+func TestAuditOutputSummarisesLargeResults(t *testing.T) {
+	small := map[string]any{"kind": "ruleDraft"}
+	if got := auditOutput(small); !reflect.DeepEqual(got, small) {
+		t.Fatalf("small result changed: %#v", got)
+	}
+	items := make([]map[string]string, 200)
+	for i := range items {
+		items[i] = map[string]string{"text": strings.Repeat("知", 20)}
+	}
+	got, ok := auditOutput(map[string]any{"items": items, "total": 900}).(map[string]any)
+	if !ok || got["truncated"] != true || got["items"] != 200 || string(got["total"].(json.RawMessage)) != "900" {
+		t.Fatalf("large result not summarised: %#v", got)
 	}
 }
