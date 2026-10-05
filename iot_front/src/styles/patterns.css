@@ -169,3 +169,22 @@
   padding-top: var(--space-2);
   border-top: 1px solid var(--border);
 }
+
+/* 窄屏时按钮式单选组换行，不超出弹层与卡片。 */
+@media (max-width: 767px) {
+  .ui-radio-group.n-radio-group--button-group {
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+}
+@media (max-width: 767px) {
+  .ui-radio-group.segmented-choice-group.n-radio-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .segmented-choice-group .n-radio-button__label {
+    white-space: normal;
+    text-align: center;
+  }
+}

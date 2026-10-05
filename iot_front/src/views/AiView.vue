@@ -293,7 +293,7 @@ onBeforeUnmount(() => {
       <template #header>
         <div class="card-header chat-header">
           <div class="chat-workflow">
-            <div class="chat-workflow-label"><strong>智能体</strong><small>对话自动保存，可在历史列表中找回</small></div>
+            <div class="chat-workflow-label"><strong>智能体</strong><small>对话自动保存到历史</small></div>
             <ui-select
               v-model="selectedWorkflowId"
               class="chat-workflow-select"

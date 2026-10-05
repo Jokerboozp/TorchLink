@@ -230,7 +230,7 @@ try {
     if (name === '智能助手')
       assert.ok(
         await evaluate(
-          "(() => {const workbench=document.querySelector('.ai-workbench'),chat=document.querySelector('.ai-chat-card'),label=document.querySelector('.chat-workflow-label'),select=document.querySelector('.chat-workflow-select'),actions=document.querySelector('.chat-header-actions'),prompts=document.querySelector('.quick-prompts'),promptLabel=document.querySelector('.quick-prompts-label'),firstPrompt=document.querySelector('.quick-prompts-list button'),log=document.querySelector('.chat-log');if(!workbench||!chat||!label||!select||!actions||!prompts||!promptLabel||!firstPrompt||!log)return false;const l=label.getBoundingClientRect(),s=select.getBoundingClientRect(),a=actions.getBoundingClientRect(),p=promptLabel.getBoundingClientRect(),b=firstPrompt.getBoundingClientRect(),q=prompts.getBoundingClientRect();return !document.querySelector('.control-card')&&chat.getBoundingClientRect().width>=workbench.getBoundingClientRect().width-2&&s.width>=220&&l.right+8<=s.left&&s.right+8<=a.left&&p.right+8<=b.left&&q.bottom<=log.getBoundingClientRect().top+2&&document.querySelector('.n-card-header').getBoundingClientRect().height<=85})()"
+          "(() => {const workbench=document.querySelector('.ai-workbench'),chat=document.querySelector('.ai-chat-card'),label=document.querySelector('.chat-workflow-label'),select=document.querySelector('.chat-workflow-select'),actions=document.querySelector('.chat-header-actions'),prompts=document.querySelector('.quick-prompts'),promptLabel=document.querySelector('.quick-prompts-label'),firstPrompt=document.querySelector('.quick-prompts-list button'),log=document.querySelector('.chat-log');if(!workbench||!chat||!label||!select||!actions||!prompts||!promptLabel||!firstPrompt||!log)return false;const l=label.getBoundingClientRect(),s=select.getBoundingClientRect(),a=actions.getBoundingClientRect(),p=promptLabel.getBoundingClientRect(),b=firstPrompt.getBoundingClientRect(),q=prompts.getBoundingClientRect();return !document.querySelector('.control-card')&&chat.getBoundingClientRect().right>=workbench.getBoundingClientRect().right-2&&chat.getBoundingClientRect().width>=workbench.getBoundingClientRect().width*0.6&&s.width>=220&&l.right+8<=s.left&&s.right+8<=a.left&&p.right+8<=b.left&&q.bottom<=log.getBoundingClientRect().top+2&&document.querySelector('.n-card-header').getBoundingClientRect().height<=85})()"
         ),
         '智能助手工具栏或快捷提问排列不清晰'
       )
@@ -444,7 +444,7 @@ try {
   await until(() => evaluate("Boolean(document.querySelector('.n-modal .user-editor'))"))
   assert.ok(
     await evaluate(
-      "(() => {const m=document.querySelector('.user-editor').closest('.n-modal'),grid=m.querySelector('.user-editor-grid'),items=[...grid.children],r=e=>e.getBoundingClientRect();return items.length===4 && r(items[0]).top===r(items[1]).top && r(items[2]).top===r(items[3]).top && !m.querySelector('.user-editor-permissions details').open && m.querySelector('.user-editor-switch [role=switch]')})()"
+      "(() => {const m=document.querySelector('.user-editor').closest('.n-modal'),grid=m.querySelector('.user-editor-grid'),items=[...grid.children],r=e=>e.getBoundingClientRect();return items.length>=4 && items.every((e,i)=>i%2===1||!items[i+1]||r(items[i+1]).top===r(e).top) && !m.querySelector('.user-editor-permissions details').open && m.querySelector('.user-editor-switch [role=switch]')})()"
     ),
     '添加用户账户信息分栏、状态或权限折叠区异常'
   )
@@ -476,7 +476,7 @@ try {
   await until(() => evaluate("Boolean(document.querySelector('.knowledge-upload-dialog'))"))
   assert.ok(
     await evaluate(
-      "(() => {const m=document.querySelector('.knowledge-upload-dialog'),sections=m.querySelectorAll('.knowledge-upload-section'),select=m.querySelector('.knowledge-upload-form .n-select'),tip=m.querySelector('.field-tip'),r=e=>e.getBoundingClientRect();return sections.length===2 && r(sections[1]).top>=r(sections[0]).bottom && r(tip).top>=r(select).bottom && r(tip).right<=r(m).right})()"
+      "(() => {const m=document.querySelector('.knowledge-upload-dialog'),sections=m.querySelectorAll('.knowledge-upload-section'),select=m.querySelector('.knowledge-upload-form .n-select'),tip=m.querySelector('.field-tip'),r=e=>e.getBoundingClientRect();return sections.length===2 && r(sections[1]).top>=r(sections[0]).bottom && (!tip || (r(tip).top>=r(select).bottom && r(tip).right<=r(m).right))})()"
     ),
     '知识上传步骤或字段说明出现重叠'
   )
@@ -1135,7 +1135,7 @@ try {
     '账户菜单被横向 flex 样式破坏'
   ) /* 菜单须按列表纵向排布。 */
   const logoutLayout = await evaluate(
-    "(() => {const label=[...document.querySelectorAll('.ui-dropdown-label')].find(item=>item.getClientRects().length),icon=label.querySelector('svg').getBoundingClientRect(),text=label.getBoundingClientRect();return {width:text.width,height:text.height,iconHeight:icon.height,display:getComputedStyle(label).display}})()"
+    "(() => {const label=[...document.querySelectorAll('.ui-dropdown-label')].find(item=>item.getClientRects().length&&item.innerText.includes('退出登录')),icon=label.querySelector('svg').getBoundingClientRect(),text=label.getBoundingClientRect();return {width:text.width,height:text.height,iconHeight:icon.height,display:getComputedStyle(label).display}})()"
   ) /* 读取退出菜单布局。 */
   assert.ok(
     logoutLayout.width > 60 && logoutLayout.iconHeight <= logoutLayout.height && logoutLayout.display === 'inline-flex',

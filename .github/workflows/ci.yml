@@ -110,6 +110,14 @@ jobs:
       - run: npm run format:check
       - run: npm test
       - run: npm run build
+      - name: 浏览器界面巡检（合成数据，桌面与手机视图）
+        env:
+          IOT_TEST_BROWSER: /usr/bin/google-chrome
+          IOT_UI_SKIP_SCREENSHOTS: '1'
+        run: |
+          node tests/browser/ui-preview.mjs &
+          for i in $(seq 1 30); do curl -fsS -o /dev/null http://127.0.0.1:4173/ && break; sleep 1; done
+          node tests/browser/naive-pages-check.mjs
       - name: 依赖漏洞检查（提示，不阻断；npm 审计服务偶尔不可用）
         continue-on-error: true
         run: npm audit --omit=dev --audit-level=high
