@@ -46,7 +46,13 @@ func newEventSnapshots() *eventSnapshots {
 // get returns active alarms and device states using the supplied scoped repo.
 // One request per authorized view reloads an expired snapshot. The
 // returned slices are shared and must not be modified.
-func (c *eventSnapshots) get(ctx context.Context, repo ports.Repository, tenant string) ([]model.Alarm, []model.DeviceState, error) {
+// eventSnapshotStore reads the alarms and states of an event snapshot.
+type eventSnapshotStore interface {
+	ports.AlarmStore
+	ports.DeviceStateStore
+}
+
+func (c *eventSnapshots) get(ctx context.Context, repo eventSnapshotStore, tenant string) ([]model.Alarm, []model.DeviceState, error) {
 	entry, err := c.snapshot(ctx, repo, tenant)
 	if err != nil {
 		return nil, nil, err
@@ -55,7 +61,7 @@ func (c *eventSnapshots) get(ctx context.Context, repo ports.Repository, tenant 
 }
 
 // snapshot returns the tenant's shared snapshot with row revisions.
-func (c *eventSnapshots) snapshot(ctx context.Context, repo ports.Repository, tenant string, view ...string) (*eventSnapshot, error) {
+func (c *eventSnapshots) snapshot(ctx context.Context, repo eventSnapshotStore, tenant string, view ...string) (*eventSnapshot, error) {
 	key := tenant
 	if len(view) > 0 {
 		key += "\x00" + view[0]
@@ -117,7 +123,7 @@ func (c *eventSnapshots) snapshot(ctx context.Context, repo ports.Repository, te
 	}
 }
 
-func loadEventSnapshot(ctx context.Context, repo ports.Repository, tenant string) ([]model.Alarm, []model.DeviceState, int, error) {
+func loadEventSnapshot(ctx context.Context, repo eventSnapshotStore, tenant string) ([]model.Alarm, []model.DeviceState, int, error) {
 	alarms, err := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenant, Status: "ACTIVE", Limit: eventSnapshotLimit, Summary: true})
 	if err != nil {
 		return nil, nil, 0, err

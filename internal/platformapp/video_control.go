@@ -42,7 +42,7 @@ func (v *videoControl) set(local bool, endpoint string) {
 // until its context ends; stop installs the standby service. Any renewal
 // failure stops the module immediately, well before another instance can
 // take the lease over.
-func (v *videoControl) run(ctx context.Context, leases ports.Repository, owner, nodeURL string, start func(context.Context), stop func(), log *slog.Logger, renew time.Duration) {
+func (v *videoControl) run(ctx context.Context, leases ports.OperationsStore, owner, nodeURL string, start func(context.Context), stop func(), log *slog.Logger, renew time.Duration) {
 	var cancel context.CancelFunc
 	var token int64
 	release := func() {

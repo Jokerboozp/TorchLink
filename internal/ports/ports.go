@@ -60,6 +60,9 @@ type DeviceOverviewStore interface {
 	DeviceOverviewCounts(ctx context.Context, tenant string, restrict bool, deviceIDs []string) (model.DeviceOverview, error)
 }
 
+// Repository is the platform store: the domain stores below plus resource
+// deletion, external data and lifecycle. Callers should depend on the
+// smallest domain store they use.
 type Repository interface {
 	ExternalDataStore() externaldata.Store
 	DeleteResource(context.Context, string, string, string) error
@@ -72,185 +75,21 @@ type Repository interface {
 	DeviceOverviewStore
 	ObjectCleanupStore
 	OnboardingStore
-	DashboardCounts(context.Context, string, int64, int64) ([]model.DashboardCount, error)
-	DashboardCountsForDevices(context.Context, string, int64, int64, []string) ([]model.DashboardCount, error)
-	RegisterProtocolDevice(context.Context, model.DeviceAccessProfile, string, string) (model.ManagedDevice, bool, error)
-	RegisterProtocolChild(context.Context, model.DeviceAccessProfile, string, model.ChildIdentity) (model.ManagedDevice, bool, error)
-	ListManagedDeviceChildren(context.Context, string, string, int, int) ([]model.ManagedDevice, int, error)
-	// ReserveRawMessage returns the canonical reserved message and whether
-	// this call created the reservation.
-	ReserveRawMessage(context.Context, model.RawMessage) (model.RawMessage, bool, error)
-	AcquireExecutionLease(context.Context, string, string, string, string, time.Duration) (model.ExecutionLease, bool, error)
-	GetExecutionLease(context.Context, string, string) (model.ExecutionLease, error)
-	ReleaseExecutionLease(context.Context, model.ExecutionLease) error
-	ListDeviceStateEvents(context.Context, string, string, int, int) ([]model.DeviceStateEvent, int, error)
-	ListDeviceMessages(context.Context, string, string, model.MessageType, int, int) ([]model.StandardMessage, int, error)
-	ChangeDeviceCredential(context.Context, string, string, string, string, int64) (model.ManagedDevice, model.CredentialRevocation, error)
-	ListCredentialRevocations(context.Context, string, string, bool) ([]model.CredentialRevocation, error)
-	UpdateCredentialRevocation(context.Context, model.CredentialRevocation) error
-	GetDeviceCommand(context.Context, string, string) (model.DeviceCommand, error)
-	CreateDeviceCommand(context.Context, model.DeviceCommand) (model.DeviceCommand, bool, error)
-	UpdateDeviceCommandDispatch(context.Context, string, string, string, string, int64) error
-	CompleteDeviceCommand(context.Context, string, string, string, map[string]any, int64) error
-	ListDeviceCommands(context.Context, string, string, int, int) ([]model.DeviceCommand, int, error)
-	// Keep atomic onboarding in the repository contract so telemetry/cache
-	// decorators forward it to durable storage rather than hiding the capability.
-	SaveOnboarding(context.Context, model.OnboardingBundle) error
-	SaveProduct(context.Context, model.Product) error
-	GetProduct(context.Context, string, string) (model.Product, error)
-	GetProductsByIDs(context.Context, string, []string) (map[string]model.Product, error)
-	ListProducts(context.Context, string) ([]model.Product, error)
-	ListProductsPage(context.Context, string, int, int) ([]model.Product, int, error)
-	SaveProtocolPackage(context.Context, model.ProtocolPackage) error
-	GetProtocolPackage(context.Context, string, string) (model.ProtocolPackage, error)
-	ListProtocolPackages(context.Context, string) ([]model.ProtocolPackage, error)
-	ListProtocolPackagesPage(context.Context, string, int, int) ([]model.ProtocolPackage, int, error)
-	SaveProtocolDefinition(context.Context, model.ProtocolDefinition) error
-	GetProtocolDefinition(context.Context, string, string) (model.ProtocolDefinition, error)
-	ListProtocolDefinitions(context.Context, string) ([]model.ProtocolDefinition, error)
-	CreateProtocolRelease(context.Context, model.ProtocolRelease) error
-	GetProtocolRelease(context.Context, string, string, string) (model.ProtocolRelease, error)
-	ListProtocolReleases(context.Context, string, string) ([]model.ProtocolRelease, error)
-	UpdateProtocolReleaseStatus(context.Context, string, string, string, string, int64) error
-	CreatePointTableRelease(context.Context, model.PointTableRelease) error
-	GetPointTableRelease(context.Context, string, string, string) (model.PointTableRelease, error)
-	SaveProductProtocolBinding(context.Context, model.ProductProtocolBinding) error
-	GetProductProtocolBinding(context.Context, string, string) (model.ProductProtocolBinding, error)
-	SaveDeviceAccessProfile(context.Context, model.DeviceAccessProfile, ...model.AccessProfileSaveOptions) error
-	UpdateDeviceAccessStatus(context.Context, model.DeviceAccessProfile, string, string, int64) (bool, error)
-	GetDeviceAccessProfile(context.Context, string, string) (model.DeviceAccessProfile, error)
-	ListDeviceAccessProfiles(context.Context, string) ([]model.DeviceAccessProfile, error)
-	SaveManagedDevice(context.Context, model.ManagedDevice) error
-	GetManagedDevice(context.Context, string, string) (model.ManagedDevice, error)
-	GetManagedDeviceByAccessKey(context.Context, string) (model.ManagedDevice, error)
-	ListManagedDevices(context.Context, string) ([]model.ManagedDevice, error)
-	ListManagedDevicesPage(context.Context, string, int, int) ([]model.ManagedDevice, int, error)
-	CountManagedDeviceChildren(context.Context, string, []string) (map[string]int, error)
-	// A nil child scope means all; a non-nil empty scope means none.
-	CountManagedDeviceChildrenForDevices(context.Context, string, []string, []string) (map[string]int, error)
-	SaveRawIndex(context.Context, model.RawArchiveIndex) (bool, error)
-	MarkRawParseResult(context.Context, string, string, int64, string) error
-	MarkRawPublished(context.Context, string, string, int64, string) error
-	ListPendingRawIndexes(context.Context, int) ([]model.RawArchiveIndex, error)
-	GetRawIndex(context.Context, string, string) (model.RawArchiveIndex, error)
-	ListRawIndexes(context.Context, RawFilter) ([]model.RawArchiveIndex, error)
-	CountRawIndexes(context.Context, RawFilter) (int, error)
-	SaveStandardMessage(context.Context, model.StandardMessage) error
-	SaveStandardMessageIfAbsent(context.Context, model.StandardMessage) (bool, error)
-	// ClaimStandardMessage stores the message if absent and claims it for
-	// owner for lease. Another live holder yields Busy; a processed message
-	// yields ShouldProcess=false.
-	ClaimStandardMessage(ctx context.Context, msg model.StandardMessage, owner string, lease time.Duration) (model.StandardClaim, error)
-	// MarkStandardMessageProcessed records completion only for the latest
-	// claim token; a taken-over claim returns model.ErrStaleClaim.
-	MarkStandardMessageProcessed(ctx context.Context, tenant, messageID string, token int64) error
-	GetStandardMessageByRaw(context.Context, string, string) (model.StandardMessage, error)
-	GetStandardMessagesByRawIDs(context.Context, string, []string) (map[string]model.StandardMessage, error)
-	GetLatestMessage(context.Context, string, string) (model.StandardMessage, error)
-	PropertyHistory(context.Context, string, string, string, int64, int64, int) ([]map[string]any, error)
-	PropertyHistoryPage(context.Context, string, string, string, int64, int64, int, int) ([]map[string]any, int, error)
-	UpsertDeviceState(context.Context, model.DeviceState) error
-	GetDeviceState(context.Context, string, string) (model.DeviceState, error)
-	// GetDeviceStateFresh reads the stored row with its Version, bypassing caches.
-	GetDeviceStateFresh(context.Context, string, string) (model.DeviceState, error)
-	// UpsertDeviceStateIf writes only if the stored version equals v.Version
-	// (0 = insert if absent) and reports whether it wrote.
-	UpsertDeviceStateIf(context.Context, model.DeviceState) (bool, error)
-	GetDeviceStatesByIDs(context.Context, string, []string) (map[string]model.DeviceState, error)
-	// ListOfflineDue returns up to limit states of every tenant whose
-	// OfflineCheckAt is set and before now.
-	ListOfflineDue(ctx context.Context, now int64, limit int) ([]model.DeviceState, error)
-	ListDeviceStates(context.Context, string) ([]model.DeviceState, error)
-	ListDeviceStatesPage(context.Context, string, int, int) ([]model.DeviceState, int, error)
-	ListDeviceStatesForDevicesPage(context.Context, string, []string, int, int) ([]model.DeviceState, int, error)
-	ListUnregisteredDeviceStatesPage(context.Context, string, int, int) ([]model.DeviceState, int, error)
-	CountDeviceStates(context.Context, string, bool) (int, int, error)
-	SaveDeviceStateEvent(context.Context, model.DeviceState) error
-	SaveRule(context.Context, model.AlarmRule) error
-	ListRules(context.Context, string) ([]model.AlarmRule, error)
-	ListRulesPage(context.Context, string, int, int) ([]model.AlarmRule, int, error)
-	DeleteRule(context.Context, string, string) error
-	SaveRulePending(context.Context, string, string, string, int64) error
-	GetRulePending(context.Context, string, string, string) (int64, bool, error)
-	DeleteRulePending(context.Context, string, string, string) error
-	DeleteRulePendings(context.Context, string, string) error
-	ApplyComponentAlarm(context.Context, model.Alarm, model.ComponentAlarmState) (model.Alarm, string, error)
-	UpsertAlarm(context.Context, model.Alarm) (model.Alarm, bool, error)
-	// UpsertExternalAlarm uses an external event's deterministic alarm identity.
-	// It returns created and triggerChanged, preserving terminal states and
-	// committing each new trigger with its report event atomically.
-	UpsertExternalAlarm(context.Context, model.Alarm) (model.Alarm, bool, bool, error)
-	// Alarm upserts and ApplyComponentAlarm commit the alarm report event with the
-	// alarm. DrainOutbox publishes pending events in order and removes each one
-	// after publish succeeds, stopping at the first failure.
-	DrainOutbox(ctx context.Context, limit int, publish func(model.OutboxEvent) error) (int, error)
-	GetAlarm(context.Context, string, string) (model.Alarm, error)
-	ListAlarms(context.Context, AlarmFilter) ([]model.Alarm, error)
-	CountAlarms(context.Context, AlarmFilter) (int, error)
-	HasOpenAlarm(context.Context, string, string) (bool, error)
-	// LoadDeviceStateWithAlarms reads a device's state (model.ErrNotFound
-	// when absent) and whether it has an open alarm, in one round trip.
-	LoadDeviceStateWithAlarms(context.Context, string, string) (model.DeviceState, bool, error)
-	// CompleteStandardMessage writes state when it is not nil, checked
-	// against its version like UpsertDeviceStateIf, and marks the message
-	// processed under its claim token in the same statement; the mark is
-	// only made when the state was written. false means the state version
-	// changed and nothing was written. A stale or lost claim after a written
-	// state returns model.ErrStaleClaim or model.ErrNotFound.
-	CompleteStandardMessage(ctx context.Context, state *model.DeviceState, tenant, messageID string, token int64) (bool, error)
-	UpdateAlarm(context.Context, model.Alarm) error
-	// UpdateAlarmIf writes only if the stored version equals v.Version.
-	UpdateAlarmIf(context.Context, model.Alarm) (bool, error)
-	SaveVideoEvent(context.Context, model.VideoAlarmEvent) (bool, error)
-	GetVideoEvent(context.Context, string, string) (model.VideoAlarmEvent, error)
-	UpdateVideoEvent(context.Context, model.VideoAlarmEvent) error
-	ListPendingVideoEvents(context.Context, int) ([]model.VideoAlarmEvent, error)
-	SaveVideoCameraMapping(context.Context, model.VideoCameraMapping) error
-	GetVideoCameraMapping(context.Context, string, string) (model.VideoCameraMapping, error)
-	ListVideoCameraMappings(context.Context, string) ([]model.VideoCameraMapping, error)
-	ListVideoCameraMappingsByDeviceIDs(context.Context, string, []string) (map[string][]model.VideoCameraMapping, error)
-	ListVideoCameraMappingsPage(context.Context, string, int, int) ([]model.VideoCameraMapping, int, error)
-	ReplaceVideoCameraRelations(context.Context, string, string, []model.VideoCameraRelation) error
-	ListVideoCameraRelations(context.Context, string, string) ([]model.VideoCameraRelation, error)
-	ListVideoCameraRelationsByTarget(context.Context, string, string, string) ([]model.VideoCameraRelation, error)
-	SaveAIAnalysis(context.Context, model.AIAnalysis) error
-	GetAIAnalysis(ctx context.Context, tenantID, alarmID, knowledgeScope string) (model.AIAnalysis, error)
-	// CreateHealthInspectionJob returns false when the tenant already has a
-	// running inspection; at most one runs per tenant across all replicas.
-	CreateHealthInspectionJob(context.Context, model.HealthInspectionJob) (bool, error)
-	// UpdateRunningHealthInspectionJob changes a job only while the stored copy
-	// is still running, so a job already marked interrupted is not revived.
-	UpdateRunningHealthInspectionJob(context.Context, model.HealthInspectionJob) (bool, error)
-	// LatestHealthInspectionJob returns the newest job, optionally with status.
-	LatestHealthInspectionJob(ctx context.Context, tenantID, status string) (model.HealthInspectionJob, error)
-	// Summary never loads device detail rows. Pages address an immutable report ID.
-	LatestHealthInspectionSummary(context.Context, string, string) (model.HealthInspectionJob, error)
-	HealthInspectionPage(context.Context, string, string, int, int) (model.HealthInspectionJob, error)
-	// CreateAlarmAnalysisJob returns false while a job for the same alarm and
-	// knowledge scope is running; finished jobs of that alarm and scope are
-	// replaced, so only the newest result is kept.
-	CreateAlarmAnalysisJob(context.Context, model.AlarmAnalysisJob) (bool, error)
-	// UpdateRunningAlarmAnalysisJob changes a job only while it is still running.
-	UpdateRunningAlarmAnalysisJob(context.Context, model.AlarmAnalysisJob) (bool, error)
-	LatestAlarmAnalysisJob(ctx context.Context, tenantID, alarmID, knowledgeScope string) (model.AlarmAnalysisJob, error)
-	SaveKnowledgeDoc(context.Context, model.KnowledgeDoc) error
-	ListKnowledgeDocs(context.Context, string) ([]model.KnowledgeDoc, error)
-	ListKnowledgeDocsPage(context.Context, string, int, int) ([]model.KnowledgeDoc, int, error)
-	SaveWorkflowKnowledgeBinding(context.Context, model.WorkflowKnowledgeBinding) error
-	GetWorkflowKnowledgeBinding(context.Context, string, string) (model.WorkflowKnowledgeBinding, error)
-	SaveReplay(context.Context, model.ReplayRequest) error
-	UpdateReplay(context.Context, model.ReplayRequest) error
-	GetReplay(context.Context, string) (model.ReplayRequest, error)
-	SaveAudit(context.Context, model.AuditLog) error
-	SaveAIToolCall(context.Context, model.AIToolCallLog) error
+	DeviceStore
+	ProductStore
+	ProtocolStore
+	RawIndexStore
+	StandardMessageStore
+	DeviceStateStore
+	RuleStore
+	AlarmStore
+	VideoEventStore
+	CameraMappingStore
+	AIStore
+	KnowledgeStore
+	OperationsStore
 	Health(context.Context) error
 	Close() error
-
-	// ListManagedDevicesFiltered filters before pagination and returns the filtered total.
-	ListManagedDevicesFiltered(context.Context, DeviceFilter, int, int) ([]model.ManagedDevice, int, error)
-	// SwitchProductProtocol writes a template's protocol binding, protocol reference
-	// and compatibility package in one transaction.
-	SwitchProductProtocol(context.Context, model.ProtocolSwitch) error
 }
 
 type Archive interface {

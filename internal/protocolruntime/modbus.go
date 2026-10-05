@@ -43,7 +43,7 @@ func (e *ModbusException) Error() string { return fmt.Sprintf("Modbus exception 
 // packages, keeping the active transport layer separate from parsing.
 type Runtime struct {
 	coordinator  *Coordinator
-	repo         ports.Repository
+	repo         Store
 	ingest       IngestFunc
 	log          *slog.Logger
 	mu           sync.Mutex
@@ -52,7 +52,17 @@ type Runtime struct {
 	allowedCIDRs []string
 }
 
-func New(repo ports.Repository, ingest IngestFunc, log *slog.Logger, allowedCIDRs ...string) *Runtime {
+// Store is the part of the platform store the protocol runtime uses: device
+// registration, templates, protocol releases, access profiles and execution
+// leases.
+type Store interface {
+	ports.DeviceStore
+	ports.ProductStore
+	ports.ProtocolStore
+	ports.OperationsStore
+}
+
+func New(repo Store, ingest IngestFunc, log *slog.Logger, allowedCIDRs ...string) *Runtime {
 	return &Runtime{repo: repo, ingest: ingest, log: log, last: map[string]time.Time{}, running: map[string]bool{}, allowedCIDRs: append([]string(nil), allowedCIDRs...)}
 }
 

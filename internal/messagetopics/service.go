@@ -34,7 +34,7 @@ type cacheEntry struct {
 }
 
 type Service struct {
-	repo       ports.Repository
+	repo       Store
 	mu         sync.Mutex
 	cache      map[string]cacheEntry
 	generation uint64
@@ -42,7 +42,16 @@ type Service struct {
 	resolver   func(context.Context, string, string) (MessageTopicIdentity, error)
 }
 
-func New(repo ports.Repository) *Service {
+// Store is the part of the platform store message topics read: topic
+// configuration, devices, alarms and standard messages.
+type Store interface {
+	ports.MessageTopicStore
+	ports.DeviceStore
+	ports.AlarmStore
+	ports.StandardMessageStore
+}
+
+func New(repo Store) *Service {
 	return &Service{repo: repo, cache: make(map[string]cacheEntry), now: time.Now}
 }
 

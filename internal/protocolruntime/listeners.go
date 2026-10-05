@@ -17,7 +17,6 @@ import (
 
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
-	"iot-platform/internal/ports"
 	"iot-platform/internal/protocolworker"
 )
 
@@ -43,7 +42,7 @@ type Listeners struct {
 	connectionMu       sync.Mutex
 	connectionCounts   map[string]int
 	connectionReporter func(context.Context, string, string, string, bool, int64) error
-	repo               ports.Repository
+	repo               Store
 	root               string
 	ingest             IngestFunc
 	log                *slog.Logger
@@ -130,7 +129,7 @@ type commandResult struct {
 	err   error
 }
 
-func NewListeners(repo ports.Repository, root string, ingest IngestFunc, log *slog.Logger) *Listeners {
+func NewListeners(repo Store, root string, ingest IngestFunc, log *slog.Logger) *Listeners {
 	return &Listeners{repo: repo, root: root, ingest: ingest, log: log, call: protocolworker.Call, workers: make(chan struct{}, 32), hosts: make(map[string]*protocolListener), failures: make(map[string]string)}
 }
 

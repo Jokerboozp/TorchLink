@@ -12,11 +12,10 @@ import (
 	"iot-platform/internal/adapters/memory"
 	"iot-platform/internal/modbusframe"
 	"iot-platform/internal/model"
-	"iot-platform/internal/ports"
 )
 
 type failedPollingBindingRepository struct {
-	ports.Repository
+	Store
 	failure error
 }
 
@@ -127,11 +126,11 @@ func TestPollingBindingSwitchFreezesInFlightRawVersion(t *testing.T) {
 		t.Fatal("missing bound release fell back", err)
 	}
 	failure := errors.New("binding storage unavailable")
-	failedRuntime := New(failedPollingBindingRepository{Repository: repo, failure: failure}, nil, nil)
+	failedRuntime := New(failedPollingBindingRepository{Store: repo, failure: failure}, nil, nil)
 	if _, err = failedRuntime.pollingRelease(ctx, profile); !errors.Is(err, failure) {
 		t.Fatal("binding read failed open", err)
 	}
-	legacyRuntime := New(failedPollingBindingRepository{Repository: repo, failure: model.ErrNotFound}, nil, nil)
+	legacyRuntime := New(failedPollingBindingRepository{Store: repo, failure: model.ErrNotFound}, nil, nil)
 	legacy, err := legacyRuntime.pollingRelease(ctx, profile)
 	if err != nil || legacy.Version != "1" {
 		t.Fatal("legacy fixed polling removed", legacy, err)

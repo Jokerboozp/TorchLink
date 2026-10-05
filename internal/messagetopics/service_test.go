@@ -14,7 +14,7 @@ import (
 )
 
 type testStore struct {
-	ports.Repository
+	Store
 	mu        sync.Mutex
 	configs   map[string]model.MessageTopicConfig
 	err       error

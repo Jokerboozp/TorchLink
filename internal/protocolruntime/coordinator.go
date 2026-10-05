@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"iot-platform/internal/model"
-	"iot-platform/internal/ports"
 	"sync"
 	"time"
 )
@@ -21,13 +20,13 @@ type heldExecution struct {
 // It uses local monotonic deadlines shorter than the database lease, so stale
 // sockets stop before another process may acquire the same resource.
 type Coordinator struct {
-	repo            ports.Repository
+	repo            Store
 	owner, endpoint string
 	mu              sync.Mutex
 	held            map[string]*heldExecution
 }
 
-func NewCoordinator(repo ports.Repository, owner, endpoint string) *Coordinator {
+func NewCoordinator(repo Store, owner, endpoint string) *Coordinator {
 	return &Coordinator{repo: repo, owner: owner, endpoint: endpoint, held: map[string]*heldExecution{}}
 }
 func (c *Coordinator) Claim(ctx context.Context, p model.DeviceAccessProfile) (context.Context, bool) {

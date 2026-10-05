@@ -11,7 +11,6 @@ import (
 
 	"iot-platform/internal/adapters/memory"
 	"iot-platform/internal/model"
-	"iot-platform/internal/ports"
 )
 
 func deviceSnapshotQuery() model.MessageTopicQuery {
@@ -189,7 +188,7 @@ func TestQuerySchedulerIntervalDisableFailureAndRevocation(t *testing.T) {
 }
 
 type queryChangingRepository struct {
-	ports.Repository
+	Store
 	beforeQuery func()
 }
 
@@ -199,12 +198,12 @@ func (r *queryChangingRepository) ListMessageTopicDevices(ctx context.Context, t
 		r.beforeQuery = nil
 		callback()
 	}
-	return r.Repository.ListMessageTopicDevices(ctx, tenant, ids, limit)
+	return r.Store.ListMessageTopicDevices(ctx, tenant, ids, limit)
 }
 
 func TestScheduledQueryRechecksConfigurationAfterReading(t *testing.T) {
 	ctx := context.Background()
-	repo := &queryChangingRepository{Repository: memory.NewRepository()}
+	repo := &queryChangingRepository{Store: memory.NewRepository()}
 	s := New(repo)
 	saveScheduledQuery(t, s, deviceSnapshotQuery())
 	repo.beforeQuery = func() {
