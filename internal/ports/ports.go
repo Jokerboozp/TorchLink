@@ -48,6 +48,10 @@ type AlarmReportStore interface {
 	// AlarmOverviewCounts counts matching alarms by status, level and source;
 	// Recent counts those last triggered at or after since.
 	AlarmOverviewCounts(ctx context.Context, f AlarmFilter, since int64) (model.AlarmOverview, error)
+	// AIAnalysisOutcomes counts verified alarms by the AI risk level they had
+	// when verified, the verification result and the prompt version; an empty
+	// promptVersion matches every version.
+	AIAnalysisOutcomes(ctx context.Context, f AlarmFilter, promptVersion string) ([]model.AIAnalysisOutcome, error)
 }
 
 // DeviceOverviewStore counts registered devices and their states in the

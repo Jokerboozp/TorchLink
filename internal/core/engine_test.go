@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/aiprompt"
 	"iot-platform/internal/metrics"
 	"log/slog"
 	"strings"
@@ -957,5 +958,41 @@ func TestThingModelQualityIsMarkedNotRejected(t *testing.T) {
 	}
 	if out := registry.Prometheus(); !strings.Contains(out, `parse_quality_total{reason="type"} 2`) || !strings.Contains(out, `parse_quality_total{reason="range"} 1`) {
 		t.Fatalf("quality metrics missing:\n%s", out)
+	}
+}
+
+// Verification copies the newest successful AI analysis; values sent with the
+// verification request are ignored.
+func TestVerifyAlarmSnapshotsTheAIAnalysis(t *testing.T) {
+	ctx := context.Background()
+	e, repo, _ := newBusinessEngine(t, nil)
+	for _, id := range []string{"a-analysed", "a-failed", "a-none"} {
+		if _, _, err := repo.UpsertAlarm(ctx, model.Alarm{ID: id, TenantID: "t1", RuleID: "r-" + id, DeviceID: "d1", AlarmType: "FIRE", Status: "ACTIVE", FirstTriggeredAt: 1, LastTriggeredAt: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, analysis := range []model.AIAnalysis{
+		{TenantID: "t1", AlarmID: "a-analysed", RiskLevel: "LOW", PromptVersion: "old", CreatedAt: 10},
+		{TenantID: "t1", AlarmID: "a-analysed", KnowledgeScope: model.AlarmAnalysisWorkflowID, RiskLevel: "HIGH", PromptVersion: aiprompt.AlarmAnalysisVersion, CreatedAt: 20},
+		{TenantID: "t1", AlarmID: "a-failed", RiskLevel: "HIGH", PromptVersion: aiprompt.AlarmFallbackVersion, CreatedAt: 20, Error: "timeout"},
+	} {
+		if err := repo.SaveAIAnalysis(ctx, analysis); err != nil {
+			t.Fatal(err)
+		}
+	}
+	forged := model.AlarmDisposition{Result: model.DispositionRealFire, AIRiskLevel: "CRITICAL", AIPromptVersion: "forged", AIAnalysisAt: 99}
+	for id, want := range map[string]model.AlarmDisposition{
+		"a-analysed": {AIRiskLevel: "HIGH", AIPromptVersion: aiprompt.AlarmAnalysisVersion, AIAnalysisAt: 20},
+		"a-failed":   {},
+		"a-none":     {},
+	} {
+		a, err := e.VerifyAlarm(ctx, "t1", id, forged, "operator")
+		if err != nil {
+			t.Fatal(err)
+		}
+		d := a.Disposition
+		if d.AIRiskLevel != want.AIRiskLevel || d.AIPromptVersion != want.AIPromptVersion || d.AIAnalysisAt != want.AIAnalysisAt {
+			t.Fatalf("%s snapshot %+v", id, d)
+		}
 	}
 }

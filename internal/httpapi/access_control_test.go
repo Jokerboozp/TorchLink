@@ -812,6 +812,17 @@ func TestScopedOverviewCountsStayInStorage(t *testing.T) {
 	if err != nil || alarms.Total != 1 || alarms.HighRiskActive != 1 {
 		t.Fatalf("alarms=%+v err=%v", alarms, err)
 	}
+	if outcomes, err := repo.AIAnalysisOutcomes(ctx, ports.AlarmFilter{TenantID: "t"}, ""); err != nil || len(outcomes) != 0 {
+		t.Fatalf("unverified alarms counted: %+v %v", outcomes, err)
+	}
+	for _, id := range []string{"a", "b"} {
+		alarm, _ := base.GetAlarm(ctx, "t", "alarm-"+id)
+		alarm.Disposition = &model.AlarmDisposition{Result: model.DispositionFalseAlarm, AIRiskLevel: "LOW"}
+		_ = base.UpdateAlarm(ctx, alarm)
+	}
+	if outcomes, err := repo.AIAnalysisOutcomes(ctx, ports.AlarmFilter{TenantID: "t"}, ""); err != nil || len(outcomes) != 1 || outcomes[0].Count != 1 {
+		t.Fatalf("scoped outcomes %+v %v", outcomes, err)
+	}
 	if all, _ := repo.DeviceOverviewCounts(context.Background(), "t", false, nil); all.Total != 2 {
 		t.Fatalf("unscoped total=%d", all.Total)
 	}

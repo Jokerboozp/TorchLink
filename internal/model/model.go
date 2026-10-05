@@ -685,6 +685,11 @@ type AlarmDisposition struct {
 	ArrivedAt  int64  `json:"arrivedAt,omitempty"`
 	DispatchID string `json:"dispatchId,omitempty"`
 	VerifiedAt int64  `json:"verifiedAt"`
+	// The AI analysis the alarm had when it was verified, copied by the
+	// platform so analysis quality can be compared with on-site results.
+	AIAnalysisAt    int64  `json:"aiAnalysisAt,omitempty"`
+	AIRiskLevel     string `json:"aiRiskLevel,omitempty"`
+	AIPromptVersion string `json:"aiPromptVersion,omitempty"`
 }
 
 // ValidDispositionResult reports a known verification result.

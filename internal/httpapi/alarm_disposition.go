@@ -16,6 +16,7 @@ import (
 
 const (
 	alarmStatisticsPath = "/api/v1/alarms/statistics/disposition"
+	alarmAIQualityPath  = "/api/v1/alarms/statistics/ai-analysis"
 	alarmExportPath     = "/api/v1/alarms/export"
 	alarmMonthlyPath    = "/api/v1/alarms/reports/monthly"
 	// alarmExportFlushRows is how often the export pushes rows to the client.
@@ -25,6 +26,7 @@ const (
 func (s *Server) alarmDispositionRoutes() {
 	s.router.POST("/api/v1/alarms/:id/disposition", s.authorize("operator"), s.endpoint(s.verifyAlarm, "id"))
 	s.router.GET(alarmStatisticsPath, s.authorize("viewer"), s.endpoint(s.alarmStatistics))
+	s.router.GET(alarmAIQualityPath, s.authorize("viewer"), s.endpoint(s.alarmAIQuality))
 	s.router.GET(alarmExportPath, s.authorize("viewer"), s.endpoint(s.exportAlarms))
 	s.router.GET(alarmMonthlyPath, s.authorize("viewer"), s.endpoint(s.alarmMonthlyReport))
 }
@@ -94,6 +96,18 @@ func (s *Server) alarmStatistics(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	write(w, 200, stats)
+}
+
+// alarmAIQuality compares the AI risk level each verified alarm had with its
+// verification result, within the requester's device scope.
+func (s *Server) alarmAIQuality(w http.ResponseWriter, r *http.Request) {
+	outcomes, err := s.engine.Repo.AIAnalysisOutcomes(r.Context(), reportFilter(r), strings.TrimSpace(r.URL.Query().Get("promptVersion")))
+	if err != nil {
+		s.log.Error("AI analysis statistics failed", "error", err)
+		problem(w, 500, "读取研判统计失败")
+		return
+	}
+	write(w, 200, map[string]any{"stats": model.SummarizeAIAnalysis(outcomes), "outcomes": outcomes})
 }
 
 // exportAlarms streams the alarms of the period as UTF-8 CSV with a BOM, so

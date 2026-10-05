@@ -111,3 +111,27 @@ func (r *Repository) AlarmOverviewCounts(ctx context.Context, f ports.AlarmFilte
 	}
 	return out, rows.Err()
 }
+
+func (r *Repository) AIAnalysisOutcomes(ctx context.Context, f ports.AlarmFilter, promptVersion string) ([]model.AIAnalysisOutcome, error) {
+	where, args := alarmFilterSQL(f)
+	if where == "" {
+		where = " WHERE true"
+	}
+	args = append(args, promptVersion)
+	rows, err := r.reader().Query(ctx, fmt.Sprintf(`SELECT coalesce(body->'disposition'->>'aiRiskLevel',''), body->'disposition'->>'result', coalesce(body->'disposition'->>'aiPromptVersion',''), count(*)
+ FROM alarm_record%s AND body ? 'disposition' AND ($%d = '' OR body->'disposition'->>'aiPromptVersion' = $%d)
+ GROUP BY 1, 2, 3 ORDER BY 1, 2, 3`, where, len(args), len(args)), args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []model.AIAnalysisOutcome{}
+	for rows.Next() {
+		var v model.AIAnalysisOutcome
+		if err := rows.Scan(&v.RiskLevel, &v.Result, &v.PromptVersion, &v.Count); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}

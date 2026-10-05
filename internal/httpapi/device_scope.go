@@ -367,6 +367,15 @@ func (r *deviceScopeRepository) AlarmOverviewCounts(ctx context.Context, f ports
 	}
 	return r.Repository.AlarmOverviewCounts(ctx, f, since)
 }
+func (r *deviceScopeRepository) AIAnalysisOutcomes(ctx context.Context, f ports.AlarmFilter, promptVersion string) ([]model.AIAnalysisOutcome, error) {
+	if limited(ctx) {
+		var ok bool
+		if f.DeviceIDs, ok = r.scopedDevices(ctx, f.TenantID, f.DeviceID, f.DeviceIDs); !ok {
+			return []model.AIAnalysisOutcome{}, nil
+		}
+	}
+	return r.Repository.AIAnalysisOutcomes(ctx, f, promptVersion)
+}
 func (r *deviceScopeRepository) DeviceOverviewCounts(ctx context.Context, t string, restrict bool, ids []string) (model.DeviceOverview, error) {
 	if limited(ctx) {
 		if restrict {

@@ -6,6 +6,7 @@ import { UiMessage } from '../ui/feedback.js'
 import { api } from '../api'
 import AiWorkflowRuns from '../components/AiWorkflowRuns.vue'
 import AiRunHistory from '../components/AiRunHistory.vue'
+import AiAnalysisQuality from '../components/AiAnalysisQuality.vue'
 import EmbeddingConfig from '../components/EmbeddingConfig.vue'
 
 const emit = defineEmits(['navigate'])
@@ -184,6 +185,7 @@ onMounted(loadRuntime)
 
     <AiWorkflowRuns v-if="can('GET /api/v1/ai/runs')" />
     <AiRunHistory v-if="can('GET /api/v1/ai/runs/history')" />
+    <AiAnalysisQuality v-if="can('menu:alarms')" />
 
     <div class="ai-management-grid">
       <ui-card shadow="never" class="surface-card ai-provider-config">

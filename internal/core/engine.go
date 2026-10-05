@@ -1348,6 +1348,11 @@ func (e *Engine) VerifyAlarm(ctx context.Context, tenant, alarmID string, d mode
 	}
 	now := e.Clock.Now().UnixMilli()
 	d.Handler, d.VerifiedAt = actor, now
+	// The AI snapshot is taken by the platform, never from the request.
+	d.AIAnalysisAt, d.AIRiskLevel, d.AIPromptVersion = 0, "", ""
+	if analysis, ok := e.latestAIAnalysis(ctx, tenant, alarmID); ok {
+		d.AIAnalysisAt, d.AIRiskLevel, d.AIPromptVersion = analysis.CreatedAt, analysis.RiskLevel, analysis.PromptVersion
+	}
 	a, _, err := e.mutateAlarm(ctx, tenant, alarmID, func(a *model.Alarm) (bool, error) {
 		if a.Status == "CLOSED" {
 			return false, fmt.Errorf("closed alarms cannot be verified again")
@@ -1364,6 +1369,21 @@ func (e *Engine) VerifyAlarm(ctx context.Context, tenant, alarmID string, d mode
 	}
 	_ = e.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenant, Actor: actor, Action: "alarm.verify", TargetType: "alarm", TargetID: alarmID, Details: map[string]any{"result": d.Result, "dispatchId": d.DispatchID}, CreatedAt: now})
 	return a, nil
+}
+
+// latestAIAnalysis returns the newest successful analysis of an alarm across
+// knowledge scopes; fallback results written after a failed run are skipped.
+func (e *Engine) latestAIAnalysis(ctx context.Context, tenant, alarmID string) (model.AIAnalysis, bool) {
+	var latest model.AIAnalysis
+	found := false
+	for _, scope := range []string{model.AIAnalysisScopeNone, model.AlarmAnalysisWorkflowID, model.AIAnalysisScopeLegacyTenant} {
+		analysis, err := e.Repo.GetAIAnalysis(ctx, tenant, alarmID, scope)
+		if err != nil || analysis.Error != "" || analysis.RiskLevel == "" || found && analysis.CreatedAt <= latest.CreatedAt {
+			continue
+		}
+		latest, found = analysis, true
+	}
+	return latest, found
 }
 
 func tag(m model.StandardMessage, k, fallback string) string {
