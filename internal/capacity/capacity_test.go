@@ -1344,3 +1344,26 @@ func TestCompareComputesScalingOnlyForSameWorkload(t *testing.T) {
 		t.Fatal("invalid run id accepted")
 	}
 }
+
+type realtimeMessage struct {
+	mqtt.Message
+	retained bool
+	payload  []byte
+}
+
+func (m realtimeMessage) Retained() bool  { return m.retained }
+func (m realtimeMessage) Payload() []byte { return m.payload }
+
+// A resubscription replays retained device state; its old lastSeenAt is not
+// a push delay and must not enter the realtime latency.
+func TestRealtimeLatencyIgnoresRetainedReplays(t *testing.T) {
+	rs := &realtimeSubscribers{rec: &streamRecorder{}}
+	rs.measure.Store(true)
+	old := []byte(fmt.Sprintf(`{"lastSeenAt":%d}`, time.Now().Add(-2*time.Minute).UnixMilli()))
+	rs.receive(nil, realtimeMessage{retained: true, payload: old})
+	live := []byte(fmt.Sprintf(`{"lastSeenAt":%d}`, time.Now().UnixMilli()))
+	rs.receive(nil, realtimeMessage{payload: live})
+	if s := rs.rec.snapshot(); s.OK != 1 || s.Latency.MaxMS > 60000 {
+		t.Fatalf("realtime samples %+v", s)
+	}
+}

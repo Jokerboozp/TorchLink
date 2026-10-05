@@ -395,6 +395,9 @@ func (d *reportData) bottlenecks() []Bottleneck {
 	if c := failedCheck("查询"); c != nil {
 		add("查询或缓存", c.Detail, "优化过滤、索引与聚合，按一致性要求分担读负载")
 	}
+	if c := failedCheck("实时推送"); c != nil && c.Status == VerdictFailed {
+		add("实时推送", c.Detail, "对照业务完成时延：两者都高时先处理业务链路；仅推送慢时检查 broker 转发与订阅端")
+	}
 	rounds := make([]Round, 0)
 	for _, r := range d.rounds {
 		if r.At >= target.MeasureFrom && r.At <= target.MeasureTo {

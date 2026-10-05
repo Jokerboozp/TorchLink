@@ -479,7 +479,9 @@ func subscribeDenied(granted map[string]byte) bool {
 // receive records push latency from the event time (alarm trigger or
 // device report time, both from the device's timestamp) to delivery.
 func (rs *realtimeSubscribers) receive(_ mqtt.Client, m mqtt.Message) {
-	if !rs.measure.Load() {
+	// Retained snapshots replayed by a (re)subscription are old state, not a
+	// push; only live forwards are measured.
+	if !rs.measure.Load() || m.Retained() {
 		return
 	}
 	var v struct {
