@@ -11,7 +11,7 @@ const welcomeMessage = () => ({
   id: 'welcome',
   role: 'assistant',
   status: 'succeeded',
-  text: '你好，我是消防物联网智能运维助手。可以直接查询设备、告警和趋势；切换顶部工作流插件后，会显示该插件的对话记录。',
+  text: '你好，我是消防物联网智能运维助手。可以直接查询设备、告警和趋势；切换智能体后，会显示该智能体的对话记录。',
   tools: []
 })
 

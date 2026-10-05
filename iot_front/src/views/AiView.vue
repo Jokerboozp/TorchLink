@@ -2,12 +2,12 @@
 import { can } from '../permissions'
 import { aiProviderOptions as providerOptions, capabilityName } from '../presentation'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { api, apiStream, session } from '../api'
 import { useAIConversation } from '../aiConversation'
 import { reconcileRuleDraftMessages } from '../ruleDraftStatus'
 import HarnessTraceDrawer from '../components/HarnessTraceDrawer.vue'
 import OpsReportDialog from '../components/OpsReportDialog.vue'
+import AgentManager from '../components/AgentManager.vue'
 import MarkdownContent from '../components/MarkdownContent.vue'
 import ToolCallCard from '../components/ToolCallCard.vue'
 
@@ -29,6 +29,8 @@ const log = ref()
 const selectedRunKey = ref('')
 const traceVisible = ref(false)
 const reportVisible = ref(false)
+// 页面分为对话与智能体管理两部分；管理只对有权限的账号显示。
+const view = ref('chat')
 
 async function refreshRuleDraftStatuses() {
   if (!can('menu:rules')) return
@@ -54,63 +56,6 @@ const runtime = ref({
   healthMessage: '正在读取模型服务状态'
 })
 const workflows = ref({ items: [], healthy: false, healthMessage: '正在读取工作流状态' })
-const creatingAgent = ref(false)
-const agentTemplate = {
-  schemaVersion: 1,
-  id: 'my-status-agent',
-  name: '我的状态助手',
-  description: '回答当前租户的系统统计和设备状态问题。',
-  version: '1.0.0',
-  enabled: true,
-  persona:
-    '你是物联网系统状态助手。回答统计问题前必须调用 query_system_overview；询问具体设备时调用 query_device_latest。只依据工具结果回答，不得执行控制或修改操作。回答使用简洁中文。',
-  defaultModel: 'deepseek-flash',
-  maxTokens: 4096,
-  capabilities: ['系统状态统计', '设备状态查询'],
-  allowedTools: ['mcp__iot__query_system_overview', 'mcp__iot__query_device_latest']
-}
-const agentJson = ref(JSON.stringify(agentTemplate, null, 2))
-const editingAgentId = ref('')
-const agentEditorRef = ref(null)
-const agentPreviewVisible = ref(false)
-const agentPreview = ref(null)
-const workflowManageLoading = ref(false)
-const workflowManageError = ref('')
-const workflowManageItems = ref([])
-const workflowManagePage = ref(1)
-const workflowManagePageSize = ref(20)
-const workflowManageTotal = ref(0)
-let workflowManageRequestSequence = 0
-
-const agentFieldDocs = [
-  { name: 'schemaVersion', type: '整数', note: '清单格式版本，当前固定填写 1。' },
-  { name: 'id', type: '字符串', note: '智能体唯一标识，最长 128 字符；可使用字母、数字、点、下划线、冒号和连字符，不能覆盖内置智能体。' },
-  { name: 'name', type: '字符串', note: '界面显示名称，必填，最长 128 字符。' },
-  { name: 'description', type: '字符串', note: '说明智能体的用途和适用场景，必填，最长 1024 字符。' },
-  { name: 'version', type: '字符串', note: '智能体版本号，必填，最长 64 字符，建议使用 1.0.0 格式。' },
-  { name: 'enabled', type: '布尔值', note: '是否立即启用；填写 true 后创建完成即可被选择和运行。' },
-  { name: 'persona', type: '字符串', note: '系统提示词，定义角色、回答原则和工具调用规则，必填，最长 16384 字符。' },
-  { name: 'defaultModel', type: '字符串', note: '默认模型标识，必填；实际运行会跟随当前模型服务的活动模型。' },
-  { name: 'maxTokens', type: '整数', note: '单次最大输出令牌数，平台允许 1–8192。' },
-  { name: 'capabilities', type: '字符串数组', note: '展示给用户的能力名称，填写 1–32 项，每项 1–64 字符且不可重复。' },
-  {
-    name: 'allowedTools',
-    type: '字符串数组',
-    note: '智能体可以调用的受控工具，至少 1 项、最多 6 项，只能从下方白名单选择且不可重复；规则工具只能保存禁用草稿。'
-  }
-]
-const agentToolDocs = [
-  { name: 'mcp__iot__query_system_overview', label: '系统状态与数量统计' },
-  { name: 'mcp__iot__query_device_latest', label: '设备最新状态' },
-  { name: 'mcp__iot__query_alarm_list', label: '告警列表' },
-  { name: 'mcp__iot__query_alarm_detail', label: '单条告警详情' },
-  { name: 'mcp__iot__query_property_history', label: '设备属性历史' },
-  { name: 'mcp__iot__query_similar_alarms', label: '相似告警查询' },
-  { name: 'mcp__iot__query_knowledge_base', label: '知识库检索' },
-  { name: 'mcp__iot__create_rule_draft', label: '生成待确认的自动化规则草稿' }
-]
-const managementVisible = ref(false)
-const agentEditorVisible = ref(false)
 const runConfig = reactive({ model: '' })
 const quickQuestions = computed(() => {
   if (!selectedWorkflow.value) return []
@@ -134,19 +79,18 @@ const selectedWorkflow = computed(() => workflowItems.value.find(item => workflo
 const selectedRun = computed(() => runs.value.find(run => run.id === selectedRunKey.value) || null)
 const activeHealthy = computed(() => Boolean(workflows.value.healthy))
 const activeTone = computed(() => (!workflowItems.value.length ? 'info' : activeHealthy.value ? 'success' : 'danger'))
-const healthMessage = computed(() => workflows.value.healthMessage || '工作流服务状态未知')
+const healthMessage = computed(() => workflows.value.healthMessage || 'AI 服务状态未知')
 const isAdmin = computed(() => can('GET /api/v1/ai/workflows/admin'))
 const selectedCapabilities = computed(() => {
   const value = selectedWorkflow.value?.capabilities || selectedWorkflow.value?.tools || []
   return Array.isArray(value) ? value : []
 })
-const agentPreviewJson = computed(() => (agentPreview.value ? JSON.stringify(agentPreview.value, null, 2) : ''))
 
 function workflowKey(item) {
   return item?.id || item?.workflowId || ''
 }
 function workflowName(item) {
-  return item?.name || item?.label || workflowKey(item) || '未命名工作流'
+  return item?.name || item?.label || workflowKey(item) || '未命名智能体'
 }
 function capabilityLabel(item) {
   return capabilityName(typeof item === 'string' ? item : item?.name || item?.id)
@@ -206,170 +150,14 @@ async function loadRuntime() {
   }
 }
 
-const builtinWorkflowIds = new Set([
-  'alarm-handler',
-  'ops-assistant',
-  'system-observer',
-  'device-health-inspector',
-  'protocol-assistant',
-  'rule-drafter'
-])
-function isBuiltinWorkflow(item) {
-  return builtinWorkflowIds.has(workflowKey(item))
-}
 function isChatWorkflow(item) {
   return !nonChatWorkflowIds.has(workflowKey(item))
 }
 
-function resetAgentJson() {
-  editingAgentId.value = ''
-  agentJson.value = JSON.stringify(agentTemplate, null, 2)
-}
-
-function focusAgentEditor() {
-  nextTick(() => {
-    agentEditorRef.value?.focus?.()
-    agentEditorRef.value?.$el?.scrollIntoView?.({ behavior: 'auto', block: 'center' })
-  })
-}
-
-function startCreateAgent() {
-  resetAgentJson()
-  agentEditorVisible.value = true
-  focusAgentEditor()
-  UiMessage.info('已打开新建智能体，请填写配置清单结构化数据')
-}
-
-async function loadWorkflowManagement(force = false) {
-  if (!isAdmin.value || (workflowManageLoading.value && !force)) return
-  const requestSequence = ++workflowManageRequestSequence
-  workflowManageLoading.value = true
-  workflowManageError.value = ''
-  try {
-    const value = await api(`/api/v1/ai/workflows/admin?page=${workflowManagePage.value}&pageSize=${workflowManagePageSize.value}`)
-    if (requestSequence !== workflowManageRequestSequence) return
-    workflowManageItems.value = Array.isArray(value?.items) ? value.items.filter(isChatWorkflow) : []
-    workflowManageTotal.value = Number(value?.total ?? value?.count ?? workflowManageItems.value.length)
-  } catch (error) {
-    if (requestSequence === workflowManageRequestSequence) workflowManageError.value = error.message || '工作流插件清单读取失败'
-  } finally {
-    if (requestSequence === workflowManageRequestSequence) workflowManageLoading.value = false
-  }
-}
-
-function changeWorkflowManagePage(value) {
-  workflowManagePage.value = value
-  loadWorkflowManagement()
-}
-
-function changeWorkflowManagePageSize(value) {
-  workflowManagePageSize.value = value
-  workflowManagePage.value = 1
-  loadWorkflowManagement()
-}
-
-function openAgentManagement() {
-  managementVisible.value = true
-  void loadWorkflowManagement()
-}
-
-function editAgent(item) {
-  if (!isAdmin.value || isBuiltinWorkflow(item)) return
-  editingAgentId.value = workflowKey(item)
-  agentJson.value = JSON.stringify(item, null, 2)
-  agentEditorVisible.value = true
-  focusAgentEditor()
-}
-
-function cancelAgentEditor() {
-  agentEditorVisible.value = false
-  resetAgentJson()
-}
-
-function viewAgent(item) {
-  if (!isAdmin.value || !isBuiltinWorkflow(item)) return
-  agentPreview.value = item
-  agentPreviewVisible.value = true
-}
-
-async function saveAgent() {
-  if (!isAdmin.value || creatingAgent.value) return
-  let manifest
-  try {
-    manifest = JSON.parse(agentJson.value)
-  } catch {
-    UiMessage.error('智能体结构化数据格式不正确')
-    return
-  }
-  if (editingAgentId.value && manifest?.id !== editingAgentId.value) {
-    UiMessage.error('编辑时不能修改智能体的唯一标识；如需新插件请先新建')
-    return
-  }
-  const editing = Boolean(editingAgentId.value)
-  creatingAgent.value = true
-  try {
-    const saved = editing
-      ? await api(`/api/v1/ai/workflows/${encodeURIComponent(editingAgentId.value)}`, { method: 'PUT', body: JSON.stringify(manifest) })
-      : await api('/api/v1/ai/workflows', { method: 'POST', body: JSON.stringify(manifest) })
-    await loadRuntime()
-    await loadWorkflowManagement()
-    selectedWorkflowId.value = workflowKey(saved)
-    editingAgentId.value = ''
-    agentJson.value = JSON.stringify(agentTemplate, null, 2)
-    agentEditorVisible.value = false
-    UiMessage.success(`${editing ? '智能体已更新' : '智能体已创建'}：${workflowName(saved)}`)
-  } catch (error) {
-    workflowManageError.value = error.message || (editing ? '智能体更新失败' : '智能体创建失败')
-  } finally {
-    creatingAgent.value = false
-  }
-}
-
-async function toggleWorkflow(item) {
-  if (!isAdmin.value || isBuiltinWorkflow(item) || creatingAgent.value) return
-  const manifest = { ...item, enabled: item.enabled === false }
-  creatingAgent.value = true
-  try {
-    await api(`/api/v1/ai/workflows/${encodeURIComponent(workflowKey(item))}`, { method: 'PUT', body: JSON.stringify(manifest) })
-    await Promise.all([loadRuntime(), loadWorkflowManagement()])
-    UiMessage.success(`${workflowName(item)}已${manifest.enabled ? '启用' : '禁用'}`)
-  } catch (error) {
-    workflowManageError.value = error.message || '工作流状态更新失败'
-  } finally {
-    creatingAgent.value = false
-  }
-}
-
-async function deleteWorkflow(item) {
-  if (!isAdmin.value || isBuiltinWorkflow(item) || creatingAgent.value) return
-  const deletedWorkflowId = workflowKey(item)
-  try {
-    await UiMessageBox.confirm(`删除后将无法运行“${workflowName(item)}”，确定继续吗？`, '删除工作流插件', {
-      type: 'warning',
-      confirmButtonText: '确定删除',
-      cancelButtonText: '取消'
-    })
-  } catch {
-    return
-  }
-  creatingAgent.value = true
-  try {
-    await api(`/api/v1/ai/workflows/${encodeURIComponent(deletedWorkflowId)}`, { method: 'DELETE' })
-    // Remove it immediately so the current dropdown cannot keep a deleted
-    // option while the authoritative catalog refresh is in flight.
-    const remaining = (workflows.value.items || []).filter(candidate => workflowKey(candidate) !== deletedWorkflowId)
-    workflows.value = { ...workflows.value, items: remaining, count: remaining.length }
-    workflowManageItems.value = workflowManageItems.value.filter(candidate => workflowKey(candidate) !== deletedWorkflowId)
-    if (selectedWorkflowId.value === deletedWorkflowId)
-      selectedWorkflowId.value = workflowKey(remaining.find(candidate => candidate.enabled !== false))
-    if (editingAgentId.value === deletedWorkflowId) cancelAgentEditor()
-    await Promise.all([loadRuntime(), loadWorkflowManagement(true)])
-    UiMessage.success(`已删除工作流插件：${workflowName(item)}`)
-  } catch (error) {
-    workflowManageError.value = error.message || '工作流插件删除失败'
-  } finally {
-    creatingAgent.value = false
-  }
+// 智能体增删改后刷新可选列表；新建的智能体直接选中。
+async function agentsChanged(id) {
+  await loadRuntime()
+  if (id && workflowItems.value.some(item => workflowKey(item) === id)) selectedWorkflowId.value = id
 }
 
 // 会话切换由 conversation 完成；这里只重置当前页面的输入和轨迹面板。
@@ -479,28 +267,30 @@ onBeforeUnmount(() => {
     </div>
     <div class="runtime-actions">
       <div class="runtime-status">
-        <ui-tag :type="activeTone" effect="light">{{ selectedWorkflow ? '工作流服务' : '未配置' }}</ui-tag
+        <ui-tag :type="activeTone" effect="light">{{ selectedWorkflow ? 'AI 服务' : '未配置' }}</ui-tag
         ><span>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }} · {{ runConfig.model || '无活动模型' }}</span
         ><i :class="{ online: activeHealthy }" />{{ healthMessage }}
       </div>
       <ui-button v-permission="'POST /api/v1/ai/reports'" size="small" @click="reportVisible = true">运维报告</ui-button
-      ><ui-button v-permission="'GET /api/v1/ai/workflows/admin'" size="small" @click="openAgentManagement">智能体管理</ui-button
+      ><ui-radio-group v-if="isAdmin" v-model="view" size="small" class="segmented-choice-group" aria-label="页面内容"
+        ><ui-radio-button value="chat">对话</ui-radio-button><ui-radio-button value="agents">智能体</ui-radio-button></ui-radio-group
       ><ui-button size="small" :loading="runtimeLoading" @click="loadRuntime">刷新状态</ui-button>
     </div>
   </div>
   <ui-alert v-if="runtimeError" class="runtime-warning" :title="runtimeError" type="warning" :closable="false" show-icon />
 
-  <div class="ai-workbench">
+  <AgentManager v-if="view === 'agents'" @changed="agentsChanged" />
+  <div v-else class="ai-workbench">
     <ui-card shadow="never" class="surface-card chat-card ai-chat-card">
       <template #header>
         <div class="card-header chat-header">
           <div class="chat-workflow">
-            <div class="chat-workflow-label"><strong>工作流插件</strong><small>各插件独立保存会话</small></div>
+            <div class="chat-workflow-label"><strong>智能体</strong><small>每个智能体单独保存对话</small></div>
             <ui-select
               v-model="selectedWorkflowId"
               class="chat-workflow-select"
-              aria-label="工作流插件"
-              placeholder="选择工作流插件"
+              aria-label="智能体"
+              placeholder="选择智能体"
               :disabled="sending || !workflowItems.length"
               ><ui-option v-for="item in workflowItems" :key="workflowKey(item)" :label="workflowName(item)" :value="workflowKey(item)"
             /></ui-select>
@@ -517,7 +307,7 @@ onBeforeUnmount(() => {
       <ui-alert
         v-if="!runtimeLoading && !workflowItems.length && !workflowError"
         class="chat-workflow-empty"
-        title="暂无可用工作流：需由管理员配置 AI 工作流服务后才能提问。"
+        title="暂无可用智能体：需由管理员部署并配置 AI 工作流服务（Harness）后才能提问。"
         type="info"
         :closable="false"
         show-icon
@@ -540,7 +330,7 @@ onBeforeUnmount(() => {
                 :source="message.text"
               />
               <p v-else-if="message.text">{{ message.text }}</p>
-              <div v-else-if="message.status === 'streaming'" class="typing"><i /><i /><i /><span>正在运行工作流</span></div>
+              <div v-else-if="message.status === 'streaming'" class="typing"><i /><i /><i /><span>正在生成回答</span></div>
               <ToolCallCard v-for="tool in message.tools" :key="tool.id || tool.toolCallId" :tool="tool" />
               <div v-if="message.ruleDraft" class="rule-draft-card">
                 <div>
@@ -592,7 +382,7 @@ onBeforeUnmount(() => {
           :autosize="{ minRows: 1, maxRows: 4 }"
           maxlength="4000"
           resize="none"
-          placeholder="询问设备、告警、趋势或处置知识；上档键与回车键换行"
+          placeholder="询问设备、告警、趋势或处置知识；Enter 发送，Shift+Enter 换行"
           :disabled="sending || !workflowItems.length"
           @keydown.enter.exact.prevent="send()"
         /><ui-button v-if="sending" type="danger" plain @click="stop">停止</ui-button
@@ -609,158 +399,6 @@ onBeforeUnmount(() => {
     </ui-card>
   </div>
 
-  <ui-drawer v-model="managementVisible" title="智能体管理" size="min(760px, 94vw)" class="workflow-manager" append-to-body>
-    <section class="manager-panel panel-agent">
-      <div class="manager-intro">
-        <span>智能体管理</span>
-        <div>
-          <h3>智能体插件管理</h3>
-          <ui-tag size="small" type="primary" effect="plain">管理员</ui-tag>
-        </div>
-        <p>
-          内置智能体仅可查看；动态智能体可编辑、启用/禁用或删除。点击“新建智能体”即可在弹窗中提交新的配置清单，保存后智能体会立即进入工作流列表。
-        </p>
-      </div>
-      <ui-alert v-if="!isAdmin" title="工作流插件管理仅限管理员。" type="warning" :closable="false" show-icon />
-      <div v-else class="workflow-admin-panel">
-        <div class="workflow-admin-toolbar">
-          <div>
-            <strong>已配置的工作流插件</strong
-            ><small>{{ workflowManageTotal }} 个聊天插件 · 内置聊天智能体只读；告警研判、设备巡检和协议接入由业务页面调用</small>
-          </div>
-          <div>
-            <ui-button size="small" :loading="workflowManageLoading" @click="loadWorkflowManagement">刷新清单</ui-button
-            ><ui-button v-permission="'POST /api/v1/ai/workflows'" size="small" type="primary" plain @click="startCreateAgent"
-              >新建智能体</ui-button
-            >
-          </div>
-        </div>
-        <ui-alert v-if="workflowManageError" :title="workflowManageError" type="error" :closable="false" show-icon />
-        <ui-skeleton v-if="workflowManageLoading && !workflowManageItems.length" :rows="4" animated />
-        <ui-empty v-else-if="!workflowManageItems.length" description="暂无工作流插件" :image-size="56" />
-        <div v-else class="workflow-admin-list">
-          <div v-for="item in workflowManageItems" :key="workflowKey(item)" class="workflow-admin-item">
-            <div class="workflow-admin-main">
-              <div>
-                <strong>{{ workflowName(item) }}</strong
-                ><ui-tag size="small" :type="item.enabled === false ? 'info' : 'success'" effect="plain">{{
-                  item.enabled === false ? '已禁用' : '已启用'
-                }}</ui-tag
-                ><ui-tag v-if="isBuiltinWorkflow(item)" size="small" effect="plain">内置只读</ui-tag>
-              </div>
-              <small>{{ workflowKey(item) }} · {{ item.version ? `v${item.version}` : '无版本' }}</small>
-              <p>{{ item.description || '未填写插件说明' }}</p>
-            </div>
-            <div class="workflow-admin-actions">
-              <template v-if="isBuiltinWorkflow(item)"
-                ><ui-button size="small" type="primary" plain @click="viewAgent(item)">查看</ui-button></template
-              ><template v-else
-                ><ui-button v-permission="'PUT /api/v1/ai/workflows/:id'" size="small" @click="editAgent(item)">编辑</ui-button
-                ><ui-button v-permission="'PUT /api/v1/ai/workflows/:id'" size="small" @click="toggleWorkflow(item)">{{
-                  item.enabled === false ? '启用' : '禁用'
-                }}</ui-button
-                ><ui-button v-permission="'DELETE /api/v1/ai/workflows/:id'" size="small" type="danger" plain @click="deleteWorkflow(item)"
-                  >删除</ui-button
-                ></template
-              >
-            </div>
-          </div>
-        </div>
-        <div v-if="workflowManageTotal" class="list-pagination">
-          <ui-pagination
-            v-model:current-page="workflowManagePage"
-            v-model:page-size="workflowManagePageSize"
-            :total="workflowManageTotal"
-            :page-sizes="[20, 50, 100]"
-            layout="total, sizes, prev, pager, next, jumper"
-            @current-change="changeWorkflowManagePage"
-            @size-change="changeWorkflowManagePageSize"
-          />
-        </div>
-      </div>
-    </section>
-  </ui-drawer>
-  <ui-dialog
-    v-model="agentEditorVisible"
-    :title="editingAgentId ? '编辑智能体' : '新建智能体'"
-    width="min(820px, 94vw)"
-    class="agent-editor-dialog"
-    append-to-body
-    destroy-on-close
-  >
-    <ui-alert
-      title="结构化数据标准不支持注释。内置智能体仅可查看，动态智能体可在管理清单中编辑、启用或删除。"
-      type="info"
-      :closable="false"
-      show-icon
-    />
-    <ui-form class="drawer-form" label-position="top" :disabled="!isAdmin || creatingAgent">
-      <ui-form-item label="智能体配置清单"
-        ><ui-input
-          ref="agentEditorRef"
-          v-model="agentJson"
-          class="agent-json-editor"
-          type="textarea"
-          :rows="18"
-          resize="vertical"
-          spellcheck="false"
-      /></ui-form-item>
-      <div class="manifest-guide">
-        <div class="manifest-guide-title">
-          <div><strong>字段说明</strong><small>所有字段均为必填，请参考下方说明填写。</small></div>
-          <ui-tag size="small" effect="plain">11 个字段</ui-tag>
-        </div>
-        <div class="manifest-field-list">
-          <div v-for="field in agentFieldDocs" :key="field.name" class="manifest-field">
-            <code>{{ field.name }}</code
-            ><span>{{ field.type }}</span>
-            <p>{{ field.note }}</p>
-          </div>
-        </div>
-        <div class="tool-whitelist">
-          <strong>允许使用的工具</strong>
-          <div>
-            <span v-for="tool in agentToolDocs" :key="tool.name"
-              ><code>{{ tool.name }}</code
-              ><small>{{ tool.label }}</small></span
-            >
-          </div>
-        </div>
-      </div>
-      <ui-alert
-        title="只允许受控查询工具与“仅生成、不保存”的规则草稿工具；内置智能体不能覆盖，智能体不能直接启用规则。"
-        type="info"
-        :closable="false"
-        show-icon
-      />
-    </ui-form>
-    <template #footer
-      ><ui-button @click="cancelAgentEditor">取消</ui-button
-      ><ui-button
-        v-permission="['POST /api/v1/ai/workflows', 'PUT /api/v1/ai/workflows/:id']"
-        type="primary"
-        :loading="creatingAgent"
-        @click="saveAgent"
-        >{{ editingAgentId ? '校验并保存修改' : '校验并创建智能体' }}</ui-button
-      ></template
-    >
-  </ui-dialog>
-  <ui-dialog v-model="agentPreviewVisible" title="查看内置智能体配置清单（只读）" width="min(760px, 92vw)" append-to-body>
-    <ui-alert title="内置智能体仅供查看，不能编辑、启用/禁用或删除。" type="info" :closable="false" show-icon />
-    <div v-if="agentPreview" class="agent-preview-summary">
-      <div>
-        <strong>{{ workflowName(agentPreview) }}</strong
-        ><ui-tag size="small" effect="plain">内置只读</ui-tag>
-      </div>
-      <small
-        >{{ workflowKey(agentPreview) }} · {{ agentPreview.version ? `v${agentPreview.version}` : '无版本' }} ·
-        {{ agentPreview.defaultModel || '未设置模型' }}</small
-      >
-      <p>{{ agentPreview.description || '未填写插件说明' }}</p>
-    </div>
-    <pre class="agent-manifest-preview">{{ agentPreviewJson }}</pre>
-    <template #footer><ui-button @click="agentPreviewVisible = false">关闭</ui-button></template>
-  </ui-dialog>
   <HarnessTraceDrawer v-model="traceVisible" :run="selectedRun" />
   <OpsReportDialog v-model="reportVisible" />
 </template>

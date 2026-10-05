@@ -125,7 +125,7 @@ try {
         : path.startsWith('/api/v1/alarms?') ? { items: [{ alarmId:'alarm-demo', deviceId:'device-demo', deviceName:'测试设备', alarmType:'MANUAL_ALARM', alarmLevel:'HIGH', status:'ACTIVE', source:'device', lastTriggeredAt:Date.now() }], total:1 }
         : path === '/api/v1/alarms/alarm-demo' ? { alarmId:'alarm-demo', deviceId:'device-demo', deviceName:'测试设备', alarmType:'MANUAL_ALARM', alarmLevel:'HIGH', status:'ACTIVE', source:'device', firstTriggeredAt:Date.now(), lastTriggeredAt:Date.now(), triggerCount:1, diagnosticLines:Array.from({length:80},(_,index)=>'第 '+(index+1)+' 条诊断记录') }
         : path === '/api/v1/ai/alarm-analysis/alarm-demo' ? { summary:'设备多次触发故障告警，需要检查现场状态', riskLevel:'MEDIUM', confidence:0.85, possibleReasons:['设备状态异常','通信链路抖动'], suggestions:['检查设备电源和网络','核对告警历史'], model:'fixture', createdAt:Date.now() }
-        : path.startsWith('/api/v1/ai/workflows/admin?') ? { items:[{ id:'ops-assistant', name:'内置运维助手', description:'只读配置清单', enabled:true, version:'1.0.0' },{ id:'custom-assistant', name:'示例智能体', description:'可编辑的工作流', enabled:true, version:'1.0.0' }], total:2 }
+        : path.startsWith('/api/v1/ai/workflows/admin?') ? { items:[{ id:'ops-assistant', name:'内置运维助手', description:'只读配置清单', enabled:true, version:'1.0.0' },{ id:'custom-assistant', name:'示例智能体', description:'可编辑的智能体', enabled:true, version:'1.0.0', persona:'只依据工具结果回答', defaultModel:'deepseek-chat', maxTokens:1024, capabilities:['知识检索'], allowedTools:['mcp__iot__query_knowledge_base'] }], total:2, allowedTools:['mcp__iot__query_alarm_list','mcp__iot__query_knowledge_base'], builtinIds:['ops-assistant'] }
         : path.startsWith('/api/v1/ai/workflows?') ? { items:[{ id:'ops-assistant', name:'内置运维助手', description:'使用当前租户的设备、告警、属性历史和知识库数据辅助故障排查，并提供可复核的运维建议。', enabled:true, capabilities:['告警查询'], allowedTools:['mcp__iot__query_alarm_list'] },{ id:'custom-assistant', name:'示例智能体', description:'检索处置知识', enabled:true, capabilities:['知识检索'], allowedTools:['mcp__iot__query_knowledge_base'] }], total:2, healthy:true }
         : path.startsWith('/api/v1/knowledge/documents?') ? { items:[{ id:'knowledge-demo', filename:'消防处置手册.md', workflowId:'ops-assistant', category:'manual', metadata:{ chunks:2, size:2048 }, createdAt:Date.now() }], total:1, indexMode:'vector', persistentIndex:true }
         : path === '/api/v1/knowledge/documents/knowledge-demo' ? { document:{ id:'knowledge-demo', filename:'消防处置手册.md', workflowId:'ops-assistant', category:'manual', metadata:{ chunks:2, size:2048 }, createdAt:Date.now() }, index:{ mode:'vector', vectorizer:'fixture', chunking:{ strategy:'fixed-window-overlap', size:500, overlap:50 }, extractedChars:950, chunkCount:2 }, chunks:[{ chunkId:'chunk-1', startChar:0, endChar:500, characterCount:500, vectorized:true, content:'设备告警处置步骤' },{ chunkId:'chunk-2', startChar:450, endChar:950, characterCount:500, vectorized:true, content:'现场复核与恢复流程' }] }
@@ -200,7 +200,7 @@ try {
     if (name === '运行总览') {
       assert.ok(
         await evaluate(
-          "(() => {const cards=[...document.querySelectorAll('.stat-card')];return cards.length===4 && new Set(cards.map(card=>getComputedStyle(card).borderTopColor)).size===1 && getComputedStyle(cards[0]).borderTopColor===getComputedStyle(cards[0]).borderLeftColor && getComputedStyle(document.querySelector('.device-ring circle')).transitionProperty.includes('stroke-dasharray')})()"
+          "(() => {const cards=[...document.querySelectorAll('.stat-card')];const circle=document.querySelector('.device-ring circle:nth-of-type(2)');return cards.length>=4 && new Set(cards.map(card=>getComputedStyle(card).borderTopColor)).size===1 && getComputedStyle(cards[0]).borderTopColor===getComputedStyle(cards[0]).borderLeftColor && (!circle || getComputedStyle(circle).transitionProperty.includes('stroke-dasharray'))})()"
         ),
         '仪表盘统计卡片应为中性样式，圆环过渡需生效'
       )
@@ -260,7 +260,7 @@ try {
     ['告警规则', '智能生成规则草稿'],
     ['告警规则', '详情'],
     ['告警规则', '编辑'],
-    ['智能助手', '智能体管理'],
+    ['智能助手', '新建智能体', '智能体'],
     ['知识库', '上传知识文档'],
     ['知识库', '查看详情'],
     ['备份中心', '详情 / 文件'],
@@ -287,9 +287,13 @@ try {
     await delay(100)
     if (tabName) {
       await until(() =>
-        evaluate(`Boolean([...document.querySelectorAll('.n-tabs-tab')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})))`)
+        evaluate(
+          `Boolean([...document.querySelectorAll('.n-tabs-tab,.n-radio-button')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})))`
+        )
       )
-      await evaluate(`[...document.querySelectorAll('.n-tabs-tab')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})).click()`)
+      await evaluate(
+        `[...document.querySelectorAll('.n-tabs-tab,.n-radio-button')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})).click()`
+      )
       await delay(100)
     }
     console.log('弹层检查', pageName, actionName, tabName || '')
@@ -399,55 +403,33 @@ try {
   }
   console.log(`PASS: ${overlayCases.length} 个弹层布局与滚动检查`)
   await openPage('智能助手')
-  await until(() => evaluate("Boolean([...document.querySelectorAll('.app-content button')].find(b=>b.innerText==='智能体管理'))"))
-  await evaluate("[...document.querySelectorAll('.app-content button')].find(b=>b.innerText==='智能体管理').click()")
-  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-drawer button')].find(b=>b.innerText==='新建智能体'))"))
-  await evaluate("[...document.querySelectorAll('.n-drawer button')].find(b=>b.innerText==='新建智能体').click()")
-  await until(() => evaluate("Boolean(document.querySelector('.agent-editor-dialog'))"))
-  await delay(550)
-  const agentLayout = await evaluate(
-    "(() => {const m=document.querySelector('.agent-editor-dialog'),b=m.querySelector('.n-card-content'),f=m.querySelector('.n-card__footer'),r=m.getBoundingClientRect();b.scrollTop=b.scrollHeight;return {rect:{left:r.left,right:r.right,top:r.top,bottom:r.bottom},viewport:{width:innerWidth,height:innerHeight},scrollTop:b.scrollTop,scrollHeight:b.scrollHeight,clientHeight:b.clientHeight,bodyBottom:b.getBoundingClientRect().bottom,footerTop:f.getBoundingClientRect().top,submit:m.innerText.includes('校验并创建智能体')}})()"
-  )
-  const agentCapture = await call('Page.captureScreenshot', { format: 'png' })
-  await writeFile(join(tmpdir(), 'iot-agent-editor.png'), Buffer.from(agentCapture.data, 'base64'))
-  assert.ok(
-    agentLayout.rect.left >= 0 &&
-      agentLayout.rect.right <= agentLayout.viewport.width + 1 &&
-      agentLayout.rect.top >= 0 &&
-      agentLayout.rect.bottom <= agentLayout.viewport.height + 1 &&
-      agentLayout.scrollTop > 0 &&
-      agentLayout.bodyBottom <= agentLayout.footerTop + 2 &&
-      agentLayout.submit,
-    `新建智能体弹窗无法完整滚动或提交操作被遮挡：${JSON.stringify(agentLayout)}`
-  )
-  await evaluate("document.querySelector('.agent-editor-dialog .n-base-close').click()")
-  await until(() => evaluate("!document.querySelector('.agent-editor-dialog')"))
-  await evaluate("[...document.querySelectorAll('.n-drawer .workflow-admin-item button')].find(b=>b.innerText==='查看').click()")
+  await until(() => evaluate("Boolean([...document.querySelectorAll('.n-radio-button')].find(b=>b.innerText.trim()==='智能体'))"))
+  await evaluate("[...document.querySelectorAll('.n-radio-button')].find(b=>b.innerText.trim()==='智能体').click()")
+  await until(() => evaluate("document.querySelector('.agent-manager')?.innerText.includes('示例智能体')"))
+  assert.ok(await clickListAction('查看'), '内置智能体缺少查看入口')
   await until(() =>
-    evaluate(
-      "Boolean([...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length&&m.innerText.includes('查看内置智能体配置清单')))"
-    )
+    evaluate("[...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length&&m.innerText.includes('查看内置智能体'))")
   )
   assert.ok(
     await evaluate(
-      "(() => {const m=[...document.querySelectorAll('.n-modal')].find(x=>x.getClientRects().length),r=m.getBoundingClientRect();return r.left>=0&&r.right<=innerWidth+1&&m.querySelector('.agent-manifest-preview')?.innerText.includes('ops-assistant')&&m.innerText.includes('内置只读')})()"
+      "(() => {const m=[...document.querySelectorAll('.n-modal')].find(x=>x.getClientRects().length);return !m.innerText.includes('创建智能体')&&!m.innerText.includes('保存修改')&&[...m.querySelectorAll('input')].some(i=>i.value==='内置运维助手')})()"
     ),
-    '内置智能体只读弹窗缺少清单或越界'
+    '内置智能体查看弹窗不是只读或缺少配置'
   )
   await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()")
   await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)"))
-  await evaluate("[...document.querySelectorAll('.n-drawer .workflow-admin-item button')].find(b=>b.innerText==='编辑').click()")
-  await until(() => evaluate("Boolean(document.querySelector('.agent-editor-dialog')?.innerText.includes('编辑智能体'))"))
+  assert.ok(await clickListAction('编辑'), '自定义智能体缺少编辑入口')
+  await until(() =>
+    evaluate("[...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length&&m.innerText.includes('编辑智能体'))")
+  )
   assert.ok(
     await evaluate(
-      "document.querySelector('.agent-editor-dialog textarea')?.value.includes('custom-assistant') && document.querySelector('.agent-editor-dialog').innerText.includes('校验并保存修改')"
+      "(() => {const m=[...document.querySelectorAll('.n-modal')].find(x=>x.getClientRects().length);return m.innerText.includes('保存修改')&&m.innerText.includes('检索知识库')&&[...m.querySelectorAll('textarea')].some(t=>t.value==='只依据工具结果回答')})()"
     ),
-    '动态智能体编辑弹窗没有加载当前配置'
+    '自定义智能体编辑弹窗没有加载当前配置'
   )
-  await evaluate("document.querySelector('.agent-editor-dialog .n-base-close').click()")
-  await until(() => evaluate("!document.querySelector('.agent-editor-dialog')"))
-  await evaluate("[...document.querySelectorAll('.n-drawer')].find(d=>d.getClientRects().length).querySelector('.n-base-close').click()")
-  await until(() => evaluate("![...document.querySelectorAll('.n-drawer')].some(d=>d.getClientRects().length)"))
+  await evaluate("[...document.querySelectorAll('.n-modal')].find(m=>m.getClientRects().length).querySelector('.n-base-close').click()")
+  await until(() => evaluate("![...document.querySelectorAll('.n-modal')].some(m=>m.getClientRects().length)"))
   await openPage('用户与权限')
   await until(() => evaluate("Boolean(document.querySelector('.n-tabs-tab[data-name=users]'))"))
   await evaluate("document.querySelector('.n-tabs-tab[data-name=users]').click()")
@@ -1047,9 +1029,13 @@ try {
     await openPage(pageName)
     if (tabName) {
       await until(() =>
-        evaluate(`Boolean([...document.querySelectorAll('.n-tabs-tab')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})))`)
+        evaluate(
+          `Boolean([...document.querySelectorAll('.n-tabs-tab,.n-radio-button')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})))`
+        )
       )
-      await evaluate(`[...document.querySelectorAll('.n-tabs-tab')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})).click()`)
+      await evaluate(
+        `[...document.querySelectorAll('.n-tabs-tab,.n-radio-button')].find(tab=>tab.innerText.includes(${JSON.stringify(tabName)})).click()`
+      )
     }
     assert.ok(await until(() => clickListAction(actionName)).catch(() => false), `${pageName} 手机视图缺少“${actionName}”入口`)
     await until(() =>

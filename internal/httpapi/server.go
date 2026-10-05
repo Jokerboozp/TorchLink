@@ -1819,7 +1819,7 @@ func (s *Server) aiWorkflows(w http.ResponseWriter, r *http.Request) {
 		if s.log != nil {
 			s.log.Warn("list AI workflows failed", "error", err)
 		}
-		writeList(w, 200, []ports.AIWorkflowPlugin{}, 0, pagination, map[string]any{"configured": true, "mode": "harness", "healthy": false, "healthMessage": "AI workflow harness is unavailable"})
+		writeList(w, 200, []ports.AIWorkflowPlugin{}, 0, pagination, map[string]any{"configured": true, "mode": "harness", "healthy": false, "healthMessage": "AI 工作流服务（Harness）无法连接"})
 		return
 	}
 	if forKnowledge {
@@ -1828,7 +1828,7 @@ func (s *Server) aiWorkflows(w http.ResponseWriter, r *http.Request) {
 		items = chatWorkflowPlugins(items)
 	}
 	items, total := pageItems(items, pagination)
-	writeList(w, 200, items, total, pagination, map[string]any{"configured": true, "mode": "harness", "healthy": true, "healthMessage": "AI workflow harness is reachable"})
+	writeList(w, 200, items, total, pagination, map[string]any{"configured": true, "mode": "harness", "healthy": true, "healthMessage": "AI 工作流服务连接正常"})
 }
 
 func alarmAnalysisWorkflowPlugin() ports.AIWorkflowPlugin {
@@ -1859,7 +1859,7 @@ func (s *Server) aiWorkflowManifests(w http.ResponseWriter, r *http.Request) {
 		if s.log != nil {
 			s.log.Warn("list AI workflow manifests failed", "error", err)
 		}
-		problem(w, http.StatusBadGateway, "AI workflow harness plugin catalog is unavailable")
+		problem(w, http.StatusBadGateway, "AI 工作流服务（Harness）无法读取智能体清单")
 		return
 	}
 	items = chatWorkflowManifests(items)
@@ -1868,7 +1868,9 @@ func (s *Server) aiWorkflowManifests(w http.ResponseWriter, r *http.Request) {
 		"configured":    true,
 		"mode":          "harness",
 		"healthy":       true,
-		"healthMessage": "AI workflow harness plugin catalog is reachable",
+		"healthMessage": "AI 工作流服务连接正常",
+		"allowedTools":  dynamicAgentTools,
+		"builtinIds":    ports.BuiltinAIWorkflowIDs,
 	})
 }
 
@@ -1925,7 +1927,7 @@ func (s *Server) updateAIWorkflow(w http.ResponseWriter, r *http.Request) {
 			if s.log != nil {
 				s.log.Warn("check AI workflow before update failed", "workflow", manifest.ID, "error", err)
 			}
-			problem(w, http.StatusBadGateway, "AI workflow harness plugin catalog is unavailable")
+			problem(w, http.StatusBadGateway, "AI 工作流服务（Harness）无法读取智能体清单")
 			return
 		}
 		found := false
@@ -2000,6 +2002,13 @@ func (s *Server) recordAIWorkflowChange(ctx context.Context, change ports.Stored
 	return nil
 }
 
+// dynamicAgentTools is the read-only tool whitelist for administrator-defined
+// chat Agents; the Agent editor offers exactly these.
+var dynamicAgentTools = []string{
+	"mcp__iot__query_system_overview", "mcp__iot__query_device_latest", "mcp__iot__query_alarm_list", "mcp__iot__query_alarm_detail",
+	"mcp__iot__query_property_history", "mcp__iot__query_similar_alarms", "mcp__iot__query_knowledge_base", "mcp__iot__create_rule_draft",
+}
+
 func validateAIWorkflowManifest(manifest ports.AIWorkflowManifest) error {
 	if manifest.SchemaVersion != 1 || !validWorkflowIdentifier(manifest.ID) {
 		return errors.New("schemaVersion must be 1 and id must contain only letters, numbers, dot, underscore, colon or hyphen")
@@ -2013,10 +2022,9 @@ func validateAIWorkflowManifest(manifest ports.AIWorkflowManifest) error {
 	if manifest.MaxTokens < 1 || manifest.MaxTokens > 8192 || len(manifest.Capabilities) < 1 || len(manifest.Capabilities) > 32 || len(manifest.AllowedTools) < 1 || len(manifest.AllowedTools) > 6 {
 		return errors.New("maxTokens must be 1..8192 and capabilities/allowedTools must be non-empty")
 	}
-	allowed := map[string]struct{}{
-		"mcp__iot__query_system_overview": {}, "mcp__iot__query_device_latest": {}, "mcp__iot__query_alarm_list": {}, "mcp__iot__query_alarm_detail": {},
-		"mcp__iot__query_property_history": {}, "mcp__iot__query_similar_alarms": {}, "mcp__iot__query_knowledge_base": {},
-		"mcp__iot__create_rule_draft": {},
+	allowed := map[string]struct{}{}
+	for _, tool := range dynamicAgentTools {
+		allowed[tool] = struct{}{}
 	}
 	seen := map[string]struct{}{}
 	capabilities := map[string]struct{}{}
