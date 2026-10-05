@@ -164,6 +164,8 @@ type app struct {
 	clickHouseRaw     ports.RawMessageDatabase
 	limits            *ratelimit.Cluster
 	archive           ports.Archive
+	// cacheHealth reports the optional Redis cache for readiness.
+	cacheHealth func(context.Context) error
 
 	bus           ports.EventBus
 	kafkaBus      *kafkaadapter.Bus
@@ -249,7 +251,9 @@ func (a *app) openStorage() {
 	var sharedLimits ratelimit.Limiter
 	if cfg.RedisAddr != "" || (cfg.RedisMasterName != "" && len(cfg.RedisSentinels) > 0) {
 		redisClient := redisadapter.NewClient(redisadapter.Options{Addr: cfg.RedisAddr, Password: cfg.RedisPassword, MasterName: cfg.RedisMasterName, Sentinels: cfg.RedisSentinels})
-		a.repo = redisadapter.New(a.repo, redisClient)
+		cache := redisadapter.New(a.repo, redisClient)
+		a.cacheHealth = cache.CacheHealth
+		a.repo = cache
 		sharedLimits = redisadapter.NewRateLimiter(redisClient)
 		log.Info("hot state cache enabled", "adapter", "redis")
 	}
@@ -587,6 +591,9 @@ func (a *app) startAPI() {
 	}
 	cfg := a.cfg
 	a.api = httpapi.New(cfg, a.engine, a.registry, log)
+	if a.cacheHealth != nil {
+		a.api.SetOptionalHealth("cache", a.cacheHealth)
+	}
 	if cfg.Notify.Enabled && (cfg.Runs(config.ComponentManagement) || cfg.Runs(config.ComponentJobs)) {
 		var store notify.Store = notify.NewMemoryStore()
 		if a.postgresRepo != nil {

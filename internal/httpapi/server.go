@@ -92,6 +92,8 @@ type Server struct {
 	// reconciliation of API replicas and Harness instances.
 	aiSync          sync.Locker
 	aiManifestStore ports.AIWorkflowManifestStore
+	// optionalHealth lists dependencies that degrade but never fail readiness.
+	optionalHealth map[string]func(context.Context) error
 }
 
 func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.Logger) *Server {
@@ -234,34 +236,79 @@ func (s *Server) reissueToken(c auth.Claims, ttl time.Duration) (string, error) 
 	}
 	return s.auth.IssueWithVersion(c.Username, c.TenantID, c.Role, c.SessionVersion, ttl)
 }
+
+// readinessTimeout bounds each dependency check; checks run concurrently so
+// one slow dependency cannot make the others look unavailable.
+const readinessTimeout = 3 * time.Second
+
+// SetOptionalHealth registers a dependency whose failure degrades the
+// platform but must not take the instance out of a load balancer, such as
+// the Redis cache.
+func (s *Server) SetOptionalHealth(name string, check func(context.Context) error) {
+	if s.optionalHealth == nil {
+		s.optionalHealth = map[string]func(context.Context) error{}
+	}
+	s.optionalHealth[name] = check
+}
+
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer cancel()
-	checks := map[string]string{}
-	status := 200
 	// Each role is ready when the dependencies of its own components are.
-	checksToRun := map[string]func(context.Context) error{"repository": s.engine.Repo.Health, "eventBus": s.engine.Bus.Health, "realtime": s.engine.Realtime.Health}
+	required := map[string]func(context.Context) error{"repository": s.engine.Repo.Health, "eventBus": s.engine.Bus.Health, "realtime": s.engine.Realtime.Health}
 	if s.cfg.Runs(config.ComponentAccess) || s.cfg.Runs(config.ComponentParser) || s.cfg.Runs(config.ComponentManagement) {
-		checksToRun["archive"] = s.engine.Archive.Health
+		required["archive"] = s.engine.Archive.Health
 	}
 	if s.engine.KB != nil && s.cfg.Runs(config.ComponentManagement) {
-		checksToRun["knowledge"] = s.engine.KB.Health
+		required["knowledge"] = s.engine.KB.Health
 	}
-	for name, check := range checksToRun {
-		if err := check(ctx); err != nil {
+	type result struct {
+		name     string
+		optional bool
+		err      error
+		took     time.Duration
+	}
+	results := make(chan result, len(required)+len(s.optionalHealth))
+	run := func(name string, optional bool, check func(context.Context) error) {
+		ctx, cancel := context.WithTimeout(r.Context(), readinessTimeout)
+		defer cancel()
+		start := time.Now()
+		err := check(ctx)
+		results <- result{name: name, optional: optional, err: err, took: time.Since(start)}
+	}
+	for name, check := range required {
+		go run(name, false, check)
+	}
+	for name, check := range s.optionalHealth {
+		go run(name, true, check)
+	}
+	checks := map[string]string{}
+	durations := map[string]int64{}
+	status, degraded := http.StatusOK, false
+	for range len(required) + len(s.optionalHealth) {
+		res := <-results
+		durations[res.name] = res.took.Milliseconds()
+		ok := 1.0
+		switch {
+		case res.err == nil:
+			checks[res.name] = "ok"
+		case res.optional:
 			// The probe is unauthenticated: report which dependency failed, not why.
-			s.log.Warn("readiness check failed", "dependency", name, "error", err)
-			checks[name] = "unavailable"
-			status = 503
-		} else {
-			checks[name] = "ok"
+			s.log.Warn("optional readiness check failed", "dependency", res.name, "error", res.err)
+			checks[res.name] = "degraded"
+			degraded, ok = true, 0
+		default:
+			s.log.Warn("readiness check failed", "dependency", res.name, "error", res.err)
+			checks[res.name] = "unavailable"
+			status, degraded, ok = http.StatusServiceUnavailable, true, 0
+		}
+		if s.metrics != nil {
+			s.metrics.Set(metrics.Series("readiness_ok", "dependency", res.name), ok)
 		}
 	}
 	role := s.cfg.ProcessRole
 	if role == "" {
 		role = config.RoleCombined
 	}
-	write(w, status, map[string]any{"status": map[bool]string{true: "ok", false: "degraded"}[status == 200], "checks": checks, "role": role, "instance": s.cfg.InstanceID})
+	write(w, status, map[string]any{"status": map[bool]string{false: "ok", true: "degraded"}[degraded], "checks": checks, "durationsMs": durations, "role": role, "instance": s.cfg.InstanceID})
 }
 func (s *Server) products(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)

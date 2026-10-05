@@ -26,6 +26,7 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
+	"iot-platform/internal/ports"
 )
 
 func TestAIProviderURLFormat(t *testing.T) {
@@ -625,4 +626,67 @@ func serve(server *Server, r *http.Request) *httptest.ResponseRecorder {
 	w := httptest.NewRecorder()
 	server.Handler().ServeHTTP(w, r)
 	return w
+}
+
+type healthRepository struct {
+	*memory.Repository
+	err  error
+	slow bool
+}
+
+func (r healthRepository) Health(ctx context.Context) error {
+	if r.slow {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return r.err
+}
+
+type slowBus struct{ ports.EventBus }
+
+func (slowBus) Health(ctx context.Context) error { <-ctx.Done(); return ctx.Err() }
+
+// Readiness fails only for required dependencies; an optional cache outage
+// is reported as degraded with 200, and one slow check does not turn the
+// others into failures because every check has its own timeout.
+func TestReadinessSeparatesOptionalDependenciesAndSlowChecks(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	type readiness struct {
+		Status string            `json:"status"`
+		Checks map[string]string `json:"checks"`
+	}
+	probe := func(repo ports.Repository, bus ports.EventBus, cache func(context.Context) error) (int, readiness) {
+		t.Helper()
+		engine := core.New(repo, archive, bus, local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), log)
+		registry := metrics.New()
+		server := New(config.Config{DevMode: true}, engine, registry, log)
+		if cache != nil {
+			server.SetOptionalHealth("cache", cache)
+		}
+		w := serve(server, httptest.NewRequest("GET", "/health/ready", nil))
+		var got readiness
+		if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+			t.Fatal(err, w.Body.String())
+		}
+		return w.Code, got
+	}
+	cacheDown := func(context.Context) error { return errors.New("redis down") }
+	if code, got := probe(healthRepository{Repository: memory.NewRepository()}, local.NewBus(), cacheDown); code != 200 || got.Status != "degraded" || got.Checks["cache"] != "degraded" || got.Checks["repository"] != "ok" {
+		t.Fatalf("cache outage must degrade without failing readiness: %d %#v", code, got)
+	}
+	if code, got := probe(healthRepository{Repository: memory.NewRepository(), err: errors.New("postgres down")}, local.NewBus(), nil); code != 503 || got.Checks["repository"] != "unavailable" {
+		t.Fatalf("repository outage must fail readiness: %d %#v", code, got)
+	}
+	start := time.Now()
+	code, got := probe(healthRepository{Repository: memory.NewRepository()}, slowBus{local.NewBus()}, nil)
+	if code != 503 || got.Checks["eventBus"] != "unavailable" || got.Checks["repository"] != "ok" || got.Checks["realtime"] != "ok" {
+		t.Fatalf("a slow check must fail alone: %d %#v", code, got)
+	}
+	if elapsed := time.Since(start); elapsed > readinessTimeout+2*time.Second {
+		t.Fatalf("checks did not run concurrently: %s", elapsed)
+	}
 }

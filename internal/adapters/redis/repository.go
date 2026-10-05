@@ -213,10 +213,13 @@ func (r *Repository) GetDeviceState(ctx context.Context, tenant, device string) 
 	}
 	return r.Repository.GetDeviceState(ctx, tenant, device)
 }
-func (r *Repository) Health(ctx context.Context) error {
-	if err := r.Repository.Health(ctx); err != nil {
-		return err
-	}
-	return r.client.Ping(ctx).Err()
-}
-func (r *Repository) Close() error { return errors.Join(r.Repository.Close(), r.client.Close()) }
+
+// Health reports the wrapped store only. Redis holds a hot-state cache and
+// shared rate budgets; reads fall back to the store and budgets to per-process
+// shares, so a Redis outage degrades the platform without making it unready.
+// CacheHealth reports Redis itself.
+func (r *Repository) Health(ctx context.Context) error { return r.Repository.Health(ctx) }
+
+// CacheHealth pings Redis.
+func (r *Repository) CacheHealth(ctx context.Context) error { return r.client.Ping(ctx).Err() }
+func (r *Repository) Close() error                          { return errors.Join(r.Repository.Close(), r.client.Close()) }
