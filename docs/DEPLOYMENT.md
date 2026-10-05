@@ -414,6 +414,8 @@ docker compose -p iot-platform-local --env-file .env.local -f compose.local.yaml
 docker compose -p iot-platform-local --env-file .env.local -f compose.local.yaml down
 ```
 
+单机在线与离线部署的长驻容器使用 json-file 日志并轮转，默认每个容器 `IOT_CONTAINER_LOG_MAX_SIZE=50m` × `IOT_CONTAINER_LOG_MAX_FILE=5`，在环境文件中修改后重新部署生效；更早的标准输出以 Loki 保留为准。
+
 源码备份服务的日志在 VS Code 的 `Backup Service` 调试终端；临时容器版则在上述命令前加 `--profile backup`，例如 `docker compose -p iot-platform-local --env-file .env.local -f compose.local.yaml --profile backup logs -f backup-service`。
 
 在线部署：

@@ -9,6 +9,12 @@ name: iot-platform
 x-service-defaults: &service-defaults
   restart: unless-stopped
   networks: [iot]
+  # Rotate container stdout so it cannot fill the disk; Alloy forwards it to Loki.
+  logging: &container-logging
+    driver: json-file
+    options:
+      max-size: ${IOT_CONTAINER_LOG_MAX_SIZE:-50m}
+      max-file: "${IOT_CONTAINER_LOG_MAX_FILE:-5}"
 
 services:
   platform-api:
@@ -187,6 +193,7 @@ services:
   protocol-runner:
     image: ${IOT_PLATFORM_API_IMAGE:-iot-platform-api:local}
     restart: unless-stopped
+    logging: *container-logging
     network_mode: none
     read_only: true
     cap_drop: [ALL]
