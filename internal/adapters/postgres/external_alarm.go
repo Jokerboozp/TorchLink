@@ -3,8 +3,11 @@ package postgres
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	"iot-platform/internal/model"
 )
@@ -26,14 +29,21 @@ func (r *Repository) UpsertExternalAlarm(ctx context.Context, report model.Alarm
 	}
 	// The unique identity serializes first reports too, when no row exists to
 	// lock yet. A contender waits for the insertion transaction before reading.
-	tag, err := tx.Exec(ctx, `INSERT INTO alarm_record(tenant_id,id,rule_id,device_id,status,level,source,last_triggered_at,body,version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT (tenant_id,id) DO NOTHING`, saved.TenantID, saved.ID, saved.RuleID, saved.DeviceID, saved.Status, saved.AlarmLevel, saved.Source, saved.LastTriggeredAt, body, saved.Version)
+	// No conflict target: the active (tenant, device, rule) index must be an
+	// arbiter too, or a contender racing the first insert fails on it instead
+	// of waiting.
+	tag, err := tx.Exec(ctx, `INSERT INTO alarm_record(tenant_id,id,rule_id,device_id,status,level,source,last_triggered_at,body,version) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING`, saved.TenantID, saved.ID, saved.RuleID, saved.DeviceID, saved.Status, saved.AlarmLevel, saved.Source, saved.LastTriggeredAt, body, saved.Version)
 	if err != nil {
 		return report, false, false, err
 	}
 	created := tag.RowsAffected() == 1
 	if !created {
 		var version int64
-		if err = tx.QueryRow(ctx, `SELECT body,version FROM alarm_record WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, report.TenantID, report.ID).Scan(&body, &version); err != nil {
+		err = tx.QueryRow(ctx, `SELECT body,version FROM alarm_record WHERE tenant_id=$1 AND id=$2 FOR UPDATE`, report.TenantID, report.ID).Scan(&body, &version)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return report, false, false, fmt.Errorf("%w: another active alarm already holds this device and rule", model.ErrInvalidIngress)
+		}
+		if err != nil {
 			return report, false, false, err
 		}
 		saved = model.Alarm{}

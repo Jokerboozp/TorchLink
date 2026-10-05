@@ -108,6 +108,8 @@ func TestKnowledgeRuntimePostgresHTTPJobsRecoveryAndModelSwitch(t *testing.T) {
 		state.batches = append(state.batches, len(request.Input))
 		state.mu.Unlock()
 		if failed {
+			// Keep the client's retries within the test deadline.
+			w.Header().Set("Retry-After", "1")
 			http.Error(w, "simulated upstream failure", http.StatusServiceUnavailable)
 			return
 		}
@@ -238,19 +240,31 @@ func TestKnowledgeRuntimePostgresHTTPJobsRecoveryAndModelSwitch(t *testing.T) {
 	if err = runtime.processDocument(ctx); err != nil {
 		t.Fatal(err)
 	}
-	failed := assertStatus(failedDoc.ID, "INDEX_FAILED")
-	if failed.Metadata["indexError"] == nil {
-		t.Fatal("embedding API failure was not persisted")
+	// An unreachable vector service queues the document for a later retry.
+	waiting := assertStatus(failedDoc.ID, "UPLOADED")
+	if waiting.Metadata["indexStage"] != "retry_wait" || waiting.Metadata["indexError"] == nil || metadataInt(waiting.Metadata["indexAttempts"]) != 1 || waiting.Metadata["indexRetryAt"] == nil {
+		t.Fatalf("transient embedding failure was not queued for retry: %#v", waiting.Metadata)
 	}
+	if err = runtime.processDocument(ctx); err != nil {
+		t.Fatal(err)
+	}
+	waiting = assertStatus(failedDoc.ID, "UPLOADED")
+	if metadataInt(waiting.Metadata["indexAttempts"]) != 1 {
+		t.Fatal("document was retried before its retry time")
+	}
+	// The retry runs once it is due; using up the retries is unit tested.
 	state.setFailure("model-a", false)
-	failed.Status = "UPLOADED"
-	if err = repo.SaveKnowledgeDoc(ctx, failed); err != nil {
+	waiting.Metadata["indexRetryAt"] = time.Now().Add(-time.Second).UnixMilli()
+	if err = repo.SaveKnowledgeDoc(ctx, waiting); err != nil {
 		t.Fatal(err)
 	}
 	if err = runtime.processDocument(ctx); err != nil {
 		t.Fatal(err)
 	}
-	assertStatus(failed.ID, "INDEXED")
+	failed := assertStatus(failedDoc.ID, "INDEXED")
+	if failed.Metadata["indexError"] != nil || failed.Metadata["indexAttempts"] != nil || failed.Metadata["indexRetryAt"] != nil {
+		t.Fatalf("successful retry kept the failure state: %#v", failed.Metadata)
+	}
 	assertQueryable(runtime, failed.ID, true)
 
 	queued := putDocument("restart-queued", "UPLOADED", "烟雾告警重启队列恢复", map[string]any{})
