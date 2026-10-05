@@ -249,6 +249,7 @@ func (s *Server) products(w http.ResponseWriter, r *http.Request) {
 	}
 	writeList(w, 200, items, total, pagination, nil)
 }
+
 // productBindingCheck lists templates without a usable protocol; their raw
 // messages fail to parse unless they use the platform's standard format.
 func (s *Server) productBindingCheck(w http.ResponseWriter, r *http.Request) {

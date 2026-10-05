@@ -191,3 +191,29 @@ AI：httpapi → core.runBusinessWorkflow → 签发 MCP JWT(租户/用户/run/�
 - 未检查前端各页面对本方案中接口返回体变化（如 0.5 的工具返回、1.3 的核实字段）的适配量。
 - 未核对 `deploy/deepseek-harness` 上游 `dsh` 版本是否已在事件中暴露 usage；若无，0.3 需要在网关侧从 provider 响应中读取。
 - Harness 当前 `maxTokens` 上限与 DeepSeek 实际模型（`deepseek-flash`）的上下文窗口未逐项核对，1.2 的字节预算需以实际模型为准。
+
+## 7. 实施记录（2026-10-05）
+
+各条目已按阶段实现并推送到 `main`，验证环境为 OrbStack develop 虚拟机中的一次性 PostgreSQL 17 + pgvector 0.8.1、ClickHouse 25.7、Redis 7.4 容器（Mac 上执行 `go test`），未部署平台服务、未调用真实模型、未做浏览器与容量实测。
+
+| 条目 | 提交 | 与方案的差异 |
+| --- | --- | --- |
+| 0.1 规则编译缓存 | `ce542693` | 规则 `version` 保存时不递增，改以表达式文本为缓存键；共享 gengine 规则树，每条消息新建 DataContext |
+| 0.2 总览 / 巡检聚合 | `b71cc4d7` | 以 `DeviceOverviewCounts` / `AlarmOverviewCounts` 两个聚合代替单独的 `CountDeviceStatesByStatus` |
+| 0.3 AI 运行记录 | `a61136b6`、`83c235dc` | Harness 上游已在 `assistant/message` 事件中提供 usage，网关汇总后随终止事件返回；运行记录接口按受保护读取纳入权限目录 |
+| 0.4 输出校验 | `e9cce3c2` | — |
+| 0.5 MCP 工具瘦身 | `b788f932` | `query_alarm_detail` 只加入 alarm-handler 的内置工具清单，运维助手不变 |
+| 1.1 物模型进入链路 | `c54f5dc4` | 新增有效范围与高低阈值字段；越界只标记不拒收 |
+| 1.2 研判上下文 | `20a6a2bd` | 视频事件取自告警明细，不新增按摄像头查询；提示词版本升为 `alarm-analysis-v2` |
+| 1.3 研判与核实对齐 | `0e23ec46` | 一致率不计中风险，另给出漏判真实火警数 |
+| 1.4 设备健康信号 | `cb4596ef` | 迁移编号 0016；同型号离群用中位数 / MAD 修正 z 分数；配置 ClickHouse 时数值属性必须从 ClickHouse 统计（PostgreSQL 此时不存遥测属性） |
+| 1.5 离线参数 | `4909f9f8`、`9291aa04`、`9cd76cc3` | 未写一次性回填脚本：配置变更时由 `ApplyDeviceTiming` 回填已有状态，未配置的旧设备保持 300 / 60 |
+| 1.6 提示词集中 | `dfeb998a` | 正文逐字迁移；同时修正 harness-mock 的工作流 ID 与字段名 |
+| 2.1 Repository 拆分 | `5849f395` | Redis / ClickHouse / 设备范围装饰器仍嵌入完整 Repository（方法集不变），未按域收窄 |
+| 2.2 Engine 拆分 | `8128223c` | 业务工作流逻辑迁入 `internal/aiworkflow`；Harness 连接相关字段（`AIWorkflows`、`HarnessTokens`、`AIRuns`、`BusinessRunTimeout`、`KB`）仍挂在 Engine 上供聊天与工作流共用；巡检 PDF 与月报绘制留在 core |
+| 2.3 设备范围下推 | `abc13e6b` | 评审时多数列表已下推；本次补齐子设备分页、状态计数与整表设备列表，摄像头映射仍在内存过滤 |
+| 2.4 路由模块化 | `abd0ad04` | 以 `routeModules` 有序清单代替接口；路由快照 412 条前后一致 |
+| 2.5 自动解析器收口 | `72d45c0c` | 行为变化：未绑定协议的模板不再自动按 JSON 解析 |
+| D6 / D7 / I9 | `16ee859b` | — |
+
+评审正文的若干事实在实施时有出入：`Repository` 实际 162 个方法、`Engine` 92 个方法；设备范围装饰器的告警、原文、设备分页当时已下推到 SQL；D6 的英文错误位于 `protocolruntime/listeners.go`，不在 `execution_route.go`。第 6 节建议的容量基线未执行，性能收益仍待 `cmd/capacity-test` 实测。
