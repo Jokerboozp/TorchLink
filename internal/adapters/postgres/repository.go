@@ -1542,20 +1542,34 @@ func (r *Repository) ListAllKnowledgeDocs(ctx context.Context) ([]model.Knowledg
 	return r.queryKnowledgeDocs(ctx, `SELECT id,tenant_id,coalesce(workflow_id,''),coalesce(product_id,''),coalesce(category,''),coalesce(tags,'{}'),object_bucket,object_key,filename,status,metadata,(extract(epoch from created_at)*1000)::bigint FROM ai_knowledge_doc ORDER BY created_at,id`)
 }
 
+// knowledgeIndexLock is the advisory lock a rebuild holds exclusively and
+// document jobs hold shared.
+const knowledgeIndexLock = 728194603
+
 // TryKnowledgeReindexLock holds a session advisory lock so only one API
-// replica rebuilds the shared knowledge index.
+// replica rebuilds the shared knowledge index, and no document job runs.
 func (r *Repository) TryKnowledgeReindexLock(ctx context.Context) (func(), bool, error) {
+	return r.tryAdvisoryLock(ctx, `SELECT pg_try_advisory_lock($1)`, `SELECT pg_advisory_unlock($1)`)
+}
+
+// TryKnowledgeDocumentLock holds the same lock shared, so every replica may
+// index documents unless a rebuild is running.
+func (r *Repository) TryKnowledgeDocumentLock(ctx context.Context) (func(), bool, error) {
+	return r.tryAdvisoryLock(ctx, `SELECT pg_try_advisory_lock_shared($1)`, `SELECT pg_advisory_unlock_shared($1)`)
+}
+
+func (r *Repository) tryAdvisoryLock(ctx context.Context, lock, unlock string) (func(), bool, error) {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
 		return nil, false, err
 	}
 	var locked bool
-	if err = conn.QueryRow(ctx, `SELECT pg_try_advisory_lock(728194603)`).Scan(&locked); err != nil || !locked {
+	if err = conn.QueryRow(ctx, lock, knowledgeIndexLock).Scan(&locked); err != nil || !locked {
 		conn.Release()
 		return nil, false, err
 	}
 	return func() {
-		_, _ = conn.Exec(context.Background(), `SELECT pg_advisory_unlock(728194603)`)
+		_, _ = conn.Exec(context.Background(), unlock, knowledgeIndexLock)
 		conn.Release()
 	}, true, nil
 }

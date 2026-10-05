@@ -1235,6 +1235,11 @@ func (r *Repository) ListAllKnowledgeDocs(_ context.Context) ([]model.KnowledgeD
 func (r *Repository) TryKnowledgeReindexLock(context.Context) (func(), bool, error) {
 	return func() {}, true, nil
 }
+
+// TryKnowledgeDocumentLock always succeeds for the same reason.
+func (r *Repository) TryKnowledgeDocumentLock(context.Context) (func(), bool, error) {
+	return func() {}, true, nil
+}
 func (r *Repository) ListKnowledgeDocsPage(ctx context.Context, tenant string, limit, offset int) ([]model.KnowledgeDoc, int, error) {
 	items, err := r.ListKnowledgeDocs(ctx, tenant)
 	if err != nil {

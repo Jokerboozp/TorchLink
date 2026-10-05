@@ -132,6 +132,15 @@ func TestProductionConfigRequiresExplicitStrongJWTSecret(t *testing.T) {
 	if err := Load().Validate(); err != nil {
 		t.Fatalf("production configuration rejected explicit strong secrets: %v", err)
 	}
+	// A dedicated Harness key must be strong and must not reuse the session key.
+	t.Setenv("IOT_HARNESS_JWT_SECRET", strings.Repeat("j", 48))
+	if err := Load().Validate(); err == nil {
+		t.Fatal("production configuration accepted the session key as the Harness key")
+	}
+	t.Setenv("IOT_HARNESS_JWT_SECRET", strings.Repeat("h", 48))
+	if err := Load().Validate(); err != nil {
+		t.Fatalf("production configuration rejected a dedicated Harness key: %v", err)
+	}
 }
 
 func TestDevelopmentConfigAllowsLocalFallbacks(t *testing.T) {

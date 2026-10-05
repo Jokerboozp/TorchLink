@@ -1045,7 +1045,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 	runtime.mu.Lock()
 	captured := runtime.requests[0]
 	runtime.mu.Unlock()
-	claims, err := api.auth.Parse(captured.MCPToken)
+	claims, err := api.harnessAuth.Parse(captured.MCPToken)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1122,7 +1122,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 		t.Fatalf("unsafe or duplicate terminal event: %s", failedBody)
 	}
 
-	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/mcp/harness", token, map[string]any{}, http.StatusForbidden)
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/mcp/harness", token, map[string]any{}, http.StatusUnauthorized) // session key cannot sign run credentials
 	getMCP, _ := http.NewRequest(http.MethodGet, server.URL+"/mcp/harness", nil)
 	getMCP.Header.Set("Authorization", "Bearer "+token)
 	getMCPResp, err := server.Client().Do(getMCP)

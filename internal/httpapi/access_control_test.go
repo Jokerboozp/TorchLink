@@ -524,7 +524,7 @@ func testAssistantDeviceScope(t *testing.T, inherited bool) {
 		t.Fatal("streaming authority leaked", text)
 	}
 
-	c, err := api.auth.Parse(first.MCPToken)
+	c, err := api.harnessAuth.Parse(first.MCPToken)
 	must(err)
 	if !c.ManagedUser || c.SessionVersion == 0 || c.HasScope(auth.ScopeCreateRuleDraft) || c.HasScope(auth.ScopeQueryKnowledgeBase) {
 		t.Fatal("assistant token does not retain user authority")
@@ -723,13 +723,17 @@ func TestAlarmAnalysisKnowledgeVariantFollowsRole(t *testing.T) {
 		t.Helper()
 		requestJSON(t, srv.Client(), "POST", srv.URL+"/mcp/harness", token, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "query_alarm_list", "arguments": map[string]any{}}}, status)
 	}
-	businessToken, err := api.auth.IssueBusinessRunToken("tenant-a", identity, "run-business", aiworkflow.WorkflowAlarmAnalysis, identity.Scopes, nil, time.Minute)
+	businessToken, err := api.harnessAuth.IssueBusinessRunToken("tenant-a", identity, "run-business", aiworkflow.WorkflowAlarmAnalysis, identity.Scopes, nil, time.Minute)
 	must(err)
 	callTool(businessToken, 200)
-	chatToken, err := api.auth.IssueHarnessForIdentity(plainClaims, "run-chat", identity.Scopes, nil, time.Minute)
+	// Run credentials use their own key: one signed with the session key fails.
+	sessionSigned, err := api.auth.IssueBusinessRunToken("tenant-a", identity, "run-session-key", aiworkflow.WorkflowAlarmAnalysis, identity.Scopes, nil, time.Minute)
+	must(err)
+	callTool(sessionSigned, 401)
+	chatToken, err := api.harnessAuth.IssueHarnessForIdentity(plainClaims, "run-chat", identity.Scopes, nil, time.Minute)
 	must(err)
 	callTool(chatToken, 403)
-	draftToken, err := api.auth.IssueBusinessRunToken("tenant-a", identity, "run-draft", aiworkflow.WorkflowRuleDraft, identity.Scopes, nil, time.Minute)
+	draftToken, err := api.harnessAuth.IssueBusinessRunToken("tenant-a", identity, "run-draft", aiworkflow.WorkflowRuleDraft, identity.Scopes, nil, time.Minute)
 	must(err)
 	callTool(draftToken, 403)
 

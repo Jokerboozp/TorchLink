@@ -486,10 +486,13 @@ type RebuildableKnowledgeBase interface {
 }
 
 // KnowledgeReindexStore lists documents across tenants for an index rebuild
-// and serializes rebuilds between API replicas.
+// and serializes rebuilds between API replicas. Document jobs share a lock
+// that only a rebuild excludes, so replicas index documents in parallel while
+// a rebuild never swaps the index under a running job.
 type KnowledgeReindexStore interface {
 	ListAllKnowledgeDocs(context.Context) ([]model.KnowledgeDoc, error)
 	TryKnowledgeReindexLock(context.Context) (release func(), locked bool, err error)
+	TryKnowledgeDocumentLock(context.Context) (release func(), locked bool, err error)
 }
 
 // EmbedPurpose distinguishes retrieval queries from indexed documents; some

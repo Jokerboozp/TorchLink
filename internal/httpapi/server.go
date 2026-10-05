@@ -49,11 +49,13 @@ const claimsKey ctxKey = "claims"
 
 type Server struct {
 	// ai runs the business AI workflows for this server's requests.
-	ai                         *aiworkflow.Service
-	dashboards                 dashboardCache
-	cfg                        config.Config
-	engine                     *core.Engine
-	auth                       *auth.Manager
+	ai         *aiworkflow.Service
+	dashboards dashboardCache
+	cfg        config.Config
+	engine     *core.Engine
+	auth       *auth.Manager
+	// harnessAuth signs and verifies Harness MCP credentials with their own key.
+	harnessAuth                *auth.Manager
 	metrics                    *metrics.Registry
 	log                        *slog.Logger
 	router                     *gin.Engine
@@ -106,6 +108,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		sites:                      siteService(engine),
 		onboarding:                 onboarding.New(engine.Repo, engine.Parsers, cfg.DataDir, cfg.ModbusAllowedCIDRs),
 		auth:                       auth.New(cfg.JWTSecret),
+		harnessAuth:                auth.New(auth.HarnessSecret(cfg.JWTSecret, cfg.HarnessJWTSecret)),
 		metrics:                    m,
 		log:                        log,
 		router:                     router,
@@ -117,9 +120,9 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		events:                     newEventSnapshots(),
 	}
 	if engine.HarnessTokens == nil {
-		// Chat and business runs sign MCP credentials with the API secret
+		// Chat and business runs sign MCP credentials with the Harness key
 		// unless the process wired a dedicated issuer.
-		engine.HarnessTokens = s.auth
+		engine.HarnessTokens = s.harnessAuth
 	}
 	s.ai = aiworkflow.New(engine, s)
 	s.onboarding.LoadRaw = engine.GetRaw
@@ -1735,7 +1738,7 @@ func (s *Server) authorizeHarness() gin.HandlerFunc {
 	}
 	return func(c *gin.Context) {
 		token := auth.Bearer(c.GetHeader("Authorization"))
-		claimsValue, err := s.auth.Parse(token)
+		claimsValue, err := s.harnessAuth.Parse(token)
 		if err != nil {
 			ginProblem(c, http.StatusUnauthorized, err.Error())
 			c.Abort()

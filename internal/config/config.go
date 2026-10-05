@@ -42,12 +42,15 @@ type Config struct {
 	CORSAllowedOrigins []string
 	DataDir            string
 	JWTSecret          string
-	AdminUser          string
-	AdminPassword      string
-	AdminTenants       []string
-	PostgresDSN        string
-	RedisAddr          string
-	RedisPassword      string
+	// HarnessJWTSecret signs Harness MCP credentials; empty derives one from
+	// JWTSecret (see auth.HarnessSecret).
+	HarnessJWTSecret string
+	AdminUser        string
+	AdminPassword    string
+	AdminTenants     []string
+	PostgresDSN      string
+	RedisAddr        string
+	RedisPassword    string
 	// RedisMasterName and RedisSentinels select Sentinel failover instead of
 	// the single RedisAddr.
 	RedisMasterName string
@@ -181,6 +184,7 @@ func Load() Config {
 		CORSAllowedOrigins:          split(os.Getenv("IOT_CORS_ALLOWED_ORIGINS")),
 		DataDir:                     get("IOT_DATA_DIR", "./data"),
 		JWTSecret:                   get("IOT_JWT_SECRET", defaultJWTSecret),
+		HarnessJWTSecret:            get("IOT_HARNESS_JWT_SECRET", ""),
 		AdminUser:                   get("IOT_ADMIN_USER", "admin"),
 		AdminPassword:               get("IOT_ADMIN_PASSWORD", defaultAdminPassword),
 		AdminTenants:                split(get("IOT_ADMIN_TENANTS", "tenant_001")),
@@ -370,6 +374,9 @@ func (c Config) Validate() error {
 	}
 	if c.AdminPassword == "" {
 		invalid = append(invalid, "IOT_ADMIN_PASSWORD must not be empty")
+	}
+	if c.HarnessJWTSecret != "" && (len(c.HarnessJWTSecret) < 32 || c.HarnessJWTSecret == c.JWTSecret || insecurePlaceholder(c.HarnessJWTSecret)) {
+		invalid = append(invalid, "IOT_HARNESS_JWT_SECRET must be at least 32 characters, differ from IOT_JWT_SECRET and not be a placeholder")
 	}
 	if len(invalid) > 0 {
 		return fmt.Errorf("invalid production security configuration: %s", strings.Join(invalid, "; "))
