@@ -62,7 +62,7 @@ go run ./cmd/backup-service --env-file .env.local
 - **WebStorm**：工作目录为 `iot_front`，运行 npm 的 `dev` 脚本。
 - **VS Code**：安装 Go 扩展，在 [launch.json](../.vscode/launch.json) 中选择组合后按 F5 启动：`运行 IoT Platform (API + Web)` 等「运行」组合在终端中执行 `go run`，不经过 Delve，编译为正常优化的程序；「调试」组合可打断点，但 Delve 关闭了编译优化（Go 扩展也不接受在 `buildFlags` 中改 `-gcflags`），进程名为 `__debug_bin…`，容量测试须用「运行」组合或 `go run`。另有带 Backup 和 GB26875 Gateway 的同名组合。
 
-进程环境变量优先于环境文件；IDE 中的旧地址和密码可能覆盖 `.env.local`。macOS 调试需要 Delve 和系统“开发者工具访问”授权，停在 `debugserver` 时先检查授权窗口；服务就绪以 `http://localhost:8081/health/ready` 为准。
+进程环境变量优先于环境文件；IDE 中的旧地址和密码可能覆盖 `.env.local`。`IOT_DEV_MODE` 未设置时按生产模式启动，校验 JWT、管理员口令与服务令牌；只有显式设为 `true` 才跳过这些检查并允许不配置 PostgreSQL，`setup-local` 生成的 `.env.local` 写的是 `false`。macOS 调试需要 Delve 和系统“开发者工具访问”授权，停在 `debugserver` 时先检查授权窗口；服务就绪以 `http://localhost:8081/health/ready` 为准。
 
 ### 本地 API 进程交接
 

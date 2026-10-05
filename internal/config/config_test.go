@@ -459,3 +459,16 @@ func TestProtocolSandboxModes(t *testing.T) {
 		t.Fatal("unknown sandbox mode accepted")
 	}
 }
+
+// Development mode skips the production secret checks, so a process started
+// without IOT_DEV_MODE must run in production mode.
+func TestUnsetDevModeMeansProduction(t *testing.T) {
+	t.Setenv("IOT_DEV_MODE", "")
+	if Load().DevMode {
+		t.Fatal("an unset IOT_DEV_MODE enabled development mode")
+	}
+	t.Setenv("IOT_DEV_MODE", "yes")
+	if err := Load().Validate(); err == nil || !strings.Contains(err.Error(), "IOT_DEV_MODE") {
+		t.Fatalf("invalid value must be rejected and named: %v", err)
+	}
+}

@@ -21,7 +21,7 @@ IOT_HTTP_ADDR	Go API 监听地址和端口
 IOT_WEB_PORT	Docker 部署时 Web 对外端口
 IOT_API_PORT	Docker 部署时 API 对外端口
 IOT_CORS_ALLOWED_ORIGINS	允许访问 API 的浏览器来源，多个值用逗号分隔
-IOT_DEV_MODE	开发模式开关，生产环境应设为 false
+IOT_DEV_MODE	开发模式开关，未设置即生产模式；设为 true 跳过密钥校验，仅用于本机调试
 IOT_DATA_DIR	本地运行数据目录
 IOT_POSTGRES_DSN	Go API 访问 PostgreSQL 的连接地址
 IOT_REDIS_ADDR	Go API 访问 Redis 的地址

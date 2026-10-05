@@ -159,7 +159,9 @@ type Config struct {
 }
 
 func Load() Config {
-	devMode, devModeErr := strictBoolValue("IOT_DEV_MODE", true)
+	// Development mode skips the production secret checks, so it must be
+	// asked for explicitly; an unset variable means production.
+	devMode, devModeErr := strictBoolValue("IOT_DEV_MODE", false)
 	kafkaTLS, kafkaTLSErr := strictBoolValue("IOT_KAFKA_TLS", false)
 	aiProvider := strings.ToLower(strings.TrimSpace(os.Getenv("IOT_AI_PROVIDER")))
 	deepSeekAPIKey := strings.TrimSpace(os.Getenv("DEEPSEEK_API_KEY"))
@@ -397,7 +399,7 @@ func strictBoolValue(name string, fallback bool) (bool, error) {
 	}
 	parsed, err := strconv.ParseBool(value)
 	if err != nil {
-		return false, fmt.Errorf("invalid production security configuration: IOT_DEV_MODE must be true or false")
+		return false, fmt.Errorf("invalid configuration: %s must be true or false", name)
 	}
 	return parsed, nil
 }
