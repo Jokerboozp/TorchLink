@@ -1,6 +1,9 @@
 package aioutput
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestDecodeAlarmAnalysisConfidence(t *testing.T) {
 	for _, test := range []struct {
@@ -36,5 +39,41 @@ func TestDecodeRuleDraftNormalizesObjectShapedModelOutput(t *testing.T) {
 	}
 	if len(rule.Actions) != 1 || rule.Actions[0].Type != "OPEN_CAMERA" || rule.Actions[0].CameraID != "camera-001" {
 		t.Fatalf("unexpected actions: %#v", rule.Actions)
+	}
+}
+
+func TestExtractJSONMatchesBracesOutsideStrings(t *testing.T) {
+	for _, test := range []struct{ name, content, want string }{
+		{"surrounding braces", `结论如下 {参考} {"summary":"a","riskLevel":"LOW"} 备注 {见附件}`, `{"summary":"a","riskLevel":"LOW"}`},
+		{"braces in strings", "```json\n{\"summary\":\"温度 {85} 摄氏度 \\\" }\",\"n\":{\"x\":1}}\n```", `{"summary":"温度 {85} 摄氏度 \" }","n":{"x":1}}`},
+		{"first of two", `{"summary":"one"} {"summary":"two"}`, `{"summary":"one"}`},
+		{"unterminated", `{"summary":"a"`, `{"summary":"a"`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			if got := ExtractJSON(test.content); got != test.want {
+				t.Fatalf("got %q want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestDecodeAlarmAnalysisRejectsAndBoundsBadOutput(t *testing.T) {
+	if _, err := DecodeAlarmAnalysis(`{"summary":"x","riskLevel":"SEVERE"}`, "a", "m"); err == nil {
+		t.Fatal("unknown risk level accepted")
+	}
+	if _, err := DecodeAlarmAnalysis(`{"summary":"x"}`, "a", "m"); err == nil {
+		t.Fatal("missing risk level accepted")
+	}
+	long := strings.Repeat("长", 800)
+	reasons := `["` + long + `"` + strings.Repeat(`,"r"`, 20) + `,"  "]`
+	analysis, err := DecodeAlarmAnalysis(`说明 {不是 JSON} {"summary":" 结论 ","riskLevel":"high","confidence":1.7,"possibleReasons":`+reasons+`,"suggestions":["复核"]} 以上`, "a", "m")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if analysis.RiskLevel != "HIGH" || analysis.Summary != "结论" || analysis.Confidence != 1 || analysis.PromptVersion != "" {
+		t.Fatalf("analysis=%#v", analysis)
+	}
+	if len(analysis.PossibleReasons) != MaxAnalysisItems || len([]rune(analysis.PossibleReasons[0])) != MaxAnalysisItemRune || len(analysis.Suggestions) != 1 {
+		t.Fatalf("lists were not bounded: %d reasons, first %d runes", len(analysis.PossibleReasons), len([]rune(analysis.PossibleReasons[0])))
 	}
 }

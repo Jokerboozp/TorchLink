@@ -5,6 +5,7 @@ package aioutput
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,17 +18,64 @@ import (
 // accepts from a model; Harness workflows and tools share it.
 const RuleDraftInstructions = `将自然语言告警要求转换成一个 JSON 规则草稿。只能返回 JSON，不要输出 Markdown。必须严格使用以下结构：{"name":"简短中文名称","description":"用中文说明这条规则的现场含义","alarmType":"SMOKE_DETECTED","level":"HIGH","match":"all","conditions":[{"field":"smoke","operator":"eq","value":true}],"durationSeconds":0,"recovery":[],"actions":[{"type":"OPEN_CAMERA","cameraId":"camera-001"}]}。description 必须说明触发条件和处置含义，帮助操作员复核；JSON 不要添加 _comment 或其他未定义字段。match 只能是字符串 all 或 any；conditions 和 recovery 必须是数组；每个条件只能包含 field、operator、value。actions 必须是数组，打开摄像头使用 {"type":"OPEN_CAMERA","cameraId":"用户指定的摄像头 ID"}，打开业务页面使用 {"type":"OPEN_PAGE","page":"alarms"}；没有动作要求时返回空数组，不得生成 URL、脚本或设备控制动作。alarmType 只能使用 FIRE_RISK、FIRE、SMOKE_DETECTED、FLAME_DETECTED、HIGH_TEMPERATURE、DEVICE_OFFLINE、WATER_PRESSURE_LOW、WATER_LEVEL_ABNORMAL、ELECTRICAL_FIRE、GAS_LEAK、MANUAL_ALARM；level 只能使用 CRITICAL、HIGH、MEDIUM、LOW、INFO。平台会根据 conditions 另外生成一份可选 Gengine 表达式，AI 草稿不要填写 expression，避免未经人工复核切换执行方式。`
 
-// ExtractJSON returns the outermost JSON object inside a model answer.
+// ExtractJSON returns the first complete JSON object inside a model answer.
+// Braces are matched outside strings, so text before or after the object
+// (even text with braces of its own) does not shift its bounds. Without a
+// complete object the answer is returned unchanged and fails to decode.
 func ExtractJSON(s string) string {
-	start := strings.Index(s, "{")
-	end := strings.LastIndex(s, "}")
-	if start >= 0 && end > start {
-		return s[start : end+1]
+	for start := strings.IndexByte(s, '{'); start >= 0; {
+		if end := matchingBrace(s, start); end > start && json.Valid([]byte(s[start:end+1])) {
+			return s[start : end+1]
+		}
+		next := strings.IndexByte(s[start+1:], '{')
+		if next < 0 {
+			break
+		}
+		start += next + 1
 	}
 	return s
 }
 
-// DecodeAlarmAnalysis parses a model answer into an alarm analysis.
+// matchingBrace returns the index of the brace closing the object that opens
+// at start, or -1.
+func matchingBrace(s string, start int) int {
+	depth, inString, escaped := 0, false, false
+	for i := start; i < len(s); i++ {
+		ch := s[i]
+		switch {
+		case inString && escaped:
+			escaped = false
+		case inString && ch == '\\':
+			escaped = true
+		case inString && ch == '"':
+			inString = false
+		case inString:
+		case ch == '"':
+			inString = true
+		case ch == '{':
+			depth++
+		case ch == '}':
+			if depth--; depth == 0 {
+				return i
+			}
+		}
+	}
+	return -1
+}
+
+// Bounds of an alarm analysis; longer lists and items are cut, not rejected.
+const (
+	MaxAnalysisItems    = 10
+	MaxAnalysisItemRune = 500
+	MaxAnalysisSummary  = 1000
+)
+
+// AlarmRiskLevels are the risk levels an alarm analysis may report.
+var AlarmRiskLevels = []string{"CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"}
+
+// DecodeAlarmAnalysis parses a model answer into an alarm analysis. The risk
+// level must be one of AlarmRiskLevels (any case); the caller sets the prompt
+// version.
 func DecodeAlarmAnalysis(content, alarmID, modelName string) (model.AIAnalysis, error) {
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(ExtractJSON(content)), &raw); err != nil {
@@ -44,11 +92,41 @@ func DecodeAlarmAnalysis(content, alarmID, modelName string) (model.AIAnalysis, 
 	if err := json.Unmarshal(normalized, &out); err != nil {
 		return out, fmt.Errorf("decode model json: %w", err)
 	}
-	if strings.TrimSpace(out.Summary) == "" {
+	if out.Summary = strings.TrimSpace(out.Summary); out.Summary == "" {
 		return out, fmt.Errorf("decode model json: summary is empty")
 	}
-	out.AlarmID, out.Model, out.PromptVersion, out.CreatedAt = alarmID, modelName, "alarm-diagnosis-v1", time.Now().UnixMilli()
+	out.RiskLevel = strings.ToUpper(strings.TrimSpace(out.RiskLevel))
+	if !slices.Contains(AlarmRiskLevels, out.RiskLevel) {
+		return out, fmt.Errorf("decode model json: riskLevel %q is not one of %s", out.RiskLevel, strings.Join(AlarmRiskLevels, "|"))
+	}
+	out.Summary = truncateRunes(out.Summary, MaxAnalysisSummary)
+	out.PossibleReasons = boundItems(out.PossibleReasons)
+	out.Suggestions = boundItems(out.Suggestions)
+	out.Confidence = min(max(out.Confidence, 0), 1)
+	out.AlarmID, out.Model, out.CreatedAt = alarmID, modelName, time.Now().UnixMilli()
 	return out, nil
+}
+
+// boundItems drops empty entries and keeps at most MaxAnalysisItems items of
+// at most MaxAnalysisItemRune runes.
+func boundItems(items []string) []string {
+	out := make([]string, 0, min(len(items), MaxAnalysisItems))
+	for _, item := range items {
+		if item = strings.TrimSpace(item); item == "" {
+			continue
+		}
+		if out = append(out, truncateRunes(item, MaxAnalysisItemRune)); len(out) == MaxAnalysisItems {
+			break
+		}
+	}
+	return out
+}
+
+func truncateRunes(s string, limit int) string {
+	if runes := []rune(s); len(runes) > limit {
+		return string(runes[:limit])
+	}
+	return s
 }
 
 func normalizeAIConfidence(raw json.RawMessage) json.RawMessage {
