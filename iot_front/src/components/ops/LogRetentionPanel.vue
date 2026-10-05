@@ -9,6 +9,7 @@ import { opsErrorText, opsGet, opsSend } from '../../ops/opsApi.js'
 import { relativeTime } from '../../ops/format.js'
 import StatusDot from '../layout/StatusDot.vue'
 import MatcherEditor from './MatcherEditor.vue'
+import { useUnsavedGuard } from '../../composables/unsavedGuard.js'
 
 defineProps({
   labels: { type: Array, default: () => [] },
@@ -25,6 +26,8 @@ const canSave = computed(() => settings.value?.writable && can('PUT /api/v1/ops/
 const dirty = computed(
   () => settings.value && JSON.stringify(normalize(form.value)) !== JSON.stringify(normalize(fromSettings(settings.value)))
 )
+// 保留策略未保存时，切换菜单、刷新或关闭页面前提示。
+useUnsavedGuard(() => Boolean(dirty.value))
 
 function fromSettings(value) {
   return {

@@ -1,6 +1,16 @@
-import { createDiscreteApi } from 'naive-ui'
+import { computed } from 'vue'
+import { createDiscreteApi, darkTheme, dateZhCN, zhCN } from 'naive-ui'
+import { darkThemeOverrides, themeOverrides } from '../theme/naive.js'
+import { isDark } from '../theme/mode.js'
 
-const { message, dialog } = createDiscreteApi(['message', 'dialog']) /* 页面外的异步回调也能显示消息与确认框。 */
+// 页面外的异步回调也能显示消息与确认框；与页面使用同一套主题、深浅色和中文语言。
+const configProviderProps = computed(() => ({
+  locale: zhCN,
+  dateLocale: dateZhCN,
+  theme: isDark.value ? darkTheme : null,
+  themeOverrides: isDark.value ? darkThemeOverrides : themeOverrides
+}))
+const { message, dialog } = createDiscreteApi(['message', 'dialog'], { configProviderProps })
 
 export const UiMessage = {
   success: content => message.success(String(content)),

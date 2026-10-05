@@ -4,9 +4,10 @@ import vm from 'node:vm'
 import { readFileSync } from 'node:fs'
 import { computed, reactive, ref, watch } from 'vue'
 import { setupScript } from './helpers/vue.mjs'
-import { statusLabel } from '../src/presentation.js'
+import { aiProviderOptions, statusLabel } from '../src/presentation.js'
+import { loadAllPages } from '../src/listPagination.js'
 
-function component(file, api, names, allowed = () => true) {
+function component(file, api, names, allowed = () => true, extra = {}) {
   const notices = []
   const timers = new Map()
   let timerId = 0
@@ -17,6 +18,9 @@ function component(file, api, names, allowed = () => true) {
     ref,
     watch,
     api,
+    apiAll: (path, options) => loadAllPages(api, path, options),
+    session: { token: 'token' },
+    useUnsavedGuard() {},
     can: allowed,
     URL,
     AbortController,
@@ -32,7 +36,8 @@ function component(file, api, names, allowed = () => true) {
       timers.set(++timerId, callback)
       return timerId
     },
-    clearTimeout: id => timers.delete(id)
+    clearTimeout: id => timers.delete(id),
+    ...extra
   })
   const source = setupScript(new URL(`../src/${file}`, import.meta.url))
   const state = vm.runInContext(`${source}\n;({${names}})`, context)
@@ -71,6 +76,46 @@ test('Embedding configuration keeps the stored key when blank and clears it only
   assert.equal(requests[1].clearAPIKey, true)
   assert.equal(state.form.clearAPIKey, false)
   assert.equal(state.config.value.apiKeyConfigured, false)
+})
+
+test('Embedding save confirms an index rebuild only when the vector space changes', async () => {
+  const puts = [],
+    asked = []
+  let answer = false
+  const { state } = component(
+    'components/EmbeddingConfig.vue',
+    async (_path, options) => {
+      if (options?.method === 'PUT') puts.push(JSON.parse(options.body))
+      return stored
+    },
+    'form,load,save',
+    () => true,
+    {
+      UiMessageBox: {
+        confirm: async message => {
+          asked.push(message)
+          if (!answer) throw new Error('cancel')
+          return 'confirm'
+        }
+      }
+    }
+  )
+  await state.load()
+  state.form.batchSize = 32
+  await state.save()
+  assert.equal(asked.length, 0, '只改每批分片数不重建索引，无需确认')
+  assert.equal(puts.length, 1)
+  state.form.model = 'another-model'
+  await state.save()
+  assert.equal(asked.length, 1)
+  assert.match(asked[0], /模型/)
+  assert.match(asked[0], /旧索引/)
+  assert.equal(puts.length, 1, '取消确认时不能保存')
+  answer = true
+  state.form.model = 'another-model'
+  await state.save()
+  assert.equal(puts.length, 2)
+  assert.equal(puts[1].model, 'another-model')
 })
 
 test('Embedding tests use unsaved candidate settings and discard results after the candidate changes', async () => {
@@ -238,20 +283,85 @@ test('delete confirmation distinguishes accepted background cleanup from complet
   }
 })
 
+// 只模拟上传用到的 XMLHttpRequest 接口，由测试控制进度、完成和取消。
+function fakeUploads() {
+  const requests = []
+  class FakeXHR {
+    constructor() {
+      this.upload = {}
+      this.headers = {}
+      requests.push(this)
+    }
+    open(method, path) {
+      Object.assign(this, { method, path })
+    }
+    setRequestHeader(name, value) {
+      this.headers[name] = value
+    }
+    send(body) {
+      this.body = body
+    }
+    abort() {
+      this.aborted = true
+      this.onabort?.()
+    }
+    progress(loaded, total) {
+      this.upload.onprogress?.({ lengthComputable: true, loaded, total })
+    }
+    respond(status, data) {
+      Object.assign(this, { status, responseText: JSON.stringify(data) })
+      this.onload?.()
+    }
+  }
+  return { requests, XMLHttpRequest: FakeXHR }
+}
+
 test('knowledge upload reports acceptance and leaves indexing status to the server', async () => {
+  const uploads = fakeUploads()
   const { state, notices, unmount } = component(
     'views/KnowledgeView.vue',
-    async (_path, options) => {
-      if (options?.method === 'POST') return { id: 'doc', workflowId: 'agent', status: 'UPLOADED' }
-      return { items: [], total: 0 }
-    },
-    'upload,selectedFile,workflowId'
+    async () => ({ items: [], total: 0 }),
+    'upload,selectedFile,workflowId,uploadPercent,activeTab',
+    () => true,
+    { XMLHttpRequest: uploads.XMLHttpRequest }
   )
   state.workflowId.value = 'agent'
   state.selectedFile.value = new Blob(['manual'])
-  await state.upload()
+  const running = state.upload()
+  const request = uploads.requests[0]
+  assert.equal(request.path, '/api/v1/knowledge/documents')
+  assert.equal(request.headers.Authorization, 'Bearer token')
+  request.progress(3, 6)
+  assert.equal(state.uploadPercent.value, 50, '进度按浏览器实际发送的字节计算')
+  request.respond(201, { id: 'doc', workflowId: 'agent', status: 'UPLOADED' })
+  await running
   assert.match(notices.find(item => item.type === 'success').message, /后台建立/)
   assert.doesNotMatch(notices.find(item => item.type === 'success').message, /已索引/)
+  unmount()
+})
+
+test('cancelling a knowledge upload aborts it and ignores a late result', async () => {
+  const uploads = fakeUploads()
+  const { state, notices, unmount } = component(
+    'views/KnowledgeView.vue',
+    async () => ({ items: [], total: 0 }),
+    'upload,cancelUpload,selectedFile,workflowId,uploading,uploadDialog,activeTab',
+    () => true,
+    { XMLHttpRequest: uploads.XMLHttpRequest }
+  )
+  state.workflowId.value = 'agent'
+  state.selectedFile.value = new Blob(['manual'])
+  state.uploadDialog.value = true
+  state.activeTab.value = 'binding'
+  const running = state.upload()
+  uploads.requests[0].progress(1, 6)
+  state.cancelUpload()
+  await running
+  assert.equal(uploads.requests[0].aborted, true)
+  assert.equal(state.uploading.value, false)
+  assert.equal(state.uploadDialog.value, false)
+  assert.equal(state.activeTab.value, 'binding', '取消后不能再切换标签')
+  assert.equal(notices.filter(item => item.type === 'success' || item.type === 'error').length, 0)
   unmount()
 })
 
@@ -329,4 +439,41 @@ test('knowledge progress is computed only from server batch counts', () => {
   document.status = 'UPLOADED'
   assert.equal(state.percentage.value, null)
   assert.equal(state.label.value, '等待建立索引')
+})
+
+test('model status refresh does not overwrite an edited provider form, and registers it as unsaved', async () => {
+  const guards = []
+  let saved = { provider: 'deepseek', baseUrl: 'https://api.deepseek.com', model: 'deepseek-flash', maxTokens: 2048 }
+  const { state } = component(
+    'views/AiProvidersView.vue',
+    async (_path, options) => {
+      if (options?.method === 'PUT') {
+        saved = { ...JSON.parse(options.body) }
+        return saved
+      }
+      return { items: [], total: 0, active: { id: 'deepseek' }, config: { ...saved, apiKeyConfigured: true } }
+    },
+    'providerForm,loadRuntime,applyProviderConfig,providerDirty',
+    () => true,
+    { providerOptions: aiProviderOptions, useUnsavedGuard: check => guards.push(check) }
+  )
+  await state.loadRuntime()
+  assert.equal(state.providerDirty.value, false)
+  state.providerForm.model = 'deepseek-pro'
+  state.providerForm.apiKey = 'sk-test'
+  saved = { ...saved, model: 'server-side-change' }
+  await state.loadRuntime()
+  assert.equal(state.providerForm.model, 'deepseek-pro', '刷新状态不能覆盖正在编辑的模型')
+  assert.equal(state.providerForm.apiKey, 'sk-test', '刷新状态不能清空已填写的 API Key')
+  assert.equal(
+    guards.some(check => check()),
+    true
+  )
+  await state.applyProviderConfig()
+  assert.equal(state.providerDirty.value, false)
+  assert.equal(state.providerForm.apiKey, '')
+  assert.equal(
+    guards.some(check => check()),
+    false
+  )
 })

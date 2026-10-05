@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, toRef } from 'vue'
 import { NDatePicker } from 'naive-ui'
 import { ChevronLeft, ChevronRight, Plus, RefreshCw } from '@lucide/vue'
 import { api, notifyError, session } from '../api'
@@ -24,6 +24,8 @@ import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
+import { usePageState } from '../composables/usePageState.js'
+import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
 
 const emit = defineEmits(['navigate'])
 const tab = ref('calendar'),
@@ -41,6 +43,22 @@ const pageSize = reactive({ assignments: 20, shifts: 20, swaps: 20 })
 const total = reactive({ assignments: 0, shifts: 0, swaps: 0 })
 const loading = reactive({ assignments: false, shifts: false, swaps: false })
 const errors = reactive({ assignments: '', shifts: '', swaps: '' })
+// 页签、日历视图、筛选与各列表页码在刷新或切换菜单后恢复。
+usePageState('duty', {
+  tab,
+  calendarMode,
+  anchor,
+  q: toRef(filters, 'q'),
+  stationId: toRef(filters, 'stationId'),
+  status: toRef(filters, 'status'),
+  range: toRef(filters, 'range'),
+  assignmentsPage: toRef(page, 'assignments'),
+  assignmentsPageSize: toRef(pageSize, 'assignments'),
+  shiftsPage: toRef(page, 'shifts'),
+  shiftsPageSize: toRef(pageSize, 'shifts'),
+  swapsPage: toRef(page, 'swaps'),
+  swapsPageSize: toRef(pageSize, 'swaps')
+})
 const versions = { assignments: 0, shifts: 0, swaps: 0 }
 let optionsVersion = 0,
   calendarVersion = 0
@@ -443,7 +461,31 @@ function shiftActions(row) {
     }
   ]
 }
-onMounted(() => Promise.all([loadOptions(), loadCalendar(), loadList('assignments')]))
+// 弹窗关闭前检查未保存的修改（排班、批量排班、班次、换班申请与审批共用同一检查）。
+// 以弹窗类型为准：从排班详情切到换班申请时重新记录快照。
+const dialogGuard = trackDialogForm(
+  computed(() => dialog.value),
+  () =>
+    ({
+      assignment: [assignment, assignmentDate.value],
+      batch,
+      shift,
+      swap,
+      review
+    })[dialog.value]
+)
+async function closeDialog() {
+  if (saving.value) return
+  if (await confirmClose(dialogGuard.dirty())) dialog.value = ''
+}
+onMounted(() =>
+  Promise.all([
+    loadOptions(),
+    loadCalendar(),
+    loadList('assignments'),
+    ...(tab.value === 'shifts' || tab.value === 'swaps' ? [loadList(tab.value)] : [])
+  ])
+)
 </script>
 
 <template>
@@ -698,7 +740,7 @@ onMounted(() => Promise.all([loadOptions(), loadCalendar(), loadList('assignment
     :close-on-click-modal="false"
     :close-on-press-escape="!saving"
     :show-close="!saving"
-    @close="dialog = ''"
+    @update:model-value="value => value || closeDialog()"
   >
     <ui-form label-position="top" :disabled="saving || !assignmentEditable">
       <section class="duty-editor-section">
@@ -765,7 +807,7 @@ onMounted(() => Promise.all([loadOptions(), loadCalendar(), loadList('assignment
       /></ui-form-item>
     </ui-form>
     <template #footer
-      ><ui-button :disabled="saving" @click="dialog = ''">关闭</ui-button
+      ><ui-button :disabled="saving" @click="closeDialog">关闭</ui-button
       ><ui-button
         v-if="assignment.id"
         v-permission="'POST /api/v1/duty/swaps'"
@@ -789,7 +831,7 @@ onMounted(() => Promise.all([loadOptions(), loadCalendar(), loadList('assignment
     :close-on-click-modal="false"
     :close-on-press-escape="!saving"
     :show-close="!saving"
-    @close="dialog = ''"
+    @update:model-value="value => value || closeDialog()"
   >
     <ui-form label-position="top" :disabled="saving">
       <div class="duty-form-grid">
@@ -835,7 +877,7 @@ onMounted(() => Promise.all([loadOptions(), loadCalendar(), loadList('assignment
       </p>
     </ui-form>
     <template #footer
-      ><ui-button :disabled="saving" @click="dialog = ''">取消</ui-button
+      ><ui-button :disabled="saving" @click="closeDialog">取消</ui-button
       ><ui-button
         v-permission="'POST /api/v1/duty/assignments/batch'"
         type="primary"
@@ -853,7 +895,7 @@ onMounted(() => Promise.all([loadOptions(), loadCalendar(), loadList('assignment
     :close-on-click-modal="false"
     :close-on-press-escape="!saving"
     :show-close="!saving"
-    @close="dialog = ''"
+    @update:model-value="value => value || closeDialog()"
   >
     <ui-form label-position="top" :disabled="saving"
       ><ui-form-item label="班次名称" required
@@ -866,7 +908,7 @@ onMounted(() => Promise.all([loadOptions(), loadCalendar(), loadList('assignment
       <p class="duty-hint">结束时间不晚于开始时间时按跨日班次处理。修改模板不改变已有排班的实际时段。</p></ui-form
     >
     <template #footer
-      ><ui-button :disabled="saving" @click="dialog = ''">取消</ui-button
+      ><ui-button :disabled="saving" @click="closeDialog">取消</ui-button
       ><ui-button
         v-permission="shift.id ? 'PUT /api/v1/duty/shifts/:id' : 'POST /api/v1/duty/shifts'"
         type="primary"
@@ -883,7 +925,7 @@ onMounted(() => Promise.all([loadOptions(), loadCalendar(), loadList('assignment
     :close-on-click-modal="false"
     :close-on-press-escape="!saving"
     :show-close="!saving"
-    @close="dialog = ''"
+    @update:model-value="value => value || closeDialog()"
   >
     <p v-if="swapAssignment" class="duty-hint">
       {{ stationName(swapAssignment.stationId) }} · {{ dateTimeLabel(swapAssignment.startAt) }} — {{ dateTimeLabel(swapAssignment.endAt) }}
@@ -902,7 +944,7 @@ onMounted(() => Promise.all([loadOptions(), loadCalendar(), loadList('assignment
       <p class="duty-hint">审批通过后更新值班人员。</p></ui-form
     >
     <template #footer
-      ><ui-button :disabled="saving" @click="dialog = ''">取消</ui-button
+      ><ui-button :disabled="saving" @click="closeDialog">取消</ui-button
       ><ui-button v-permission="'POST /api/v1/duty/swaps'" type="primary" :loading="saving" @click="saveSwap">提交申请</ui-button></template
     >
   </ui-dialog>
@@ -913,7 +955,7 @@ onMounted(() => Promise.all([loadOptions(), loadCalendar(), loadList('assignment
     :close-on-click-modal="false"
     :close-on-press-escape="!saving"
     :show-close="!saving"
-    @close="dialog = ''"
+    @update:model-value="value => value || closeDialog()"
   >
     <ui-form v-if="reviewTarget" label-position="top" :disabled="saving">
       <ui-descriptions v-if="reviewAssignment" :column="1" border class="duty-review-context">
@@ -934,7 +976,7 @@ onMounted(() => Promise.all([loadOptions(), loadCalendar(), loadList('assignment
       <ui-form-item label="审批意见"><ui-input v-model="review.note" :disabled="saving" type="textarea" :rows="3" /></ui-form-item>
     </ui-form>
     <template #footer
-      ><ui-button :disabled="saving" @click="dialog = ''">取消</ui-button
+      ><ui-button :disabled="saving" @click="closeDialog">取消</ui-button
       ><ui-button v-permission="'POST /api/v1/duty/swaps/:id/review'" type="primary" :loading="saving" @click="saveReview"
         >提交审批</ui-button
       ></template

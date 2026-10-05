@@ -1,7 +1,10 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, toRef } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { api, apiAll, formatTime, notifyError } from '../api'
+import { errorMessage } from '../presentation'
+import { usePageState } from '../composables/usePageState.js'
+import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
 import { confirmDelete } from '../deleteAction'
 import {
   businessStatuses,
@@ -94,6 +97,17 @@ const unregistered = ref([]),
   unregisteredPage = ref(1),
   unregisteredPageSize = ref(20)
 const pendingCount = ref(0)
+// 分组、筛选、页码和每页条数在刷新或切换菜单后恢复。
+usePageState('devices', {
+  tab: deviceTab,
+  category: toRef(filters, 'category'),
+  q: toRef(filters, 'q'),
+  runtime: toRef(filters, 'runtime'),
+  page: registryPage,
+  pageSize: registryPageSize,
+  pendingPage: unregisteredPage,
+  pendingPageSize: unregisteredPageSize
+})
 const loading = ref(false),
   listError = ref(''),
   updatesAvailable = ref(false)
@@ -157,10 +171,8 @@ async function load() {
       pendingCount.value = Number(pendingData?.total ?? pendingData?.count ?? 0)
     }
   } catch (error) {
-    if (version === loadVersion) {
-      listError.value = error?.message || '读取设备失败'
-      notifyError(error)
-    }
+    // 失败只在列表上方显示一处可重试的错误。
+    if (version === loadVersion) listError.value = error?.status === 401 ? '' : errorMessage(error) || '读取设备失败'
   } finally {
     if (version === loadVersion) loading.value = false
   }
@@ -208,6 +220,11 @@ const blank = () => ({
   offlineToleranceSec: null
 })
 const form = reactive(blank())
+const formGuard = trackDialogForm(dialog, () => form)
+async function closeEditor() {
+  if (saving.value) return
+  if (await confirmClose(formGuard.dirty())) dialog.value = false
+}
 async function loadGateways() {
   try {
     gateways.value = ((await apiAll('/api/v1/device-registry?role=GATEWAY')).items || []).filter(item => roleOf(item.device) === 'GATEWAY')
@@ -244,7 +261,11 @@ async function save() {
     saving.value = false
   }
 }
+// 登记进行中的待登记设备编号，避免重复点击重复登记。
+const registering = ref('')
 async function register(id) {
+  if (registering.value) return
+  registering.value = id
   try {
     const result = await api(`/api/v1/discovered-devices/${encodeURIComponent(id)}/register`, { method: 'POST', body: '{}' })
     if (result.credential) showCredential(result.credential)
@@ -252,6 +273,8 @@ async function register(id) {
     await load()
   } catch (error) {
     notifyError(error)
+  } finally {
+    registering.value = ''
   }
 }
 function showCredential(value) {
@@ -585,6 +608,8 @@ onBeforeUnmount(() => {
               size="small"
               text
               type="primary"
+              :loading="registering === row.deviceId"
+              :disabled="Boolean(registering)"
               @click="register(row.deviceId)"
               >一键登记</ui-button
             ></template
@@ -594,13 +619,14 @@ onBeforeUnmount(() => {
     </DataTableCard>
 
     <ui-dialog
-      v-model="dialog"
+      :model-value="dialog"
       :title="`编辑设备 · ${form.name || form.id}`"
       width="min(560px, 94vw)"
       :close-on-click-modal="false"
       :close-on-press-escape="!saving"
       :show-close="!saving"
       destroy-on-close
+      @update:model-value="value => value || closeEditor()"
     >
       <ui-form :model="form" label-position="top" :disabled="saving" @submit.prevent="save">
         <ui-form-item label="设备编号"><ui-input :model-value="form.id" disabled /></ui-form-item>
@@ -661,7 +687,7 @@ onBeforeUnmount(() => {
         </ui-collapse>
       </ui-form>
       <template #footer
-        ><ui-button :disabled="saving" @click="dialog = false">取消</ui-button
+        ><ui-button :disabled="saving" @click="closeEditor">取消</ui-button
         ><ui-button v-permission="'PUT /api/v1/device-registry/:id'" type="primary" :loading="saving" @click="save"
           >保存设备</ui-button
         ></template

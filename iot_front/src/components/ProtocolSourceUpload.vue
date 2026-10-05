@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { api, download, notifyError } from '../api'
 import { UiMessage } from '../ui/feedback.js'
 import { platformLabel, transportLabel } from '../presentation'
@@ -20,8 +20,27 @@ const file = ref(null),
   error = ref('')
 let disposed = false,
   controller
+// 构建是一次阻塞请求，界面只显示实际已用时间，不估算进度。
+const elapsed = ref(0)
+let elapsedTimer = 0
+function stopElapsed() {
+  clearInterval(elapsedTimer)
+  elapsedTimer = 0
+}
+function startElapsed() {
+  stopElapsed()
+  const started = Date.now()
+  elapsed.value = 0
+  elapsedTimer = setInterval(() => {
+    elapsed.value = Math.floor((Date.now() - started) / 1000)
+  }, 1000)
+}
+const elapsedText = computed(() =>
+  elapsed.value >= 60 ? `${Math.floor(elapsed.value / 60)} 分 ${elapsed.value % 60} 秒` : `${elapsed.value} 秒`
+)
 onBeforeUnmount(() => {
   disposed = true
+  stopElapsed()
   controller?.abort()
 })
 onMounted(async () => {
@@ -55,11 +74,13 @@ async function work(kind, action) {
   error.value = ''
   emit('busy', true)
   controller = new AbortController()
+  if (kind === 'build') startElapsed()
   try {
     await action({ signal: controller.signal })
   } catch (e) {
     if (!disposed && e.name !== 'AbortError') error.value = e.message || String(e)
   } finally {
+    stopElapsed()
     if (!disposed) {
       busy.value = ''
       emit('busy', false)
@@ -166,7 +187,9 @@ async function publish() {
           ><small>当前服务平台会运行样例；其他平台仅生成制品，需在目标平台实际试跑。</small></ui-collapse-item
         ></ui-collapse
       >
-      <p v-if="busy === 'build'" role="status">正在构建并运行样例。每个平台编译最长 120 秒，请保持页面打开。</p>
+      <p v-if="busy === 'build'" role="status">
+        正在构建并运行样例，每个平台编译最长 120 秒，请保持页面打开。<span aria-hidden="true">已用时 {{ elapsedText }}</span>
+      </p>
       <div class="source-actions">
         <ui-button
           v-permission="'POST /api/v2/protocols/:id/source-releases'"

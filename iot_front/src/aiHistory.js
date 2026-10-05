@@ -1,8 +1,62 @@
 export const AI_HISTORY_STORAGE_PREFIX = 'iot:ai-history:v1'
 
+function identityBase(session) {
+  return `${AI_HISTORY_STORAGE_PREFIX}:${session?.tenant || 'unknown'}:${session?.user || 'unknown'}`
+}
+
 function aiHistoryStorageKey(session, workflowId = '') {
-  const base = `${AI_HISTORY_STORAGE_PREFIX}:${session?.tenant || 'unknown'}:${session?.user || 'unknown'}${session?.accessVersion ? `:access:${encodeURIComponent(session.accessVersion)}` : ''}`
+  const base = `${identityBase(session)}${session?.accessVersion ? `:access:${encodeURIComponent(session.accessVersion)}` : ''}`
   return workflowId ? `${base}:${encodeURIComponent(workflowId)}` : base
+}
+
+// 列出属于当前租户与用户的全部历史键（所有权限版本与智能体）；存储不支持枚举时返回空。
+function identityKeys(storage, session) {
+  const base = identityBase(session)
+  const keys = []
+  try {
+    if (typeof storage?.key !== 'function') return keys
+    for (let index = 0; index < storage.length; index += 1) {
+      const key = storage.key(index)
+      if (typeof key !== 'string') continue
+      if (key === base) keys.push(key)
+      else if (key.startsWith(`${base}:`)) {
+        // 只匹配本用户的“权限版本”或“智能体”后缀，避免误删以本用户名开头的其他用户。
+        const rest = key.slice(base.length + 1)
+        if (rest.startsWith('access:') || !rest.includes(':')) keys.push(key)
+      }
+    }
+  } catch {
+    /* 存储不可读时跳过清理 */
+  }
+  return keys
+}
+
+function removeKeys(storage, keys) {
+  for (const key of keys) {
+    try {
+      storage.removeItem(key)
+    } catch {
+      /* ignore storage cleanup failures */
+    }
+  }
+}
+
+// 权限版本变化后旧版本的对话不能再读取；直接删除，避免旧对话残留在浏览器中占用空间。
+function purgeOtherAccessVersions(storage, session) {
+  if (!session?.accessVersion) return
+  const current = `${identityBase(session)}:access:${encodeURIComponent(session.accessVersion)}`
+  removeKeys(
+    storage,
+    identityKeys(storage, session).filter(key => key !== current && !key.startsWith(`${current}:`))
+  )
+}
+
+// 清除当前租户与用户在本浏览器中的全部智能助手历史（所有权限版本与智能体），供退出登录时调用。
+export function clearAIHistory(storage, session) {
+  if (!storage || !session?.tenant || !session?.user) return 0
+  const keys = identityKeys(storage, session)
+  removeKeys(storage, keys)
+  return keys.length
 }
 
 export function saveAIHistory(storage, session, state, workflowId = '') {
@@ -28,6 +82,7 @@ export function saveAIHistory(storage, session, state, workflowId = '') {
 
 export function loadAIHistory(storage, session, now = Date.now(), workflowId = '') {
   if (!storage) return null
+  purgeOtherAccessVersions(storage, session)
   const key = aiHistoryStorageKey(session, workflowId)
   try {
     const raw = storage.getItem(key)

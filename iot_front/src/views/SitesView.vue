@@ -1,7 +1,7 @@
 <script setup>
 // 单位建筑：维护单位、建筑、楼层与平面图，在平面图上标注设备或部件位置。
 // 告警生成时记录位置快照；按单位授权的用户可见该单位下已标注的设备。
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRef, watch } from 'vue'
 import { Plus, RefreshCw, Upload, Download, MapPin } from '@lucide/vue'
 import { api, apiBlob, download, notifyError } from '../api'
 import { confirmDelete } from '../deleteAction'
@@ -9,6 +9,10 @@ import { UiMessage } from '../ui/feedback.js'
 import { errorMessage } from '../presentation'
 import { can } from '../permissions'
 import FilterBar from '../components/layout/FilterBar.vue'
+import DataTableCard from '../components/layout/DataTableCard.vue'
+import { clientPagination } from '../listPagination'
+import { usePageState } from '../composables/usePageState.js'
+import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
 import RowActions from '../components/layout/RowActions.vue'
 import { floorLabel, pointFraction, sitePayload, siteTree } from '../sites'
 defineEmits(['navigate'])
@@ -38,6 +42,12 @@ const visiblePoints = computed(() =>
         : point.floorId === selected.id
   )
 )
+// 资料接口一次返回全部单位、建筑、楼层和点位；左侧树需要全部资料，点位表在前端分页。
+// 选中的节点与点位表页码在刷新或切换菜单后恢复。
+const pointPage = ref(1),
+  pointPageSize = ref(20)
+usePageState('sites', { kind: toRef(selected, 'kind'), id: toRef(selected, 'id'), page: pointPage, pageSize: pointPageSize })
+const { paged: shownPoints, total: pointTotal } = clientPagination(visiblePoints, pointPage, pointPageSize)
 const floorPoints = computed(() => (floor.value ? data.points.filter(point => point.floorId === floor.value.id) : []))
 const placedOnPlan = computed(() => floorPoints.value.filter(point => point.x != null && point.y != null))
 
@@ -64,6 +74,7 @@ async function load() {
   }
 }
 function select(kind, id) {
+  if (selected.kind !== kind || selected.id !== id) pointPage.value = 1
   Object.assign(selected, { kind, id })
   placing.value = null
 }
@@ -71,6 +82,12 @@ function select(kind, id) {
 // 资料编辑
 const dialog = reactive({ kind: '', visible: false, saving: false, error: '' })
 const form = reactive({})
+// 资料编辑弹窗关闭前检查未保存的修改。
+const formGuard = trackDialogForm(toRef(dialog, 'visible'), () => form)
+async function closeEditor() {
+  if (dialog.saving) return
+  if (await confirmClose(formGuard.dirty())) dialog.visible = false
+}
 const blank = kind =>
   ({
     unit: { name: '', code: '', address: '', contact: '', phone: '', notes: '' },
@@ -232,6 +249,32 @@ function placeAt(event) {
   const point = placing.value
   placing.value = null
   void savePosition(point, x, y)
+}
+// 键盘标注：开始标注时平面图获得焦点，方向键移动十字光标（按住 Shift 移动更快），Enter 或空格确定，Esc 取消。
+const cursor = reactive({ x: 0.5, y: 0.5 })
+watch(placing, point => {
+  if (!point) return
+  Object.assign(cursor, { x: point.x ?? 0.5, y: point.y ?? 0.5 })
+  void nextTick(() => planBox.value?.focus())
+})
+function placeByKey(event) {
+  if (!placing.value) return
+  const step = event.shiftKey ? 0.05 : 0.01
+  const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }
+  const clamp = value => Math.round(Math.min(1, Math.max(0, value)) * 10000) / 10000
+  if (moves[event.key]) {
+    event.preventDefault()
+    cursor.x = clamp(cursor.x + moves[event.key][0])
+    cursor.y = clamp(cursor.y + moves[event.key][1])
+  } else if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault()
+    const point = placing.value
+    placing.value = null
+    void savePosition(point, cursor.x, cursor.y)
+  } else if (event.key === 'Escape') {
+    event.preventDefault()
+    placing.value = null
+  }
 }
 function startDrag(event, point) {
   if (!can('PUT /api/v1/sites/points/:id') || !planBox.value) return
@@ -418,20 +461,32 @@ onBeforeUnmount(() => {
 
         <div v-if="selected.kind === 'floor'" class="site-plan-wrap">
           <p v-if="placing" class="site-placing" role="status">
-            正在标注“{{ placing.name || placing.deviceName || placing.deviceId }}”：在平面图上点击位置，<button
-              type="button"
-              @click="placing = null"
-            >
-              取消
-            </button>
+            正在标注“{{ placing.name || placing.deviceName || placing.deviceId }}”：在平面图上点击位置，或用方向键移动十字光标后按 Enter
+            确定，<button type="button" @click="placing = null">取消</button>
           </p>
           <div v-if="planLoading" class="site-plan-empty">正在加载平面图…</div>
           <div v-else-if="planError" class="site-plan-empty" role="alert">
             {{ planError }} <ui-button size="small" @click="loadPlan">重试</ui-button>
           </div>
           <div v-else-if="!planUrl" class="site-plan-empty">该楼层还没有平面图，上传 PNG 或 JPEG 图片后可在图上标注设备位置。</div>
-          <div v-else ref="planBox" class="site-plan" :class="{ placing: Boolean(placing) }" @click="placeAt">
+          <div
+            v-else
+            ref="planBox"
+            class="site-plan"
+            :class="{ placing: Boolean(placing) }"
+            :tabindex="placing ? 0 : -1"
+            :role="placing ? 'application' : undefined"
+            :aria-label="placing ? '楼层平面图标注区：方向键移动光标，Enter 确定位置，Esc 取消' : undefined"
+            @click="placeAt"
+            @keydown="placeByKey"
+          >
             <img :src="planUrl" alt="楼层平面图" draggable="false" />
+            <span
+              v-if="placing"
+              class="site-cursor"
+              :style="{ left: `${cursor.x * 100}%`, top: `${cursor.y * 100}%` }"
+              aria-hidden="true"
+            />
             <button
               v-for="point in placedOnPlan"
               :key="point.id"
@@ -450,37 +505,50 @@ onBeforeUnmount(() => {
         </div>
 
         <h3 class="site-section-title">设备点位 · {{ visiblePoints.length }}</h3>
-        <ui-table :data="visiblePoints" :empty-text="selected.kind === 'floor' ? '该楼层暂无设备点位' : '暂无设备点位'">
-          <ui-table-column label="设备" min-width="180"
-            ><template #default="{ row }"
-              ><b>{{ row.deviceName || row.deviceId }}</b
-              ><small class="site-subline"
-                >{{ row.deviceId }}<template v-if="row.componentId"> · 部件 {{ row.componentId }}</template></small
-              ></template
-            ></ui-table-column
-          >
-          <ui-table-column label="点位名称" min-width="140"
-            ><template #default="{ row }">{{ row.name || '—' }}</template></ui-table-column
-          >
-          <ui-table-column label="建筑 / 楼层" min-width="160"
-            ><template #default="{ row }"
-              >{{ locationText(row)
-              }}<small v-if="row.floorId" class="site-subline">{{ row.x != null ? '已在平面图标注' : '未在平面图标注' }}</small></template
-            ></ui-table-column
-          >
-          <ui-table-column label="操作" width="190" align="right" fixed="right"
-            ><template #default="{ row }"><RowActions :actions="pointActions(row)" /></template
-          ></ui-table-column>
-        </ui-table>
+        <DataTableCard
+          :page="pointPage"
+          :page-size="pointPageSize"
+          :total="pointTotal"
+          @update:page="value => (pointPage = value)"
+          @update:page-size="
+            value => {
+              pointPageSize = value
+              pointPage = 1
+            }
+          "
+        >
+          <ui-table :data="shownPoints" :empty-text="selected.kind === 'floor' ? '该楼层暂无设备点位' : '暂无设备点位'">
+            <ui-table-column label="设备" min-width="180"
+              ><template #default="{ row }"
+                ><b>{{ row.deviceName || row.deviceId }}</b
+                ><small class="site-subline"
+                  >{{ row.deviceId }}<template v-if="row.componentId"> · 部件 {{ row.componentId }}</template></small
+                ></template
+              ></ui-table-column
+            >
+            <ui-table-column label="点位名称" min-width="140"
+              ><template #default="{ row }">{{ row.name || '—' }}</template></ui-table-column
+            >
+            <ui-table-column label="建筑 / 楼层" min-width="160"
+              ><template #default="{ row }"
+                >{{ locationText(row)
+                }}<small v-if="row.floorId" class="site-subline">{{ row.x != null ? '已在平面图标注' : '未在平面图标注' }}</small></template
+              ></ui-table-column
+            >
+            <ui-table-column label="操作" width="190" align="right" fixed="right"
+              ><template #default="{ row }"><RowActions :actions="pointActions(row)" /></template
+            ></ui-table-column>
+          </ui-table>
+        </DataTableCard>
       </template>
     </section>
   </div>
 
   <ui-dialog
-    v-model="dialog.visible"
+    :model-value="dialog.visible"
     :title="`${form.id ? '编辑' : '新增'}${kinds[dialog.kind]?.label || ''}`"
     width="min(620px,94vw)"
-    :close-on-click-modal="!dialog.saving"
+    @update:model-value="value => value || closeEditor()"
   >
     <ui-alert v-if="dialog.error" type="error" :title="dialog.error" :closable="false" class="site-gap" />
     <ui-form label-position="top" :disabled="dialog.saving">
@@ -560,7 +628,7 @@ onBeforeUnmount(() => {
       </template>
     </ui-form>
     <template #footer
-      ><ui-button :disabled="dialog.saving" @click="dialog.visible = false">取消</ui-button
+      ><ui-button :disabled="dialog.saving" @click="closeEditor">取消</ui-button
       ><ui-button type="primary" :loading="dialog.saving" @click="save">保存</ui-button></template
     >
   </ui-dialog>
@@ -737,6 +805,40 @@ onBeforeUnmount(() => {
   background: var(--surface);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-xs);
+}
+.site-plan:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+}
+.site-cursor {
+  position: absolute;
+  width: 24px;
+  height: 24px;
+  transform: translate(-50%, -50%);
+  border: 2px solid var(--primary);
+  border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--surface);
+  pointer-events: none;
+}
+.site-cursor::before,
+.site-cursor::after {
+  content: '';
+  position: absolute;
+  background: var(--primary);
+}
+.site-cursor::before {
+  left: 50%;
+  top: -8px;
+  bottom: -8px;
+  width: 2px;
+  transform: translateX(-50%);
+}
+.site-cursor::after {
+  top: 50%;
+  left: -8px;
+  right: -8px;
+  height: 2px;
+  transform: translateY(-50%);
 }
 .site-marker.dragging {
   cursor: grabbing;

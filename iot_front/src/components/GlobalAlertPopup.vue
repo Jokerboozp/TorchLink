@@ -65,30 +65,50 @@ function handleRealtime(event) {
 
   syncSettings()
   const quiet = currentQuietHours()
-  if (settings.soundEnabled && !quiet) void playAlarmTone()
+  // 告警集中到达时提示音至少间隔 3 秒，避免叠响。
+  if (settings.soundEnabled && !quiet && Date.now() - lastToneAt >= TONE_INTERVAL_MS) {
+    lastToneAt = Date.now()
+    void playAlarmTone()
+  }
   if (!settings.popupEnabled || quiet) return
-  popupAlerts.value = [alert, ...popupAlerts.value].slice(0, 3)
+  if (popupAlerts.value.length >= MAX_POPUPS) hiddenCount.value++
+  popupAlerts.value = [alert, ...popupAlerts.value].slice(0, MAX_POPUPS)
+}
+
+const TONE_INTERVAL_MS = 3000
+const MAX_POPUPS = 3
+let lastToneAt = 0
+// 超出显示上限后被挤掉的提示数，提醒用户到告警中心查看全部。
+const hiddenCount = ref(0)
+function dismissAll() {
+  popupAlerts.value = []
+  hiddenCount.value = 0
+}
+function viewAll() {
+  emit('navigate', 'alarms', null, { onDone: dismissAll })
 }
 
 function dismissAlert(id) {
   popupAlerts.value = popupAlerts.value.filter(item => item.id !== id)
+  if (!popupAlerts.value.length) hiddenCount.value = 0
 }
 
 function alertContent(item) {
   return item?.detail || (item?.kind === 'fault' ? '检测到设备故障，请及时处理。' : '检测到设备异常报警，请及时处理。')
 }
 
+// 确实打开目标页面后才关闭提示；用户在“放弃未保存修改”确认中取消时提示保留。
 function viewAlert(alert) {
-  dismissAlert(alert.id)
+  const onDone = () => dismissAlert(alert.id)
   if (alert.alarmId) {
-    emit('navigate', 'alarms', { alarmId: alert.alarmId })
+    emit('navigate', 'alarms', { alarmId: alert.alarmId }, { onDone })
     return
   }
   if (alert.messageId) {
-    emit('navigate', 'raw', { messageId: alert.messageId, deviceId: alert.deviceId })
+    emit('navigate', 'raw', { messageId: alert.messageId, deviceId: alert.deviceId }, { onDone })
     return
   }
-  emit('navigate', 'alarms')
+  emit('navigate', 'alarms', null, { onDone })
 }
 
 function openSettings() {
@@ -126,54 +146,62 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <TransitionGroup v-if="popupAlerts.length" name="global-alert" tag="section" class="global-alert-popups" aria-label="实时报警通知">
-    <article
-      v-for="item in popupAlerts"
-      :key="item.id"
-      class="global-alert-popup"
-      :class="`is-${item.kind}`"
-      role="alertdialog"
-      aria-live="assertive"
-    >
-      <div class="global-alert-head">
-        <div class="global-alert-icon"><component :is="item.kind === 'fault' ? AlertTriangle : BellRing" /></div>
-        <div class="global-alert-title">
-          <span class="global-alert-kicker">实时通知</span>
-          <h3>{{ item.kind === 'fault' ? '设备故障' : '发现报警' }}</h3>
+  <section v-if="popupAlerts.length" class="global-alert-popups" aria-label="实时报警通知">
+    <div v-if="popupAlerts.length > 1 || hiddenCount" class="global-alert-bar">
+      <span>{{ hiddenCount ? `另有 ${hiddenCount} 条提示未显示` : `${popupAlerts.length} 条实时提示` }}</span>
+      <ui-button size="small" text @click="viewAll">查看全部告警</ui-button>
+      <ui-button size="small" text @click="dismissAll">全部关闭</ui-button>
+    </div>
+    <TransitionGroup name="global-alert" tag="div" class="global-alert-stack">
+      <article
+        v-for="item in popupAlerts"
+        :key="item.id"
+        class="global-alert-popup"
+        :class="`is-${item.kind}`"
+        role="alertdialog"
+        aria-live="assertive"
+      >
+        <div class="global-alert-head">
+          <div class="global-alert-icon"><component :is="item.kind === 'fault' ? AlertTriangle : BellRing" /></div>
+          <div class="global-alert-title">
+            <span class="global-alert-kicker">实时通知</span>
+            <h3>{{ item.kind === 'fault' ? '设备故障' : '发现报警' }}</h3>
+          </div>
+          <button class="global-alert-close" type="button" aria-label="关闭报警提示" @click="dismissAlert(item.id)"><X /></button>
         </div>
-        <button class="global-alert-close" type="button" aria-label="关闭报警提示" @click="dismissAlert(item.id)"><X /></button>
-      </div>
 
-      <div class="global-alert-facts">
-        <div class="global-alert-fact">
-          <span>设备名称</span>
-          <strong>{{ item.deviceName || '未知设备' }}</strong>
+        <div class="global-alert-facts">
+          <div class="global-alert-fact">
+            <span>设备名称</span>
+            <strong>{{ item.deviceName || item.deviceId || '未知设备' }}</strong>
+          </div>
+          <div class="global-alert-fact global-alert-fact-content">
+            <span>报警内容</span>
+            <strong>{{ alertContent(item) }}</strong>
+          </div>
+          <div class="global-alert-fact">
+            <span>报警类型</span>
+            <strong>{{ item.alarmTypeLabel || alarmType(item.alarmType) }}</strong>
+          </div>
+          <div class="global-alert-fact">
+            <span>报警时间</span>
+            <strong>{{ formatTime(item.timestamp) }}</strong>
+          </div>
+          <div class="global-alert-fact">
+            <span>报警等级</span>
+            <ui-tag v-if="item.alarmLevel" :type="alertTagType(item.alarmLevel)" round>{{ item.alarmLevelLabel }}</ui-tag
+            ><strong v-else>{{ item.alarmLevelLabel }}</strong>
+          </div>
         </div>
-        <div class="global-alert-fact global-alert-fact-content">
-          <span>报警内容</span>
-          <strong>{{ alertContent(item) }}</strong>
+        <div class="global-alert-actions">
+          <ui-button size="small" type="danger" plain @click="viewAlert(item)">{{
+            item.alarmId ? '查看告警详情' : '查看原始报文'
+          }}</ui-button>
+          <ui-button size="small" @click="dismissAlert(item.id)">关闭提示</ui-button>
         </div>
-        <div class="global-alert-fact">
-          <span>报警类型</span>
-          <strong>{{ item.alarmTypeLabel || alarmType(item.alarmType) }}</strong>
-        </div>
-        <div class="global-alert-fact">
-          <span>报警时间</span>
-          <strong>{{ formatTime(item.timestamp) }}</strong>
-        </div>
-        <div class="global-alert-fact">
-          <span>报警等级</span>
-          <ui-tag :type="alertTagType(item.alarmLevel)" round>{{ item.alarmLevelLabel }}</ui-tag>
-        </div>
-      </div>
-      <div class="global-alert-actions">
-        <ui-button size="small" type="danger" plain @click="viewAlert(item)">{{
-          item.alarmId ? '查看告警详情' : '查看原始报文'
-        }}</ui-button>
-        <ui-button size="small" @click="dismissAlert(item.id)">关闭提示</ui-button>
-      </div>
-    </article>
-  </TransitionGroup>
+      </article>
+    </TransitionGroup>
+  </section>
 
   <ui-dialog v-model="settingsVisible" title="告警提醒设置" width="min(540px, calc(100vw - 24px))">
     <div class="alert-settings">
@@ -228,10 +256,38 @@ onBeforeUnmount(() => {
   z-index: 1200;
   right: 22px;
   bottom: 22px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
   width: min(410px, calc(100vw - 32px));
+  max-height: calc(100dvh - 44px);
   pointer-events: none;
+}
+/* 多条提示时在弹窗区域内滚动，不铺满整屏。 */
+.global-alert-stack {
+  display: grid;
+  gap: 10px;
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  pointer-events: auto;
+}
+.global-alert-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 6px 10px;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  font-size: var(--font-size-sm);
+  pointer-events: auto;
+}
+.global-alert-bar span {
+  flex: 1;
 }
 .global-alert-popup {
   padding: 15px;
@@ -432,6 +488,7 @@ onBeforeUnmount(() => {
     right: 12px;
     bottom: 12px;
     width: calc(100vw - 24px);
+    max-height: 60dvh;
   }
   .global-alert-popup {
     padding: 13px;

@@ -4,7 +4,7 @@ defineEmits(['navigate'])
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { api, download, formatTime, notifyError, session } from '../api'
-import { businessStatuses, label, tagType } from '../labels'
+import { businessStatuses, inspectionSeverities, label, tagType } from '../labels'
 import MarkdownContent from '../components/MarkdownContent.vue'
 import { loadHealthInspection, saveHealthInspection } from '../healthInspectionState'
 
@@ -263,7 +263,9 @@ onBeforeUnmount(() => {
             ><template #default="{ row }">{{ row.activeAlarmCount }}</template></ui-table-column
           ><ui-table-column label="巡检结论" min-width="280"
             ><template #default="{ row }"
-              ><ui-tag :type="tagType(row.severity)" size="small" round>{{ row.severity }}</ui-tag
+              ><ui-tag :type="tagType(row.severity)" size="small" round>{{
+                label(inspectionSeverities, String(row.severity || '').toUpperCase(), '未分级')
+              }}</ui-tag
               ><span class="inspection-findings">{{ (row.findings || []).join('；') }}</span></template
             ></ui-table-column
           ></ui-table

@@ -3,8 +3,10 @@
 // 火灾类和紧急告警关闭前必须核实；关闭后结论不再修改。
 import { reactive, ref, watch } from 'vue'
 import { api, formatTime } from '../api'
+import { errorMessage } from '../presentation'
 import { UiMessage } from '../ui/feedback.js'
 import { dispositionResults, requiresVerification } from '../labels'
+import { useUnsavedGuard } from '../composables/unsavedGuard.js'
 
 const props = defineProps({ alarm: { type: Object, required: true } })
 const emit = defineEmits(['updated'])
@@ -18,16 +20,34 @@ const toInput = ms => {
   d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
   return d.toISOString().slice(0, 16)
 }
+const formFor = alarm => {
+  const d = alarm?.disposition
+  return { result: d?.result || '', notes: d?.notes || '', arrivedAt: toInput(d?.arrivedAt) }
+}
+let baseline = ''
+// 正在编辑且内容与已保存结论不同：视为未保存。
+const dirty = () => editing.value && JSON.stringify(form) !== baseline
+function reset(alarm) {
+  Object.assign(form, formFor(alarm))
+  baseline = JSON.stringify(form)
+  editing.value = !alarm?.disposition && alarm?.status !== 'CLOSED'
+  error.value = ''
+}
+// 详情会因附件上传、媒体轮询等原因整体替换；只有换了告警，或已保存的结论/状态变化且用户没有未保存输入时才重置表单。
 watch(
-  () => props.alarm,
-  alarm => {
-    const d = alarm?.disposition
-    Object.assign(form, { result: d?.result || '', notes: d?.notes || '', arrivedAt: toInput(d?.arrivedAt) })
-    editing.value = !d && alarm?.status !== 'CLOSED'
-    error.value = ''
+  () => [props.alarm?.alarmId, JSON.stringify(props.alarm?.disposition || null), props.alarm?.status],
+  ([id], previous) => {
+    if (previous && id === previous[0] && dirty()) return
+    reset(props.alarm)
   },
   { immediate: true }
 )
+useUnsavedGuard(dirty)
+defineExpose({ dirty })
+function cancelEdit() {
+  reset(props.alarm)
+  editing.value = false
+}
 
 async function save() {
   if (!form.result) {
@@ -43,10 +63,11 @@ async function save() {
       body: JSON.stringify(body)
     })
     editing.value = false
+    baseline = JSON.stringify(form)
     UiMessage.success('核实结论已保存')
     emit('updated', updated)
   } catch (e) {
-    error.value = e.message || '保存失败'
+    error.value = errorMessage(e)
   } finally {
     saving.value = false
   }
@@ -106,7 +127,7 @@ async function save() {
       <ui-button v-permission="'POST /api/v1/alarms/:id/disposition'" type="primary" :loading="saving" @click="save"
         >保存核实结论</ui-button
       >
-      <ui-button v-if="alarm.disposition" :disabled="saving" @click="editing = false">取消</ui-button>
+      <ui-button v-if="alarm.disposition" :disabled="saving" @click="cancelEdit">取消</ui-button>
     </ui-form>
   </ui-card>
 </template>

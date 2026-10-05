@@ -1,14 +1,23 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, toRef } from 'vue'
 import { setupScript } from './helpers/vue.mjs'
 import * as fireSafety from '../src/fireSafety.js'
+
+// 页面状态恢复与未保存检查由各自测试覆盖，此处替换为无副作用实现。
+const pageStubs = {
+  usePageState: () => ({ restored: false }),
+  trackDialogForm: () => ({ dirty: () => false, reset() {}, clear() {} }),
+  confirmClose: async () => true,
+  toRef
+}
 
 function component(api, exports, overrides = {}) {
   const warnings = [],
     errors = []
   const context = vm.createContext({
+    ...pageStubs,
     ...fireSafety,
     computed,
     reactive,

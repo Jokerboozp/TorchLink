@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, toRef } from 'vue'
 import { setupScript } from './helpers/vue.mjs'
 import {
   managementPayload,
@@ -12,6 +12,14 @@ import {
   dispatchPayload,
   fireQuery
 } from '../src/fireSafetyManagement.js'
+
+// 页面状态恢复与未保存检查由各自测试覆盖，此处替换为无副作用实现。
+const pageStubs = {
+  usePageState: () => ({ restored: false }),
+  trackDialogForm: () => ({ dirty: () => false, reset() {}, clear() {} }),
+  confirmClose: async () => true,
+  toRef
+}
 
 test('编辑请求保留版本，排除服务端提醒与审计字段', () => {
   const stored = {
@@ -128,6 +136,7 @@ test('日期时间保持本地时区，分页筛选保留0且排除空值', () =
 function stationPage(api = async () => ({ items: [], total: 0 }), allowed = true) {
   const source = setupScript(new URL('../src/views/FireStationsView.vue', import.meta.url))
   const context = vm.createContext({
+    ...pageStubs,
     computed,
     reactive,
     ref,
@@ -207,6 +216,7 @@ test('巡检状态筛选不被错误用于灭火器资产统计', async () => {
   const requests = []
   const source = setupScript(new URL('../src/views/ExtinguishersView.vue', import.meta.url))
   const context = vm.createContext({
+    ...pageStubs,
     computed,
     reactive,
     ref,

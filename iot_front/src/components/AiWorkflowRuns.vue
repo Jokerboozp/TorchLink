@@ -13,6 +13,41 @@ const canStop = computed(() => can('POST /api/v1/ai/runs/:id/stop'))
 const labels = { queued: '排队中', starting: '启动中', running: '运行中', stopping: '正在停止', stop_failed: '停止失败' }
 let disposed = false
 let request
+// 有运行中的任务时每秒刷新“已用时间”，列表为空时停止计时。
+let ticker = 0
+function syncTicker() {
+  if (!disposed && items.value.length) {
+    if (!ticker) ticker = setInterval(() => (now.value = Date.now()), 1000)
+  } else {
+    clearInterval(ticker)
+    ticker = 0
+  }
+}
+// 强制停止后按递增间隔确认任务离开“正在停止”，累计约 30 秒后交由用户手动刷新。
+const stopPollDelays = [1000, 2000, 3000, 5000, 8000, 10000]
+const stopWatchers = new Map()
+function watchStop(runId, attempt = 0) {
+  clearTimeout(stopWatchers.get(runId))
+  if (disposed) return
+  if (attempt >= stopPollDelays.length) {
+    stopWatchers.delete(runId)
+    UiMessage.info('任务仍在停止中，请稍后刷新列表查看最终状态')
+    return
+  }
+  stopWatchers.set(
+    runId,
+    setTimeout(async () => {
+      await loadRuns()
+      if (disposed) return
+      const row = items.value.find(item => item.runId === runId)
+      if (!row) {
+        stopWatchers.delete(runId)
+        UiMessage.success('任务已停止')
+      } else if (row.status === 'stopping') watchStop(runId, attempt + 1)
+      else stopWatchers.delete(runId)
+    }, stopPollDelays[attempt])
+  )
+}
 
 async function loadRuns() {
   if (loading.value || disposed) return
@@ -24,6 +59,7 @@ async function loadRuns() {
     items.value = result.items || []
     now.value = Date.now()
     error.value = ''
+    syncTicker()
   } catch (e) {
     if (!disposed && e.name !== 'AbortError') error.value = e.message || '运行列表读取失败'
   } finally {
@@ -47,8 +83,10 @@ async function stopRun(row) {
   try {
     await api(`/api/v1/ai/runs/${encodeURIComponent(row.runId)}/stop`, { method: 'POST' })
     row.status = 'stopping'
-    UiMessage.success('停止请求已提交，请点击刷新列表查看最终状态')
+    UiMessage.success('停止请求已提交，正在确认停止结果')
     await loadRuns()
+    const current = items.value.find(item => item.runId === row.runId)
+    if (current?.status === 'stopping') watchStop(row.runId)
   } catch (e) {
     if (e.status === 404) {
       UiMessage.info('该工作流已结束')
@@ -69,6 +107,9 @@ onMounted(loadRuns)
 onUnmounted(() => {
   disposed = true
   request?.abort()
+  syncTicker()
+  stopWatchers.forEach(timer => clearTimeout(timer))
+  stopWatchers.clear()
 })
 </script>
 
@@ -77,7 +118,7 @@ onUnmounted(() => {
     <template #header
       ><div class="runs-header">
         <div>
-          <strong>运行中的 AI 工作流</strong><small>当前租户的任务 · 手动刷新 · {{ items.length }} 个任务</small>
+          <strong>运行中的 AI 工作流</strong><small>当前租户的任务 · 列表手动刷新，已用时间实时更新 · {{ items.length }} 个任务</small>
         </div>
         <ui-button size="small" :loading="loading" @click="loadRuns">刷新列表</ui-button>
       </div></template

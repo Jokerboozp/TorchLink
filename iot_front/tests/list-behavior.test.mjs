@@ -3,10 +3,10 @@ import { readFileSync } from 'node:fs'
 import vm from 'node:vm'
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { loadAllPages } from '../src/listPagination.js'
-import { aiProviderOptions as providerOptions } from '../src/presentation.js'
+import { clientPagination, loadAllPages } from '../src/listPagination.js'
+import { aiProviderOptions as providerOptions, errorMessage } from '../src/presentation.js'
 import { createClientId } from '../src/clientId.js'
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, nextTick, reactive, ref, toRef, watch } from 'vue'
 import { alarmNavigation, alarmQuery } from '../src/alarmNavigation.js'
 import {
   compactCount,
@@ -19,6 +19,17 @@ import {
 } from '../src/dashboard.js'
 
 const root = new URL('../src/views/', import.meta.url)
+// 页面状态恢复与未保存检查依赖地址栏和弹窗确认，由各自测试覆盖；列表行为测试中替换为无副作用实现。
+const pageStubs = {
+  usePageState: () => ({ restored: false }),
+  useUnsavedGuard: () => () => {},
+  trackDialogForm: () => ({ dirty: () => false, reset() {}, clear() {} }),
+  confirmClose: async () => true,
+  toRef,
+  nextTick,
+  clientPagination,
+  errorMessage
+}
 // Execute the real setup code with Vue reactivity; replace external I/O and
 // lifecycle hooks so response ordering is deterministic without a browser.
 function component(
@@ -32,6 +43,7 @@ function component(
 ) {
   const source = setupScript(new URL(file, base))
   const context = vm.createContext({
+    ...pageStubs,
     ref,
     reactive,
     computed,
@@ -285,9 +297,9 @@ test('stale failure does not surface or stop the current camera loading state', 
   await second
   assert.equal(c.loading.value, false)
   const current = c.load()
-  pending[2].reject(new Error('current request failed'))
+  pending[2].reject(new Error('摄像头服务暂不可用'))
   await current
-  assert.equal(c.loadError.value, 'current request failed')
+  assert.equal(c.loadError.value, '摄像头服务暂不可用')
   assert.equal(c.loading.value, false)
 })
 for (const [file, endpoint, pageKey, rowsKey, totalKey] of [
@@ -488,6 +500,7 @@ test('late product binding response cannot change a different instance being edi
 async function devicesView(globals) {
   const script = setupScript(new URL('../src/views/DevicesView.vue', import.meta.url))
   const context = vm.createContext({
+    ...pageStubs,
     ref: value => ({ value }),
     reactive: v => v,
     computed: fn => ({
@@ -620,27 +633,35 @@ test('设备分组、类型、关键字和运行状态交给服务端筛选，�
   assert.equal(s.unregistered.value[0].deviceId, 'raw-1')
 })
 
-function fixture(api) {
+function fixture(api, { allowed = () => false, notified = [] } = {}) {
   const script = setupScript(new URL('../src/views/RawView.vue', import.meta.url))
   const warnings = []
   const context = vm.createContext({
+    ...pageStubs,
     ref,
+    reactive,
     computed,
+    watch,
+    permissionState: reactive({ accessVersion: 'v1' }),
     defineEmits() {},
     onMounted() {},
     api,
+    apiAll: (path, options) => loadAllPages(api, path, options),
+    can: allowed,
     URLSearchParams,
-    UiMessage: { warning: text => warnings.push(text) },
-    notifyError() {},
+    UiMessage: { warning: text => warnings.push(text), success() {} },
+    notifyError: error => notified.push(error),
+    download: async () => {},
     messageTypeLabel: x => x
   })
   return {
     ...vm.runInContext(
       script +
-        '\n;({filters, appliedFilters, page, items, total, selection, load, search, resetFilters, recentHours, changePage, parseState, loadError})',
+        '\n;({filters, appliedFilters, page, items, total, selection, load, search, resetFilters, recentHours, changePage, parseState, loadError, deviceName, productName, detailParseTag, show, opening, downloadOne, downloading})',
       context
     ),
-    warnings
+    warnings,
+    notified
   }
 }
 
@@ -705,12 +726,75 @@ test('late raw responses cannot overwrite a newer filter result; failed queries 
   f.selection.value = [{ messageId: 'new' }]
   const failed = f.load()
   assert.equal(f.selection.value.length, 0)
-  pending[2].reject(new Error('offline'))
+  pending[2].reject(new Error('原始报文服务暂不可用'))
   await failed
   assert.equal(f.items.value.length, 0)
-  assert.equal(f.loadError.value, 'offline')
+  assert.equal(f.loadError.value, '原始报文服务暂不可用')
+  assert.equal(f.notified.length, 0, '查询失败只在表格上方显示一处错误，不再同时弹出提示')
   assert.equal(f.parseState({ parseError: 'invalid' }).label, '解析失败')
   assert.equal(f.parseState({ parsed: true, parseError: 'old error', parsedMessageType: 'ALARM_REPORT' }).tone, 'success')
+})
+
+test('原始报文按当前账户可见的设备和产品资料显示名称，详情与下载不重复请求', async () => {
+  const requests = []
+  let finishDetail
+  const f = fixture(
+    async url => {
+      requests.push(url)
+      const path = new URL(url, 'http://test')
+      if (path.pathname === '/api/v1/raw-messages')
+        return {
+          items: [
+            { messageId: 'raw-1', deviceId: 'd1', productId: 'p1' },
+            { messageId: 'raw-2', deviceId: 'd1', productId: 'p1' },
+            { messageId: 'raw-3', deviceId: 'hidden', productId: 'p2' }
+          ],
+          total: 3
+        }
+      if (path.pathname === '/api/v1/device-registry') {
+        const q = path.searchParams.get('q')
+        return { items: q === 'd1' ? [{ device: { id: 'd1-backup', name: '备用' } }, { device: { id: 'd1', name: '一层烟感' } }] : [] }
+      }
+      if (path.pathname === '/api/v1/products') return { items: [{ id: 'p1', name: '烟感模板' }], total: 1 }
+      if (path.pathname.startsWith('/api/v1/raw-messages/')) return new Promise(resolve => (finishDetail = resolve))
+      return { items: [] }
+    },
+    { allowed: () => true }
+  )
+  await f.load()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(f.deviceName('d1'), '一层烟感')
+  assert.equal(f.deviceName('hidden'), '', '看不到的设备只显示编号')
+  assert.equal(f.productName('p1'), '烟感模板')
+  assert.equal(requests.filter(url => url.includes('device-registry') && url.includes('q=d1')).length, 1, '同一设备只查询一次')
+  await f.load()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.equal(requests.filter(url => url.includes('device-registry')).length, 2, '已解析的名称直接复用')
+  assert.equal(requests.filter(url => url.startsWith('/api/v1/products')).length, 1)
+
+  const first = f.show('raw-1')
+  f.show('raw-1')
+  assert.equal(f.opening.value, 'raw-1')
+  finishDetail({ parseStatus: 'FAILED', message: { messageId: 'raw-1', deviceId: 'd1' } })
+  await first
+  assert.equal(requests.filter(url => url === '/api/v1/raw-messages/raw-1').length, 1, '详情打开期间重复点击不重复请求')
+  assert.equal(f.opening.value, '')
+  assert.equal(f.detailParseTag('FAILED').type, 'danger', '详情中的解析失败与列表一样以红色显示')
+})
+
+test('没有设备与产品读取权限时原始报文只显示编号，不发起资料请求', async () => {
+  const requests = []
+  const f = fixture(async url => {
+    requests.push(url)
+    return { items: [{ messageId: 'raw-1', deviceId: 'd1', productId: 'p1' }], total: 1 }
+  })
+  await f.load()
+  await new Promise(resolve => setTimeout(resolve, 0))
+  assert.deepEqual(
+    requests.map(url => url.split('?')[0]),
+    ['/api/v1/raw-messages']
+  )
+  assert.equal(f.deviceName('d1'), '')
 })
 
 test('alarm list batches alarm events and ignores device state events', async () => {
@@ -718,6 +802,7 @@ test('alarm list batches alarm events and ignores device state events', async ()
   const timers = []
   let requests = 0
   const context = vm.createContext({
+    ...pageStubs,
     ref,
     reactive,
     computed,
@@ -1007,3 +1092,24 @@ for (const scenario of ['untested', 'failed-test', 'changed-after-test']) {
     assert.equal(c.providerError.value, '')
   })
 }
+
+test('一次返回全部记录的列表在前端分页，列表变短时页码回到最后一页', async () => {
+  const rows = ref(Array.from({ length: 45 }, (_, i) => i + 1))
+  const page = ref(3),
+    pageSize = ref(20)
+  const { paged, total } = clientPagination(rows, page, pageSize)
+  assert.equal(total.value, 45)
+  assert.deepEqual(paged.value, [41, 42, 43, 44, 45])
+  // 重新加载期间列表暂时为空，不把页码改回第一页。
+  rows.value = []
+  await nextTick()
+  assert.equal(page.value, 3)
+  rows.value = Array.from({ length: 25 }, (_, i) => i + 1)
+  await nextTick()
+  assert.equal(page.value, 2)
+  assert.deepEqual(paged.value, [21, 22, 23, 24, 25])
+  pageSize.value = 50
+  await nextTick()
+  assert.equal(page.value, 1)
+  assert.equal(paged.value.length, 25)
+})

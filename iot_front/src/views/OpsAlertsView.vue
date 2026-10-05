@@ -8,7 +8,7 @@ import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { formatDuration, relativeTime } from '../ops/format.js'
 import { latest, opsErrorText, opsGet, opsSend, takeNavigation } from '../ops/opsApi.js'
 import { refreshOptions, resolveRange } from '../ops/timeRange.js'
-import { clampAlertPage, pageAlertGroups, prepareAlertGroups, sortAlerts, summarizeAlerts } from '../ops/alerts.js'
+import { clampAlertPage, notificationState, pageAlertGroups, prepareAlertGroups, sortAlerts, summarizeAlerts } from '../ops/alerts.js'
 import StatusDot from '../components/layout/StatusDot.vue'
 import MatcherEditor from '../components/ops/MatcherEditor.vue'
 import NotificationPanel from '../components/ops/NotificationPanel.vue'
@@ -354,11 +354,7 @@ onBeforeUnmount(() => {
               >
               <ui-table-column label="通知状态" width="120"
                 ><template #default="{ row }"
-                  ><StatusDot
-                    :tone="row.state === 'active' ? 'danger' : 'neutral'"
-                    :label="
-                      row.state === 'active' ? '通知中' : row.silencedBy?.length ? '已静默' : row.inhibitedBy?.length ? '已抑制' : row.state
-                    " /></template
+                  ><StatusDot :tone="notificationState(row).tone" :label="notificationState(row).text" /></template
               ></ui-table-column>
               <ui-table-column label="接收人" min-width="120"
                 ><template #default="{ row }">{{ (row.receivers || []).join('、') || '—' }}</template></ui-table-column

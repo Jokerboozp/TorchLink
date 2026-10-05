@@ -14,6 +14,9 @@ import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 import { confirmDelete } from '../deleteAction'
+import { errorMessage } from '../presentation'
+import { usePageState } from '../composables/usePageState.js'
+import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
 
 const cameras = ref([])
 const devices = ref([])
@@ -37,6 +40,13 @@ const blank = () => ({
   enabled: true
 })
 const camera = reactive(blank())
+// 页码与每页条数在刷新或切换菜单后恢复。
+usePageState('cameras', { page, pageSize })
+// 编辑弹窗关闭前检查未保存的修改。
+const formGuard = trackDialogForm(dialogVisible, () => camera)
+async function closeEditor() {
+  if (await confirmClose(formGuard.dirty())) dialogVisible.value = false
+}
 let loadVersion = 0
 const loadError = ref('')
 const liveConfigVisible = ref(false)
@@ -82,7 +92,7 @@ async function load() {
     total.value = Number(data.total ?? data.count ?? cameras.value.length)
     loadError.value = ''
   } catch (error) {
-    if (version === loadVersion) loadError.value = error?.message || '摄像头读取失败'
+    if (version === loadVersion) loadError.value = error?.status === 401 ? '' : errorMessage(error) || '摄像头读取失败'
   } finally {
     if (version === loadVersion) loading.value = false
   }
@@ -188,6 +198,8 @@ function changePageSize(value) {
 }
 
 onMounted(async () => {
+  // 从告警等页面跳转定位摄像头时从第一页开始，不沿用上次保存的页码。
+  if (sessionStorage.getItem('iot:navigation-detail')) page.value = 1
   await Promise.all([load(), loadLiveStatus(true)])
   consumeNavigationAction()
 })
@@ -283,7 +295,12 @@ function rowActions(row) {
     </ui-table>
   </DataTableCard>
 
-  <ui-dialog v-model="dialogVisible" :title="editing ? '编辑摄像头信息' : '新增摄像头信息'" width="min(680px, 94vw)">
+  <ui-dialog
+    :model-value="dialogVisible"
+    :title="editing ? '编辑摄像头信息' : '新增摄像头信息'"
+    width="min(680px, 94vw)"
+    @update:model-value="value => value || closeEditor()"
+  >
     <ui-form :model="camera" label-position="top">
       <section class="camera-editor-section">
         <h3>摄像头身份</h3>
@@ -329,7 +346,7 @@ function rowActions(row) {
       </section>
     </ui-form>
     <template #footer
-      ><ui-button @click="dialogVisible = false">取消</ui-button
+      ><ui-button @click="closeEditor">取消</ui-button
       ><ui-button
         v-permission="['POST /api/v1/integrations/video/cameras', 'PUT /api/v1/integrations/video/cameras/:id']"
         type="primary"

@@ -3,6 +3,7 @@
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Plus, RefreshCw, Send, Trash2 } from '@lucide/vue'
 import { api } from '../api'
+import { errorMessage } from '../presentation'
 import { confirmDelete } from '../deleteAction'
 import { UiMessage } from '../ui/feedback.js'
 import { alarmLevels, alarmTypes } from '../labels'
@@ -10,6 +11,9 @@ import { channelForm, channelPayload, channelTypes, blankStage, policyForm, poli
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
+import { clientPagination } from '../listPagination'
+import { usePageState } from '../composables/usePageState.js'
+import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
 defineEmits(['navigate'])
 
 const tab = ref('policies')
@@ -28,6 +32,28 @@ const testing = ref(''),
 const typeInfo = computed(() => channelTypes.find(item => item.value === channel.type) || channelTypes[0])
 const channelName = id => channels.value.find(item => item.id === id)?.name || id
 const typeLabel = type => channelTypes.find(item => item.value === type)?.label || type
+// 渠道与策略接口一次返回全部记录，表格在前端分页；页签与页码在刷新或切换菜单后恢复。
+const policyPage = ref(1),
+  policyPageSize = ref(20),
+  channelPage = ref(1),
+  channelPageSize = ref(20)
+usePageState('notifications', { tab, policyPage, policyPageSize, channelPage, channelPageSize })
+const { paged: shownPolicies, total: policyTotal } = clientPagination(policies, policyPage, policyPageSize)
+const { paged: shownChannels, total: channelTotal } = clientPagination(channels, channelPage, channelPageSize)
+// 渠道与策略弹窗关闭前检查未保存的修改。
+const channelGuard = trackDialogForm(
+  computed(() => dialog.value === 'channel'),
+  () => channel
+)
+const policyGuard = trackDialogForm(
+  computed(() => dialog.value === 'policy'),
+  () => policy
+)
+async function closeDialog() {
+  if (saving.value) return
+  const guard = dialog.value === 'channel' ? channelGuard : dialog.value === 'policy' ? policyGuard : null
+  if (await confirmClose(Boolean(guard?.dirty()))) dialog.value = ''
+}
 
 async function load() {
   loading.value = true
@@ -42,7 +68,7 @@ async function load() {
     policies.value = p.items || []
     Object.assign(options, o)
   } catch (e) {
-    loadError.value = e.message || '读取告警通知配置失败'
+    loadError.value = errorMessage(e) || '读取告警通知配置失败'
   } finally {
     loading.value = false
   }
@@ -176,8 +202,23 @@ onMounted(load)
       title="请先在“通知渠道”中添加至少一个渠道"
     />
 
-    <DataTableCard v-if="tab === 'policies'" :title="`通知策略 · ${policies.length} 条`" :error="loadError" @retry="load">
-      <ui-table :data="policies" :loading="loading" empty-text="暂无通知策略">
+    <DataTableCard
+      v-if="tab === 'policies'"
+      :title="`通知策略 · ${policies.length} 条`"
+      :error="loadError"
+      :page="policyPage"
+      :page-size="policyPageSize"
+      :total="policyTotal"
+      @retry="load"
+      @update:page="value => (policyPage = value)"
+      @update:page-size="
+        value => {
+          policyPageSize = value
+          policyPage = 1
+        }
+      "
+    >
+      <ui-table :data="shownPolicies" :loading="loading" empty-text="暂无通知策略">
         <ui-table-column label="策略" min-width="160"
           ><template #default="{ row }"
             ><strong>{{ row.name }}</strong
@@ -203,8 +244,23 @@ onMounted(load)
         ></ui-table-column>
       </ui-table>
     </DataTableCard>
-    <DataTableCard v-else :title="`通知渠道 · ${channels.length} 个`" :error="loadError" @retry="load">
-      <ui-table :data="channels" :loading="loading" empty-text="暂无通知渠道">
+    <DataTableCard
+      v-else
+      :title="`通知渠道 · ${channels.length} 个`"
+      :error="loadError"
+      :page="channelPage"
+      :page-size="channelPageSize"
+      :total="channelTotal"
+      @retry="load"
+      @update:page="value => (channelPage = value)"
+      @update:page-size="
+        value => {
+          channelPageSize = value
+          channelPage = 1
+        }
+      "
+    >
+      <ui-table :data="shownChannels" :loading="loading" empty-text="暂无通知渠道">
         <ui-table-column label="渠道" min-width="180"
           ><template #default="{ row }"
             ><strong>{{ row.name }}</strong
@@ -230,12 +286,7 @@ onMounted(load)
       :model-value="dialog === 'channel'"
       :title="channel.version ? '编辑通知渠道' : '新增通知渠道'"
       width="min(640px,94vw)"
-      :close-on-click-modal="!saving"
-      @update:model-value="
-        v => {
-          if (!v && !saving) dialog = ''
-        }
-      "
+      @update:model-value="value => value || closeDialog()"
     >
       <ui-alert v-if="saveError" type="error" :title="saveError" :closable="false" class="notify-gap" />
       <ui-form label-position="top" :disabled="saving">
@@ -293,7 +344,7 @@ onMounted(load)
         <div class="notify-switch"><span>启用</span><ui-switch v-model="channel.enabled" /></div>
       </ui-form>
       <template #footer
-        ><ui-button :disabled="saving" @click="dialog = ''">取消</ui-button
+        ><ui-button :disabled="saving" @click="closeDialog">取消</ui-button
         ><ui-button type="primary" :loading="saving" @click="save">保存</ui-button></template
       >
     </ui-dialog>
@@ -302,12 +353,7 @@ onMounted(load)
       :model-value="dialog === 'policy'"
       :title="policy.version ? '编辑通知策略' : '新增通知策略'"
       width="min(820px,96vw)"
-      :close-on-click-modal="!saving"
-      @update:model-value="
-        v => {
-          if (!v && !saving) dialog = ''
-        }
-      "
+      @update:model-value="value => value || closeDialog()"
     >
       <ui-alert v-if="saveError" type="error" :title="saveError" :closable="false" class="notify-gap" />
       <ui-form label-position="top" :disabled="saving">
@@ -384,7 +430,7 @@ onMounted(load)
         <ui-button v-if="policy.stages.length < 8" @click="addStage"><Plus />添加升级级别</ui-button>
       </ui-form>
       <template #footer
-        ><ui-button :disabled="saving" @click="dialog = ''">取消</ui-button
+        ><ui-button :disabled="saving" @click="closeDialog">取消</ui-button
         ><ui-button type="primary" :loading="saving" @click="save">保存</ui-button></template
       >
     </ui-dialog>

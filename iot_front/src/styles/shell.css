@@ -428,6 +428,18 @@
   width: 15px;
   height: 15px;
 }
+.realtime-notice {
+  color: var(--warning-text);
+  background: var(--warning-soft);
+  border-color: var(--warning-border);
+}
+.realtime-notice__dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+}
 .account-dropdown {
   display: flex;
   align-items: center;

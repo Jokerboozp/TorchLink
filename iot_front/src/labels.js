@@ -14,6 +14,8 @@ export const alarmTypes = {
   DEVICE_HEALTH: '设备健康'
 }
 export const alarmLevels = { CRITICAL: '紧急', HIGH: '高', MEDIUM: '中', LOW: '低', INFO: '提示' }
+// 设备健康巡检结论等级，与巡检 PDF 文档的中文一致。
+export const inspectionSeverities = { INFO: '正常', MEDIUM: '关注', HIGH: '高风险', CRITICAL: '严重' }
 export const alarmStatuses = { ACTIVE: '活动中', ACKED: '已确认', RECOVERED: '已恢复', CLOSED: '已关闭', SUPPRESSED: '已抑制' }
 export const alarmSources = {
   device: '设备上报',

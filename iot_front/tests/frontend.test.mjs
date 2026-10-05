@@ -10,6 +10,7 @@ import { createClientId } from '../src/clientId.js'
 import { loadAIHistory } from '../src/aiHistory.js'
 import { resetAIConversation, useAIConversation } from '../src/aiConversation.js'
 import { setupScript } from './helpers/vue.mjs'
+import { loadAllPages } from '../src/listPagination.js'
 
 const root = new URL('..', import.meta.url)
 
@@ -61,6 +62,9 @@ test('realtime alarms, fault events and quiet settings stay tenant scoped', asyn
   assert.equal(fault.messageId, 'raw-message-fault')
   assert.equal(fault.alarmType, 'DEVICE_FAULT')
   assert.equal(fault.detail, '主电源故障')
+  // 事件未带等级时不替它标成“高”。
+  assert.equal(fault.alarmLevel, '')
+  assert.equal(fault.alarmLevelLabel, '未标注')
   assert.equal(
     alerts.parseRealtimeAlert('/iot/parsed/tenant-a/product-a/device-1/EVENT_REPORT', {
       messageType: 'EVENT_REPORT',
@@ -229,6 +233,8 @@ function manualAIStream() {
 
 // Runs the real AiView setup code with a component-like effect scope and lifecycle hooks.
 const aiViewSetup = setupScript(new URL('../src/views/AiView.vue', import.meta.url))
+const aiViewApi = async path =>
+  path.startsWith('/api/v1/ai/workflows') ? { items: [{ id: 'ops-assistant', name: '运维助手', enabled: true }], healthy: true } : {}
 function mountAiView(identity, storage, stream) {
   const hooks = { mounted: [], beforeUnmount: [] }
   const scope = effectScope()
@@ -251,8 +257,8 @@ function mountAiView(identity, storage, stream) {
     reconcileRuleDraftMessages: () => 0,
     UiMessage: { info() {}, success() {}, warning() {}, error() {} },
     UiMessageBox: { confirm: async () => {} },
-    api: async path =>
-      path.startsWith('/api/v1/ai/workflows') ? { items: [{ id: 'ops-assistant', name: '运维助手', enabled: true }], healthy: true } : {},
+    api: aiViewApi,
+    apiAll: (path, options) => loadAllPages(aiViewApi, path, options),
     requestAnimationFrame: callback => {
       callback()
       return 0
@@ -425,6 +431,62 @@ test('AI history cannot restore data from a previous authorization scope', async
     assert.equal(loadAIHistory(storage, current, Date.now(), workflow), null)
     assert.equal(loadAIHistory(storage, previous, Date.now(), workflow).conversationId, 'old')
   }
+})
+
+// 与浏览器 localStorage 一样支持 length / key(index) 枚举。
+function enumerableStorage() {
+  const values = new Map()
+  return {
+    get length() {
+      return values.size
+    },
+    key: index => [...values.keys()][index] ?? null,
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, String(value)),
+    removeItem: key => values.delete(key),
+    keys: () => [...values.keys()]
+  }
+}
+
+test('AI history from an older access version is removed instead of left behind', async () => {
+  const { loadAIHistory, saveAIHistory } = await import('../src/aiHistory.js')
+  const storage = enumerableStorage()
+  const state = { conversationId: 'old', messages: [{ text: '设备 B 的告警', status: 'succeeded' }], runs: [] }
+  const previous = { tenant: 'tenant-a', user: 'alice', accessVersion: 'v1' }
+  const current = { tenant: 'tenant-a', user: 'alice', accessVersion: 'v2' }
+  saveAIHistory(storage, previous, state)
+  saveAIHistory(storage, previous, state, 'ops-assistant')
+  saveAIHistory(storage, { tenant: 'tenant-a', user: 'alice' }, state)
+  saveAIHistory(storage, { tenant: 'tenant-a', user: 'alice2', accessVersion: 'v1' }, state)
+  saveAIHistory(storage, { tenant: 'tenant-b', user: 'alice', accessVersion: 'v1' }, state)
+  saveAIHistory(storage, current, { ...state, conversationId: 'current' }, 'ops-assistant')
+  assert.equal(loadAIHistory(storage, current), null)
+  const left = storage.keys()
+  assert.equal(left.filter(key => key.includes(':tenant-a:alice:')).length, 1, '旧版本与无版本记录须被清除')
+  assert.equal(loadAIHistory(storage, current, Date.now(), 'ops-assistant').conversationId, 'current')
+  assert.ok(
+    left.some(key => key.includes(':tenant-a:alice2:')),
+    '其他用户的历史不受影响'
+  )
+  assert.ok(
+    left.some(key => key.includes(':tenant-b:alice:')),
+    '其他租户的历史不受影响'
+  )
+})
+
+test('clearing AI history removes every version and workflow for the current tenant and user only', async () => {
+  const { clearAIHistory, loadAIHistory, saveAIHistory } = await import('../src/aiHistory.js')
+  const storage = enumerableStorage()
+  const state = { conversationId: 'c', messages: [], runs: [] }
+  const identity = { tenant: 'tenant-a', user: 'alice', accessVersion: 'v2' }
+  saveAIHistory(storage, identity, state)
+  saveAIHistory(storage, identity, state, 'ops-assistant')
+  saveAIHistory(storage, { ...identity, accessVersion: 'v1' }, state)
+  saveAIHistory(storage, { tenant: 'tenant-a', user: 'bob', accessVersion: 'v2' }, state)
+  assert.equal(clearAIHistory(storage, identity), 3)
+  assert.equal(loadAIHistory(storage, identity), null)
+  assert.equal(loadAIHistory(storage, { tenant: 'tenant-a', user: 'bob', accessVersion: 'v2' }).conversationId, 'c')
+  assert.equal(clearAIHistory(storage, {}), 0, '身份不完整时不清除任何内容')
 })
 
 test('display names handle canonical and lowercase wire values without mutating data', () => {
