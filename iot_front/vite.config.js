@@ -18,7 +18,9 @@ function mediaAuth(apiTarget) {
             const response = await fetch(`${apiTarget}/api/v1/video/media-auth`, { headers: { 'X-Original-URI': req.url } })
             if (response.status === 204) return next()
           }
-        } catch { /* API 不可用时拒绝 */ }
+        } catch {
+          /* API 不可用时拒绝 */
+        }
         res.statusCode = 403
         res.end()
       })
@@ -33,13 +35,17 @@ function apiStartupGate(apiTarget, timeoutMs = 90000) {
   const address = { host: hostname, port: Number(port) || (protocol === 'https:' ? 443 : 80) }
   let state = 'unknown' // unknown：需要等待；ready：已连通；down：等待超时，直接转发
   let waiting = null
-  const reachable = () => new Promise(resolve => {
-    const socket = net.connect(address)
-    const done = ok => { socket.destroy(); resolve(ok) }
-    socket.setTimeout(1000, () => done(false))
-    socket.once('connect', () => done(true))
-    socket.once('error', () => done(false))
-  })
+  const reachable = () =>
+    new Promise(resolve => {
+      const socket = net.connect(address)
+      const done = ok => {
+        socket.destroy()
+        resolve(ok)
+      }
+      socket.setTimeout(1000, () => done(false))
+      socket.once('connect', () => done(true))
+      socket.once('error', () => done(false))
+    })
   const waitReady = async logger => {
     const deadline = Date.now() + timeoutMs
     let announced = false
@@ -57,15 +63,25 @@ function apiStartupGate(apiTarget, timeoutMs = 90000) {
   }
   return {
     configure(proxy) {
-      proxy.on('proxyRes', () => { state = 'ready' })
-      proxy.on('error', () => { if (state === 'ready') state = 'unknown' }) // API 重启后重新等待
+      proxy.on('proxyRes', () => {
+        state = 'ready'
+      })
+      proxy.on('error', () => {
+        if (state === 'ready') state = 'unknown'
+      }) // API 重启后重新等待
     },
     plugin: {
       name: 'torchlink-api-startup-gate',
       configureServer(server) {
         server.middlewares.use(async (req, res, next) => {
           if (state !== 'unknown' || !/^\/(api|health|mcp)(\/|\?|$)/.test(req.url || '')) return next()
-          waiting ??= waitReady(server.config.logger).then(result => { state = result }).finally(() => { waiting = null })
+          waiting ??= waitReady(server.config.logger)
+            .then(result => {
+              state = result
+            })
+            .finally(() => {
+              waiting = null
+            })
           await waiting
           next()
         })
@@ -82,9 +98,9 @@ export default defineConfig(({ mode }) => {
   const apiProxy = { target: apiTarget, changeOrigin: true, configure: apiGate.configure }
   return {
     plugins: [
-      vue(), /* 编译 Vue 页面。 */
-      tailwindcss(), /* 保留业务页面已有的原子样式。 */
-      mediaAuth(apiTarget), /* 本地开发时校验直播 HLS 播放凭证。 */
+      vue() /* 编译 Vue 页面。 */,
+      tailwindcss() /* 保留业务页面已有的原子样式。 */,
+      mediaAuth(apiTarget) /* 本地开发时校验直播 HLS 播放凭证。 */,
       apiGate.plugin /* 本地开发时等待 API 启动完成再转发接口请求。 */
     ],
     resolve: {

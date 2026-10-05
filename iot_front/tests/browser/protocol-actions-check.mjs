@@ -7,10 +7,30 @@ import { join } from 'node:path'
 
 // 样本覆盖生成映射、Go 源码、历史版本和尚未创建版本的协议。
 const fixtures = [
-  { definition: { id: 'generated-fixture', name: '生成映射协议' }, releases: [{ version: '1.0.0', status: 'PUBLISHED', parserType: 'json', transport: 'MQTT', artifact: { generatedMapping: true } }] },
-  { definition: { id: 'source-fixture', name: 'Go 源码协议' }, releases: [{ version: '1.0.0', status: 'PUBLISHED', parserType: 'go_protocol_parser', transport: 'TCP', artifact: { build: { kind: 'go-source' }, filename: 'protocol.go' } }] },
-  { definition: { id: 'legacy-fixture', name: '历史协议' }, releases: [{ version: '1.0.0', status: 'PUBLISHED', parserType: 'json', transport: 'HTTP', artifact: {} }] },
-  { definition: { id: 'iot-standard', name: '标准设备上报' }, releases: [{ version:'1.0.0', status:'PUBLISHED', parserType:'iot_standard_parser', transport:'MQTT_HTTP' }] },
+  {
+    definition: { id: 'generated-fixture', name: '生成映射协议' },
+    releases: [{ version: '1.0.0', status: 'PUBLISHED', parserType: 'json', transport: 'MQTT', artifact: { generatedMapping: true } }]
+  },
+  {
+    definition: { id: 'source-fixture', name: 'Go 源码协议' },
+    releases: [
+      {
+        version: '1.0.0',
+        status: 'PUBLISHED',
+        parserType: 'go_protocol_parser',
+        transport: 'TCP',
+        artifact: { build: { kind: 'go-source' }, filename: 'protocol.go' }
+      }
+    ]
+  },
+  {
+    definition: { id: 'legacy-fixture', name: '历史协议' },
+    releases: [{ version: '1.0.0', status: 'PUBLISHED', parserType: 'json', transport: 'HTTP', artifact: {} }]
+  },
+  {
+    definition: { id: 'iot-standard', name: '标准设备上报' },
+    releases: [{ version: '1.0.0', status: 'PUBLISHED', parserType: 'iot_standard_parser', transport: 'MQTT_HTTP' }]
+  },
   { definition: { id: 'empty-fixture', name: '待创建版本的协议' }, releases: [] }
 ]
 const origin = process.env.IOT_UI_PREVIEW_ORIGIN || 'http://127.0.0.1:4173'
@@ -23,7 +43,8 @@ try {
   // 登录、权限轮询和协议目录均返回合成数据，不连接真实业务服务。
   await call('Page.enable')
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false }) // 固定桌面尺寸以检查表格和导航布局。
-  await call('Page.addScriptToEvaluateOnNewDocument', { source: `
+  await call('Page.addScriptToEvaluateOnNewDocument', {
+    source: `
     localStorage.clear();
     const originalFetch = window.fetch.bind(window);
     const protocolFixture = ${JSON.stringify({ items: fixtures, total: fixtures.length })};
@@ -35,14 +56,19 @@ try {
         : path === '/api/v2/protocols' ? protocolFixture : null;
       return body ? Promise.resolve(new Response(JSON.stringify(body), { headers: { 'Content-Type': 'application/json' } })) : originalFetch(input, options);
     };
-  ` })
+  `
+  })
   await call('Page.navigate', { url: origin })
   await until(() => evaluate("Boolean(document.querySelector('.login-form button[type=submit]'))"))
-  await evaluate("(() => { const input = document.querySelector('.login-form input[type=password]'); input.value = 'fixture'; input.dispatchEvent(new Event('input', { bubbles: true })) })()")
+  await evaluate(
+    "(() => { const input = document.querySelector('.login-form input[type=password]'); input.value = 'fixture'; input.dispatchEvent(new Event('input', { bubbles: true })) })()"
+  )
   await evaluate("document.querySelector('.login-form button[type=submit]').click()")
-  await until(() => evaluate("Boolean(document.querySelector('.nav-item[aria-label=\"协议开发\"]'))"))
-  await evaluate("document.querySelector('.nav-item[aria-label=\"协议开发\"]').click()")
-  await until(() => evaluate("document.querySelectorAll('.n-data-table-tr').length >= 5")).catch(async error => { throw new Error(`${error.message}: ${await evaluate('document.body.innerText.slice(0, 800)')}`) })
+  await until(() => evaluate('Boolean(document.querySelector(\'.nav-item[aria-label="协议开发"]\'))'))
+  await evaluate('document.querySelector(\'.nav-item[aria-label="协议开发"]\').click()')
+  await until(() => evaluate("document.querySelectorAll('.n-data-table-tr').length >= 5")).catch(async error => {
+    throw new Error(`${error.message}: ${await evaluate('document.body.innerText.slice(0, 800)')}`)
+  })
   const screenshot = await call('Page.captureScreenshot', { format: 'png' }) // 截取协议页用于视觉核对。
   await writeFile(join(tmpdir(), 'iot-naive-protocol.png'), Buffer.from(screenshot.data, 'base64')) // 截图保存在临时目录，不进入代码仓库。
 

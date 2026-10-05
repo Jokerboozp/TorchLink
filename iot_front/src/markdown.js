@@ -32,8 +32,8 @@ function renderInline(value) {
   let text = escapeHtml(value)
 
   text = text.replace(/`([^`\n]+)`/g, (_, code) => token(`<code>${code}</code>`))
-  text = text.replace(/!\[([^\]\n]*)\]\([^\)\n]+\)/g, '$1')
-  text = text.replace(/\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:)[^\s\)]+)\)/g, (_, label, href) => {
+  text = text.replace(/!\[([^\]\n]*)\]\([^)\n]+\)/g, '$1')
+  text = text.replace(/\[([^\]\n]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+)\)/g, (_, label, href) => {
     const safe = safeHref(href)
     return safe ? token(`<a href="${safe}" target="_blank" rel="noopener noreferrer">${label}</a>`) : label
   })
@@ -61,10 +61,12 @@ function renderTable(lines) {
   const headers = splitTableRow(lines[0])
   const rows = lines.slice(2).map(splitTableRow)
   const headerHtml = headers.map(cell => `<th>${renderInline(cell)}</th>`).join('')
-  const rowHtml = rows.map(row => {
-    const cells = headers.map((_, index) => `<td>${renderInline(row[index] || '')}</td>`).join('')
-    return `<tr>${cells}</tr>`
-  }).join('')
+  const rowHtml = rows
+    .map(row => {
+      const cells = headers.map((_, index) => `<td>${renderInline(row[index] || '')}</td>`).join('')
+      return `<tr>${cells}</tr>`
+    })
+    .join('')
   return `<div class="markdown-table-wrap"><table><thead><tr>${headerHtml}</tr></thead><tbody>${rowHtml}</tbody></table></div>`
 }
 
@@ -93,7 +95,7 @@ function renderFence(lines, start) {
   }
   if (index < lines.length) index += 1
   const className = language ? ` class="language-${language}"` : ''
-  return { html:`<pre><code${className}>${escapeHtml(content.join('\n'))}</code></pre>`, next:index }
+  return { html: `<pre><code${className}>${escapeHtml(content.join('\n'))}</code></pre>`, next: index }
 }
 
 function renderList(lines, start, ordered) {
@@ -114,11 +116,13 @@ function renderList(lines, start, ordered) {
     }
     break
   }
-  return { html:`<${ordered ? 'ol' : 'ul'}>${items.join('')}</${ordered ? 'ol' : 'ul'}>`, next:index }
+  return { html: `<${ordered ? 'ol' : 'ul'}>${items.join('')}</${ordered ? 'ol' : 'ul'}>`, next: index }
 }
 
 export function renderMarkdown(source) {
-  const lines = String(source ?? '').replace(/\r\n?/g, '\n').split('\n')
+  const lines = String(source ?? '')
+    .replace(/\r\n?/g, '\n')
+    .split('\n')
   const html = []
   let index = 0
   let paragraph = []

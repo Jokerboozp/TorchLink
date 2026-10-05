@@ -9,7 +9,7 @@ const props = defineProps({
   inline: { type: Number, default: 2 }
 })
 const visible = computed(() => props.actions.filter(action => !action.hidden && (!action.permission || can(action.permission))))
-const shown = computed(() => visible.value.length <= props.inline + 1 ? visible.value : visible.value.slice(0, props.inline))
+const shown = computed(() => (visible.value.length <= props.inline + 1 ? visible.value : visible.value.slice(0, props.inline)))
 const folded = computed(() => visible.value.slice(shown.value.length))
 
 function run(key) {
@@ -29,7 +29,8 @@ function run(key) {
       :disabled="action.disabled"
       :loading="action.loading"
       @click="action.onClick?.()"
-    >{{ action.label }}</ui-button>
+      >{{ action.label }}</ui-button
+    >
     <ui-dropdown v-if="folded.length" @command="run">
       <ui-button size="small" text aria-label="更多操作" title="更多操作"><MoreHorizontal /></ui-button>
       <template #dropdown>
@@ -44,6 +45,15 @@ function run(key) {
 </template>
 
 <style scoped>
-.row-actions { display: inline-flex; align-items: center; justify-content: flex-end; flex-wrap: nowrap; gap: var(--space-3); white-space: nowrap; }
-.row-actions__danger { color: var(--danger-text); }
+.row-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: nowrap;
+  gap: var(--space-3);
+  white-space: nowrap;
+}
+.row-actions__danger {
+  color: var(--danger-text);
+}
 </style>

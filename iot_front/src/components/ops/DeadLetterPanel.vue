@@ -29,7 +29,13 @@ async function load() {
 }
 
 async function replay(row) {
-  try { await UiMessageBox.confirm('将这条消息重新投递到原处理主题？处理按消息幂等，重复投递不会重复生成告警；死信记录保留。', '重新投递', { confirmButtonText: '重新投递' }) } catch { return }
+  try {
+    await UiMessageBox.confirm('将这条消息重新投递到原处理主题？处理按消息幂等，重复投递不会重复生成告警；死信记录保留。', '重新投递', {
+      confirmButtonText: '重新投递'
+    })
+  } catch {
+    return
+  }
   const key = `${row.group}/${row.partition}/${row.offset}`
   replaying.value = key
   try {
@@ -42,7 +48,7 @@ async function replay(row) {
   }
 }
 
-const time = value => value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—'
+const time = value => (value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—')
 onMounted(load)
 </script>
 
@@ -55,16 +61,37 @@ onMounted(load)
     </div>
     <ui-alert v-if="error" type="error" :title="error" :closable="false" show-icon />
     <p v-for="item in groupErrors" :key="item" class="ops-muted">{{ item }}</p>
-    <ui-table :data="rows" size="small" :row-key="row => `${row.group}/${row.partition}/${row.offset}`" :empty-text="loading ? '正在读取…' : '没有死信消息'">
-      <ui-table-column label="时间" width="170"><template #default="{ row }">{{ time(row.time) }}</template></ui-table-column>
+    <ui-table
+      :data="rows"
+      size="small"
+      :row-key="row => `${row.group}/${row.partition}/${row.offset}`"
+      :empty-text="loading ? '正在读取…' : '没有死信消息'"
+    >
+      <ui-table-column label="时间" width="170"
+        ><template #default="{ row }">{{ time(row.time) }}</template></ui-table-column
+      >
       <ui-table-column label="环节" width="110" prop="groupName" />
-      <ui-table-column label="失败原因" min-width="260"><template #default="{ row }"><span class="dlq-error">{{ row.error || '—' }}</span></template></ui-table-column>
+      <ui-table-column label="失败原因" min-width="260"
+        ><template #default="{ row }"
+          ><span class="dlq-error">{{ row.error || '—' }}</span></template
+        ></ui-table-column
+      >
       <ui-table-column label="消息内容" min-width="240">
-        <template #default="{ row }"><code class="dlq-payload" :title="row.payload">{{ row.payload }}</code><small v-if="row.truncated" class="ops-muted">（已截断）</small></template>
+        <template #default="{ row }"
+          ><code class="dlq-payload" :title="row.payload">{{ row.payload }}</code
+          ><small v-if="row.truncated" class="ops-muted">（已截断）</small></template
+        >
       </ui-table-column>
       <ui-table-column label="操作" width="110" fixed="right">
         <template #default="{ row }">
-          <ui-button v-if="can('POST /api/v1/ops/overview/dead-letters/:group/:partition/:offset/replay')" text size="small" :loading="replaying === `${row.group}/${row.partition}/${row.offset}`" @click="replay(row)">重新投递</ui-button>
+          <ui-button
+            v-if="can('POST /api/v1/ops/overview/dead-letters/:group/:partition/:offset/replay')"
+            text
+            size="small"
+            :loading="replaying === `${row.group}/${row.partition}/${row.offset}`"
+            @click="replay(row)"
+            >重新投递</ui-button
+          >
         </template>
       </ui-table-column>
     </ui-table>
@@ -72,10 +99,37 @@ onMounted(load)
 </template>
 
 <style scoped>
-.kpi-section { display: grid; gap: var(--space-3); min-width: 0; }
-.section-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-3); }
-.section-heading h2 { margin: 0; color: var(--text-strong); font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); }
-.section-heading span, .ops-muted { color: var(--text-muted); font-size: var(--font-size-xs); }
-.dlq-error { overflow-wrap: anywhere; }
-.dlq-payload { display: block; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-size-xs); }
+.kpi-section {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.section-heading h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+.section-heading span,
+.ops-muted {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.dlq-error {
+  overflow-wrap: anywhere;
+}
+.dlq-payload {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-size-xs);
+}
 </style>

@@ -13,73 +13,797 @@ import OnboardingDiagnosis from './OnboardingDiagnosis.vue'
 import ThingModelEditor from './ThingModelEditor.vue'
 import VerificationEvidence from './VerificationEvidence.vue'
 import { UiMessage } from '../ui/feedback'
-const props=defineProps({product:Object,initialStep:{type:Number,default:0},draftId:{type:String,default:''}})
-const emit=defineEmits(['close','saved','navigate'])
-const phases=['模板信息','通信协议','公共连接与验收规则','首台设备验证']
-const step=ref(props.initialStep), loading=ref(false), busy=ref(''), error=ref(''), conflict=ref(false), protocols=ref([]), products=ref([]), preparation=ref(null), protocolEditor=ref(''), firstDeviceOpen=ref(false), deviceId=ref(''), connection=ref(null), verification=ref(null), verificationError=ref(''), statusAt=ref(0)
-const firstDeviceRef=ref(null)
-const draftRecordId=ref(props.draftId || createClientId()), draftRevision=ref(0), draftSavedAt=ref(0)
-const productId=ref(props.product?.id || ''), lastSavedCandidate=ref(''), trialPorts=reactive({}), rollbackRevision=ref(null)
-const initial=()=>({product:{id:props.product?.id || `product_${createClientId().replaceAll('-','').slice(0,12)}`,name:'',category:'other',transport:'MQTT',payloadFormat:'json',status:'ENABLED',description:'',metadata:{manufacturer:'',model:'',idKind:'',idLocation:''},...JSON.parse(JSON.stringify(props.product || {}))},protocolId:'iot-standard',version:'1.0.0',profiles:[],verificationRules:{mode:'periodic',minMessages:2,windowSeconds:300,maxGapSeconds:120,requiredMessageTypes:[],requiredProperties:[],requiredEvents:[]}})
-const candidate=reactive(initial())
-const selectedPackage=ref(candidate.product.protocolPackageId || STANDARD_PROTOCOL)
-const rulesProperties=ref(''), rulesTypes=ref(''), rulesEvents=ref('')
-const canPrepare=computed(()=>can('PUT /api/v1/products/:id'))
-const selected=computed(()=>protocols.value.find(p=>p.id===selectedPackage.value))
-const managedMQTT=computed(()=>candidate.protocolId!=='iot-standard' && ['MQTT','MQTT_HTTP'].includes(selected.value?.transport))
-const listenerTransport=computed(()=>['TCP','UDP','TCP_UDP'].includes(candidate.product.transport))
-const deviceTarget=computed(()=>preparation.value?.trialProductId || productId.value)
-const applied=computed(()=>Boolean(preparation.value?.applied?.fingerprint))
-const selectedHistory=computed(()=>preparation.value?.history?.find(item=>item.revision===rollbackRevision.value))
-const existingDevices=computed(()=>Number(preparation.value?.affectedDevices || 0))
-const statusNames={DRAFT:'配置草稿',AWAITING_VALIDATION:'等待真实设备验证',READY:'可以复用',CONFIGURATION_CHANGED:'配置已变化，需重新验证',UNVERIFIED:'尚未真实验证',FAILED:'验证未通过',TRIAL_REQUIRED:'需验证候选配置',VALIDATING:'正在验证'}
-const verificationModes=[{value:'periodic',label:'周期上报'},{value:'low_frequency',label:'低频上报'},{value:'event',label:'事件上报'},{value:'child',label:'主子设备上报'}]
-const unpack=body=>typeof body==='string'?JSON.parse(body):body || {}
-function changeVerificationMode(){const low=candidate.verificationRules.mode==='low_frequency',periodic=candidate.verificationRules.mode==='periodic';candidate.verificationRules.minMessages=periodic?2:1;candidate.verificationRules.windowSeconds=low?86400:900;candidate.verificationRules.maxGapSeconds=periodic?900:0}
-function syncRules(){rulesProperties.value=(candidate.verificationRules.requiredProperties || []).join(', ');rulesTypes.value=(candidate.verificationRules.requiredMessageTypes || []).join(', ');rulesEvents.value=(candidate.verificationRules.requiredEvents || []).join(', ')}
-const identifiers=value=>[...new Set(value.split(/[,，\n]/).map(x=>x.trim()).filter(Boolean))]
-function snapshot(){const result=JSON.parse(JSON.stringify(candidate));result.product.protocolPackageId=selectedPackage.value;result.verificationRules.requiredProperties=identifiers(rulesProperties.value);result.verificationRules.requiredMessageTypes=identifiers(rulesTypes.value);result.verificationRules.requiredEvents=identifiers(rulesEvents.value);result.profiles=result.profiles.map(p=>({...p,productId:result.product.id,protocolId:result.protocolId,protocolVersion:result.version}));return result}
-function setPreparation(value){preparation.value=value;Object.assign(candidate,initial(),value.candidate || {product:value.product || candidate.product});candidate.product.metadata={manufacturer:'',model:'',idKind:'',idLocation:'',...candidate.product.metadata};selectedPackage.value=candidate.product.protocolPackageId || `${candidate.protocolId}@${candidate.version}`;verification.value=value.verification || null;if(!deviceId.value && value.verification?.deviceId)deviceId.value=value.verification.deviceId;syncRules();lastSavedCandidate.value=JSON.stringify(snapshot())}
-async function load(){loading.value=true;error.value='';try{const [catalog,list]=await Promise.all([api('/api/v2/protocols'),apiAll('/api/v1/products')]);protocols.value=protocolOptions(catalog.items || []);products.value=list.items || [];if(productId.value)setPreparation(await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation`));else if(props.draftId){const record=await api(`/api/v1/onboarding/drafts/${encodeURIComponent(props.draftId)}`);const body=unpack(record.body), saved=body.request?.newProduct?.metadata?.preparationDraft;if(saved){const defaults=initial();Object.assign(candidate,defaults,saved);candidate.product={...defaults.product,...saved.product,metadata:{...defaults.product.metadata,...saved.product?.metadata}};candidate.verificationRules={...defaults.verificationRules,...saved.verificationRules};selectedPackage.value=candidate.product.protocolPackageId || `${candidate.protocolId}@${candidate.version}`;step.value=Math.min(3,Math.max(0,Number(body.step.split(':')[1]) || 0));syncRules()}draftRevision.value=record.revision;draftSavedAt.value=record.updatedAt}conflict.value=false}catch(cause){error.value=cause.message}finally{loading.value=false}}
-function chooseProtocol(){const option=selected.value;if(!option)return;const split=option.id.lastIndexOf('@');candidate.protocolId=option.id.slice(0,split);candidate.version=option.id.slice(split+1);candidate.product.protocolPackageId=option.id;candidate.product.transport=option.transport==='MQTT_HTTP'?'MQTT':option.transport==='TCP_UDP'?'TCP':option.transport;candidate.product.payloadFormat=option.payloadFormat || (candidate.product.transport.startsWith('MODBUS')?'hex':'json')}
-async function selectedProtocol(value){if(value.status!=='PUBLISHED'){UiMessage.info('协议已保存，请完成样例校验并发布后用于模板');return}selectedPackage.value=value.protocolPackageId || `${value.protocolId}@${value.version}`;const catalog=await api('/api/v2/protocols');protocols.value=protocolOptions(catalog.items || []);chooseProtocol();protocolEditor.value='';UiMessage.success('协议已选回当前设备模板')}
-async function saveDraft(){if(conflict.value)throw new Error('配置已被其他操作更新，请重新加载后再保存');const value=snapshot();if(productId.value){if(JSON.stringify(value)===lastSavedCandidate.value)return value;const response=await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation`,{method:'PUT',body:JSON.stringify({revision:preparation.value?.revision || 0,candidate:value})});setPreparation(response)}else{const record=await api(`/api/v1/onboarding/drafts/${encodeURIComponent(draftRecordId.value)}`,{method:'PUT',body:JSON.stringify({revision:draftRevision.value,step:`preparation:${step.value}`,request:{requestId:draftRecordId.value,newProduct:{id:value.product.id,name:value.product.name,category:value.product.category,protocolPackageId:value.product.protocolPackageId,transport:value.product.transport,metadata:{preparationDraft:value}},device:{id:'',name:''},connection:{mode:''}}})});draftRevision.value=record.revision;draftSavedAt.value=record.updatedAt}return value}
-async function action(name,fn){if(busy.value)return;busy.value=name;error.value='';try{await fn()}catch(cause){error.value=cause.message;if(cause.status===409 && /其他操作|修订|已发生变化|指纹|revision/i.test(cause.message))conflict.value=true}finally{busy.value=''}}
-async function next(){await action('next',async()=>{if(step.value===0 && !candidate.product.name.trim())throw new Error('请填写设备模板名称');if(step.value===1 && !selected.value)throw new Error('请选择已发布协议');await saveDraft();step.value=Math.min(3,step.value+1)})}
-async function ensureProduct(){if(productId.value)return;const value=snapshot();const created=await api('/api/v1/products',{method:'POST',body:JSON.stringify({...value.product,status:'DRAFT'})});productId.value=created.id || value.product.id;preparation.value=await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation`);candidate.product.id=productId.value;await saveDraft();if(draftRevision.value){const linked=await api(`/api/v1/onboarding/drafts/${encodeURIComponent(draftRecordId.value)}`,{method:'PUT',body:JSON.stringify({revision:draftRevision.value,step:'preparation:linked',productId:productId.value,request:{requestId:draftRecordId.value,productId:productId.value,newProduct:{id:productId.value,name:candidate.product.name,protocolPackageId:selectedPackage.value,metadata:{preparationDraft:snapshot()}},device:{id:'',name:''},connection:{mode:''}}})});draftRevision.value=linked.revision}emit('saved')}
-async function apply(){await action('apply',async()=>{await ensureProduct();await saveDraft();setPreparation(await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation/apply`,{method:'POST',body:JSON.stringify({revision:preparation.value.revision})}));step.value=3;emit('saved');UiMessage.success('配置已应用，按真实设备证据完成验证')})}
-async function trial(){await action('trial',async()=>{await ensureProduct();await saveDraft();const result=await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation/trial`,{method:'POST',body:JSON.stringify({revision:preparation.value.revision,profiles:candidate.profiles.map(p=>({...p,port:trialPorts[p.id] || p.port}))})});setPreparation(await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation`));preparation.value.trialProductId=result.trialProductId;step.value=3;UiMessage.success('候选配置已准备，可以添加试验设备')})}
-async function rollback(){await action('rollback',async()=>{if(!rollbackRevision.value)throw new Error('请选择历史配置');setPreparation(await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation/rollback`,{method:'POST',body:JSON.stringify({revision:preparation.value.revision,targetRevision:rollbackRevision.value})}));step.value=3;emit('saved');UiMessage.success('历史配置已恢复，请根据当前现场数据确认运行与验收状态')})}
-function addListener(){candidate.profiles.push({id:`access_${createClientId().replaceAll('-','').slice(0,12)}`,productId:candidate.product.id,protocolId:candidate.protocolId,protocolVersion:candidate.version,mode:'listener',network:candidate.product.transport==='UDP'?'udp':'tcp',connectionMode:'listen',host:'0.0.0.0',publicHost:'',port:26875,timeoutMs:5000,enabled:true,autoRegister:false,queries:[],childProducts:[]})}
-async function enrolled(device){deviceId.value=device.id;await refreshConnection()}
-async function refreshConnection(){if(!deviceId.value)return;try{connection.value=await api(`/api/v1/device-registry/${encodeURIComponent(deviceId.value)}/connection`);statusAt.value=Date.now();verificationError.value=''}catch(cause){verificationError.value=cause.message}}
-async function verify(){await action('verify',async()=>{if(!deviceId.value)throw new Error('请先添加或填写验证设备编号');await refreshConnection();verification.value=await api(`/api/v1/products/${encodeURIComponent(deviceTarget.value)}/verification`,{method:'POST',body:JSON.stringify({deviceId:deviceId.value})});const current=await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation`);preparation.value=current;emit('saved')})}
-function raw(){emit('navigate','raw',{deviceId:deviceId.value,rawMessageId:connection.value?.ingest?.rawMessageId})}
-async function close(){if(!canPrepare.value){emit('close');return}await action('save',async()=>{await firstDeviceRef.value?.saveBeforeLeave();await saveDraft();emit('close')})}
-async function goStep(target){await action('step',async()=>{await firstDeviceRef.value?.saveBeforeLeave();step.value=target})}
-let timer=0
-onMounted(()=>{syncRules();load();timer=setInterval(()=>{if(step.value===3 && deviceId.value && document.visibilityState!=='hidden')refreshConnection()},5000)})
-onBeforeUnmount(()=>clearInterval(timer))
+const props = defineProps({ product: Object, initialStep: { type: Number, default: 0 }, draftId: { type: String, default: '' } })
+const emit = defineEmits(['close', 'saved', 'navigate'])
+const phases = ['模板信息', '通信协议', '公共连接与验收规则', '首台设备验证']
+const step = ref(props.initialStep),
+  loading = ref(false),
+  busy = ref(''),
+  error = ref(''),
+  conflict = ref(false),
+  protocols = ref([]),
+  products = ref([]),
+  preparation = ref(null),
+  protocolEditor = ref(''),
+  firstDeviceOpen = ref(false),
+  deviceId = ref(''),
+  connection = ref(null),
+  verification = ref(null),
+  verificationError = ref(''),
+  statusAt = ref(0)
+const firstDeviceRef = ref(null)
+const draftRecordId = ref(props.draftId || createClientId()),
+  draftRevision = ref(0),
+  draftSavedAt = ref(0)
+const productId = ref(props.product?.id || ''),
+  lastSavedCandidate = ref(''),
+  trialPorts = reactive({}),
+  rollbackRevision = ref(null)
+const initial = () => ({
+  product: {
+    id: props.product?.id || `product_${createClientId().replaceAll('-', '').slice(0, 12)}`,
+    name: '',
+    category: 'other',
+    transport: 'MQTT',
+    payloadFormat: 'json',
+    status: 'ENABLED',
+    description: '',
+    metadata: { manufacturer: '', model: '', idKind: '', idLocation: '' },
+    ...JSON.parse(JSON.stringify(props.product || {}))
+  },
+  protocolId: 'iot-standard',
+  version: '1.0.0',
+  profiles: [],
+  verificationRules: {
+    mode: 'periodic',
+    minMessages: 2,
+    windowSeconds: 300,
+    maxGapSeconds: 120,
+    requiredMessageTypes: [],
+    requiredProperties: [],
+    requiredEvents: []
+  }
+})
+const candidate = reactive(initial())
+const selectedPackage = ref(candidate.product.protocolPackageId || STANDARD_PROTOCOL)
+const rulesProperties = ref(''),
+  rulesTypes = ref(''),
+  rulesEvents = ref('')
+const canPrepare = computed(() => can('PUT /api/v1/products/:id'))
+const selected = computed(() => protocols.value.find(p => p.id === selectedPackage.value))
+const managedMQTT = computed(() => candidate.protocolId !== 'iot-standard' && ['MQTT', 'MQTT_HTTP'].includes(selected.value?.transport))
+const listenerTransport = computed(() => ['TCP', 'UDP', 'TCP_UDP'].includes(candidate.product.transport))
+const deviceTarget = computed(() => preparation.value?.trialProductId || productId.value)
+const applied = computed(() => Boolean(preparation.value?.applied?.fingerprint))
+const selectedHistory = computed(() => preparation.value?.history?.find(item => item.revision === rollbackRevision.value))
+const existingDevices = computed(() => Number(preparation.value?.affectedDevices || 0))
+const statusNames = {
+  DRAFT: '配置草稿',
+  AWAITING_VALIDATION: '等待真实设备验证',
+  READY: '可以复用',
+  CONFIGURATION_CHANGED: '配置已变化，需重新验证',
+  UNVERIFIED: '尚未真实验证',
+  FAILED: '验证未通过',
+  TRIAL_REQUIRED: '需验证候选配置',
+  VALIDATING: '正在验证'
+}
+const verificationModes = [
+  { value: 'periodic', label: '周期上报' },
+  { value: 'low_frequency', label: '低频上报' },
+  { value: 'event', label: '事件上报' },
+  { value: 'child', label: '主子设备上报' }
+]
+const unpack = body => (typeof body === 'string' ? JSON.parse(body) : body || {})
+function changeVerificationMode() {
+  const low = candidate.verificationRules.mode === 'low_frequency',
+    periodic = candidate.verificationRules.mode === 'periodic'
+  candidate.verificationRules.minMessages = periodic ? 2 : 1
+  candidate.verificationRules.windowSeconds = low ? 86400 : 900
+  candidate.verificationRules.maxGapSeconds = periodic ? 900 : 0
+}
+function syncRules() {
+  rulesProperties.value = (candidate.verificationRules.requiredProperties || []).join(', ')
+  rulesTypes.value = (candidate.verificationRules.requiredMessageTypes || []).join(', ')
+  rulesEvents.value = (candidate.verificationRules.requiredEvents || []).join(', ')
+}
+const identifiers = value => [
+  ...new Set(
+    value
+      .split(/[,，\n]/)
+      .map(x => x.trim())
+      .filter(Boolean)
+  )
+]
+function snapshot() {
+  const result = JSON.parse(JSON.stringify(candidate))
+  result.product.protocolPackageId = selectedPackage.value
+  result.verificationRules.requiredProperties = identifiers(rulesProperties.value)
+  result.verificationRules.requiredMessageTypes = identifiers(rulesTypes.value)
+  result.verificationRules.requiredEvents = identifiers(rulesEvents.value)
+  result.profiles = result.profiles.map(p => ({
+    ...p,
+    productId: result.product.id,
+    protocolId: result.protocolId,
+    protocolVersion: result.version
+  }))
+  return result
+}
+function setPreparation(value) {
+  preparation.value = value
+  Object.assign(candidate, initial(), value.candidate || { product: value.product || candidate.product })
+  candidate.product.metadata = { manufacturer: '', model: '', idKind: '', idLocation: '', ...candidate.product.metadata }
+  selectedPackage.value = candidate.product.protocolPackageId || `${candidate.protocolId}@${candidate.version}`
+  verification.value = value.verification || null
+  if (!deviceId.value && value.verification?.deviceId) deviceId.value = value.verification.deviceId
+  syncRules()
+  lastSavedCandidate.value = JSON.stringify(snapshot())
+}
+async function load() {
+  loading.value = true
+  error.value = ''
+  try {
+    const [catalog, list] = await Promise.all([api('/api/v2/protocols'), apiAll('/api/v1/products')])
+    protocols.value = protocolOptions(catalog.items || [])
+    products.value = list.items || []
+    if (productId.value) setPreparation(await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation`))
+    else if (props.draftId) {
+      const record = await api(`/api/v1/onboarding/drafts/${encodeURIComponent(props.draftId)}`)
+      const body = unpack(record.body),
+        saved = body.request?.newProduct?.metadata?.preparationDraft
+      if (saved) {
+        const defaults = initial()
+        Object.assign(candidate, defaults, saved)
+        candidate.product = {
+          ...defaults.product,
+          ...saved.product,
+          metadata: { ...defaults.product.metadata, ...saved.product?.metadata }
+        }
+        candidate.verificationRules = { ...defaults.verificationRules, ...saved.verificationRules }
+        selectedPackage.value = candidate.product.protocolPackageId || `${candidate.protocolId}@${candidate.version}`
+        step.value = Math.min(3, Math.max(0, Number(body.step.split(':')[1]) || 0))
+        syncRules()
+      }
+      draftRevision.value = record.revision
+      draftSavedAt.value = record.updatedAt
+    }
+    conflict.value = false
+  } catch (cause) {
+    error.value = cause.message
+  } finally {
+    loading.value = false
+  }
+}
+function chooseProtocol() {
+  const option = selected.value
+  if (!option) return
+  const split = option.id.lastIndexOf('@')
+  candidate.protocolId = option.id.slice(0, split)
+  candidate.version = option.id.slice(split + 1)
+  candidate.product.protocolPackageId = option.id
+  candidate.product.transport = option.transport === 'MQTT_HTTP' ? 'MQTT' : option.transport === 'TCP_UDP' ? 'TCP' : option.transport
+  candidate.product.payloadFormat = option.payloadFormat || (candidate.product.transport.startsWith('MODBUS') ? 'hex' : 'json')
+}
+async function selectedProtocol(value) {
+  if (value.status !== 'PUBLISHED') {
+    UiMessage.info('协议已保存，请完成样例校验并发布后用于模板')
+    return
+  }
+  selectedPackage.value = value.protocolPackageId || `${value.protocolId}@${value.version}`
+  const catalog = await api('/api/v2/protocols')
+  protocols.value = protocolOptions(catalog.items || [])
+  chooseProtocol()
+  protocolEditor.value = ''
+  UiMessage.success('协议已选回当前设备模板')
+}
+async function saveDraft() {
+  if (conflict.value) throw new Error('配置已被其他操作更新，请重新加载后再保存')
+  const value = snapshot()
+  if (productId.value) {
+    if (JSON.stringify(value) === lastSavedCandidate.value) return value
+    const response = await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation`, {
+      method: 'PUT',
+      body: JSON.stringify({ revision: preparation.value?.revision || 0, candidate: value })
+    })
+    setPreparation(response)
+  } else {
+    const record = await api(`/api/v1/onboarding/drafts/${encodeURIComponent(draftRecordId.value)}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        revision: draftRevision.value,
+        step: `preparation:${step.value}`,
+        request: {
+          requestId: draftRecordId.value,
+          newProduct: {
+            id: value.product.id,
+            name: value.product.name,
+            category: value.product.category,
+            protocolPackageId: value.product.protocolPackageId,
+            transport: value.product.transport,
+            metadata: { preparationDraft: value }
+          },
+          device: { id: '', name: '' },
+          connection: { mode: '' }
+        }
+      })
+    })
+    draftRevision.value = record.revision
+    draftSavedAt.value = record.updatedAt
+  }
+  return value
+}
+async function action(name, fn) {
+  if (busy.value) return
+  busy.value = name
+  error.value = ''
+  try {
+    await fn()
+  } catch (cause) {
+    error.value = cause.message
+    if (cause.status === 409 && /其他操作|修订|已发生变化|指纹|revision/i.test(cause.message)) conflict.value = true
+  } finally {
+    busy.value = ''
+  }
+}
+async function next() {
+  await action('next', async () => {
+    if (step.value === 0 && !candidate.product.name.trim()) throw new Error('请填写设备模板名称')
+    if (step.value === 1 && !selected.value) throw new Error('请选择已发布协议')
+    await saveDraft()
+    step.value = Math.min(3, step.value + 1)
+  })
+}
+async function ensureProduct() {
+  if (productId.value) return
+  const value = snapshot()
+  const created = await api('/api/v1/products', { method: 'POST', body: JSON.stringify({ ...value.product, status: 'DRAFT' }) })
+  productId.value = created.id || value.product.id
+  preparation.value = await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation`)
+  candidate.product.id = productId.value
+  await saveDraft()
+  if (draftRevision.value) {
+    const linked = await api(`/api/v1/onboarding/drafts/${encodeURIComponent(draftRecordId.value)}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        revision: draftRevision.value,
+        step: 'preparation:linked',
+        productId: productId.value,
+        request: {
+          requestId: draftRecordId.value,
+          productId: productId.value,
+          newProduct: {
+            id: productId.value,
+            name: candidate.product.name,
+            protocolPackageId: selectedPackage.value,
+            metadata: { preparationDraft: snapshot() }
+          },
+          device: { id: '', name: '' },
+          connection: { mode: '' }
+        }
+      })
+    })
+    draftRevision.value = linked.revision
+  }
+  emit('saved')
+}
+async function apply() {
+  await action('apply', async () => {
+    await ensureProduct()
+    await saveDraft()
+    setPreparation(
+      await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation/apply`, {
+        method: 'POST',
+        body: JSON.stringify({ revision: preparation.value.revision })
+      })
+    )
+    step.value = 3
+    emit('saved')
+    UiMessage.success('配置已应用，按真实设备证据完成验证')
+  })
+}
+async function trial() {
+  await action('trial', async () => {
+    await ensureProduct()
+    await saveDraft()
+    const result = await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation/trial`, {
+      method: 'POST',
+      body: JSON.stringify({
+        revision: preparation.value.revision,
+        profiles: candidate.profiles.map(p => ({ ...p, port: trialPorts[p.id] || p.port }))
+      })
+    })
+    setPreparation(await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation`))
+    preparation.value.trialProductId = result.trialProductId
+    step.value = 3
+    UiMessage.success('候选配置已准备，可以添加试验设备')
+  })
+}
+async function rollback() {
+  await action('rollback', async () => {
+    if (!rollbackRevision.value) throw new Error('请选择历史配置')
+    setPreparation(
+      await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation/rollback`, {
+        method: 'POST',
+        body: JSON.stringify({ revision: preparation.value.revision, targetRevision: rollbackRevision.value })
+      })
+    )
+    step.value = 3
+    emit('saved')
+    UiMessage.success('历史配置已恢复，请根据当前现场数据确认运行与验收状态')
+  })
+}
+function addListener() {
+  candidate.profiles.push({
+    id: `access_${createClientId().replaceAll('-', '').slice(0, 12)}`,
+    productId: candidate.product.id,
+    protocolId: candidate.protocolId,
+    protocolVersion: candidate.version,
+    mode: 'listener',
+    network: candidate.product.transport === 'UDP' ? 'udp' : 'tcp',
+    connectionMode: 'listen',
+    host: '0.0.0.0',
+    publicHost: '',
+    port: 26875,
+    timeoutMs: 5000,
+    enabled: true,
+    autoRegister: false,
+    queries: [],
+    childProducts: []
+  })
+}
+async function enrolled(device) {
+  deviceId.value = device.id
+  await refreshConnection()
+}
+async function refreshConnection() {
+  if (!deviceId.value) return
+  try {
+    connection.value = await api(`/api/v1/device-registry/${encodeURIComponent(deviceId.value)}/connection`)
+    statusAt.value = Date.now()
+    verificationError.value = ''
+  } catch (cause) {
+    verificationError.value = cause.message
+  }
+}
+async function verify() {
+  await action('verify', async () => {
+    if (!deviceId.value) throw new Error('请先添加或填写验证设备编号')
+    await refreshConnection()
+    verification.value = await api(`/api/v1/products/${encodeURIComponent(deviceTarget.value)}/verification`, {
+      method: 'POST',
+      body: JSON.stringify({ deviceId: deviceId.value })
+    })
+    const current = await api(`/api/v1/products/${encodeURIComponent(productId.value)}/preparation`)
+    preparation.value = current
+    emit('saved')
+  })
+}
+function raw() {
+  emit('navigate', 'raw', { deviceId: deviceId.value, rawMessageId: connection.value?.ingest?.rawMessageId })
+}
+async function close() {
+  if (!canPrepare.value) {
+    emit('close')
+    return
+  }
+  await action('save', async () => {
+    await firstDeviceRef.value?.saveBeforeLeave()
+    await saveDraft()
+    emit('close')
+  })
+}
+async function goStep(target) {
+  await action('step', async () => {
+    await firstDeviceRef.value?.saveBeforeLeave()
+    step.value = target
+  })
+}
+let timer = 0
+onMounted(() => {
+  syncRules()
+  load()
+  timer = setInterval(() => {
+    if (step.value === 3 && deviceId.value && document.visibilityState !== 'hidden') refreshConnection()
+  }, 5000)
+})
+onBeforeUnmount(() => clearInterval(timer))
 </script>
 <template>
-  <section class="product-preparation" :class="{'ui-loading':loading}">
-    <header class="preparation-heading"><div><h2>{{ productId ? candidate.product.name || '设备模板' : '准备设备模板' }}</h2><p>在这里完成协议、公共连接与首台真实验证；以后同类设备直接复用。</p></div><ui-button :disabled="!!busy" :loading="busy==='save'" @click="close">{{ canPrepare ? '保存并返回' : '返回设备模板' }}</ui-button></header>
-    <nav class="preparation-steps" aria-label="设备模板准备步骤"><button v-for="(name,index) in phases" :key="name" :class="{'is-active':step===index}" :disabled="!!busy || (index===3 && !applied && !preparation?.trialProductId)" @click="goStep(index)"><span>{{ index+1 }}</span>{{ name }}</button></nav>
-    <ui-alert v-if="error" :title="error" type="error" :closable="false" /><ui-button v-if="conflict" @click="load">重新加载服务器配置</ui-button>
+  <section class="product-preparation" :class="{ 'ui-loading': loading }">
+    <header class="preparation-heading">
+      <div>
+        <h2>{{ productId ? candidate.product.name || '设备模板' : '准备设备模板' }}</h2>
+        <p>在这里完成协议、公共连接与首台真实验证；以后同类设备直接复用。</p>
+      </div>
+      <ui-button :disabled="!!busy" :loading="busy === 'save'" @click="close">{{ canPrepare ? '保存并返回' : '返回设备模板' }}</ui-button>
+    </header>
+    <nav class="preparation-steps" aria-label="设备模板准备步骤">
+      <button
+        v-for="(name, index) in phases"
+        :key="name"
+        :class="{ 'is-active': step === index }"
+        :disabled="!!busy || (index === 3 && !applied && !preparation?.trialProductId)"
+        @click="goStep(index)"
+      >
+        <span>{{ index + 1 }}</span
+        >{{ name }}
+      </button>
+    </nav>
+    <ui-alert v-if="error" :title="error" type="error" :closable="false" /><ui-button v-if="conflict" @click="load"
+      >重新加载服务器配置</ui-button
+    >
     <p v-if="draftSavedAt" class="preparation-note">草稿已保存 · {{ formatTime(draftSavedAt) }}</p>
-    <p v-if="preparation" class="preparation-note">{{ statusNames[preparation.status] || preparation.status }}<template v-if="existingDevices"> · 当前关联 {{ existingDevices }} 台设备；保存候选配置不会立即切换运行设备。</template></p>
-    <section v-if="step===0" class="preparation-card"><h3>模板信息</h3><ui-form label-position="top"><div class="preparation-grid"><ui-form-item label="模板名称" required><ui-input v-model="candidate.product.name" maxlength="256" placeholder="例如 厂商 + 型号"/></ui-form-item><ui-form-item label="设备分类"><ui-select v-model="candidate.product.category"><ui-option v-for="(name,id) in categories" :key="id" :value="id" :label="name"/></ui-select></ui-form-item><ui-form-item label="厂商"><ui-input v-model="candidate.product.metadata.manufacturer"/></ui-form-item><ui-form-item label="型号"><ui-input v-model="candidate.product.metadata.model"/></ui-form-item><ui-form-item label="适用固件版本"><ui-input v-model="candidate.product.metadata.firmware" placeholder="例如 1.2.x，或厂家明确的版本范围"/></ui-form-item><ui-form-item label="编号类型"><ui-input v-model="candidate.product.metadata.idKind" placeholder="IMEI、序列号或协议地址"/></ui-form-item><ui-form-item label="编号位置"><ui-input v-model="candidate.product.metadata.idLocation" placeholder="设备铭牌或厂家工具"/></ui-form-item><ui-form-item label="上报周期（秒）"><ui-input-number v-model="candidate.product.reportIntervalSec" :min="10" :max="604800" clearable placeholder="默认 300"/></ui-form-item><ui-form-item label="离线容差（秒）"><ui-input-number v-model="candidate.product.offlineToleranceSec" :min="0" :max="86400" clearable placeholder="默认 60"/></ui-form-item></div><ui-form-item label="说明"><ui-input v-model="candidate.product.description" type="textarea" :rows="2"/></ui-form-item><details><summary>模板标识</summary><ui-input v-model="candidate.product.id" :disabled="!!productId"/></details></ui-form></section>
-    <section v-if="step===1" class="preparation-card"><h3>通信协议</h3><p>选择已经发布的协议，或在当前模板中完成协议开发。</p><ui-form label-position="top"><ui-form-item label="已发布协议"><ui-select v-model="selectedPackage" filterable @change="chooseProtocol"><ui-option v-for="item in protocols" :key="item.id" :value="item.id" :label="item.name"/></ui-select></ui-form-item><ui-form-item v-if="(!managedMQTT && selected?.transport==='MQTT_HTTP') || selected?.transport==='TCP_UDP'" label="默认上报通道"><ui-select v-model="candidate.product.transport"><ui-option v-for="value in (selected.transport==='MQTT_HTTP'?['MQTT','HTTP']:['TCP','UDP'])" :key="value" :value="value" :label="value"/></ui-select></ui-form-item></ui-form><ui-alert v-if="managedMQTT" title="当前通过 HTTP 托管接入，不支持任意自定义 MQTT Topic 和认证。" type="info" :closable="false"/><div class="preparation-actions"><ui-button v-permission="'POST /api/v1/ai/protocol-assistant/generate'" @click="protocolEditor=protocolEditor==='mapping'?'':'mapping'">从报文或点表生成</ui-button><ui-button v-permission="'POST /api/v2/protocols/:id/source-releases'" @click="protocolEditor=protocolEditor==='source'?'':'source'">上传 Go 协议源码</ui-button></div><ProtocolAssistantView v-if="protocolEditor==='mapping'" :context="{productId:candidate.product.id}" @selected="selectedProtocol"/><ProtocolSourceUpload v-if="protocolEditor==='source'" :initial-name="candidate.product.name" :context="{productId:candidate.product.id}" @selected="selectedProtocol"/><ThingModelEditor v-model="candidate.product.thingModel"/><ui-button v-if="productId && can('POST /api/v2/protocols/:id/releases/:version/preview')" v-permission="'menu:protocols'" @click="emit('navigate','protocols',{preview:true,productId,protocolId:candidate.protocolId,version:candidate.version})">协议解析预览</ui-button></section>
-    <section v-if="step===2" class="preparation-card"><h3>公共连接</h3><p v-if="!listenerTransport">{{ candidate.product.transport.startsWith('MODBUS') ? '平台按协议点表定时采集。每台设备的地址、端口和站号在添加设备时填写。' : managedMQTT ? '当前通过 HTTP 托管接入，不支持任意自定义 MQTT Topic 和认证。每台设备单独签发凭据。' : '复用平台 MQTT / HTTP 入口，每台设备单独签发凭据。' }}</p><template v-else><p>设备连接平台时复用下方公共监听。平台主动连接设备时，可不建共享监听，在添加设备时填写目标地址。修改已运行模板需要使用隔离的新端口完成试验。</p><section v-for="(profile,index) in candidate.profiles" :key="profile.id" class="preparation-profile"><div class="preparation-actions"><strong>公共连接 {{ index+1 }}</strong><ui-button size="small" @click="candidate.profiles.splice(index,1)">移除此候选连接</ui-button></div><ui-form label-position="top"><div class="preparation-grid"><ui-form-item label="网络"><ui-select v-model="profile.network"><ui-option value="tcp" label="TCP"/><ui-option value="udp" label="UDP"/></ui-select></ui-form-item><ui-form-item label="平台对外地址" required><ui-input v-model="profile.publicHost" placeholder="现场设备可以访问的域名或 IP"/></ui-form-item><ui-form-item label="监听端口" required><ui-input-number v-model="profile.port" :min="1" :max="65535"/></ui-form-item><ui-form-item v-if="existingDevices" label="试验设备专用端口"><ui-input-number v-model="trialPorts[profile.id]" :min="1" :max="65535" placeholder="隔离试验端口，不改正式配置"/></ui-form-item><ui-form-item label="本机监听地址"><ui-input v-model="profile.host" placeholder="0.0.0.0"/></ui-form-item></div><ui-form-item label="发现未知设备后自动登记"><ui-switch v-model="profile.autoRegister"/></ui-form-item><ui-form-item label="启用公共连接"><ui-switch v-model="profile.enabled"/></ui-form-item></ui-form><ProtocolAccessSettings :profile="profile" :products="products" :product-id="candidate.product.id" :can-poll="profile.network==='tcp'"/></section><ui-button v-permission="'POST /api/v2/device-access-profiles'" @click="addListener">添加公共监听</ui-button></template>
-      <h3>真实设备验收规则</h3><p>按实际上报频率设置；模拟报文、管理接口测试、回放不会作为现场验收证据。</p><ui-form label-position="top"><div class="preparation-grid"><ui-form-item label="上报方式"><ui-select v-model="candidate.verificationRules.mode" @change="changeVerificationMode"><ui-option v-for="item in verificationModes" :key="item.value" :value="item.value" :label="item.label"/></ui-select></ui-form-item><ui-form-item label="最少有效报文数"><ui-input-number v-model="candidate.verificationRules.minMessages" :min="1" :max="100"/></ui-form-item><ui-form-item label="证据窗口（秒）"><ui-input-number v-model="candidate.verificationRules.windowSeconds" :min="1" :max="2592000"/></ui-form-item><ui-form-item label="最大报文间隔（秒，0 表示不检查）"><ui-input-number v-model="candidate.verificationRules.maxGapSeconds" :min="0" :max="2592000"/></ui-form-item></div><ui-form-item label="必需字段（逗号分隔）"><ui-input v-model="rulesProperties" placeholder="例如 temperature, smoke"/></ui-form-item><ui-form-item label="必需消息类型（选填，逗号分隔）"><ui-input v-model="rulesTypes" placeholder="例如 PROPERTY_REPORT, ALARM_REPORT"/></ui-form-item><p v-if="candidate.verificationRules.mode==='event'">事件上报须至少指定一种消息类型或事件标识。</p><ui-form-item label="必需事件（逗号分隔）"><ui-input v-model="rulesEvents"/></ui-form-item></ui-form>
-      <div class="preparation-apply"><p>{{ existingDevices ? '候选配置需先通过隔离设备验证；应用时仍会检查当前修订和配置指纹。' : '应用配置后才会启动公共连接，随后用首台真实设备完成验证。' }}</p><ui-button v-if="existingDevices && can('POST /api/v1/products')" v-permission="'PUT /api/v1/products/:id'" :disabled="!!busy" :loading="busy==='trial'" @click="trial">准备候选配置试验</ui-button><ui-button v-permission="'PUT /api/v1/products/:id'" type="primary" :disabled="!!busy" :loading="busy==='apply'" @click="apply">{{ existingDevices ? '将已验证配置应用到运行模板' : '应用配置并验证首台设备' }}</ui-button></div>
+    <p v-if="preparation" class="preparation-note">
+      {{ statusNames[preparation.status] || preparation.status
+      }}<template v-if="existingDevices"> · 当前关联 {{ existingDevices }} 台设备；保存候选配置不会立即切换运行设备。</template>
+    </p>
+    <section v-if="step === 0" class="preparation-card">
+      <h3>模板信息</h3>
+      <ui-form label-position="top"
+        ><div class="preparation-grid">
+          <ui-form-item label="模板名称" required
+            ><ui-input v-model="candidate.product.name" maxlength="256" placeholder="例如 厂商 + 型号" /></ui-form-item
+          ><ui-form-item label="设备分类"
+            ><ui-select v-model="candidate.product.category"
+              ><ui-option v-for="(name, id) in categories" :key="id" :value="id" :label="name" /></ui-select></ui-form-item
+          ><ui-form-item label="厂商"><ui-input v-model="candidate.product.metadata.manufacturer" /></ui-form-item
+          ><ui-form-item label="型号"><ui-input v-model="candidate.product.metadata.model" /></ui-form-item
+          ><ui-form-item label="适用固件版本"
+            ><ui-input v-model="candidate.product.metadata.firmware" placeholder="例如 1.2.x，或厂家明确的版本范围" /></ui-form-item
+          ><ui-form-item label="编号类型"
+            ><ui-input v-model="candidate.product.metadata.idKind" placeholder="IMEI、序列号或协议地址" /></ui-form-item
+          ><ui-form-item label="编号位置"
+            ><ui-input v-model="candidate.product.metadata.idLocation" placeholder="设备铭牌或厂家工具" /></ui-form-item
+          ><ui-form-item label="上报周期（秒）"
+            ><ui-input-number
+              v-model="candidate.product.reportIntervalSec"
+              :min="10"
+              :max="604800"
+              clearable
+              placeholder="默认 300" /></ui-form-item
+          ><ui-form-item label="离线容差（秒）"
+            ><ui-input-number v-model="candidate.product.offlineToleranceSec" :min="0" :max="86400" clearable placeholder="默认 60"
+          /></ui-form-item>
+        </div>
+        <ui-form-item label="说明"><ui-input v-model="candidate.product.description" type="textarea" :rows="2" /></ui-form-item>
+        <details>
+          <summary>模板标识</summary>
+          <ui-input v-model="candidate.product.id" :disabled="!!productId" /></details
+      ></ui-form>
     </section>
-    <section v-if="step===3" class="preparation-card"><template v-if="!firstDeviceOpen"><h3>首台设备验证</h3><p v-if="preparation?.trialProductId">当前验证隔离试验模板；原有设备继续使用原配置。试验通过后返回上一步明确应用。</p><div class="preparation-actions"><ui-button v-permission="'POST /api/v1/device-registry'" type="primary" @click="firstDeviceOpen=true">添加首台验证设备</ui-button><ui-input v-model="deviceId" placeholder="或填写本模板已有设备编号" aria-label="验证设备编号"/><ui-button v-permission="'PUT /api/v1/products/:id'" :loading="busy==='verify'" :disabled="!!busy || !deviceId" @click="verify">检查并保存验收结果</ui-button></div><OnboardingDiagnosis @navigate="(page,detail)=>emit('navigate',page,detail)" :status="connection" :error="verificationError" :updated-at="statusAt" :verification="verification" @refresh="refreshConnection" @raw="raw"/><ui-button v-if="preparation?.reusable" type="primary" @click="emit('navigate','devices',{onboarding:true,productId})">用此模板添加设备</ui-button></template><DeviceOnboarding v-else ref="firstDeviceRef" :initial-product-id="deviceTarget" trial @enrolled="enrolled" @close="firstDeviceOpen=false" @done="firstDeviceOpen=false" @detail="id=>{deviceId=id;firstDeviceOpen=false;refreshConnection()}" @navigate="(page,detail)=>emit('navigate',page,detail)"/></section>
-    <VerificationEvidence :evidence="preparation?.applied?.trialVerification" title="本次应用采用的隔离试验证据" trial @navigate="(page,detail)=>emit('navigate',page,detail)"/>
-    <details v-if="preparation?.history?.length" class="preparation-card"><summary>配置历史与完整回滚</summary><p>回滚恢复协议、公共连接及验收规则；恢复配置后仍需依据当前运行和现场数据确认。当前关联 {{ existingDevices }} 台设备。</p><ui-select v-model="rollbackRevision" placeholder="选择历史配置"><ui-option v-for="entry in preparation.history" :key="entry.revision" :value="entry.revision" :label="`修订 ${entry.revision} · ${entry.candidate?.protocolId || ''} ${entry.candidate?.version || ''} · ${formatTime(entry.appliedAt)}`"/></ui-select><ui-button v-permission="'PUT /api/v1/products/:id'" :disabled="!!busy || !rollbackRevision" :loading="busy==='rollback'" @click="rollback">恢复所选完整配置</ui-button><VerificationEvidence :evidence="selectedHistory?.verification" title="所选历史配置的正式验收证据" @navigate="(page,detail)=>emit('navigate',page,detail)"/><VerificationEvidence :evidence="selectedHistory?.appliedTrialVerification" title="所选历史配置的隔离试验证据" trial @navigate="(page,detail)=>emit('navigate',page,detail)"/><p v-if="selectedHistory && !selectedHistory.verification">该历史配置没有正式设备验收记录。</p></details>
-    <footer class="preparation-footer"><ui-button v-if="step>0" :disabled="!!busy" @click="goStep(step-1)">上一步</ui-button><ui-button v-permission="'PUT /api/v1/products/:id'" :disabled="!!busy || conflict" :loading="busy==='save'" @click="action('save',saveDraft)">保存草稿</ui-button><ui-button v-if="step<2" v-permission="'PUT /api/v1/products/:id'" type="primary" :disabled="!!busy || conflict" :loading="busy==='next'" @click="next">保存并继续</ui-button></footer>
+    <section v-if="step === 1" class="preparation-card">
+      <h3>通信协议</h3>
+      <p>选择已经发布的协议，或在当前模板中完成协议开发。</p>
+      <ui-form label-position="top"
+        ><ui-form-item label="已发布协议"
+          ><ui-select v-model="selectedPackage" filterable @change="chooseProtocol"
+            ><ui-option v-for="item in protocols" :key="item.id" :value="item.id" :label="item.name" /></ui-select></ui-form-item
+        ><ui-form-item
+          v-if="(!managedMQTT && selected?.transport === 'MQTT_HTTP') || selected?.transport === 'TCP_UDP'"
+          label="默认上报通道"
+          ><ui-select v-model="candidate.product.transport"
+            ><ui-option
+              v-for="value in selected.transport === 'MQTT_HTTP' ? ['MQTT', 'HTTP'] : ['TCP', 'UDP']"
+              :key="value"
+              :value="value"
+              :label="value" /></ui-select></ui-form-item></ui-form
+      ><ui-alert v-if="managedMQTT" title="当前通过 HTTP 托管接入，不支持任意自定义 MQTT Topic 和认证。" type="info" :closable="false" />
+      <div class="preparation-actions">
+        <ui-button
+          v-permission="'POST /api/v1/ai/protocol-assistant/generate'"
+          @click="protocolEditor = protocolEditor === 'mapping' ? '' : 'mapping'"
+          >从报文或点表生成</ui-button
+        ><ui-button
+          v-permission="'POST /api/v2/protocols/:id/source-releases'"
+          @click="protocolEditor = protocolEditor === 'source' ? '' : 'source'"
+          >上传 Go 协议源码</ui-button
+        >
+      </div>
+      <ProtocolAssistantView
+        v-if="protocolEditor === 'mapping'"
+        :context="{ productId: candidate.product.id }"
+        @selected="selectedProtocol"
+      /><ProtocolSourceUpload
+        v-if="protocolEditor === 'source'"
+        :initial-name="candidate.product.name"
+        :context="{ productId: candidate.product.id }"
+        @selected="selectedProtocol"
+      /><ThingModelEditor v-model="candidate.product.thingModel" /><ui-button
+        v-if="productId && can('POST /api/v2/protocols/:id/releases/:version/preview')"
+        v-permission="'menu:protocols'"
+        @click="emit('navigate', 'protocols', { preview: true, productId, protocolId: candidate.protocolId, version: candidate.version })"
+        >协议解析预览</ui-button
+      >
+    </section>
+    <section v-if="step === 2" class="preparation-card">
+      <h3>公共连接</h3>
+      <p v-if="!listenerTransport">
+        {{
+          candidate.product.transport.startsWith('MODBUS')
+            ? '平台按协议点表定时采集。每台设备的地址、端口和站号在添加设备时填写。'
+            : managedMQTT
+              ? '当前通过 HTTP 托管接入，不支持任意自定义 MQTT Topic 和认证。每台设备单独签发凭据。'
+              : '复用平台 MQTT / HTTP 入口，每台设备单独签发凭据。'
+        }}
+      </p>
+      <template v-else
+        ><p>
+          设备连接平台时复用下方公共监听。平台主动连接设备时，可不建共享监听，在添加设备时填写目标地址。修改已运行模板需要使用隔离的新端口完成试验。
+        </p>
+        <section v-for="(profile, index) in candidate.profiles" :key="profile.id" class="preparation-profile">
+          <div class="preparation-actions">
+            <strong>公共连接 {{ index + 1 }}</strong
+            ><ui-button size="small" @click="candidate.profiles.splice(index, 1)">移除此候选连接</ui-button>
+          </div>
+          <ui-form label-position="top"
+            ><div class="preparation-grid">
+              <ui-form-item label="网络"
+                ><ui-select v-model="profile.network"
+                  ><ui-option value="tcp" label="TCP" /><ui-option value="udp" label="UDP" /></ui-select></ui-form-item
+              ><ui-form-item label="平台对外地址" required
+                ><ui-input v-model="profile.publicHost" placeholder="现场设备可以访问的域名或 IP" /></ui-form-item
+              ><ui-form-item label="监听端口" required><ui-input-number v-model="profile.port" :min="1" :max="65535" /></ui-form-item
+              ><ui-form-item v-if="existingDevices" label="试验设备专用端口"
+                ><ui-input-number
+                  v-model="trialPorts[profile.id]"
+                  :min="1"
+                  :max="65535"
+                  placeholder="隔离试验端口，不改正式配置" /></ui-form-item
+              ><ui-form-item label="本机监听地址"><ui-input v-model="profile.host" placeholder="0.0.0.0" /></ui-form-item>
+            </div>
+            <ui-form-item label="发现未知设备后自动登记"><ui-switch v-model="profile.autoRegister" /></ui-form-item
+            ><ui-form-item label="启用公共连接"><ui-switch v-model="profile.enabled" /></ui-form-item></ui-form
+          ><ProtocolAccessSettings
+            :profile="profile"
+            :products="products"
+            :product-id="candidate.product.id"
+            :can-poll="profile.network === 'tcp'"
+          />
+        </section>
+        <ui-button v-permission="'POST /api/v2/device-access-profiles'" @click="addListener">添加公共监听</ui-button></template
+      >
+      <h3>真实设备验收规则</h3>
+      <p>按实际上报频率设置；模拟报文、管理接口测试、回放不会作为现场验收证据。</p>
+      <ui-form label-position="top"
+        ><div class="preparation-grid">
+          <ui-form-item label="上报方式"
+            ><ui-select v-model="candidate.verificationRules.mode" @change="changeVerificationMode"
+              ><ui-option
+                v-for="item in verificationModes"
+                :key="item.value"
+                :value="item.value"
+                :label="item.label" /></ui-select></ui-form-item
+          ><ui-form-item label="最少有效报文数"
+            ><ui-input-number v-model="candidate.verificationRules.minMessages" :min="1" :max="100" /></ui-form-item
+          ><ui-form-item label="证据窗口（秒）"
+            ><ui-input-number v-model="candidate.verificationRules.windowSeconds" :min="1" :max="2592000" /></ui-form-item
+          ><ui-form-item label="最大报文间隔（秒，0 表示不检查）"
+            ><ui-input-number v-model="candidate.verificationRules.maxGapSeconds" :min="0" :max="2592000"
+          /></ui-form-item>
+        </div>
+        <ui-form-item label="必需字段（逗号分隔）"
+          ><ui-input v-model="rulesProperties" placeholder="例如 temperature, smoke" /></ui-form-item
+        ><ui-form-item label="必需消息类型（选填，逗号分隔）"
+          ><ui-input v-model="rulesTypes" placeholder="例如 PROPERTY_REPORT, ALARM_REPORT"
+        /></ui-form-item>
+        <p v-if="candidate.verificationRules.mode === 'event'">事件上报须至少指定一种消息类型或事件标识。</p>
+        <ui-form-item label="必需事件（逗号分隔）"><ui-input v-model="rulesEvents" /></ui-form-item
+      ></ui-form>
+      <div class="preparation-apply">
+        <p>
+          {{
+            existingDevices
+              ? '候选配置需先通过隔离设备验证；应用时仍会检查当前修订和配置指纹。'
+              : '应用配置后才会启动公共连接，随后用首台真实设备完成验证。'
+          }}
+        </p>
+        <ui-button
+          v-if="existingDevices && can('POST /api/v1/products')"
+          v-permission="'PUT /api/v1/products/:id'"
+          :disabled="!!busy"
+          :loading="busy === 'trial'"
+          @click="trial"
+          >准备候选配置试验</ui-button
+        ><ui-button
+          v-permission="'PUT /api/v1/products/:id'"
+          type="primary"
+          :disabled="!!busy"
+          :loading="busy === 'apply'"
+          @click="apply"
+          >{{ existingDevices ? '将已验证配置应用到运行模板' : '应用配置并验证首台设备' }}</ui-button
+        >
+      </div>
+    </section>
+    <section v-if="step === 3" class="preparation-card">
+      <template v-if="!firstDeviceOpen"
+        ><h3>首台设备验证</h3>
+        <p v-if="preparation?.trialProductId">当前验证隔离试验模板；原有设备继续使用原配置。试验通过后返回上一步明确应用。</p>
+        <div class="preparation-actions">
+          <ui-button v-permission="'POST /api/v1/device-registry'" type="primary" @click="firstDeviceOpen = true"
+            >添加首台验证设备</ui-button
+          ><ui-input v-model="deviceId" placeholder="或填写本模板已有设备编号" aria-label="验证设备编号" /><ui-button
+            v-permission="'PUT /api/v1/products/:id'"
+            :loading="busy === 'verify'"
+            :disabled="!!busy || !deviceId"
+            @click="verify"
+            >检查并保存验收结果</ui-button
+          >
+        </div>
+        <OnboardingDiagnosis
+          @navigate="(page, detail) => emit('navigate', page, detail)"
+          :status="connection"
+          :error="verificationError"
+          :updated-at="statusAt"
+          :verification="verification"
+          @refresh="refreshConnection"
+          @raw="raw"
+        /><ui-button v-if="preparation?.reusable" type="primary" @click="emit('navigate', 'devices', { onboarding: true, productId })"
+          >用此模板添加设备</ui-button
+        ></template
+      ><DeviceOnboarding
+        v-else
+        ref="firstDeviceRef"
+        :initial-product-id="deviceTarget"
+        trial
+        @enrolled="enrolled"
+        @close="firstDeviceOpen = false"
+        @done="firstDeviceOpen = false"
+        @detail="
+          id => {
+            deviceId = id
+            firstDeviceOpen = false
+            refreshConnection()
+          }
+        "
+        @navigate="(page, detail) => emit('navigate', page, detail)"
+      />
+    </section>
+    <VerificationEvidence
+      :evidence="preparation?.applied?.trialVerification"
+      title="本次应用采用的隔离试验证据"
+      trial
+      @navigate="(page, detail) => emit('navigate', page, detail)"
+    />
+    <details v-if="preparation?.history?.length" class="preparation-card">
+      <summary>配置历史与完整回滚</summary>
+      <p>回滚恢复协议、公共连接及验收规则；恢复配置后仍需依据当前运行和现场数据确认。当前关联 {{ existingDevices }} 台设备。</p>
+      <ui-select v-model="rollbackRevision" placeholder="选择历史配置"
+        ><ui-option
+          v-for="entry in preparation.history"
+          :key="entry.revision"
+          :value="entry.revision"
+          :label="`修订 ${entry.revision} · ${entry.candidate?.protocolId || ''} ${entry.candidate?.version || ''} · ${formatTime(entry.appliedAt)}`" /></ui-select
+      ><ui-button
+        v-permission="'PUT /api/v1/products/:id'"
+        :disabled="!!busy || !rollbackRevision"
+        :loading="busy === 'rollback'"
+        @click="rollback"
+        >恢复所选完整配置</ui-button
+      ><VerificationEvidence
+        :evidence="selectedHistory?.verification"
+        title="所选历史配置的正式验收证据"
+        @navigate="(page, detail) => emit('navigate', page, detail)"
+      /><VerificationEvidence
+        :evidence="selectedHistory?.appliedTrialVerification"
+        title="所选历史配置的隔离试验证据"
+        trial
+        @navigate="(page, detail) => emit('navigate', page, detail)"
+      />
+      <p v-if="selectedHistory && !selectedHistory.verification">该历史配置没有正式设备验收记录。</p>
+    </details>
+    <footer class="preparation-footer">
+      <ui-button v-if="step > 0" :disabled="!!busy" @click="goStep(step - 1)">上一步</ui-button
+      ><ui-button
+        v-permission="'PUT /api/v1/products/:id'"
+        :disabled="!!busy || conflict"
+        :loading="busy === 'save'"
+        @click="action('save', saveDraft)"
+        >保存草稿</ui-button
+      ><ui-button
+        v-if="step < 2"
+        v-permission="'PUT /api/v1/products/:id'"
+        type="primary"
+        :disabled="!!busy || conflict"
+        :loading="busy === 'next'"
+        @click="next"
+        >保存并继续</ui-button
+      >
+    </footer>
   </section>
 </template>
 <style scoped>
-.product-preparation { max-width:1120px; margin:0 auto; display:grid; gap:var(--space-4); }.preparation-heading,.preparation-actions,.preparation-footer { display:flex; flex-wrap:wrap; align-items:center; gap:var(--space-3); }.preparation-heading>div { flex:1; }.preparation-heading h2 { margin:0; }.product-preparation p,.preparation-note { color:var(--text-muted); font-size:var(--font-size-sm); }.preparation-steps { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--space-2); }.preparation-steps button { display:flex; gap:var(--space-2); align-items:center; text-align:left; padding:var(--space-3); border:1px solid var(--border); border-radius:var(--radius-md); background:var(--surface); color:var(--text-secondary); font:inherit; }.preparation-steps .is-active { color:var(--primary-text); border-color:var(--primary-border); }.preparation-card { padding:var(--space-5); border:1px solid var(--border); border-radius:var(--radius-lg); background:var(--surface); }.preparation-card h3:first-child { margin-top:0; }.preparation-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 var(--space-4); }.preparation-profile { margin-bottom:var(--space-4); padding:var(--space-4); border:1px solid var(--border); border-radius:var(--radius-md); }.preparation-actions { margin:var(--space-3) 0; }.preparation-actions :deep(.n-input) { flex:1; min-width:200px; }.preparation-apply { border-top:1px solid var(--border); margin-top:var(--space-4); padding-top:var(--space-3); }.preparation-footer { justify-content:flex-end; }.product-preparation :deep(.onboarding) { max-width:none; }@media(max-width:767px){.preparation-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.preparation-grid{grid-template-columns:1fr}.preparation-card{padding:var(--space-3)}}
+.product-preparation {
+  max-width: 1120px;
+  margin: 0 auto;
+  display: grid;
+  gap: var(--space-4);
+}
+.preparation-heading,
+.preparation-actions,
+.preparation-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+.preparation-heading > div {
+  flex: 1;
+}
+.preparation-heading h2 {
+  margin: 0;
+}
+.product-preparation p,
+.preparation-note {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+.preparation-steps {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+.preparation-steps button {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  text-align: left;
+  padding: var(--space-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font: inherit;
+}
+.preparation-steps .is-active {
+  color: var(--primary-text);
+  border-color: var(--primary-border);
+}
+.preparation-card {
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+}
+.preparation-card h3:first-child {
+  margin-top: 0;
+}
+.preparation-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 var(--space-4);
+}
+.preparation-profile {
+  margin-bottom: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.preparation-actions {
+  margin: var(--space-3) 0;
+}
+.preparation-actions :deep(.n-input) {
+  flex: 1;
+  min-width: 200px;
+}
+.preparation-apply {
+  border-top: 1px solid var(--border);
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+}
+.preparation-footer {
+  justify-content: flex-end;
+}
+.product-preparation :deep(.onboarding) {
+  max-width: none;
+}
+@media (max-width: 767px) {
+  .preparation-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .preparation-grid {
+    grid-template-columns: 1fr;
+  }
+  .preparation-card {
+    padding: var(--space-3);
+  }
+}
 </style>

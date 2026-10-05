@@ -7,7 +7,17 @@ import { api, download, formatTime, notifyError, pretty } from '../api'
 import { confirmDelete } from '../deleteAction'
 import { canAcknowledgeAlarm, canCloseAlarm } from '../alarmActions'
 import { alarmNavigation, alarmQuery } from '../alarmNavigation'
-import { alarmLevel, alarmLevels, alarmSources, alarmStatuses, alarmType, dispositionResults, label, requiresVerification, tagType } from '../labels'
+import {
+  alarmLevel,
+  alarmLevels,
+  alarmSources,
+  alarmStatuses,
+  alarmType,
+  dispositionResults,
+  label,
+  requiresVerification,
+  tagType
+} from '../labels'
 import { Download, FileText, RefreshCw } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
@@ -20,7 +30,7 @@ import AlarmDisposition from '../components/AlarmDisposition.vue'
 import AlarmAttachments from '../components/AlarmAttachments.vue'
 import AlarmLocation from '../components/AlarmLocation.vue'
 
-const filters = reactive({ status:'', level:'', deviceId:'' })
+const filters = reactive({ status: '', level: '', deviceId: '' })
 const items = ref([])
 const loading = ref(false)
 const detail = ref(null)
@@ -38,7 +48,9 @@ let mediaRefreshVersion = 0
 let loadVersion = 0
 
 const progressPercent = computed(() => Math.max(0, Math.min(100, Number(analysisProgress.value?.progress || 0))))
-const progressStatus = computed(() => analysisProgress.value?.status === 'failed' ? 'exception' : analysisProgress.value?.status === 'succeeded' ? 'success' : undefined)
+const progressStatus = computed(() =>
+  analysisProgress.value?.status === 'failed' ? 'exception' : analysisProgress.value?.status === 'succeeded' ? 'success' : undefined
+)
 
 async function load(resetPage = false) {
   const version = ++loadVersion
@@ -63,7 +75,14 @@ const statistics = ref(null)
 const exporting = ref(false)
 const reporting = ref(false)
 // 月报默认上一个月（北京时间）。
-const reportMonth = ref((() => { const d = new Date(Date.now() + 8 * 3600_000); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() - 1); return d.toISOString().slice(0, 7) })())
+const reportMonth = ref(
+  (() => {
+    const d = new Date(Date.now() + 8 * 3600_000)
+    d.setUTCDate(1)
+    d.setUTCMonth(d.getUTCMonth() - 1)
+    return d.toISOString().slice(0, 7)
+  })()
+)
 function reportQuery() {
   const q = new URLSearchParams()
   for (const key of ['status', 'level', 'deviceId']) if (filters[key]) q.set(key, filters[key])
@@ -73,7 +92,9 @@ async function loadStatistics(version) {
   try {
     const s = await api('/api/v1/alarms/statistics/disposition?' + reportQuery())
     if (version === loadVersion) statistics.value = s
-  } catch { if (version === loadVersion) statistics.value = null }
+  } catch {
+    if (version === loadVersion) statistics.value = null
+  }
 }
 const formatDuration = ms => {
   const minutes = Math.round(Number(ms || 0) / 60000)
@@ -84,19 +105,38 @@ const formatDuration = ms => {
 async function downloadMonthly() {
   if (!reportMonth.value) return
   reporting.value = true
-  try { await download('/api/v1/alarms/reports/monthly?month=' + encodeURIComponent(reportMonth.value), `告警月报-${reportMonth.value}.pdf`) } catch (e) { notifyError(e) } finally { reporting.value = false }
+  try {
+    await download('/api/v1/alarms/reports/monthly?month=' + encodeURIComponent(reportMonth.value), `告警月报-${reportMonth.value}.pdf`)
+  } catch (e) {
+    notifyError(e)
+  } finally {
+    reporting.value = false
+  }
 }
 async function exportAlarms() {
   exporting.value = true
-  try { await download('/api/v1/alarms/export?' + reportQuery(), `告警导出-${new Date().toISOString().slice(0, 10)}.csv`) } catch (e) { notifyError(e) } finally { exporting.value = false }
+  try {
+    await download('/api/v1/alarms/export?' + reportQuery(), `告警导出-${new Date().toISOString().slice(0, 10)}.csv`)
+  } catch (e) {
+    notifyError(e)
+  } finally {
+    exporting.value = false
+  }
 }
 function dispositionUpdated(updated) {
   if (updated && detail.value?.alarmId === updated.alarmId) detail.value = { ...detail.value, ...updated }
   void load()
 }
 
-function changePage(value) { page.value = value; load() }
-function changePageSize(value) { pageSize.value = value; page.value = 1; load() }
+function changePage(value) {
+  page.value = value
+  load()
+}
+function changePageSize(value) {
+  pageSize.value = value
+  page.value = 1
+  load()
+}
 
 function stopAnalysisPolling() {
   if (analysisPollTimer) window.clearTimeout(analysisPollTimer)
@@ -145,7 +185,9 @@ async function pollAnalysis(jobId, alarmId, viewToken = analysisViewToken) {
       notifyError(progress.error || '智能研判失败')
       return
     }
-    analysisPollTimer = window.setTimeout(() => { void pollAnalysis(jobId, alarmId, viewToken) }, 800)
+    analysisPollTimer = window.setTimeout(() => {
+      void pollAnalysis(jobId, alarmId, viewToken)
+    }, 800)
   } catch (error) {
     if (viewToken !== analysisViewToken || !detailVisible.value) return
     analysisLoading.value = false
@@ -188,13 +230,22 @@ async function show(id) {
 }
 
 async function refreshMediaDetail() {
-  const alarmId = detail.value?.alarmId, viewToken = analysisViewToken
+  const alarmId = detail.value?.alarmId,
+    viewToken = analysisViewToken
   const refreshVersion = ++mediaRefreshVersion
   if (!alarmId || !detailVisible.value) return
   try {
     const loaded = await api(`/api/v1/alarms/${encodeURIComponent(alarmId)}`)
-    if (refreshVersion === mediaRefreshVersion && viewToken === analysisViewToken && detailVisible.value && detail.value?.alarmId === alarmId) detail.value = loaded
-  } catch { /* Attachment polling retains the last known detail; explicit reads report errors. */ }
+    if (
+      refreshVersion === mediaRefreshVersion &&
+      viewToken === analysisViewToken &&
+      detailVisible.value &&
+      detail.value?.alarmId === alarmId
+    )
+      detail.value = loaded
+  } catch {
+    /* Attachment polling retains the last known detail; explicit reads report errors. */
+  }
 }
 
 async function runAnalysis() {
@@ -202,9 +253,15 @@ async function runAnalysis() {
   const viewToken = analysisViewToken
   stopAnalysisPolling()
   analysisLoading.value = true
-  analysisProgress.value = { status:'running', stage:'preparing', message:'正在准备告警上下文', progress:5, estimatedRemainingMs:45000 }
+  analysisProgress.value = {
+    status: 'running',
+    stage: 'preparing',
+    message: '正在准备告警上下文',
+    progress: 5,
+    estimatedRemainingMs: 45000
+  }
   try {
-    const job = await api(`/api/v1/ai/alarm-analysis/${encodeURIComponent(detail.value.alarmId)}/run`, { method:'POST', body:'{}' })
+    const job = await api(`/api/v1/ai/alarm-analysis/${encodeURIComponent(detail.value.alarmId)}/run`, { method: 'POST', body: '{}' })
     if (viewToken !== analysisViewToken || !detailVisible.value) return
     analysisProgress.value = job
     if (job.status === 'succeeded') {
@@ -231,7 +288,10 @@ async function action(id, value) {
   }
   actionPending[id] = value
   try {
-    const updated = await api(`/api/v1/alarms/${encodeURIComponent(id)}/actions`, { method:'POST', body:JSON.stringify({ action:value }) })
+    const updated = await api(`/api/v1/alarms/${encodeURIComponent(id)}/actions`, {
+      method: 'POST',
+      body: JSON.stringify({ action: value })
+    })
     if (row && updated?.status) row.status = updated.status
     UiMessage.success('操作成功')
     await load()
@@ -241,12 +301,22 @@ async function action(id, value) {
     delete actionPending[id]
   }
 }
-function removeAlarm(row) { return confirmDelete({ label:row.alarmType || row.alarmId, path:`/api/v1/alarms/${encodeURIComponent(row.alarmId)}`, onDeleted:load, warning:'告警记录和研判结果将一并清理；活动告警请先关闭。' }) }
+function removeAlarm(row) {
+  return confirmDelete({
+    label: row.alarmType || row.alarmId,
+    path: `/api/v1/alarms/${encodeURIComponent(row.alarmId)}`,
+    onDeleted: load,
+    warning: '告警记录和研判结果将一并清理；活动告警请先关闭。'
+  })
+}
 
 let realtimeTimer = 0
 const realtime = event => {
   if ((!event?.detail?.topic?.includes('/alarm/') && !event?.detail?.topic?.includes('/snapshot/refresh/')) || realtimeTimer) return
-  realtimeTimer = window.setTimeout(() => { realtimeTimer = 0; void load() }, 300)
+  realtimeTimer = window.setTimeout(() => {
+    realtimeTimer = 0
+    void load()
+  }, 300)
 }
 onMounted(async () => {
   const navigation = alarmNavigation(sessionStorage.getItem('iot:navigation-detail'))
@@ -262,52 +332,157 @@ onBeforeUnmount(() => {
   window.clearTimeout(realtimeTimer)
   window.removeEventListener('iot:realtime', realtime)
 })
-const statusTone = value => ({ danger:'danger', warning:'warning', success:'success', info:'info' })[tagType(value)] || 'neutral'
+const statusTone = value => ({ danger: 'danger', warning: 'warning', success: 'success', info: 'info' })[tagType(value)] || 'neutral'
 const filtered = computed(() => Boolean(filters.status || filters.level || filters.deviceId))
-function resetFilters() { filters.status = ''; filters.level = ''; filters.deviceId = ''; load(true) }
+function resetFilters() {
+  filters.status = ''
+  filters.level = ''
+  filters.deviceId = ''
+  load(true)
+}
 function rowActions(row) {
-  const open = ['ACTIVE','ACKED'].includes(row.status)
+  const open = ['ACTIVE', 'ACKED'].includes(row.status)
   return [
-    { key:'detail', label:'查看详情', onClick:() => show(row.alarmId) },
-    { key:'ack', label:'确认告警', permission:'POST /api/v1/alarms/:id/actions', hidden:!open || !canAcknowledgeAlarm(row.status), loading:actionPending[row.alarmId] === 'ACKED', disabled:Boolean(actionPending[row.alarmId]), onClick:() => action(row.alarmId,'ACKED') },
-    { key:'close', label:'关闭告警', type:'danger', permission:'POST /api/v1/alarms/:id/actions', hidden:!open || !canCloseAlarm(row.status), loading:actionPending[row.alarmId] === 'CLOSED', disabled:Boolean(actionPending[row.alarmId]), onClick:() => action(row.alarmId,'CLOSED') },
-    { key:'delete', label:'删除', type:'danger', permission:'DELETE /api/v1/alarms/:id', hidden:open, onClick:() => removeAlarm(row) }
+    { key: 'detail', label: '查看详情', onClick: () => show(row.alarmId) },
+    {
+      key: 'ack',
+      label: '确认告警',
+      permission: 'POST /api/v1/alarms/:id/actions',
+      hidden: !open || !canAcknowledgeAlarm(row.status),
+      loading: actionPending[row.alarmId] === 'ACKED',
+      disabled: Boolean(actionPending[row.alarmId]),
+      onClick: () => action(row.alarmId, 'ACKED')
+    },
+    {
+      key: 'close',
+      label: '关闭告警',
+      type: 'danger',
+      permission: 'POST /api/v1/alarms/:id/actions',
+      hidden: !open || !canCloseAlarm(row.status),
+      loading: actionPending[row.alarmId] === 'CLOSED',
+      disabled: Boolean(actionPending[row.alarmId]),
+      onClick: () => action(row.alarmId, 'CLOSED')
+    },
+    { key: 'delete', label: '删除', type: 'danger', permission: 'DELETE /api/v1/alarms/:id', hidden: open, onClick: () => removeAlarm(row) }
   ]
 }
 </script>
 
 <template>
   <FilterBar>
-    <ui-input v-model="filters.deviceId" clearable placeholder="按设备标识筛选" aria-label="设备标识筛选" @keyup.enter="load(true)" @clear="load(true)" />
-    <ui-select v-model="filters.status" clearable placeholder="全部状态" aria-label="告警状态" @change="load(true)"><ui-option v-for="(text,key) in alarmStatuses" :key="key" :label="text" :value="key" /></ui-select>
-    <ui-select v-model="filters.level" clearable placeholder="全部等级" aria-label="告警等级" @change="load(true)"><ui-option v-for="(text,key) in alarmLevels" :key="key" :label="text" :value="key" /></ui-select>
+    <ui-input
+      v-model="filters.deviceId"
+      clearable
+      placeholder="按设备标识筛选"
+      aria-label="设备标识筛选"
+      @keyup.enter="load(true)"
+      @clear="load(true)"
+    />
+    <ui-select v-model="filters.status" clearable placeholder="全部状态" aria-label="告警状态" @change="load(true)"
+      ><ui-option v-for="(text, key) in alarmStatuses" :key="key" :label="text" :value="key"
+    /></ui-select>
+    <ui-select v-model="filters.level" clearable placeholder="全部等级" aria-label="告警等级" @change="load(true)"
+      ><ui-option v-for="(text, key) in alarmLevels" :key="key" :label="text" :value="key"
+    /></ui-select>
     <ui-button v-if="filtered" text @click="resetFilters">重置筛选</ui-button>
-    <template #actions><span v-permission="'GET /api/v1/alarms/reports/monthly'" class="monthly-report"><input v-model="reportMonth" type="month" aria-label="月报月份" /><ui-button :loading="reporting" :disabled="!reportMonth" @click="downloadMonthly"><FileText />下载月报</ui-button></span><ui-button v-permission="'GET /api/v1/alarms/export'" :loading="exporting" @click="exportAlarms"><Download />导出近 30 天</ui-button><ui-button :loading="loading" @click="load()"><RefreshCw />刷新</ui-button></template>
+    <template #actions
+      ><span v-permission="'GET /api/v1/alarms/reports/monthly'" class="monthly-report"
+        ><input v-model="reportMonth" type="month" aria-label="月报月份" /><ui-button
+          :loading="reporting"
+          :disabled="!reportMonth"
+          @click="downloadMonthly"
+          ><FileText />下载月报</ui-button
+        ></span
+      ><ui-button v-permission="'GET /api/v1/alarms/export'" :loading="exporting" @click="exportAlarms"><Download />导出近 30 天</ui-button
+      ><ui-button :loading="loading" @click="load()"><RefreshCw />刷新</ui-button></template
+    >
   </FilterBar>
   <div v-if="statistics" class="alarm-stats" aria-label="近 30 天核实统计">
-    <div><span>近 30 天告警</span><strong>{{ statistics.total }}</strong></div>
-    <div><span>待核实火警</span><strong :class="{ danger: statistics.unverified > 0 }">{{ statistics.unverified }}</strong></div>
-    <div><span>误报率</span><strong>{{ statistics.verified ? (statistics.falseAlarmRate * 100).toFixed(1) + '%' : '—' }}</strong><small>已核实 {{ statistics.verified }} 条</small></div>
-    <div><span>平均确认用时</span><strong>{{ formatDuration(statistics.acknowledge?.avgMs) }}</strong><small v-if="statistics.acknowledge?.count">90% 在 {{ formatDuration(statistics.acknowledge.p90Ms) }} 内</small></div>
-    <div><span>平均核实用时</span><strong>{{ formatDuration(statistics.verify?.avgMs) }}</strong><small v-if="statistics.topFalseAlarmDevices?.length">误报最多：{{ statistics.topFalseAlarmDevices[0].deviceName || statistics.topFalseAlarmDevices[0].deviceId }}</small></div>
+    <div>
+      <span>近 30 天告警</span><strong>{{ statistics.total }}</strong>
+    </div>
+    <div>
+      <span>待核实火警</span><strong :class="{ danger: statistics.unverified > 0 }">{{ statistics.unverified }}</strong>
+    </div>
+    <div>
+      <span>误报率</span><strong>{{ statistics.verified ? (statistics.falseAlarmRate * 100).toFixed(1) + '%' : '—' }}</strong
+      ><small>已核实 {{ statistics.verified }} 条</small>
+    </div>
+    <div>
+      <span>平均确认用时</span><strong>{{ formatDuration(statistics.acknowledge?.avgMs) }}</strong
+      ><small v-if="statistics.acknowledge?.count">90% 在 {{ formatDuration(statistics.acknowledge.p90Ms) }} 内</small>
+    </div>
+    <div>
+      <span>平均核实用时</span><strong>{{ formatDuration(statistics.verify?.avgMs) }}</strong
+      ><small v-if="statistics.topFalseAlarmDevices?.length"
+        >误报最多：{{ statistics.topFalseAlarmDevices[0].deviceName || statistics.topFalseAlarmDevices[0].deviceId }}</small
+      >
+    </div>
   </div>
 
-  <DataTableCard :title="`告警 · ${total} 条`" :page="page" :page-size="pageSize" :total="total" @update:page="changePage" @update:page-size="changePageSize">
+  <DataTableCard
+    :title="`告警 · ${total} 条`"
+    :page="page"
+    :page-size="pageSize"
+    :total="total"
+    @update:page="changePage"
+    @update:page-size="changePageSize"
+  >
     <ui-table v-loading="loading" :data="items" :empty-text="filtered ? '没有符合筛选条件的告警' : '暂无告警'">
-      <ui-table-column label="时间" min-width="170"><template #default="{row}">{{formatTime(row.lastTriggeredAt)}}</template></ui-table-column>
-      <ui-table-column label="设备 / 来源" min-width="190"><template #default="{row}"><b>{{row.deviceName||row.deviceId}}</b><small v-if="row.componentId" class="subline">{{row.componentName||row.componentId}} · {{row.componentLocation||row.componentId}}</small><small v-if="row.location" class="subline">{{[row.location.unitName,row.location.buildingName,row.location.floorName,row.location.pointName].filter(Boolean).join(' · ')}}</small><small class="subline">{{label(alarmSources,row.source,'其他来源')}}</small></template></ui-table-column>
-      <ui-table-column label="告警类型" min-width="150"><template #default="{row}">{{alarmType(row.alarmType)}}</template></ui-table-column>
-      <ui-table-column label="等级" width="90"><template #default="{row}"><ui-tag :type="tagType(row.alarmLevel)" round>{{label(alarmLevels,row.alarmLevel,'未设置')}}</ui-tag></template></ui-table-column>
-      <ui-table-column label="状态" width="100"><template #default="{row}"><StatusDot :tone="statusTone(row.status)" :label="label(alarmStatuses,row.status)" /></template></ui-table-column>
-      <ui-table-column label="核实结论" width="110"><template #default="{row}"><span v-if="row.disposition">{{label(dispositionResults,row.disposition.result)}}</span><span v-else-if="requiresVerification(row)" class="pending-verify">待核实</span><span v-else class="subline">—</span></template></ui-table-column>
-      <ui-table-column label="操作" fixed="right" width="200" align="right"><template #default="{row}"><RowActions :actions="rowActions(row)" /></template></ui-table-column>
+      <ui-table-column label="时间" min-width="170"
+        ><template #default="{ row }">{{ formatTime(row.lastTriggeredAt) }}</template></ui-table-column
+      >
+      <ui-table-column label="设备 / 来源" min-width="190"
+        ><template #default="{ row }"
+          ><b>{{ row.deviceName || row.deviceId }}</b
+          ><small v-if="row.componentId" class="subline"
+            >{{ row.componentName || row.componentId }} · {{ row.componentLocation || row.componentId }}</small
+          ><small v-if="row.location" class="subline">{{
+            [row.location.unitName, row.location.buildingName, row.location.floorName, row.location.pointName].filter(Boolean).join(' · ')
+          }}</small
+          ><small class="subline">{{ label(alarmSources, row.source, '其他来源') }}</small></template
+        ></ui-table-column
+      >
+      <ui-table-column label="告警类型" min-width="150"
+        ><template #default="{ row }">{{ alarmType(row.alarmType) }}</template></ui-table-column
+      >
+      <ui-table-column label="等级" width="90"
+        ><template #default="{ row }"
+          ><ui-tag :type="tagType(row.alarmLevel)" round>{{ label(alarmLevels, row.alarmLevel, '未设置') }}</ui-tag></template
+        ></ui-table-column
+      >
+      <ui-table-column label="状态" width="100"
+        ><template #default="{ row }"><StatusDot :tone="statusTone(row.status)" :label="label(alarmStatuses, row.status)" /></template
+      ></ui-table-column>
+      <ui-table-column label="核实结论" width="110"
+        ><template #default="{ row }"
+          ><span v-if="row.disposition">{{ label(dispositionResults, row.disposition.result) }}</span
+          ><span v-else-if="requiresVerification(row)" class="pending-verify">待核实</span><span v-else class="subline">—</span></template
+        ></ui-table-column
+      >
+      <ui-table-column label="操作" fixed="right" width="200" align="right"
+        ><template #default="{ row }"><RowActions :actions="rowActions(row)" /></template
+      ></ui-table-column>
     </ui-table>
   </DataTableCard>
 
-  <ui-dialog v-model="detailVisible" class="alarm-detail-dialog" title="告警详情" width="min(760px, 94vw)" @closed="handleDetailClosed"> <!-- 告警详情的长报文跟随弹窗正文统一滚动。 -->
+  <ui-dialog v-model="detailVisible" class="alarm-detail-dialog" title="告警详情" width="min(760px, 94vw)" @closed="handleDetailClosed">
+    <!-- 告警详情的长报文跟随弹窗正文统一滚动。 -->
     <ui-descriptions v-if="detail" :column="1" border>
-      <ui-descriptions-item label="告警内容">{{detail.content || '—'}}</ui-descriptions-item>
-      <ui-descriptions-item label="告警编号">{{detail.alarmId}}</ui-descriptions-item><ui-descriptions-item label="设备">{{detail.deviceName||detail.deviceId}}</ui-descriptions-item><ui-descriptions-item v-if="detail.componentId" label="部件">{{detail.componentName||detail.componentId}}（{{detail.componentId}}）</ui-descriptions-item><ui-descriptions-item v-if="detail.componentLocation" label="部件位置">{{detail.componentLocation}}</ui-descriptions-item><ui-descriptions-item label="告警类型">{{alarmType(detail.alarmType)}}</ui-descriptions-item><ui-descriptions-item label="等级 / 状态"><ui-tag :type="tagType(detail.alarmLevel)">{{label(alarmLevels,detail.alarmLevel)}}</ui-tag> {{label(alarmStatuses,detail.status)}}</ui-descriptions-item><ui-descriptions-item label="来源">{{label(alarmSources,detail.source,'其他来源')}}</ui-descriptions-item><ui-descriptions-item label="首次发生">{{formatTime(detail.firstTriggeredAt)}}</ui-descriptions-item><ui-descriptions-item label="最后发生">{{formatTime(detail.lastTriggeredAt)}}</ui-descriptions-item><ui-descriptions-item label="触发次数">{{detail.triggerCount}}</ui-descriptions-item>
+      <ui-descriptions-item label="告警内容">{{ detail.content || '—' }}</ui-descriptions-item>
+      <ui-descriptions-item label="告警编号">{{ detail.alarmId }}</ui-descriptions-item
+      ><ui-descriptions-item label="设备">{{ detail.deviceName || detail.deviceId }}</ui-descriptions-item
+      ><ui-descriptions-item v-if="detail.componentId" label="部件"
+        >{{ detail.componentName || detail.componentId }}（{{ detail.componentId }}）</ui-descriptions-item
+      ><ui-descriptions-item v-if="detail.componentLocation" label="部件位置">{{ detail.componentLocation }}</ui-descriptions-item
+      ><ui-descriptions-item label="告警类型">{{ alarmType(detail.alarmType) }}</ui-descriptions-item
+      ><ui-descriptions-item label="等级 / 状态"
+        ><ui-tag :type="tagType(detail.alarmLevel)">{{ label(alarmLevels, detail.alarmLevel) }}</ui-tag>
+        {{ label(alarmStatuses, detail.status) }}</ui-descriptions-item
+      ><ui-descriptions-item label="来源">{{ label(alarmSources, detail.source, '其他来源') }}</ui-descriptions-item
+      ><ui-descriptions-item label="首次发生">{{ formatTime(detail.firstTriggeredAt) }}</ui-descriptions-item
+      ><ui-descriptions-item label="最后发生">{{ formatTime(detail.lastTriggeredAt) }}</ui-descriptions-item
+      ><ui-descriptions-item label="触发次数">{{ detail.triggerCount }}</ui-descriptions-item>
     </ui-descriptions>
     <ui-card v-if="detail" shadow="never" class="top-gap">
       <template #header><strong>关联摄像头</strong></template>
@@ -319,33 +494,136 @@ function rowActions(row) {
     <AlarmMediaPanel v-if="detailVisible && detail" :alarm="detail" @refresh="refreshMediaDetail" />
     <AlarmNotifications v-if="detailVisible && detail" :alarm-id="detail.alarmId" />
     <ui-card shadow="never" class="top-gap">
-      <template #header><div class="card-header"><strong>智能研判</strong><ui-button v-permission="'POST /api/v1/ai/alarm-analysis'" size="small" type="primary" :loading="analysisLoading" :disabled="analysisLoading" @click="runAnalysis">{{analysisLoading ? '研判中…' : analysis ? '重新研判' : '开始研判'}}</ui-button></div></template>
+      <template #header
+        ><div class="card-header">
+          <strong>智能研判</strong
+          ><ui-button
+            v-permission="'POST /api/v1/ai/alarm-analysis'"
+            size="small"
+            type="primary"
+            :loading="analysisLoading"
+            :disabled="analysisLoading"
+            @click="runAnalysis"
+            >{{ analysisLoading ? '研判中…' : analysis ? '重新研判' : '开始研判' }}</ui-button
+          >
+        </div></template
+      >
       <div v-if="analysisProgress" class="analysis-progress" aria-live="polite">
-        <div class="analysis-progress-heading"><strong>{{analysisProgress.message || '智能正在处理'}}</strong><span>{{progressPercent}}%</span></div>
+        <div class="analysis-progress-heading">
+          <strong>{{ analysisProgress.message || '智能正在处理' }}</strong
+          ><span>{{ progressPercent }}%</span>
+        </div>
         <ui-progress :percentage="progressPercent" :status="progressStatus" :stroke-width="10" />
-        <small v-if="analysisProgress.status === 'running'">{{formatRemaining(analysisProgress.estimatedRemainingMs)}}</small>
-        <small v-else>{{analysisProgress.status === 'succeeded' ? '处理完成' : analysisProgress.error || '处理失败'}}</small>
+        <small v-if="analysisProgress.status === 'running'">{{ formatRemaining(analysisProgress.estimatedRemainingMs) }}</small>
+        <small v-else>{{ analysisProgress.status === 'succeeded' ? '处理完成' : analysisProgress.error || '处理失败' }}</small>
       </div>
       <ui-empty v-if="!analysis && !analysisLoading" description="该告警尚未研判，点击“开始研判”后执行" :image-size="52" />
-      <div v-if="analysis" class="analysis-grid"><ui-alert :title="analysis.summary||'智能未返回摘要'" :type="tagType(analysis.riskLevel)==='danger'?'error':'warning'" :closable="false" show-icon /><div><strong>风险等级：</strong>{{alarmLevel(analysis.riskLevel)}} <span class="subline">置信度 {{Number(analysis.confidence||0).toFixed(2)}}</span></div><div v-if="analysis.possibleReasons?.length"><strong>可能原因</strong><ul><li v-for="item in analysis.possibleReasons" :key="item">{{item}}</li></ul></div><div v-if="analysis.suggestions?.length"><strong>建议处置</strong><ul><li v-for="item in analysis.suggestions" :key="item">{{item}}</li></ul></div><small class="subline">{{analysisKnowledgeText(analysis)}}</small><small class="subline">模型：{{analysis.model||'—'}} · 生成时间：{{formatTime(analysis.createdAt)}}</small></div>
+      <div v-if="analysis" class="analysis-grid">
+        <ui-alert
+          :title="analysis.summary || '智能未返回摘要'"
+          :type="tagType(analysis.riskLevel) === 'danger' ? 'error' : 'warning'"
+          :closable="false"
+          show-icon
+        />
+        <div>
+          <strong>风险等级：</strong>{{ alarmLevel(analysis.riskLevel) }}
+          <span class="subline">置信度 {{ Number(analysis.confidence || 0).toFixed(2) }}</span>
+        </div>
+        <div v-if="analysis.possibleReasons?.length">
+          <strong>可能原因</strong>
+          <ul>
+            <li v-for="item in analysis.possibleReasons" :key="item">{{ item }}</li>
+          </ul>
+        </div>
+        <div v-if="analysis.suggestions?.length">
+          <strong>建议处置</strong>
+          <ul>
+            <li v-for="item in analysis.suggestions" :key="item">{{ item }}</li>
+          </ul>
+        </div>
+        <small class="subline">{{ analysisKnowledgeText(analysis) }}</small
+        ><small class="subline">模型：{{ analysis.model || '—' }} · 生成时间：{{ formatTime(analysis.createdAt) }}</small>
+      </div>
     </ui-card>
-    <pre>{{pretty(detail)}}</pre>
+    <pre>{{ pretty(detail) }}</pre>
     <template #footer><ui-button @click="detailVisible = false">关闭详情</ui-button></template>
   </ui-dialog>
 </template>
 
 <style scoped>
-.monthly-report { display: inline-flex; gap: var(--space-2); align-items: center; }
-.monthly-report input { height: 32px; padding: 0 var(--space-2); border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--surface); color: var(--text-strong); }
-.alarm-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: var(--space-3); margin-bottom: var(--space-3); }
-.alarm-stats > div { display: grid; gap: 2px; padding: var(--space-3); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); }
-.alarm-stats span, .alarm-stats small { color: var(--text-muted); font-size: 12px; }
-.alarm-stats strong { font-size: 20px; color: var(--text-strong); }
-.alarm-stats strong.danger, .pending-verify { color: var(--danger); }
-.analysis-grid { display: grid; gap: 9px; line-height: 1.65; }
-.analysis-grid :deep(ul) { margin: 5px 0 0; padding-left: 20px; color: var(--text-muted); }
-.analysis-progress { margin: 12px 0; padding: 12px; background: var(--surface-muted); border: 1px solid var(--info-border); border-radius: 5px; }
-.analysis-progress-heading { display:flex; justify-content:space-between; gap:12px; margin-bottom:7px; color:var(--primary); font-size:13px; }
-.analysis-progress-heading span { color:var(--primary); font-weight:700; }
-.analysis-progress small { display:block; margin-top:7px; color:var(--text); font-size:12px; }
+.monthly-report {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+}
+.monthly-report input {
+  height: 32px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text-strong);
+}
+.alarm-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.alarm-stats > div {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.alarm-stats span,
+.alarm-stats small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.alarm-stats strong {
+  font-size: 20px;
+  color: var(--text-strong);
+}
+.alarm-stats strong.danger,
+.pending-verify {
+  color: var(--danger);
+}
+.analysis-grid {
+  display: grid;
+  gap: 9px;
+  line-height: 1.65;
+}
+.analysis-grid :deep(ul) {
+  margin: 5px 0 0;
+  padding-left: 20px;
+  color: var(--text-muted);
+}
+.analysis-progress {
+  margin: 12px 0;
+  padding: 12px;
+  background: var(--surface-muted);
+  border: 1px solid var(--info-border);
+  border-radius: 5px;
+}
+.analysis-progress-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 7px;
+  color: var(--primary);
+  font-size: 13px;
+}
+.analysis-progress-heading span {
+  color: var(--primary);
+  font-weight: 700;
+}
+.analysis-progress small {
+  display: block;
+  margin-top: 7px;
+  color: var(--text);
+  font-size: 12px;
+}
 </style>

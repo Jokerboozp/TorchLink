@@ -34,8 +34,10 @@ const options = computed(() => {
 })
 const filtered = computed(() => {
   const text = query.value.trim().toLowerCase()
-  return options.value.filter(device => (!selectedOnly.value || selected.value.has(device.id)) &&
-    (!text || `${device.name || ''} ${device.id}`.toLowerCase().includes(text)))
+  return options.value.filter(
+    device =>
+      (!selectedOnly.value || selected.value.has(device.id)) && (!text || `${device.name || ''} ${device.id}`.toLowerCase().includes(text))
+  )
 })
 function toggle(id, checked) {
   const next = new Set(props.deviceIds)
@@ -47,19 +49,36 @@ function toggle(id, checked) {
 
 <template>
   <section class="device-scope-picker" aria-label="设备授权设置">
-    <ui-radio-group :model-value="scope" :disabled="disabled" class="device-scope-options segmented-choice-group" aria-label="设备访问范围" @update:model-value="emit('update:scope', $event)">
+    <ui-radio-group
+      :model-value="scope"
+      :disabled="disabled"
+      class="device-scope-options segmented-choice-group"
+      aria-label="设备访问范围"
+      @update:model-value="emit('update:scope', $event)"
+    >
       <ui-radio-button v-if="allowInherit" value="inherit">继承角色</ui-radio-button>
       <ui-radio-button value="none">无设备</ui-radio-button>
       <ui-radio-button value="selected">指定设备</ui-radio-button>
       <ui-radio-button value="all">当前租户全部设备</ui-radio-button>
     </ui-radio-group>
-    <p v-if="scope === 'inherit'" class="scope-note">随角色自动更新：{{ inheritedLabel }}。多个角色的设备范围合并；未分配角色或角色未授权设备时无设备可见。</p>
+    <p v-if="scope === 'inherit'" class="scope-note">
+      随角色自动更新：{{ inheritedLabel }}。多个角色的设备范围合并；未分配角色或角色未授权设备时无设备可见。
+    </p>
     <p v-else-if="scope === 'none'" class="scope-note">不允许查看任何设备，也不会收到设备告警。</p>
     <p v-else-if="scope === 'all'" class="scope-note">允许查看当前租户的全部设备，包含以后新增的设备。</p>
     <template v-else>
       <div v-if="unitOptions.length" class="device-scope-units">
         <strong>按单位授权</strong>
-        <ui-select :model-value="unitIds" multiple filterable clearable :disabled="disabled" placeholder="选择单位（可选）" aria-label="授权单位" @update:model-value="emit('update:unitIds', $event)">
+        <ui-select
+          :model-value="unitIds"
+          multiple
+          filterable
+          clearable
+          :disabled="disabled"
+          placeholder="选择单位（可选）"
+          aria-label="授权单位"
+          @update:model-value="emit('update:unitIds', $event)"
+        >
           <ui-option v-for="unit in unitOptions" :key="unit.id" :value="unit.id" :label="`${unit.name}（${unit.devices} 台设备）`" />
         </ui-select>
         <span class="scope-note">所选单位下已标注位置的设备均可见，以后标注到这些单位的设备自动加入；下方勾选的设备另外授权。</span>
@@ -68,14 +87,22 @@ function toggle(id, checked) {
         <ui-input v-model="query" clearable :disabled="disabled" aria-label="搜索授权设备" placeholder="搜索设备名称或编号" />
         <ui-checkbox v-model="selectedOnly" :disabled="disabled">仅看已选</ui-checkbox>
       </div>
-      <div class="device-scope-summary"><strong>已选 {{ selected.size }} 台</strong><span>勾选允许查看，取消勾选即撤销该设备授权。</span></div>
+      <div class="device-scope-summary">
+        <strong>已选 {{ selected.size }} 台</strong><span>勾选允许查看，取消勾选即撤销该设备授权。</span>
+      </div>
       <div v-if="loading" class="device-scope-empty" role="status">正在加载设备…</div>
-      <div v-else-if="error" class="device-scope-empty" role="alert"><p>{{ error }}</p><ui-button :disabled="disabled" @click="emit('retry')">重新加载</ui-button></div>
+      <div v-else-if="error" class="device-scope-empty" role="alert">
+        <p>{{ error }}</p>
+        <ui-button :disabled="disabled" @click="emit('retry')">重新加载</ui-button>
+      </div>
       <ul v-else-if="filtered.length" class="device-scope-list" aria-label="可授权设备">
         <li v-for="device in filtered" :key="device.id">
           <ui-checkbox :model-value="selected.has(device.id)" :disabled="disabled" @change="toggle(device.id, $event)">
             <span class="device-scope-name">{{ device.name || device.id }}</span>
-            <span class="device-scope-detail">{{ device.id }}<span v-if="device.deviceRole"> · {{ deviceRoles[device.deviceRole] || device.deviceRole }}</span><span v-if="device.missing"> · 请取消勾选</span></span>
+            <span class="device-scope-detail"
+              >{{ device.id }}<span v-if="device.deviceRole"> · {{ deviceRoles[device.deviceRole] || device.deviceRole }}</span
+              ><span v-if="device.missing"> · 请取消勾选</span></span
+            >
           </ui-checkbox>
         </li>
       </ul>
@@ -86,28 +113,118 @@ function toggle(id, checked) {
       <p>尚未获得设备管理查看权限，仅保存设备范围还不能查看设备。</p>
       <ui-button :disabled="disabled" @click="emit('enable-device-menu')">开通设备管理查看权限</ui-button>
     </div>
-    <p v-else-if="scope !== 'none'" class="scope-note">已具备设备管理查看权限。告警、原始报文和智能助手还需各自的功能权限，数据均受此设备范围限制。</p>
+    <p v-else-if="scope !== 'none'" class="scope-note">
+      已具备设备管理查看权限。告警、原始报文和智能助手还需各自的功能权限，数据均受此设备范围限制。
+    </p>
   </section>
 </template>
 
 <style scoped>
-.device-scope-picker { display: grid; gap: 12px; min-width: 0; }
-.device-scope-units { display: grid; gap: 6px; }
-.device-scope-options { display: flex; flex-wrap: wrap; gap: 8px; }
-.device-scope-search { display: flex; align-items: center; gap: 12px; }
-.device-scope-search > .ui-input { flex: 1; min-width: 0; }
-.device-scope-search > .ui-checkbox { flex: none; }
-.device-scope-summary { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 12px; color: var(--text-muted); }
-.device-scope-summary strong { color: var(--text); }
-.device-scope-list { list-style: none; margin: 0; padding: 0; max-height: 300px; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--border); border-radius: var(--radius-md); }
-.device-scope-list li + li { border-top: 1px solid var(--border); }
-.device-scope-list .ui-checkbox { display: flex; width: 100%; padding: 10px 12px; }
-.device-scope-list :deep(.n-checkbox__label) { flex: 1; min-width: 0; }
-.device-scope-name { display: block; color: var(--text); font-size: 13px; overflow-wrap: anywhere; }
-.device-scope-detail { display: block; margin-top: 3px; color: var(--text-muted); font-size: 12px; overflow-wrap: anywhere; }
-.device-scope-empty { margin: 0; padding: 20px 12px; text-align: center; color: var(--text-muted); background: var(--surface-muted); border-radius: var(--radius-md); font-size: 13px; }
-.device-scope-permission { padding: 12px; background: var(--surface-muted); border-radius: var(--radius-md); }
-.device-scope-permission p, .scope-note { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.6; }
-.device-scope-permission p { margin-bottom: 8px; }
-@media (max-width: 640px) { .device-scope-options { flex-direction: column; align-items: stretch; }.device-scope-search { flex-wrap: wrap; }.device-scope-search > .ui-input { flex-basis: 100%; } }
+.device-scope-picker {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.device-scope-units {
+  display: grid;
+  gap: 6px;
+}
+.device-scope-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.device-scope-search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.device-scope-search > .ui-input {
+  flex: 1;
+  min-width: 0;
+}
+.device-scope-search > .ui-checkbox {
+  flex: none;
+}
+.device-scope-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.device-scope-summary strong {
+  color: var(--text);
+}
+.device-scope-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.device-scope-list li + li {
+  border-top: 1px solid var(--border);
+}
+.device-scope-list .ui-checkbox {
+  display: flex;
+  width: 100%;
+  padding: 10px 12px;
+}
+.device-scope-list :deep(.n-checkbox__label) {
+  flex: 1;
+  min-width: 0;
+}
+.device-scope-name {
+  display: block;
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.device-scope-detail {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.device-scope-empty {
+  margin: 0;
+  padding: 20px 12px;
+  text-align: center;
+  color: var(--text-muted);
+  background: var(--surface-muted);
+  border-radius: var(--radius-md);
+  font-size: 13px;
+}
+.device-scope-permission {
+  padding: 12px;
+  background: var(--surface-muted);
+  border-radius: var(--radius-md);
+}
+.device-scope-permission p,
+.scope-note {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.device-scope-permission p {
+  margin-bottom: 8px;
+}
+@media (max-width: 640px) {
+  .device-scope-options {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .device-scope-search {
+    flex-wrap: wrap;
+  }
+  .device-scope-search > .ui-input {
+    flex-basis: 100%;
+  }
+}
 </style>

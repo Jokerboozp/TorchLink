@@ -7,9 +7,14 @@ export function commandBody(operation, values) {
       if (field.required) throw new Error(`请填写${field.name || field.identifier}`)
       continue
     }
-    const valid = { string: () => typeof value === 'string', boolean: () => typeof value === 'boolean',
-      number: () => Number.isFinite(value), integer: () => Number.isSafeInteger(value),
-      object: () => typeof value === 'object' && !Array.isArray(value), array: () => Array.isArray(value) }
+    const valid = {
+      string: () => typeof value === 'string',
+      boolean: () => typeof value === 'boolean',
+      number: () => Number.isFinite(value),
+      integer: () => Number.isSafeInteger(value),
+      object: () => typeof value === 'object' && !Array.isArray(value),
+      array: () => Array.isArray(value)
+    }
     if (!valid[field.dataType]?.()) throw new Error(`${field.name || field.identifier}的参数类型不正确`)
     entries.push([field.identifier, value])
   }

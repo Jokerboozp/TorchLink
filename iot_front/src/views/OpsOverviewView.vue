@@ -39,7 +39,15 @@ const trendCharts = [
   { id: 'host_memory', title: '内存使用率', unit: 'percent' },
   { id: 'log_ingest', title: '日志接收速率', unit: 'suffix:行/秒' }
 ]
-const statusText = { unconfigured: '未配置', no_target: '未配置采集目标', scrape_failed: '采集失败', no_data: '暂无样本', zero: '正常（零值）', ok: '正常', error: '查询失败' }
+const statusText = {
+  unconfigured: '未配置',
+  no_target: '未配置采集目标',
+  scrape_failed: '采集失败',
+  no_data: '暂无样本',
+  zero: '正常（零值）',
+  ok: '正常',
+  error: '查询失败'
+}
 const componentTone = { ok: 'success', degraded: 'warning', down: 'danger', unconfigured: 'neutral', error: 'danger' }
 const componentText = { ok: '正常', degraded: '部分异常', down: '无法连接', unconfigured: '未配置', error: '检查失败' }
 
@@ -53,7 +61,7 @@ const checkedAt = ref(snapshot.checkedAt)
 const loadingParts = reactive({})
 // 平台未配置运维组件时各部分都会失败，只在页面顶部提示一次。
 const notConfigured = ref('')
-const unconfigured = e => e?.code === 'OPS_NOT_CONFIGURED' && Boolean(notConfigured.value = opsErrorText(e))
+const unconfigured = e => e?.code === 'OPS_NOT_CONFIGURED' && Boolean((notConfigured.value = opsErrorText(e)))
 const loading = computed(() => Object.values(loadingParts).some(Boolean))
 const trendLoading = computed(() => Boolean(loadingParts.trends))
 
@@ -74,32 +82,55 @@ async function loadPart(key, task, onData, onError) {
 }
 
 function loadComponent({ id, name }) {
-  return loadPart(`component:${id}`, signal => opsGet(`/api/v1/ops/overview/components/${id}`, {}, signal),
-    data => { components[id] = data; snapshot.components[id] = data; notConfigured.value = '' },
-    e => { components[id] = unconfigured(e) ? { id, name, state: 'unconfigured', message: '未配置' } : { id, name, state: 'error', message: opsErrorText(e) } })
+  return loadPart(
+    `component:${id}`,
+    signal => opsGet(`/api/v1/ops/overview/components/${id}`, {}, signal),
+    data => {
+      components[id] = data
+      snapshot.components[id] = data
+      notConfigured.value = ''
+    },
+    e => {
+      components[id] = unconfigured(e)
+        ? { id, name, state: 'unconfigured', message: '未配置' }
+        : { id, name, state: 'error', message: opsErrorText(e) }
+    }
+  )
 }
 
 function loadGroup({ id }) {
-  return loadPart(`kpis:${id}`, signal => opsGet('/api/v1/ops/overview/kpis', { group: id }, signal),
+  return loadPart(
+    `kpis:${id}`,
+    signal => opsGet('/api/v1/ops/overview/kpis', { group: id }, signal),
     data => {
       kpiGroups[id] = { kpis: data.kpis || [] }
       snapshot.kpiGroups[id] = kpiGroups[id]
       jobHealth.value = snapshot.jobs = data.jobs || {}
       notConfigured.value = ''
     },
-    e => { kpiGroups[id] = { kpis: kpiGroups[id]?.kpis || [], error: unconfigured(e) ? '' : opsErrorText(e) } })
+    e => {
+      kpiGroups[id] = { kpis: kpiGroups[id]?.kpis || [], error: unconfigured(e) ? '' : opsErrorText(e) }
+    }
+  )
 }
 
 function loadTrends() {
   const { from, to } = resolveRange(range.value)
   const key = rangeKey()
-  return loadPart('trends', signal => opsGet('/api/v1/ops/overview/series', { ids: trendCharts.map(c => c.id).join(','), start: from, end: to, maxPoints: 300 }, signal),
+  return loadPart(
+    'trends',
+    signal =>
+      opsGet('/api/v1/ops/overview/series', { ids: trendCharts.map(c => c.id).join(','), start: from, end: to, maxPoints: 300 }, signal),
     data => {
       for (const item of data.items || []) trends[item.id] = { ...metricResultToChart(item.result), error: item.error }
       snapshot.trends = { ...trends }
       snapshot.trendRange = key
     },
-    e => { const error = unconfigured(e) ? '' : opsErrorText(e); for (const chart of trendCharts) trends[chart.id] = { times: [], series: [], error } })
+    e => {
+      const error = unconfigured(e) ? '' : opsErrorText(e)
+      for (const chart of trendCharts) trends[chart.id] = { times: [], series: [], error }
+    }
+  )
 }
 
 function load() {
@@ -108,8 +139,19 @@ function load() {
   })
 }
 
-const kpisByGroup = computed(() => groups.map(group => ({ ...group, items: kpiGroups[group.id]?.kpis || [], error: kpiGroups[group.id]?.error || '', pending: !kpiGroups[group.id] && loadingParts[`kpis:${group.id}`] })))
-const jobs = computed(() => Object.entries(jobHealth.value || {}).map(([job, health]) => ({ job, ...health })).sort((a, b) => a.job.localeCompare(b.job)))
+const kpisByGroup = computed(() =>
+  groups.map(group => ({
+    ...group,
+    items: kpiGroups[group.id]?.kpis || [],
+    error: kpiGroups[group.id]?.error || '',
+    pending: !kpiGroups[group.id] && loadingParts[`kpis:${group.id}`]
+  }))
+)
+const jobs = computed(() =>
+  Object.entries(jobHealth.value || {})
+    .map(([job, health]) => ({ job, ...health }))
+    .sort((a, b) => a.job.localeCompare(b.job))
+)
 const failingJobs = computed(() => jobs.value.filter(job => job.up < job.total))
 const toolbarText = computed(() => {
   if (!checkedAt.value) return loading.value ? '正在检查组件与指标…' : '尚未获取数据'
@@ -125,14 +167,27 @@ function kpiTone(kpi) {
   return 'success'
 }
 
-function zoom({ from, to }) { range.value = { from: Math.round(from), to: Math.round(to) } }
-function openMetrics(kpi) { emit('navigate', 'opsMetrics', { query: kpi.expr, range: range.value }) }
-function openLogs(kpi) { emit('navigate', 'opsLogs', { filter: { services: [kpi.logService], keyword: kpi.logKeyword || '' }, range: { from: 'now-1h', to: 'now' } }) }
-function openTargets() { emit('navigate', 'opsMetrics', { tab: 'targets' }) }
+function zoom({ from, to }) {
+  range.value = { from: Math.round(from), to: Math.round(to) }
+}
+function openMetrics(kpi) {
+  emit('navigate', 'opsMetrics', { query: kpi.expr, range: range.value })
+}
+function openLogs(kpi) {
+  emit('navigate', 'opsLogs', {
+    filter: { services: [kpi.logService], keyword: kpi.logKeyword || '' },
+    range: { from: 'now-1h', to: 'now' }
+  })
+}
+function openTargets() {
+  emit('navigate', 'opsMetrics', { tab: 'targets' })
+}
 
 watch(range, loadTrends, { deep: true })
 onMounted(load)
-onBeforeUnmount(() => { for (const runner of Object.values(runners)) runner.cancel() })
+onBeforeUnmount(() => {
+  for (const runner of Object.values(runners)) runner.cancel()
+})
 </script>
 
 <template>
@@ -146,24 +201,45 @@ onBeforeUnmount(() => { for (const runner of Object.values(runners)) runner.canc
     <section class="component-grid" aria-label="组件状态">
       <article v-for="entry in componentList" :key="entry.id" class="component-card">
         <template v-if="components[entry.id]">
-          <header><strong>{{ entry.name }}</strong><StatusDot :tone="componentTone[components[entry.id].state] || 'neutral'" :label="componentText[components[entry.id].state] || components[entry.id].state" /></header>
+          <header>
+            <strong>{{ entry.name }}</strong
+            ><StatusDot
+              :tone="componentTone[components[entry.id].state] || 'neutral'"
+              :label="componentText[components[entry.id].state] || components[entry.id].state"
+            />
+          </header>
           <p>{{ components[entry.id].message || (components[entry.id].version ? `版本 ${components[entry.id].version}` : '') }}</p>
-          <small v-if="entry.id === 'prometheus' && components[entry.id].details">采集目标 {{ components[entry.id].details.targetsUp ?? '—' }} / {{ components[entry.id].details.targetsTotal ?? '—' }} 正常</small>
+          <small v-if="entry.id === 'prometheus' && components[entry.id].details"
+            >采集目标 {{ components[entry.id].details.targetsUp ?? '—' }} /
+            {{ components[entry.id].details.targetsTotal ?? '—' }} 正常</small
+          >
           <small v-else-if="components[entry.id].version && components[entry.id].message">版本 {{ components[entry.id].version }}</small>
         </template>
         <template v-else>
-          <header><strong>{{ entry.name }}</strong><StatusDot tone="neutral" label="检查中…" /></header>
+          <header>
+            <strong>{{ entry.name }}</strong
+            ><StatusDot tone="neutral" label="检查中…" />
+          </header>
           <ui-skeleton :rows="1" animated />
         </template>
       </article>
     </section>
 
-    <ui-alert v-if="failingJobs.length" type="warning" :closable="false" show-icon :title="`有 ${failingJobs.length} 个采集任务异常：${failingJobs.map(j => j.job).join('、')}`">
+    <ui-alert
+      v-if="failingJobs.length"
+      type="warning"
+      :closable="false"
+      show-icon
+      :title="`有 ${failingJobs.length} 个采集任务异常：${failingJobs.map(j => j.job).join('、')}`"
+    >
       <ui-button v-permission="'menu:opsMetrics'" text @click="openTargets">查看采集目标</ui-button>
     </ui-alert>
 
     <section v-for="group in kpisByGroup" :key="group.id" class="kpi-section" :aria-label="group.title">
-      <div class="section-heading"><h2>{{ group.title }}</h2><span>{{ group.desc }}</span></div>
+      <div class="section-heading">
+        <h2>{{ group.title }}</h2>
+        <span>{{ group.desc }}</span>
+      </div>
       <p v-if="group.error" class="ops-muted">指标读取失败：{{ group.error }}</p>
       <div class="kpi-grid">
         <template v-if="group.pending">
@@ -174,7 +250,9 @@ onBeforeUnmount(() => { for (const runner of Object.values(runners)) runner.canc
           <strong>{{ kpi.value != null ? formatKpi(kpi.value, kpi.unit) : statusText[kpi.status] }}</strong>
           <StatusDot :tone="kpiTone(kpi)" :label="kpi.message || statusText[kpi.status]" />
           <div class="kpi-card__actions">
-            <ui-button v-if="can('menu:opsMetrics') && kpi.status !== 'unconfigured'" text size="small" @click="openMetrics(kpi)"><LineChart />指标</ui-button>
+            <ui-button v-if="can('menu:opsMetrics') && kpi.status !== 'unconfigured'" text size="small" @click="openMetrics(kpi)"
+              ><LineChart />指标</ui-button
+            >
             <ui-button v-if="kpi.logService && can('menu:opsLogs')" text size="small" @click="openLogs(kpi)"><FileSearch />日志</ui-button>
           </div>
         </article>
@@ -184,12 +262,27 @@ onBeforeUnmount(() => { for (const runner of Object.values(runners)) runner.canc
     <DeadLetterPanel v-if="can('GET /api/v1/ops/overview/dead-letters')" />
 
     <section class="kpi-section" aria-label="趋势">
-      <div class="section-heading"><h2>趋势</h2><span>悬停同步查看各图同一时刻，拖选区域可放大全部图表的时间范围</span></div>
+      <div class="section-heading">
+        <h2>趋势</h2>
+        <span>悬停同步查看各图同一时刻，拖选区域可放大全部图表的时间范围</span>
+      </div>
       <div class="trend-grid">
         <ui-card v-for="chart in trendCharts" :key="chart.id" shadow="never" class="surface-card">
-          <template #header><div class="card-header"><strong>{{ chart.title }}</strong><Activity v-if="trendLoading" class="spin-icon" /></div></template>
+          <template #header
+            ><div class="card-header">
+              <strong>{{ chart.title }}</strong
+              ><Activity v-if="trendLoading" class="spin-icon" /></div
+          ></template>
           <p v-if="trends[chart.id]?.error" class="ops-muted">{{ trends[chart.id].error }}</p>
-          <TimeSeriesChart :times="trends[chart.id]?.times || []" :series="trends[chart.id]?.series || []" :unit="chart.unit" :height="170" :legend="false" sync-key="ops-overview" @zoom="zoom" />
+          <TimeSeriesChart
+            :times="trends[chart.id]?.times || []"
+            :series="trends[chart.id]?.series || []"
+            :unit="chart.unit"
+            :height="170"
+            :legend="false"
+            sync-key="ops-overview"
+            @zoom="zoom"
+          />
         </ui-card>
       </div>
     </section>
@@ -197,34 +290,147 @@ onBeforeUnmount(() => { for (const runner of Object.values(runners)) runner.canc
 </template>
 
 <style scoped>
-.ops-page { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); min-width: 0; }
-.ops-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-3); }
-.ops-toolbar__meta, .ops-muted { color: var(--text-muted); font-size: var(--font-size-xs); }
-.component-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--space-3); }
-.component-card { display: grid; gap: 6px; padding: var(--space-4); background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow-xs); }
-.component-card header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
-.component-card p { min-height: 20px; margin: 0; color: var(--text-secondary); font-size: var(--font-size-sm); overflow-wrap: anywhere; }
-.component-card small { color: var(--text-muted); font-size: var(--font-size-xs); }
-.kpi-section { display: grid; gap: var(--space-3); min-width: 0; }
-.section-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: var(--space-3); }
-.section-heading h2 { margin: 0; color: var(--text-strong); font-size: var(--font-size-lg); font-weight: var(--font-weight-semibold); }
-.section-heading span { color: var(--text-muted); font-size: var(--font-size-xs); }
-.kpi-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--space-3); }
-.kpi-card { display: grid; align-content: start; gap: 6px; padding: var(--space-3) var(--space-4); background: var(--surface); border: 1px solid var(--border); border-left: 3px solid var(--border-strong); border-radius: var(--radius-lg); }
-.kpi-card--success { border-left-color: var(--success); }
-.kpi-card--warning { border-left-color: var(--warning); }
-.kpi-card--danger { border-left-color: var(--danger); }
-.kpi-card__title { color: var(--text-secondary); font-size: var(--font-size-sm); }
-.kpi-card strong { color: var(--text-strong); font-size: var(--font-size-xl); font-weight: var(--font-weight-semibold); font-variant-numeric: tabular-nums; }
-.kpi-card--danger strong { color: var(--danger-text); }
-.kpi-card--warning strong { color: var(--warning-text); }
-.kpi-card .status-dot { font-size: var(--font-size-xs); white-space: normal; }
-.kpi-card__actions { display: flex; gap: var(--space-3); min-height: 24px; }
-.trend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: var(--space-3); }
-.spin-icon { width: 14px; height: 14px; color: var(--text-muted); animation: spin 1.2s linear infinite; }
-@keyframes spin { to { transform: rotate(360deg); } }
+.ops-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  min-width: 0;
+}
+.ops-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.ops-toolbar__meta,
+.ops-muted {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.component-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: var(--space-3);
+}
+.component-card {
+  display: grid;
+  gap: 6px;
+  padding: var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-xs);
+}
+.component-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.component-card p {
+  min-height: 20px;
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+.component-card small {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.kpi-section {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+.section-heading h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+}
+.section-heading span {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: var(--space-3);
+}
+.kpi-card {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius-lg);
+}
+.kpi-card--success {
+  border-left-color: var(--success);
+}
+.kpi-card--warning {
+  border-left-color: var(--warning);
+}
+.kpi-card--danger {
+  border-left-color: var(--danger);
+}
+.kpi-card__title {
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
+}
+.kpi-card strong {
+  color: var(--text-strong);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+.kpi-card--danger strong {
+  color: var(--danger-text);
+}
+.kpi-card--warning strong {
+  color: var(--warning-text);
+}
+.kpi-card .status-dot {
+  font-size: var(--font-size-xs);
+  white-space: normal;
+}
+.kpi-card__actions {
+  display: flex;
+  gap: var(--space-3);
+  min-height: 24px;
+}
+.trend-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: var(--space-3);
+}
+.spin-icon {
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+  animation: spin 1.2s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 @media (max-width: 767px) {
-  .trend-grid { grid-template-columns: minmax(0, 1fr); }
-  .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .trend-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 </style>

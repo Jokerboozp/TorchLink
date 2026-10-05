@@ -30,11 +30,13 @@ export async function startRealtime(onMessage) {
         const key = `${kind}:${id}`
         const normalized = JSON.stringify(value)
         const delivered = brokerDelivered.get(key)
-        if (previous?.get(key) === normalized || delivered?.payload === normalized && delivered.expiresAt > Date.now()) return
+        if (previous?.get(key) === normalized || (delivered?.payload === normalized && delivered.expiresAt > Date.now())) return
         brokerDelivered.set(key, { payload: normalized, expiresAt: Date.now() + 10000 })
         while (brokerDelivered.size > 1000) brokerDelivered.delete(brokerDelivered.keys().next().value)
       }
-    } catch { /* Other MQTT topics do not use the event snapshot. */ }
+    } catch {
+      /* Other MQTT topics do not use the event snapshot. */
+    }
     onMessage?.(topic, body)
   }
   // All accounts receive authoritative alarms over the authenticated API.
@@ -57,7 +59,8 @@ export async function startRealtime(onMessage) {
       if (!result.changed) {
         // Changes outside the bounded window still require occasional list invalidation.
         if (overflow && polls % 10 === 0) onMessage?.(`/iot/snapshot/refresh/${session.tenant}`, '{}')
-        pollTimer = setTimeout(poll, 3000); return
+        pollTimer = setTimeout(poll, 3000)
+        return
       }
       etag = result.etag
       const data = result.data
@@ -72,7 +75,10 @@ export async function startRealtime(onMessage) {
       }
       deviceTotal = data.deviceTotal
       const next = data.delta && previous ? new Map(previous) : new Map()
-      for (const [kind, values] of [['alarm', data.alarms], ['state', data.devices]]) {
+      for (const [kind, values] of [
+        ['alarm', data.alarms],
+        ['state', data.devices]
+      ]) {
         for (const value of values || []) {
           const key = kind + ':' + (value.alarmId || value.deviceId)
           const payload = JSON.stringify(value)
@@ -81,7 +87,8 @@ export async function startRealtime(onMessage) {
             const delivered = brokerDelivered.get(key)
             // Only an untruncated snapshot proves that an absent row is new.
             const added = kind === 'state' && !previous.has(key) && !data.truncated
-            if (added || delivered?.payload !== payload || delivered.expiresAt <= Date.now()) onMessage?.(`/iot/${kind === 'alarm' ? 'alarm/raised' : 'device/state'}/${session.tenant}`, payload, { added })
+            if (added || delivered?.payload !== payload || delivered.expiresAt <= Date.now())
+              onMessage?.(`/iot/${kind === 'alarm' ? 'alarm/raised' : 'device/state'}/${session.tenant}`, payload, { added })
           }
         }
       }
@@ -96,7 +103,10 @@ export async function startRealtime(onMessage) {
     } catch (error) {
       if (run !== generation) return
       // Keep the last successful snapshot across transient network failures.
-      if (error.status === 403) { await refreshPermissions().catch(() => {}); return }
+      if (error.status === 403) {
+        await refreshPermissions().catch(() => {})
+        return
+      }
       if (error.status === 401) return
     }
     if (run === generation) pollTimer = setTimeout(poll, 3000)

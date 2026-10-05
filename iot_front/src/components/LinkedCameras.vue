@@ -32,26 +32,41 @@ async function load() {
   try {
     await loadLiveStatus()
     let rows = props.cameras ? props.cameras.map(item => ({ ...item })) : []
-    if (!props.cameras && props.deviceId) rows = (await api(`/api/v1/video/devices/${encodeURIComponent(props.deviceId)}/cameras`)).items || []
+    if (!props.cameras && props.deviceId)
+      rows = (await api(`/api/v1/video/devices/${encodeURIComponent(props.deviceId)}/cameras`)).items || []
     else if (liveUsable()) {
       // 告警摘要只含安全的摄像头元数据；逐个确认当前用户能否观看。
-      rows = await Promise.all(rows.map(async row => {
-        try { return { ...row, ...(await api(`/api/v1/video/cameras/${encodeURIComponent(row.cameraId)}`)) } } catch { return { ...row, liveAvailable: false } }
-      }))
+      rows = await Promise.all(
+        rows.map(async row => {
+          try {
+            return { ...row, ...(await api(`/api/v1/video/cameras/${encodeURIComponent(row.cameraId)}`)) }
+          } catch {
+            return { ...row, liveAvailable: false }
+          }
+        })
+      )
     }
     if (current === version) items.value = rows
   } catch (cause) {
-    if (current === version) { error.value = cause?.message || '读取关联摄像头失败'; items.value = props.cameras || [] }
+    if (current === version) {
+      error.value = cause?.message || '读取关联摄像头失败'
+      items.value = props.cameras || []
+    }
   } finally {
     if (current === version) loading.value = false
   }
 }
 
-function watchLive(row) { playerCamera.value = row; playerVisible.value = true }
+function watchLive(row) {
+  playerCamera.value = row
+  playerVisible.value = true
+}
 
 // 以摄像头标识作为依赖，父组件重新渲染生成的新数组不会触发重复请求。
 watch(() => `${props.deviceId}|${props.cameras ? props.cameras.map(item => item.cameraId).join(',') : '-'}`, load, { immediate: true })
-onBeforeUnmount(() => { version++ })
+onBeforeUnmount(() => {
+  version++
+})
 </script>
 
 <template>
@@ -75,11 +90,47 @@ onBeforeUnmount(() => { version++ })
 </template>
 
 <style scoped>
-.linked-cameras { position: relative; min-height: 24px; }
-.linked-cameras__list { display: grid; gap: var(--space-2); margin: 0; padding: 0; list-style: none; }
-.linked-cameras__list li { display: flex; align-items: center; gap: var(--space-3); min-width: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; }
-.linked-cameras__icon { width: 16px; height: 16px; flex: none; color: var(--text-muted); }
-.linked-cameras__text { display: grid; flex: 1; min-width: 0; }
-.linked-cameras__text strong, .linked-cameras__text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.linked-cameras__text small, .linked-cameras__muted { margin: 0; color: var(--text-muted); font-size: var(--font-size-xs); }
+.linked-cameras {
+  position: relative;
+  min-height: 24px;
+}
+.linked-cameras__list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.linked-cameras__list li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.linked-cameras__icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--text-muted);
+}
+.linked-cameras__text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+.linked-cameras__text strong,
+.linked-cameras__text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.linked-cameras__text small,
+.linked-cameras__muted {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
 </style>

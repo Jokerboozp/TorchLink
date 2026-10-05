@@ -13,7 +13,8 @@ function withQuery(path, params = {}) {
 }
 
 export const opsGet = (path, params, signal) => api(withQuery(path, params), { signal })
-export const opsSend = (method, path, body, signal) => api(path, { method, body: body === undefined ? undefined : JSON.stringify(body), signal })
+export const opsSend = (method, path, body, signal) =>
+  api(path, { method, body: body === undefined ? undefined : JSON.stringify(body), signal })
 
 export const isAbort = error => error?.name === 'AbortError'
 
@@ -30,7 +31,10 @@ export function latest() {
       if (current !== version) throw Object.assign(new Error('stale'), { name: 'AbortError' })
       return result
     },
-    cancel() { controller?.abort(); version++ }
+    cancel() {
+      controller?.abort()
+      version++
+    }
   }
 }
 
@@ -40,7 +44,8 @@ export function opsErrorText(error) {
   if (isAbort(error)) return '查询已取消'
   const detail = error.originalMessage || error.message || ''
   const byCode = {
-    OPS_NOT_CONFIGURED: '运维组件未配置：请部署 Prometheus、Loki、Grafana、Alertmanager（Compose 的 ops 配置），设置对应的 IOT_OPS_*_URL 后重启平台，详见 docs/PLATFORM.md',
+    OPS_NOT_CONFIGURED:
+      '运维组件未配置：请部署 Prometheus、Loki、Grafana、Alertmanager（Compose 的 ops 配置），设置对应的 IOT_OPS_*_URL 后重启平台，详见 docs/PLATFORM.md',
     OPS_UPSTREAM_UNAVAILABLE: '无法连接组件，请检查组件是否运行',
     OPS_UPSTREAM_TIMEOUT: '组件响应超时，请缩小时间范围或简化查询',
     OPS_UPSTREAM_AUTH: '组件拒绝了平台凭据，请检查运维中心配置'
@@ -51,7 +56,11 @@ export function opsErrorText(error) {
 
 // tailLogs 通过平台 SSE 接收实时日志，signal 取消时关闭连接。
 export async function tailLogs(params, onEvent, signal) {
-  const response = await fetch(withQuery('/api/v1/ops/logs/tail', params), { headers: { Accept: 'text/event-stream', Authorization: `Bearer ${session.token}` }, signal, cache: 'no-store' })
+  const response = await fetch(withQuery('/api/v1/ops/logs/tail', params), {
+    headers: { Accept: 'text/event-stream', Authorization: `Bearer ${session.token}` },
+    signal,
+    cache: 'no-store'
+  })
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
     if (response.status === 401) window.dispatchEvent(new Event('iot:unauthorized'))
@@ -62,7 +71,11 @@ export async function tailLogs(params, onEvent, signal) {
 
 // exportLogs 下载有限量导出文件，并返回实际行数与是否截断。
 export async function exportLogs(body) {
-  const response = await fetch('/api/v1/ops/logs/export', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` }, body: JSON.stringify(body) })
+  const response = await fetch('/api/v1/ops/logs/export', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
+    body: JSON.stringify(body)
+  })
   if (!response.ok) {
     const data = await response.json().catch(() => ({}))
     throw new ApiError(data.detail || '导出失败', { ...data, status: response.status })
@@ -72,15 +85,23 @@ export async function exportLogs(body) {
   const blob = await response.blob()
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
-  anchor.href = url; anchor.download = filename; anchor.click()
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
-  return { filename, lines: Number(response.headers.get('X-Export-Lines') || 0), truncated: response.headers.get('X-Export-Truncated') === 'true' }
+  return {
+    filename,
+    lines: Number(response.headers.get('X-Export-Lines') || 0),
+    truncated: response.headers.get('X-Export-Truncated') === 'true'
+  }
 }
 
 export function downloadJSON(data, filename) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
   const anchor = document.createElement('a')
-  anchor.href = url; anchor.download = filename; anchor.click()
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
@@ -105,5 +126,7 @@ export function takeNavigation() {
     const detail = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || 'null')
     sessionStorage.removeItem('iot:navigation-detail')
     return detail && typeof detail === 'object' ? detail : null
-  } catch { return null }
+  } catch {
+    return null
+  }
 }

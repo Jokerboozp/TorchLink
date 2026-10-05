@@ -3,27 +3,30 @@ import { computed } from 'vue'
 import ToolCallCard from './ToolCallCard.vue'
 
 const props = defineProps({
-  modelValue: { type:Boolean, default:false },
-  run: { type:Object, default:null }
+  modelValue: { type: Boolean, default: false },
+  run: { type: Object, default: null }
 })
 const emit = defineEmits(['update:modelValue'])
 
-const statusMeta = computed(() => ({
-  running: { label:'运行中', type:'warning' },
-  succeeded: { label:'已完成', type:'success' },
-  failed: { label:'失败', type:'danger' },
-  canceled: { label:'已停止', type:'info' }
-}[props.run?.status] || { label:'等待中', type:'info' }))
+const statusMeta = computed(
+  () =>
+    ({
+      running: { label: '运行中', type: 'warning' },
+      succeeded: { label: '已完成', type: 'success' },
+      failed: { label: '失败', type: 'danger' },
+      canceled: { label: '已停止', type: 'info' }
+    })[props.run?.status] || { label: '等待中', type: 'info' }
+)
 
 function formatClock(value) {
   if (!value) return '—'
   const date = new Date(Number(value))
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString('zh-CN', { hour12:false })
+  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleTimeString('zh-CN', { hour12: false })
 }
 </script>
 
 <template>
-  <ui-drawer :model-value="modelValue" size="min(520px, 94vw)" destroy-on-close @update:model-value="emit('update:modelValue',$event)">
+  <ui-drawer :model-value="modelValue" size="min(520px, 94vw)" destroy-on-close @update:model-value="emit('update:modelValue', $event)">
     <template #header>
       <div class="drawer-heading">
         <span class="section-kicker">执行过程</span>
@@ -34,10 +37,18 @@ function formatClock(value) {
 
     <div v-if="run" class="trace-body">
       <section class="run-summary">
-        <div><small>状态</small><ui-tag :type="statusMeta.type" effect="light">{{ statusMeta.label }}</ui-tag></div>
-        <div><small>工作流</small><strong>{{ run.workflowName || run.workflowId || '默认工作流' }}</strong></div>
-        <div><small>模型</small><strong>{{ [run.provider,run.model].filter(Boolean).join(' / ') || '由服务端选择' }}</strong></div>
-        <div><small>耗时</small><strong>{{ run.durationMs != null ? `${run.durationMs} 毫秒` : '—' }}</strong></div>
+        <div>
+          <small>状态</small><ui-tag :type="statusMeta.type" effect="light">{{ statusMeta.label }}</ui-tag>
+        </div>
+        <div>
+          <small>工作流</small><strong>{{ run.workflowName || run.workflowId || '默认工作流' }}</strong>
+        </div>
+        <div>
+          <small>模型</small><strong>{{ [run.provider, run.model].filter(Boolean).join(' / ') || '由服务端选择' }}</strong>
+        </div>
+        <div>
+          <small>耗时</small><strong>{{ run.durationMs != null ? `${run.durationMs} 毫秒` : '—' }}</strong>
+        </div>
       </section>
 
       <div class="trace-identifiers">
@@ -45,21 +56,37 @@ function formatClock(value) {
         <span v-if="run.traceId">追踪编号 · {{ run.traceId }}</span>
       </div>
 
-      <ui-alert v-if="run.error" class="run-error" :title="run.error.message || '运行失败'" :description="[run.error.code,run.error.stage].filter(Boolean).join(' · ')" type="error" :closable="false" show-icon />
+      <ui-alert
+        v-if="run.error"
+        class="run-error"
+        :title="run.error.message || '运行失败'"
+        :description="[run.error.code, run.error.stage].filter(Boolean).join(' · ')"
+        type="error"
+        :closable="false"
+        show-icon
+      />
 
       <section class="trace-section">
-        <div class="section-title"><strong>事件时间线</strong><span>{{ run.events?.length || 0 }} 个事件</span></div>
+        <div class="section-title">
+          <strong>事件时间线</strong><span>{{ run.events?.length || 0 }} 个事件</span>
+        </div>
         <ui-empty v-if="!run.events?.length" description="运行事件尚未到达" :image-size="64" />
         <ol v-else class="trace-list">
           <li v-for="event in run.events" :key="event.id" :class="`is-${event.status || 'info'}`">
             <i />
-            <div><strong>{{ event.label }}</strong><small>{{ formatClock(event.createdAt) }}</small><p v-if="event.detail">{{ event.detail }}</p></div>
+            <div>
+              <strong>{{ event.label }}</strong
+              ><small>{{ formatClock(event.createdAt) }}</small>
+              <p v-if="event.detail">{{ event.detail }}</p>
+            </div>
           </li>
         </ol>
       </section>
 
       <section v-if="run.tools?.length" class="trace-section">
-        <div class="section-title"><strong>工具调用</strong><span>{{ run.tools.length }} 次</span></div>
+        <div class="section-title">
+          <strong>工具调用</strong><span>{{ run.tools.length }} 次</span>
+        </div>
         <ToolCallCard v-for="tool in run.tools" :key="tool.id || tool.toolCallId" :tool="tool" />
       </section>
     </div>
@@ -68,9 +95,144 @@ function formatClock(value) {
 </template>
 
 <style scoped>
-.drawer-heading { display:grid; gap:3px; }.drawer-heading strong { color:var(--text); font-size:17px; }.drawer-heading small { color:var(--text-muted); font-size:12px; }.section-kicker { color:var(--primary); font-size:12px; font-weight:700; letter-spacing:.14em; }
-.trace-body { display:grid; gap:18px; }.run-summary { padding:13px; display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; background:var(--surface); border:1px solid var(--border); border-radius:4px; }.run-summary>div { min-width:0; display:grid; gap:4px; }.run-summary small { color:var(--text-muted); font-size:12px; }.run-summary strong { overflow:hidden; color:var(--text); font-size:13px; text-overflow:ellipsis; white-space:nowrap; }
-.trace-identifiers { display:grid; gap:4px; color:var(--text-muted); font:12px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace; word-break:break-all; }.run-error { margin-top:-4px; }.trace-section { display:grid; gap:9px; }.section-title { display:flex; align-items:center; justify-content:space-between; padding-bottom:8px; border-bottom:1px solid var(--border); }.section-title strong { font-size:13px; }.section-title span { color:var(--text-muted); font-size:12px; }
-.trace-list { margin:0; padding:0; list-style:none; }.trace-list li { position:relative; min-height:52px; padding:0 0 14px 23px; }.trace-list li:not(:last-child)::before { content:''; position:absolute; left:5px; top:12px; bottom:-2px; width:1px; background:var(--surface-muted); }.trace-list i { position:absolute; left:0; top:4px; width:11px; height:11px; background:var(--surface); border:3px solid var(--text-muted); border-radius:50%; }.trace-list .is-success i { border-color:var(--success); }.trace-list .is-running i { border-color:var(--warning); }.trace-list .is-danger i { border-color:var(--danger); }.trace-list li>div { display:grid; gap:3px; }.trace-list strong { color:var(--text); font-size:13px; }.trace-list small { color:var(--text-muted); font-size:12px; }.trace-list p { margin:2px 0 0; color:var(--text); font-size:12px; line-height:1.55; }
-@media (max-width:480px) { .run-summary { grid-template-columns:1fr; } }
+.drawer-heading {
+  display: grid;
+  gap: 3px;
+}
+.drawer-heading strong {
+  color: var(--text);
+  font-size: 17px;
+}
+.drawer-heading small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.section-kicker {
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+}
+.trace-body {
+  display: grid;
+  gap: 18px;
+}
+.run-summary {
+  padding: 13px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 13px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.run-summary > div {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+}
+.run-summary small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.run-summary strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.trace-identifiers {
+  display: grid;
+  gap: 4px;
+  color: var(--text-muted);
+  font:
+    12px/1.5 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  word-break: break-all;
+}
+.run-error {
+  margin-top: -4px;
+}
+.trace-section {
+  display: grid;
+  gap: 9px;
+}
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.section-title strong {
+  font-size: 13px;
+}
+.section-title span {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.trace-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.trace-list li {
+  position: relative;
+  min-height: 52px;
+  padding: 0 0 14px 23px;
+}
+.trace-list li:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 5px;
+  top: 12px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--surface-muted);
+}
+.trace-list i {
+  position: absolute;
+  left: 0;
+  top: 4px;
+  width: 11px;
+  height: 11px;
+  background: var(--surface);
+  border: 3px solid var(--text-muted);
+  border-radius: 50%;
+}
+.trace-list .is-success i {
+  border-color: var(--success);
+}
+.trace-list .is-running i {
+  border-color: var(--warning);
+}
+.trace-list .is-danger i {
+  border-color: var(--danger);
+}
+.trace-list li > div {
+  display: grid;
+  gap: 3px;
+}
+.trace-list strong {
+  color: var(--text);
+  font-size: 13px;
+}
+.trace-list small {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.trace-list p {
+  margin: 2px 0 0;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.55;
+}
+@media (max-width: 480px) {
+  .run-summary {
+    grid-template-columns: 1fr;
+  }
+}
 </style>

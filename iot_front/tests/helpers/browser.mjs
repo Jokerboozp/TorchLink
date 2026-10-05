@@ -11,8 +11,14 @@ export async function startBrowser({ args = [], timeout = 10000, interval = 100,
   const executable = process.env.IOT_TEST_BROWSER || 'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe'
   const profile = await mkdtemp(join(tmpdir(), 'iot-browser-test-'))
   const mode = process.env.IOT_TEST_HEADFUL === '1' ? ['--window-position=-4000,-4000', '--window-size=1440,900'] : ['--headless=new']
-  const pending = new Map(), errors = [], warnings = []
-  let child, socket, exited, failure, sequence = 0
+  const pending = new Map(),
+    errors = [],
+    warnings = []
+  let child,
+    socket,
+    exited,
+    failure,
+    sequence = 0
 
   function fail(error) {
     failure ||= error
@@ -38,7 +44,11 @@ export async function startBrowser({ args = [], timeout = 10000, interval = 100,
       child.kill()
       const forceStop = setTimeout(() => child.kill('SIGKILL'), 3000)
       forceStop.unref()
-      try { await exited } finally { clearTimeout(forceStop) }
+      try {
+        await exited
+      } finally {
+        clearTimeout(forceStop)
+      }
     }
     await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 })
   }
@@ -52,11 +62,21 @@ export async function startBrowser({ args = [], timeout = 10000, interval = 100,
         reject(new Error(`CDP timeout: ${method}`))
       }, 30000)
       pending.set(id, {
-        resolve: value => { clearTimeout(timer); resolve(value) },
-        reject: error => { clearTimeout(timer); reject(error) },
+        resolve: value => {
+          clearTimeout(timer)
+          resolve(value)
+        },
+        reject: error => {
+          clearTimeout(timer)
+          reject(error)
+        }
       })
-      try { socket.send(JSON.stringify({ id, method, params })) }
-      catch (error) { pending.get(id).reject(error); pending.delete(id) }
+      try {
+        socket.send(JSON.stringify({ id, method, params }))
+      } catch (error) {
+        pending.get(id).reject(error)
+        pending.delete(id)
+      }
     })
   }
 
@@ -67,23 +87,53 @@ export async function startBrowser({ args = [], timeout = 10000, interval = 100,
   }
 
   try {
-    child = spawn(executable, [...mode, '--no-first-run', '--no-default-browser-check', '--disable-gpu', ...args,
-      '--remote-debugging-port=0', `--user-data-dir=${profile}`, 'about:blank'], { windowsHide: true, stdio: 'ignore' })
+    child = spawn(
+      executable,
+      [
+        ...mode,
+        '--no-first-run',
+        '--no-default-browser-check',
+        '--disable-gpu',
+        ...args,
+        '--remote-debugging-port=0',
+        `--user-data-dir=${profile}`,
+        'about:blank'
+      ],
+      { windowsHide: true, stdio: 'ignore' }
+    )
     exited = new Promise(resolve => {
-      child.once('error', error => { fail(error); resolve() })
-      child.once('exit', (code, signal) => { fail(new Error(`Browser exited (code=${code}, signal=${signal})`)); resolve() })
+      child.once('error', error => {
+        fail(error)
+        resolve()
+      })
+      child.once('exit', (code, signal) => {
+        fail(new Error(`Browser exited (code=${code}, signal=${signal})`))
+        resolve()
+      })
     })
     const port = await until(async () => {
-      try { return (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0] }
-      catch (error) { if (error.code !== 'ENOENT') throw error }
+      try {
+        return (await readFile(join(profile, 'DevToolsActivePort'), 'utf8')).split('\n')[0]
+      } catch (error) {
+        if (error.code !== 'ENOENT') throw error
+      }
     }, 'DevToolsActivePort')
     const pages = await (await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(10000) })).json()
     socket = new WebSocket(pages.find(page => page.type === 'page').webSocketDebuggerUrl)
     await new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Browser debugger connection timed out')), 10000)
-      socket.onopen = () => { clearTimeout(timer); resolve() }
-      socket.onerror = () => { clearTimeout(timer); reject(new Error('Browser debugger connection failed')) }
-      socket.onclose = () => { clearTimeout(timer); reject(new Error('Browser debugger connection closed')) }
+      socket.onopen = () => {
+        clearTimeout(timer)
+        resolve()
+      }
+      socket.onerror = () => {
+        clearTimeout(timer)
+        reject(new Error('Browser debugger connection failed'))
+      }
+      socket.onclose = () => {
+        clearTimeout(timer)
+        reject(new Error('Browser debugger connection closed'))
+      }
     })
     socket.onclose = () => fail(new Error('Browser debugger connection closed'))
     socket.onerror = () => fail(new Error('Browser debugger connection failed'))
@@ -96,9 +146,12 @@ export async function startBrowser({ args = [], timeout = 10000, interval = 100,
         message.error ? request.reject(new Error(message.error.message)) : request.resolve(message.result)
         return
       }
-      if (message.method === 'Runtime.exceptionThrown') errors.push(message.params.exceptionDetails.exception?.description || message.params.exceptionDetails.text)
-      if (message.method === 'Runtime.consoleAPICalled' && ['warning', 'error'].includes(message.params.type)) warnings.push(message.params.args.map(arg => arg.value || arg.description || '').join(' '))
-      if (['Inspector.detached', 'Inspector.targetCrashed'].includes(message.method)) fail(new Error(`Browser page disconnected: ${message.params.reason || message.method}`))
+      if (message.method === 'Runtime.exceptionThrown')
+        errors.push(message.params.exceptionDetails.exception?.description || message.params.exceptionDetails.text)
+      if (message.method === 'Runtime.consoleAPICalled' && ['warning', 'error'].includes(message.params.type))
+        warnings.push(message.params.args.map(arg => arg.value || arg.description || '').join(' '))
+      if (['Inspector.detached', 'Inspector.targetCrashed'].includes(message.method))
+        fail(new Error(`Browser page disconnected: ${message.params.reason || message.method}`))
       onEvent(message)
     }
     return { call, evaluate, until, errors, warnings, close }

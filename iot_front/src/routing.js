@@ -11,13 +11,23 @@ export function pathFor(page, detail) {
 
 // parsePath 返回页面名与导航细节；未知或空路径返回空页面，由调用方选择首个可用页面。
 export function parsePath(pathname, pages) {
-  const parts = String(pathname || '/').split('/').filter(Boolean)
+  const parts = String(pathname || '/')
+    .split('/')
+    .filter(Boolean)
   if (!parts.length) return { page: '', detail: null }
-  let page = ''
-  try { page = camel(decodeURIComponent(parts[0])) } catch { return { page: '', detail: null } }
+  let page
+  try {
+    page = camel(decodeURIComponent(parts[0]))
+  } catch {
+    return { page: '', detail: null }
+  }
   if (!Object.prototype.hasOwnProperty.call(pages, page)) return { page: '', detail: null }
   if (page === 'alarms' && parts[1]) {
-    try { return { page, detail: { alarmId: decodeURIComponent(parts[1]) } } } catch { return { page, detail: null } }
+    try {
+      return { page, detail: { alarmId: decodeURIComponent(parts[1]) } }
+    } catch {
+      return { page, detail: null }
+    }
   }
   return { page, detail: null }
 }

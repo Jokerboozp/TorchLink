@@ -5,11 +5,21 @@ import { consumeSSE } from './sse'
 import { loadAllPages } from './listPagination.js'
 
 export const session = {
-  get token() { return localStorage.getItem('iot_token') || '' },
-  get tenant() { return localStorage.getItem('iot_tenant') || '' },
-  get user() { return localStorage.getItem('iot_user') || '' },
-  get accessVersion() { return localStorage.getItem('iot_access_version') || '' },
-  get role() { return localStorage.getItem('iot_role') || '' },
+  get token() {
+    return localStorage.getItem('iot_token') || ''
+  },
+  get tenant() {
+    return localStorage.getItem('iot_tenant') || ''
+  },
+  get user() {
+    return localStorage.getItem('iot_user') || ''
+  },
+  get accessVersion() {
+    return localStorage.getItem('iot_access_version') || ''
+  },
+  get role() {
+    return localStorage.getItem('iot_role') || ''
+  },
   save(data, username = '') {
     localStorage.setItem('iot_access_version', data.accessVersion || '')
     localStorage.setItem('iot_token', data.accessToken)
@@ -19,7 +29,8 @@ export const session = {
     localStorage.setItem('iot_permissions', JSON.stringify(data.permissions || (data.role === 'admin' ? ['*'] : [])))
   },
   clear() {
-    for (const key of ['iot_token', 'iot_tenant', 'iot_user', 'iot_role', 'iot_permissions', 'iot_access_version']) localStorage.removeItem(key)
+    for (const key of ['iot_token', 'iot_tenant', 'iot_user', 'iot_role', 'iot_permissions', 'iot_access_version'])
+      localStorage.removeItem(key)
   }
 }
 
@@ -43,7 +54,7 @@ export class ApiError extends Error {
 
 function headersFor(options, accept = '') {
   const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData
-  const headers = { ...(!isForm && options.body != null ? { 'Content-Type':'application/json' } : {}), ...(options.headers || {}) }
+  const headers = { ...(!isForm && options.body != null ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) }
   if (accept && !headers.Accept) headers.Accept = accept
   if (session.token && !headers.Authorization) headers.Authorization = `Bearer ${session.token}`
   return headers
@@ -56,7 +67,10 @@ function dispatchUnauthorized(path, status) {
 async function responseError(path, response) {
   const data = await response.json().catch(() => ({}))
   dispatchUnauthorized(path, response.status)
-  return new ApiError(errorMessage({ message:data.detail || data.message || '', status:response.status }), { ...data, status:response.status })
+  return new ApiError(errorMessage({ message: data.detail || data.message || '', status: response.status }), {
+    ...data,
+    status: response.status
+  })
 }
 
 export async function api(path, options = {}) {
@@ -74,17 +88,17 @@ export async function api(path, options = {}) {
 // Protected attachments use the same session/error handling as JSON requests.
 // Callers own object URL lifetime and only request attachments after user action.
 export async function apiBlob(path, options = {}) {
-  const response = await fetch(path, { cache:'no-store', ...options, headers:headersFor(options) })
+  const response = await fetch(path, { cache: 'no-store', ...options, headers: headersFor(options) })
   if (!response.ok) throw await responseError(path, response)
   return response.blob()
 }
 
 // Conditional GET for polled views: an unchanged response is 304 without a body.
 export async function apiIfChanged(path, etag = '') {
-  const response = await fetch(path, { cache:'no-store', headers:headersFor({ headers:etag ? { 'If-None-Match':etag } : {} }) })
-  if (response.status === 304) return { changed:false, etag }
+  const response = await fetch(path, { cache: 'no-store', headers: headersFor({ headers: etag ? { 'If-None-Match': etag } : {} }) })
+  if (response.status === 304) return { changed: false, etag }
   if (!response.ok) throw await responseError(path, response)
-  return { changed:true, etag:response.headers.get('ETag') || '', data:await response.json().catch(() => ({})) }
+  return { changed: true, etag: response.headers.get('ETag') || '', data: await response.json().catch(() => ({})) }
 }
 
 export function apiAll(path, options = {}) {
@@ -94,36 +108,44 @@ export function apiAll(path, options = {}) {
 export async function apiStream(path, options = {}, onEvent = () => {}) {
   let response
   try {
-    response = await fetch(path, { ...options, headers:headersFor(options, 'text/event-stream') })
+    response = await fetch(path, { ...options, headers: headersFor(options, 'text/event-stream') })
   } catch (error) {
     if (error?.name === 'AbortError') throw error
-    throw new ApiError('无法连接智能流服务，请检查网络后重试', { code:'AI_STREAM_NETWORK_ERROR', retryable:true })
+    throw new ApiError('无法连接智能流服务，请检查网络后重试', { code: 'AI_STREAM_NETWORK_ERROR', retryable: true })
   }
   if (!response.ok) throw await responseError(path, response)
-  if (!response.body) throw new ApiError('智能流响应不可用', { status:response.status, code:'AI_STREAM_UNAVAILABLE', retryable:true })
+  if (!response.body) throw new ApiError('智能流响应不可用', { status: response.status, code: 'AI_STREAM_UNAVAILABLE', retryable: true })
   try {
     await consumeSSE(response.body, onEvent)
   } catch (error) {
     if (error?.name === 'AbortError' || error instanceof ApiError) throw error
-    throw new ApiError(error?.message || '智能流解析失败', { code:error?.code || 'AI_STREAM_PARSE_ERROR', retryable:true })
+    throw new ApiError(error?.message || '智能流解析失败', { code: error?.code || 'AI_STREAM_PARSE_ERROR', retryable: true })
   }
 }
 
 export async function download(path, filename, options = {}) {
-  const headers = headersFor({ ...options, body:null })
+  const headers = headersFor({ ...options, body: null })
   const response = await fetch(path, { ...options, headers })
   if (!response.ok) {
     throw await responseError(path, response)
   }
   const url = URL.createObjectURL(await response.blob())
   const anchor = document.createElement('a')
-  anchor.href = url; anchor.download = filename; anchor.click()
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
   setTimeout(() => URL.revokeObjectURL(url), 1000)
 }
 
-export function notifyError(error) { UiMessage.error(errorMessage(error)) }
-export const formatTime = value => value ? new Date(Number(value)).toLocaleString('zh-CN', { hour12:false }) : '—'
+export function notifyError(error) {
+  UiMessage.error(errorMessage(error))
+}
+export const formatTime = value => (value ? new Date(Number(value)).toLocaleString('zh-CN', { hour12: false }) : '—')
 export const pretty = value => JSON.stringify(value, null, 2)
 export function parseJSON(value, label = '结构化数据') {
-  try { return JSON.parse(value || '{}') } catch { throw new Error(`${label} 格式不正确`) }
+  try {
+    return JSON.parse(value || '{}')
+  } catch {
+    throw new Error(`${label} 格式不正确`)
+  }
 }

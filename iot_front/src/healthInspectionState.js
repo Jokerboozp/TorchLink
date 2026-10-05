@@ -7,7 +7,7 @@ export function healthInspectionStorageKey(session) {
 export function saveHealthInspection(storage, session, report) {
   if (!storage || !report || typeof report !== 'object' || Array.isArray(report)) return false
   try {
-    storage.setItem(healthInspectionStorageKey(session), JSON.stringify({ version:1, report, savedAt:Date.now() }))
+    storage.setItem(healthInspectionStorageKey(session), JSON.stringify({ version: 1, report, savedAt: Date.now() }))
     return true
   } catch {
     return false
@@ -22,7 +22,11 @@ export function loadHealthInspection(storage, session) {
     if (saved?.version !== 1 || !saved.report || typeof saved.report !== 'object' || Array.isArray(saved.report)) return null
     return saved.report
   } catch {
-    try { storage.removeItem(key) } catch { /* ignore storage cleanup failures */ }
+    try {
+      storage.removeItem(key)
+    } catch {
+      /* ignore storage cleanup failures */
+    }
     return null
   }
 }

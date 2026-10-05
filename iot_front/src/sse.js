@@ -29,8 +29,8 @@ function eventFromBlock(block) {
     error.code = 'AI_STREAM_INVALID_EVENT'
     throw error
   }
-  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) payload = { data:payload }
-  return { ...payload, type:payload.type || eventName || 'message', eventId:payload.eventId || eventID || undefined }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) payload = { data: payload }
+  return { ...payload, type: payload.type || eventName || 'message', eventId: payload.eventId || eventID || undefined }
 }
 
 export async function consumeSSE(stream, onEvent = () => {}) {
@@ -45,7 +45,7 @@ export async function consumeSSE(stream, onEvent = () => {}) {
   try {
     while (true) {
       const { value, done } = await reader.read()
-      buffer = normalizeBuffer(buffer + decoder.decode(value || new Uint8Array(), { stream:!done }))
+      buffer = normalizeBuffer(buffer + decoder.decode(value || new Uint8Array(), { stream: !done }))
       let boundary = buffer.indexOf('\n\n')
       while (boundary !== -1) {
         const block = buffer.slice(0, boundary)

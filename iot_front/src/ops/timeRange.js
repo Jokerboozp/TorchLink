@@ -56,7 +56,8 @@ export function rangeLabel(range = {}) {
   const preset = rangePresets.find(item => item.value === range.from && (range.to ?? 'now') === 'now')
   if (preset) return preset.label
   const { from, to } = resolveRange(range)
-  const fmt = ms => new Date(ms).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  const fmt = ms =>
+    new Date(ms).toLocaleString('zh-CN', { hour12: false, month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
   return `${fmt(from)} 至 ${fmt(to)}`
 }
 

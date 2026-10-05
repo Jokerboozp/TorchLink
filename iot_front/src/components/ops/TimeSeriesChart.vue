@@ -85,18 +85,37 @@ function build() {
       { label: '时间', value: (u, v) => (v == null ? '—' : new Date(v * 1000).toLocaleString('zh-CN', { hour12: false })) },
       ...ordered().map(({ s, i }) => {
         const color = s.color ? token(s.color, colors[i % colors.length]) : colors[i % colors.length]
-        if (props.bars) return { label: s.name, stroke: color, fill: color, width: 0, paths: uPlot.paths.bars({ size: [0.9, 64], align: 1 }), points: { show: false }, value: (u, v, si, idx) => fmt(idx == null ? null : props.series[i]?.values[idx]) }
-        return { label: s.name, stroke: color, width: 1.5, fill: props.fill && props.series.length <= 3 ? withAlpha(color, 0.08) : undefined, spanGaps: false, points: { show: props.times.length < 60 }, value: (u, v) => fmt(v) }
+        if (props.bars)
+          return {
+            label: s.name,
+            stroke: color,
+            fill: color,
+            width: 0,
+            paths: uPlot.paths.bars({ size: [0.9, 64], align: 1 }),
+            points: { show: false },
+            value: (u, v, si, idx) => fmt(idx == null ? null : props.series[i]?.values[idx])
+          }
+        return {
+          label: s.name,
+          stroke: color,
+          width: 1.5,
+          fill: props.fill && props.series.length <= 3 ? withAlpha(color, 0.08) : undefined,
+          spanGaps: false,
+          points: { show: props.times.length < 60 },
+          value: (u, v) => fmt(v)
+        }
       })
     ],
     hooks: {
-      setSelect: [u => {
-        if (u.select.width < 8) return
-        const from = u.posToVal(u.select.left, 'x') * 1000
-        const to = u.posToVal(u.select.left + u.select.width, 'x') * 1000
-        u.setSelect({ left: 0, width: 0, top: 0, height: 0 }, false)
-        emit('zoom', { from, to })
-      }]
+      setSelect: [
+        u => {
+          if (u.select.width < 8) return
+          const from = u.posToVal(u.select.left, 'x') * 1000
+          const to = u.posToVal(u.select.left + u.select.width, 'x') * 1000
+          u.setSelect({ left: 0, width: 0, top: 0, height: 0 }, false)
+          emit('zoom', { from, to })
+        }
+      ]
     }
   }
   chart = new uPlot(options, chartData(), host.value)
@@ -118,12 +137,17 @@ function ordered() {
 }
 
 function chartSignature() {
-  return props.series.map(s => s.name).join('\u0000') + '|' + props.unit + '|' + props.height + '|' + props.bars + '|' + Boolean(props.timeRange)
+  return (
+    props.series.map(s => s.name).join('\u0000') + '|' + props.unit + '|' + props.height + '|' + props.bars + '|' + Boolean(props.timeRange)
+  )
 }
 
 function update() {
   const next = chartSignature()
-  if (!chart || next !== signature || !props.times.length) { build(); return }
+  if (!chart || next !== signature || !props.times.length) {
+    build()
+    return
+  }
   chart.setData(chartData())
 }
 
@@ -132,14 +156,22 @@ function destroy() {
   chart = null
 }
 
-watch(() => [props.times, props.series, props.timeRange?.from, props.timeRange?.to, props.unit, props.height, props.fill, props.bars], update)
+watch(
+  () => [props.times, props.series, props.timeRange?.from, props.timeRange?.to, props.unit, props.height, props.fill, props.bars],
+  update
+)
 
 onMounted(() => {
   build()
-  observer = new ResizeObserver(() => { if (chart && host.value) chart.setSize({ width: Math.max(host.value.clientWidth, 200), height: props.height }) })
+  observer = new ResizeObserver(() => {
+    if (chart && host.value) chart.setSize({ width: Math.max(host.value.clientWidth, 200), height: props.height })
+  })
   observer.observe(host.value)
 })
-onBeforeUnmount(() => { observer?.disconnect(); destroy() })
+onBeforeUnmount(() => {
+  observer?.disconnect()
+  destroy()
+})
 </script>
 
 <template>
@@ -150,12 +182,35 @@ onBeforeUnmount(() => { observer?.disconnect(); destroy() })
 </template>
 
 <style scoped>
-.ops-chart { min-width: 0; }
-.ops-chart__canvas { width: 100%; min-width: 0; }
-.ops-chart__canvas.is-empty { display: none; }
-.ops-chart :deep(.u-legend) { max-height: 88px; overflow: auto; color: var(--text-secondary); font: var(--font-size-xs) var(--font-sans); text-align: left; }
-.ops-chart :deep(.u-legend .u-marker) { width: 10px; height: 3px; border-radius: 2px; }
-.ops-chart :deep(.u-legend th) { font-weight: 400; }
-.ops-chart :deep(.u-legend td) { font-variant-numeric: tabular-nums; }
-.ops-chart :deep(.u-select) { background: var(--primary-soft); }
+.ops-chart {
+  min-width: 0;
+}
+.ops-chart__canvas {
+  width: 100%;
+  min-width: 0;
+}
+.ops-chart__canvas.is-empty {
+  display: none;
+}
+.ops-chart :deep(.u-legend) {
+  max-height: 88px;
+  overflow: auto;
+  color: var(--text-secondary);
+  font: var(--font-size-xs) var(--font-sans);
+  text-align: left;
+}
+.ops-chart :deep(.u-legend .u-marker) {
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+}
+.ops-chart :deep(.u-legend th) {
+  font-weight: 400;
+}
+.ops-chart :deep(.u-legend td) {
+  font-variant-numeric: tabular-nums;
+}
+.ops-chart :deep(.u-select) {
+  background: var(--primary-soft);
+}
 </style>

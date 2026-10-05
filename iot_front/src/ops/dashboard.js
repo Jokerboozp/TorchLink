@@ -4,7 +4,17 @@
 const GRID_COLUMNS = 24
 export const ROW_HEIGHT = 30
 
-export const panelTypeNames = { timeseries: '时序图', graph: '时序图（旧版）', stat: '统计卡片', gauge: '仪表', bargauge: '条形仪表', table: '表格', logs: '日志', text: '文本', row: '分组行' }
+export const panelTypeNames = {
+  timeseries: '时序图',
+  graph: '时序图（旧版）',
+  stat: '统计卡片',
+  gauge: '仪表',
+  bargauge: '条形仪表',
+  table: '表格',
+  logs: '日志',
+  text: '文本',
+  row: '分组行'
+}
 export const editablePanelTypes = ['timeseries', 'stat', 'gauge', 'bargauge', 'table', 'logs', 'text']
 
 const clone = value => JSON.parse(JSON.stringify(value ?? null))
@@ -51,7 +61,13 @@ export function normalizeLayout(dashboard) {
     }
     const base = cursor
     const offset = minY(section.panels)
-    const ordered = compact(section.panels.map(panel => { const p = pos(panel); panel.gridPos = { ...p, y: p.y - offset }; return panel }))
+    const ordered = compact(
+      section.panels.map(panel => {
+        const p = pos(panel)
+        panel.gridPos = { ...p, y: p.y - offset }
+        return panel
+      })
+    )
     let bottom = base
     for (const panel of ordered) {
       panel.gridPos.y += base
@@ -94,18 +110,50 @@ function sectionOf(dashboard, id) {
 }
 
 export function defaultTarget(dataSource, refId = 'A') {
-  if (dataSource?.type === 'loki') return { refId, datasource: { type: 'loki', uid: dataSource.uid }, expr: '', queryType: 'range', editorMode: 'code' }
-  return { refId, datasource: dataSource ? { type: dataSource.type, uid: dataSource.uid } : undefined, expr: '', legendFormat: '', range: true, instant: false, editorMode: 'code' }
+  if (dataSource?.type === 'loki')
+    return { refId, datasource: { type: 'loki', uid: dataSource.uid }, expr: '', queryType: 'range', editorMode: 'code' }
+  return {
+    refId,
+    datasource: dataSource ? { type: dataSource.type, uid: dataSource.uid } : undefined,
+    expr: '',
+    legendFormat: '',
+    range: true,
+    instant: false,
+    editorMode: 'code'
+  }
 }
 
 export function newPanel(dashboard, type, dataSource) {
-  const panel = { id: nextPanelId(dashboard), type, title: '新面板', gridPos: { x: 0, y: 9999, w: type === 'stat' || type === 'gauge' ? 6 : 12, h: type === 'stat' ? 4 : 8 } }
+  const panel = {
+    id: nextPanelId(dashboard),
+    type,
+    title: '新面板',
+    gridPos: { x: 0, y: 9999, w: type === 'stat' || type === 'gauge' ? 6 : 12, h: type === 'stat' ? 4 : 8 }
+  }
   if (type === 'row') return { ...panel, title: '新分组', collapsed: false, panels: [], gridPos: { x: 0, y: 9999, w: GRID_COLUMNS, h: 1 } }
   if (type === 'text') return { ...panel, options: { mode: 'markdown', content: '' } }
   panel.datasource = dataSource ? { type: dataSource.type, uid: dataSource.uid } : undefined
   panel.targets = [defaultTarget(dataSource)]
-  panel.fieldConfig = { defaults: { unit: 'short', thresholds: { mode: 'absolute', steps: [{ color: 'green', value: null }, { color: 'red', value: 80 }] } }, overrides: [] }
-  panel.options = type === 'logs' ? { showTime: true, wrapLogMessage: true, sortOrder: 'Descending', enableLogDetails: true } : { reduceOptions: { calcs: ['lastNotNull'], fields: '', values: false }, legend: { showLegend: true, displayMode: 'list', placement: 'bottom' } }
+  panel.fieldConfig = {
+    defaults: {
+      unit: 'short',
+      thresholds: {
+        mode: 'absolute',
+        steps: [
+          { color: 'green', value: null },
+          { color: 'red', value: 80 }
+        ]
+      }
+    },
+    overrides: []
+  }
+  panel.options =
+    type === 'logs'
+      ? { showTime: true, wrapLogMessage: true, sortOrder: 'Descending', enableLogDetails: true }
+      : {
+          reduceOptions: { calcs: ['lastNotNull'], fields: '', values: false },
+          legend: { showLegend: true, displayMode: 'list', placement: 'bottom' }
+        }
   return panel
 }
 
@@ -186,13 +234,21 @@ export function toggleRow(dashboard, id) {
 }
 
 export function replacePanel(dashboard, panel) {
-  const replace = list => list.map(item => (item.id === panel.id ? panel : { ...item, ...(item.panels ? { panels: replace(item.panels) } : {}) }))
+  const replace = list =>
+    list.map(item => (item.id === panel.id ? panel : { ...item, ...(item.panels ? { panels: replace(item.panels) } : {}) }))
   dashboard.panels = replace(dashboard.panels || [])
   return normalizeLayout(dashboard)
 }
 
 // 变量：当前值、引用关系与显示。
-export const variableTypeNames = { query: '查询', custom: '自定义', constant: '常量', textbox: '文本框', interval: '时间间隔', datasource: '数据源' }
+export const variableTypeNames = {
+  query: '查询',
+  custom: '自定义',
+  constant: '常量',
+  textbox: '文本框',
+  interval: '时间间隔',
+  datasource: '数据源'
+}
 
 export function currentValues(variable) {
   const value = variable?.current?.value
@@ -213,7 +269,18 @@ export function dependsOn(variable, name) {
 }
 
 export function emptyDashboard(title = '新仪表盘') {
-  return { title, tags: [], timezone: 'browser', schemaVersion: 39, editable: true, time: { from: 'now-6h', to: 'now' }, refresh: '', panels: [], templating: { list: [] }, annotations: { list: [] } }
+  return {
+    title,
+    tags: [],
+    timezone: 'browser',
+    schemaVersion: 39,
+    editable: true,
+    time: { from: 'now-6h', to: 'now' },
+    refresh: '',
+    panels: [],
+    templating: { list: [] },
+    annotations: { list: [] }
+  }
 }
 
 // 仪表盘默认刷新间隔（如 "30s"）转成毫秒；空或无效时不自动刷新。

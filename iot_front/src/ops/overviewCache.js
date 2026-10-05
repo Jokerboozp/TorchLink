@@ -7,6 +7,7 @@ let cached = null
 const owner = () => `${session.tenant}\u0000${session.user}`
 
 export function overviewSnapshot() {
-  if (!cached || cached.owner !== owner()) cached = { owner: owner(), components: {}, kpiGroups: {}, jobs: null, trends: {}, trendRange: '', checkedAt: 0 }
+  if (!cached || cached.owner !== owner())
+    cached = { owner: owner(), components: {}, kpiGroups: {}, jobs: null, trends: {}, trendRange: '', checkedAt: 0 }
   return cached
 }

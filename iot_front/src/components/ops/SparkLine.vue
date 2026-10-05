@@ -10,14 +10,24 @@ const points = computed(() => {
   const max = Math.max(...values)
   const range = max - min || 1
   const step = 100 / (props.values.length - 1)
-  return props.values.map((v, i) => (v == null ? null : `${(i * step).toFixed(2)},${(28 - ((v - min) / range) * 26).toFixed(2)}`)).filter(Boolean).join(' ')
+  return props.values
+    .map((v, i) => (v == null ? null : `${(i * step).toFixed(2)},${(28 - ((v - min) / range) * 26).toFixed(2)}`))
+    .filter(Boolean)
+    .join(' ')
 })
 </script>
 
 <template>
-  <svg v-if="points" class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true"><polyline :points="points" fill="none" :stroke="color" stroke-width="1.5" vector-effect="non-scaling-stroke" /></svg>
+  <svg v-if="points" class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
+    <polyline :points="points" fill="none" :stroke="color" stroke-width="1.5" vector-effect="non-scaling-stroke" />
+  </svg>
 </template>
 
 <style scoped>
-.spark { display: block; width: 100%; height: 32px; opacity: 0.7; }
+.spark {
+  display: block;
+  width: 100%;
+  height: 32px;
+  opacity: 0.7;
+}
 </style>
