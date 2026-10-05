@@ -301,3 +301,31 @@ func TestReplaySelectedProtocolVersion(t *testing.T) {
 		}
 	}
 }
+
+// Rule fields are checked against the product's thing model, including the
+// recovery conditions; tags are not thing-model fields.
+func TestRuleDraftFieldsComeFromThingModel(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	archive, _ := local.NewArchive(t.TempDir())
+	engine := New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err := repo.SaveProduct(ctx, model.Product{ID: "p1", TenantID: "t1", ThingModel: &model.ThingModel{
+		Properties: []model.ThingField{{Identifier: "temperature", DataType: "number", Unit: "℃"}},
+		Events:     []model.ThingOperation{{Identifier: "fault", Fields: []model.ThingField{{Identifier: "faultCode", DataType: "string"}}}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	rule := model.AlarmRule{ID: "r1", TenantID: "t1", ProductID: "p1", Name: "高温", AlarmType: "FIRE_RISK", Level: "HIGH",
+		Conditions: []model.RuleCondition{{Field: "properties.temperature", Operator: ">", Value: 80}, {Field: "event.faultCode", Operator: "exists"}, {Field: "tags.quality", Operator: "exists"}}}
+	if _, _, err := engine.ValidateRuleDraft(ctx, rule); err != nil {
+		t.Fatal(err)
+	}
+	rule.Recovery = []model.RuleCondition{{Field: "humidity", Operator: "<", Value: 10}}
+	if _, _, err := engine.ValidateRuleDraft(ctx, rule); err == nil || !strings.Contains(err.Error(), "humidity") {
+		t.Fatalf("undeclared recovery field accepted: %v", err)
+	}
+	fields := RuleFields(model.Product{ThingModel: &model.ThingModel{Properties: []model.ThingField{{Identifier: "temperature", DataType: "number", Unit: "℃"}}}})
+	if len(fields) != 1 || fields[0].Kind != "property" || fields[0].Unit != "℃" {
+		t.Fatalf("rule fields %+v", fields)
+	}
+}

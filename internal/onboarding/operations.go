@@ -31,6 +31,15 @@ func ValidateThingModel(m *model.ThingModel) error {
 			default:
 				return fmt.Errorf("unsupported dataType for %s", f.Identifier)
 			}
+			if !f.Numeric() && (f.Min != nil || f.Max != nil || f.AlarmLow != nil || f.AlarmHigh != nil) {
+				return fmt.Errorf("范围与告警阈值只适用于数值字段：%s", f.Identifier)
+			}
+			if f.Min != nil && f.Max != nil && *f.Min > *f.Max {
+				return fmt.Errorf("字段 %s 的最小值大于最大值", f.Identifier)
+			}
+			if f.AlarmLow != nil && f.AlarmHigh != nil && *f.AlarmLow > *f.AlarmHigh {
+				return fmt.Errorf("字段 %s 的低阈值大于高阈值", f.Identifier)
+			}
 		}
 		return nil
 	}

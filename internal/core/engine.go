@@ -321,6 +321,9 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 	}
 	if err == nil && msg != nil {
 		_, err = model.MessageComponents(*msg)
+		if productErr == nil {
+			e.markThingQuality(product, msg)
+		}
 		if raw.Source == "external-data" {
 			if msg.Tags == nil {
 				msg.Tags = map[string]string{}
@@ -1210,10 +1213,22 @@ func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wit
 		return model.AIAnalysis{}, err
 	}
 	history := []map[string]any{}
+	var product *model.Product
 	if device, deviceErr := e.Repo.GetManagedDevice(ctx, alarm.TenantID, alarm.DeviceID); deviceErr == nil {
 		history = append(history, map[string]any{"contextType": "deviceMetadata", "device": device})
+		if p, productErr := e.Repo.GetProduct(ctx, alarm.TenantID, device.ProductID); productErr == nil {
+			product = &p
+		}
 	}
-	history = append(history, e.alarmPropertyHistory(ctx, alarm)...) // 每个属性只查询一次最近 24 小时并压缩为摘要。
+	ruleFields := []string{}
+	if alarm.RuleID != "" {
+		if rule, ok := e.ruleByID(ctx, alarm.TenantID, alarm.RuleID); ok {
+			for _, condition := range rule.Conditions {
+				ruleFields = append(ruleFields, condition.Field)
+			}
+		}
+	}
+	history = append(history, e.alarmPropertyHistory(ctx, alarm, product, ruleFields)...) // 每个属性只查询一次最近 24 小时并压缩为摘要。
 	if similar, similarErr := e.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: alarm.TenantID, DeviceID: alarm.DeviceID, Limit: 20}); similarErr == nil {
 		filtered := []model.Alarm{}
 		for _, item := range similar {

@@ -7,12 +7,14 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 
 	"iot-platform/internal/model"
 )
 
-// alarmHistoryProperties are the physical measurements alarm analysis checks.
-var alarmHistoryProperties = []string{"temperature", "smoke", "water_pressure", "voltage", "current", "gas"}
+// defaultAlarmHistoryProperties are checked for products without a thing
+// model declaring numeric properties.
+var defaultAlarmHistoryProperties = []string{"temperature", "smoke", "water_pressure", "voltage", "current", "gas"}
 
 const (
 	alarmHistoryLimit       = 1000
@@ -20,22 +22,86 @@ const (
 	alarmHistoryRecentMs    = 10 * 60 * 1000
 	alarmHistoryHourMs      = 60 * 60 * 1000
 	alarmHistoryDayMs       = 24 * 60 * 60 * 1000
+	// alarmHistoryMaxProperties bounds the properties read for one alarm.
+	alarmHistoryMaxProperties = 12
 )
 
+// alarmHistoryProperties chooses the properties an alarm analysis reads: the
+// product's numeric thing-model properties, those named by the triggering
+// rule first, then those with alarm thresholds. Without a thing model the
+// default measurements are used.
+func alarmHistoryProperties(product *model.Product, ruleFields []string) []model.ThingField {
+	if product == nil || product.ThingModel == nil {
+		out := make([]model.ThingField, 0, len(defaultAlarmHistoryProperties))
+		for _, name := range defaultAlarmHistoryProperties {
+			out = append(out, model.ThingField{Identifier: name})
+		}
+		return out
+	}
+	named := map[string]bool{}
+	for _, field := range ruleFields {
+		named[strings.TrimPrefix(field, "properties.")] = true
+	}
+	out := []model.ThingField{}
+	for _, field := range product.ThingModel.Properties {
+		if field.Numeric() || field.DataType == "boolean" && named[field.Identifier] {
+			out = append(out, field)
+		}
+	}
+	rank := func(f model.ThingField) int {
+		switch {
+		case named[f.Identifier]:
+			return 0
+		case f.AlarmHigh != nil || f.AlarmLow != nil:
+			return 1
+		}
+		return 2
+	}
+	sort.SliceStable(out, func(i, j int) bool { return rank(out[i]) < rank(out[j]) })
+	if len(out) > alarmHistoryMaxProperties {
+		out = out[:alarmHistoryMaxProperties]
+	}
+	if len(out) == 0 {
+		return alarmHistoryProperties(nil, nil)
+	}
+	return out
+}
+
 // alarmPropertyHistory reads each property once for the last 24 hours and
-// condenses it: the latest value, recent points and per-window statistics.
-// This keeps the query count at one per property and the prompt within the
-// model's context instead of repeating overlapping raw windows.
-func (e *Engine) alarmPropertyHistory(ctx context.Context, alarm model.Alarm) []map[string]any {
+// condenses it: the latest value, recent points and per-window statistics,
+// with the thing model's unit, valid range and alarm thresholds. This keeps
+// the query count at one per property and the prompt within the model's
+// context instead of repeating overlapping raw windows.
+func (e *Engine) alarmPropertyHistory(ctx context.Context, alarm model.Alarm, product *model.Product, ruleFields []string) []map[string]any {
 	end := alarm.LastTriggeredAt
 	out := []map[string]any{}
-	for _, property := range alarmHistoryProperties {
-		items, err := e.Repo.PropertyHistory(ctx, alarm.TenantID, alarm.DeviceID, property, end-alarmHistoryDayMs, end, alarmHistoryLimit)
+	for _, field := range alarmHistoryProperties(product, ruleFields) {
+		items, err := e.Repo.PropertyHistory(ctx, alarm.TenantID, alarm.DeviceID, field.Identifier, end-alarmHistoryDayMs, end, alarmHistoryLimit)
 		if err != nil || len(items) == 0 {
 			continue
 		}
-		if summary := summarizePropertyHistory(property, items, end); summary != nil {
+		if summary := summarizePropertyHistory(field.Identifier, items, end); summary != nil {
+			for key, value := range thingFieldSemantics(field) {
+				summary[key] = value
+			}
 			out = append(out, summary)
+		}
+	}
+	return out
+}
+
+// thingFieldSemantics is the thing-model context of one property.
+func thingFieldSemantics(field model.ThingField) map[string]any {
+	out := map[string]any{}
+	if field.Name != "" {
+		out["name"] = field.Name
+	}
+	if field.Unit != "" {
+		out["unit"] = field.Unit
+	}
+	for key, value := range map[string]*float64{"min": field.Min, "max": field.Max, "alarmLow": field.AlarmLow, "alarmHigh": field.AlarmHigh} {
+		if value != nil {
+			out[key] = *value
 		}
 	}
 	return out

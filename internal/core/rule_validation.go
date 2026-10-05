@@ -87,10 +87,14 @@ func (e *Engine) ValidateRuleDraft(ctx context.Context, rule model.AlarmRule) ([
 		}
 		fields := productFields(product)
 		if len(fields) > 0 {
-			for _, c := range rule.Conditions {
-				field := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(c.Field, "properties."), "tags."), "event.")
+			for _, c := range append(append([]model.RuleCondition{}, rule.Conditions...), rule.Recovery...) {
+				// Tags come from the platform and the protocol, not the thing model.
+				if strings.HasPrefix(c.Field, "tags.") {
+					continue
+				}
+				field := strings.TrimPrefix(strings.TrimPrefix(c.Field, "properties."), "event.")
 				if !fields[field] {
-					return nil, nil, fmt.Errorf("thing-model field %q is not declared by product %s", field, product.ID)
+					return nil, nil, fmt.Errorf("字段 %q 未在设备模板 %s 的物模型中声明", field, product.ID)
 				}
 			}
 		} else {
@@ -118,6 +122,9 @@ func (e *Engine) ValidateRuleDraft(ctx context.Context, rule model.AlarmRule) ([
 
 func productFields(product model.Product) map[string]bool {
 	out := map[string]bool{}
+	for _, field := range RuleFields(product) {
+		out[field.Field] = true
+	}
 	for _, key := range []string{"properties", "fields", "telemetry"} {
 		switch v := product.Metadata[key].(type) {
 		case []any:
@@ -138,6 +145,38 @@ func productFields(product model.Product) map[string]bool {
 			for field := range v {
 				out[field] = true
 			}
+		}
+	}
+	return out
+}
+
+// RuleField is a field a rule condition may use, from the product's thing
+// model: properties, events and event fields.
+type RuleField struct {
+	Field     string   `json:"field"`
+	Name      string   `json:"name,omitempty"`
+	Kind      string   `json:"kind"`
+	DataType  string   `json:"dataType,omitempty"`
+	Unit      string   `json:"unit,omitempty"`
+	Min       *float64 `json:"min,omitempty"`
+	Max       *float64 `json:"max,omitempty"`
+	AlarmLow  *float64 `json:"alarmLow,omitempty"`
+	AlarmHigh *float64 `json:"alarmHigh,omitempty"`
+}
+
+// RuleFields lists the thing-model fields of product for the rule editor.
+func RuleFields(product model.Product) []RuleField {
+	out := []RuleField{}
+	if product.ThingModel == nil {
+		return out
+	}
+	for _, f := range product.ThingModel.Properties {
+		out = append(out, RuleField{Field: f.Identifier, Name: f.Name, Kind: "property", DataType: f.DataType, Unit: f.Unit, Min: f.Min, Max: f.Max, AlarmLow: f.AlarmLow, AlarmHigh: f.AlarmHigh})
+	}
+	for _, event := range product.ThingModel.Events {
+		out = append(out, RuleField{Field: event.Identifier, Name: event.Name, Kind: "event"})
+		for _, f := range event.Fields {
+			out = append(out, RuleField{Field: f.Identifier, Name: f.Name, Kind: "eventField", DataType: f.DataType, Unit: f.Unit, Min: f.Min, Max: f.Max, AlarmLow: f.AlarmLow, AlarmHigh: f.AlarmHigh})
 		}
 	}
 	return out

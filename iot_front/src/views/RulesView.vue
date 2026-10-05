@@ -1,7 +1,7 @@
 <script setup>
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
-import { onMounted, reactive, ref } from 'vue'
+import { onMounted, reactive, ref, watch } from 'vue'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { api, apiAll, notifyError, parseJSON, pretty } from '../api'
 import { alarmLevels, alarmType, alarmTypes, label, tagType } from '../labels'
@@ -50,6 +50,41 @@ const fieldDescriptions = [
 ]
 const blank = () => ({ id:'', name:'', description:'', alarmType:'FIRE_RISK', level:'HIGH', productId:'', match:'all', expression:'', genginePlaceholder:'', conditions:pretty([{ field:'temperature', operator:'>', value:80 }]), recovery:'[]', actions:'[]', durationSeconds:0, enabled:true })
 const form = reactive(blank())
+const fieldKinds = { property:'属性', event:'事件', eventField:'事件字段' }
+const productFields = ref([])
+const fieldPick = ref('')
+let fieldsVersion = 0
+// The selected product's thing-model fields help write conditions; the
+// conditions themselves stay editable JSON.
+watch(() => [dialog.value, form.productId], async ([visible, productId]) => {
+  const version = ++fieldsVersion
+  productFields.value = []
+  fieldPick.value = ''
+  if (!visible || !productId) return
+  try {
+    const result = await api(`/api/v1/rules/fields?productId=${encodeURIComponent(productId)}`)
+    if (version === fieldsVersion) productFields.value = result.items || []
+  } catch { if (version === fieldsVersion) productFields.value = [] }
+})
+function fieldLabel(item) {
+  const extra = [item.unit, item.alarmHigh != null ? `高阈值 ${item.alarmHigh}` : '', item.alarmLow != null ? `低阈值 ${item.alarmLow}` : ''].filter(Boolean).join(' · ')
+  return `${item.name || item.field}（${fieldKinds[item.kind] || item.kind} ${item.field}${extra ? ` · ${extra}` : ''}）`
+}
+function insertField(key) {
+  const item = productFields.value.find(x => `${x.kind}:${x.field}` === key)
+  fieldPick.value = ''
+  if (!item) return
+  let conditions
+  try { conditions = parseJSON(form.conditions || '[]', '触发条件') } catch (error) { notifyError(error); return }
+  if (!Array.isArray(conditions)) conditions = []
+  const field = item.kind === 'property' ? item.field : `event.${item.field}`
+  const numeric = ['number', 'integer'].includes(item.dataType)
+  const condition = item.kind === 'event' ? { field, operator:'exists' }
+    : numeric && item.alarmLow != null && item.alarmHigh == null ? { field, operator:'<', value:item.alarmLow }
+    : numeric ? { field, operator:'>', value:item.alarmHigh ?? item.max ?? 0 }
+    : item.dataType === 'boolean' ? { field, operator:'eq', value:true } : { field, operator:'eq', value:'' }
+  form.conditions = pretty([...conditions, condition])
+}
 
 let loadVersion = 0
 async function load() {
@@ -256,6 +291,7 @@ function rowActions(row) {
       <section class="rule-editor-section"><div class="rule-editor-heading"><h3>触发与恢复条件</h3><p>按设备上报的数据填写条件；表达式填写后优先于结构化触发条件执行。</p></div>
       <ui-alert title="当前默认使用结构化数据条件" description="智能草稿会同时生成规则引擎，但只以注释形式放在下面的占位文本中；只有人工把表达式填入后，运行时才会优先执行规则引擎。" type="info" :closable="false" show-icon class="rule-help-alert" />
       <ui-form-item label="规则引擎表达式（可选，填入后优先执行）"><ui-input v-model="form.expression" type="textarea" :rows="4" :placeholder="form.genginePlaceholder || '例如：Properties[temperature] > 80 && Properties[smoke] == true'" /></ui-form-item>
+      <ui-form-item v-if="!readonly && productFields.length" label="从设备模板物模型插入字段"><ui-select v-model="fieldPick" filterable placeholder="选择属性或事件，追加一条触发条件" @update:model-value="insertField"><ui-option v-for="item in productFields" :key="`${item.kind}:${item.field}`" :label="fieldLabel(item)" :value="`${item.kind}:${item.field}`" /></ui-select></ui-form-item>
       <ui-form-item label="触发条件结构化数据"><ui-input v-model="form.conditions" type="textarea" :rows="6" placeholder='[{"field":"temperature","operator":">","value":80}]' /></ui-form-item>
       <ui-form-item label="恢复条件结构化数据"><ui-input v-model="form.recovery" type="textarea" :rows="4" placeholder='[{"field":"temperature","operator":"<","value":70}]' /></ui-form-item>
       </section>

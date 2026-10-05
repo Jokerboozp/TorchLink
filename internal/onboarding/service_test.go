@@ -677,6 +677,21 @@ func TestThingModelValidation(t *testing.T) {
 	if ValidateThingModel(m) == nil {
 		t.Fatal("invalid model accepted")
 	}
+	low, high := 10.0, 1.0
+	for _, field := range []model.ThingField{
+		{Identifier: "a", DataType: "string", Max: &high},
+		{Identifier: "a", DataType: "number", Min: &low, Max: &high},
+		{Identifier: "a", DataType: "number", AlarmLow: &low, AlarmHigh: &high},
+	} {
+		m.Properties = []model.ThingField{field}
+		if ValidateThingModel(m) == nil {
+			t.Fatalf("invalid range accepted: %+v", field)
+		}
+	}
+	m.Properties = []model.ThingField{{Identifier: "a", DataType: "integer", Min: &high, Max: &low, AlarmHigh: &low}}
+	if e := ValidateThingModel(m); e != nil {
+		t.Fatal(e)
+	}
 	m.Properties = nil
 	s.Repo.SaveProduct(ctx, model.Product{TenantID: "t", ID: "p", Status: "ENABLED", ThingModel: m})
 	s.PublishCommand = func(context.Context, string, []byte, byte, bool) error { return nil }

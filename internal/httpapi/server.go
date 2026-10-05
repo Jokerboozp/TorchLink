@@ -248,6 +248,7 @@ func (s *Server) routes() {
 	s.router.GET("/api/v1/devices/:deviceId/properties/history", s.authorize("viewer"), s.endpoint(s.history, "deviceId"))
 	s.router.POST("/api/v1/device-states", s.authorize("operator"), s.endpoint(s.stateEvent))
 	s.router.GET("/api/v1/rules", s.authorize("viewer"), s.endpoint(s.rules))
+	s.router.GET("/api/v1/rules/fields", s.authorize("viewer"), s.endpoint(s.ruleFields))
 	s.router.POST("/api/v1/rules", s.authorize("operator"), s.endpoint(s.saveRule))
 	s.router.PUT("/api/v1/rules/:id", s.authorize("operator"), s.endpoint(s.saveRule, "id"))
 	s.router.DELETE("/api/v1/rules/:id", s.authorize("operator"), s.endpoint(s.deleteRule, "id"))
@@ -1291,6 +1292,22 @@ func (s *Server) rules(w http.ResponseWriter, r *http.Request) {
 	}
 	writeList(w, 200, v, total, pagination, nil)
 }
+
+// ruleFields lists the thing-model fields of a product for the rule editor.
+func (s *Server) ruleFields(w http.ResponseWriter, r *http.Request) {
+	productID := strings.TrimSpace(r.URL.Query().Get("productId"))
+	if productID == "" {
+		problem(w, http.StatusUnprocessableEntity, "请选择设备模板")
+		return
+	}
+	product, err := s.engine.Repo.GetProduct(r.Context(), claims(r).TenantID, productID)
+	if err != nil {
+		problem(w, http.StatusNotFound, "设备模板不存在")
+		return
+	}
+	write(w, http.StatusOK, map[string]any{"items": core.RuleFields(product)})
+}
+
 func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 	var v model.AlarmRule
 	if decode(w, r, &v) != nil {

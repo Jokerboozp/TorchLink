@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/metrics"
 	"log/slog"
 	"strings"
 	"testing"
@@ -893,5 +894,68 @@ func TestDeleteObjectLaterQueuesFailedDeletes(t *testing.T) {
 	}
 	if _, err = archive.GetObject(ctx, "b", "k"); err == nil {
 		t.Fatal("file not deleted")
+	}
+}
+
+// Parsed values are checked against the product's thing model: mismatches are
+// tagged and counted, and the message is still forwarded. Products without a
+// thing model are not checked.
+func TestThingModelQualityIsMarkedNotRejected(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bus := &recordingBus{Bus: local.NewBus()}
+	registry := metrics.New()
+	e := New(repo, archive, bus, local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	e.Metrics = registry
+	minimum, maximum := -20.0, 120.0
+	if err = repo.SaveProduct(ctx, model.Product{ID: "json_modeled", TenantID: "t1", ThingModel: &model.ThingModel{Properties: []model.ThingField{
+		{Identifier: "temperature", DataType: "number", Min: &minimum, Max: &maximum},
+		{Identifier: "count", DataType: "integer"},
+		{Identifier: "smoke", DataType: "boolean"},
+	}}}); err != nil {
+		t.Fatal(err)
+	}
+	var parsed []model.StandardMessage
+	if err = e.Bus.Subscribe(ctx, model.TopicDeviceBusiness, "quality-test", func(_ context.Context, b []byte) error {
+		var msg model.StandardMessage
+		_ = json.Unmarshal(b, &msg)
+		parsed = append(parsed, msg)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err = e.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for i, tc := range []struct {
+		product, payload, want string
+	}{
+		{"json_modeled", `{"properties":{"temperature":23,"count":2,"smoke":false}}`, ""},
+		{"json_modeled", `{"properties":{"temperature":300,"count":2.5,"smoke":"yes","extra":1}}`, "range:temperature,type:count,type:smoke,unknown:extra"},
+		{"json_plain", `{"properties":{"temperature":300}}`, ""},
+	} {
+		raw := model.RawMessage{MessageID: fmt.Sprintf("raw_quality_%d", i), TenantID: "t1", ProductID: tc.product, DeviceID: "device_quality", Protocol: "json", PayloadFormat: "json", ReceivedAt: int64(1000 + i), Payload: json.RawMessage(tc.payload)}
+		if _, _, err = e.IngestRaw(ctx, raw); err != nil {
+			t.Fatal(err)
+		}
+		var got *model.StandardMessage
+		for j := range parsed {
+			if parsed[j].RawMessageID == raw.MessageID {
+				got = &parsed[j]
+			}
+		}
+		if got == nil {
+			t.Fatalf("%s was not forwarded", raw.MessageID)
+		}
+		if got.Tags[QualityTag] != tc.want {
+			t.Fatalf("%s quality=%q want %q", raw.MessageID, got.Tags[QualityTag], tc.want)
+		}
+	}
+	if out := registry.Prometheus(); !strings.Contains(out, `parse_quality_total{reason="type"} 2`) || !strings.Contains(out, `parse_quality_total{reason="range"} 1`) {
+		t.Fatalf("quality metrics missing:\n%s", out)
 	}
 }

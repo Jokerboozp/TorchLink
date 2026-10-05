@@ -586,8 +586,8 @@ func TestAlarmPropertyHistoryQueriesOncePerPropertyAndCondenses(t *testing.T) {
 	repo := &countingHistoryRepo{Repository: memory.NewRepository(), rows: map[string][]map[string]any{"temperature": temperature, "smoke": smoke}}
 	e := &Engine{Repo: repo}
 
-	history := e.alarmPropertyHistory(context.Background(), model.Alarm{TenantID: "t1", DeviceID: "d1", LastTriggeredAt: end})
-	if repo.calls != len(alarmHistoryProperties) {
+	history := e.alarmPropertyHistory(context.Background(), model.Alarm{TenantID: "t1", DeviceID: "d1", LastTriggeredAt: end}, nil, nil)
+	if repo.calls != len(defaultAlarmHistoryProperties) {
 		t.Fatalf("expected one query per property, got %d", repo.calls)
 	}
 	if len(history) != 2 {
@@ -880,5 +880,31 @@ func TestBusinessRunsAreRecorded(t *testing.T) {
 		if !strings.Contains(exposition, line) {
 			t.Errorf("missing metric %s", line)
 		}
+	}
+}
+
+// Products with a thing model are analysed by their numeric properties, the
+// rule's fields first, with unit, range and thresholds attached.
+func TestAlarmPropertyHistoryUsesThingModel(t *testing.T) {
+	end := int64(100 * alarmHistoryDayMs)
+	point := func(v any) []map[string]any { return []map[string]any{{"timestamp": end, "value": v}} }
+	repo := &countingHistoryRepo{Repository: memory.NewRepository(), rows: map[string][]map[string]any{"pressure": point(0.12), "level": point(3.0), "door": point(true), "label": point("x")}}
+	e := &Engine{Repo: repo}
+	high, low, minimum := 1.2, 0.2, 0.0
+	product := &model.Product{ThingModel: &model.ThingModel{Properties: []model.ThingField{
+		{Identifier: "level", DataType: "number", Unit: "m"},
+		{Identifier: "label", DataType: "string"},
+		{Identifier: "door", DataType: "boolean"},
+		{Identifier: "pressure", Name: "管网压力", DataType: "number", Unit: "MPa", Min: &minimum, AlarmLow: &low, AlarmHigh: &high},
+	}}}
+	history := e.alarmPropertyHistory(context.Background(), model.Alarm{TenantID: "t1", DeviceID: "d1", LastTriggeredAt: end}, product, []string{"properties.door"})
+	if repo.calls != 3 || len(history) != 3 {
+		t.Fatalf("calls=%d history=%v", repo.calls, history)
+	}
+	if history[0]["property"] != "door" || history[1]["property"] != "pressure" || history[2]["property"] != "level" {
+		t.Fatalf("rule fields first, then thresholds: %v", history)
+	}
+	if p := history[1]; p["unit"] != "MPa" || p["name"] != "管网压力" || p["alarmLow"] != 0.2 || p["alarmHigh"] != 1.2 || p["min"] != 0.0 {
+		t.Fatalf("missing thing-model semantics: %v", p)
 	}
 }

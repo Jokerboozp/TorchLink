@@ -7,7 +7,19 @@ type ThingField struct {
 	DataType   string `json:"dataType"`
 	Unit       string `json:"unit,omitempty"`
 	Required   bool   `json:"required,omitempty"`
+	// Min and Max bound the valid values of a numeric field; values outside
+	// are marked as data quality issues, not rejected.
+	Min *float64 `json:"min,omitempty"`
+	Max *float64 `json:"max,omitempty"`
+	// AlarmLow and AlarmHigh are the field's alarm thresholds, given to
+	// rule authors and AI analysis as context. Rules still decide alarms.
+	AlarmLow  *float64 `json:"alarmLow,omitempty"`
+	AlarmHigh *float64 `json:"alarmHigh,omitempty"`
 }
+
+// Numeric reports whether the field holds numbers.
+func (f ThingField) Numeric() bool { return f.DataType == "number" || f.DataType == "integer" }
+
 type ThingOperation struct {
 	Identifier string       `json:"identifier"`
 	Name       string       `json:"name"`
