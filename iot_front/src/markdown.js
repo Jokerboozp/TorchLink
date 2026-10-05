@@ -29,7 +29,8 @@ function renderInline(value) {
     const index = tokens.push(html) - 1
     return `\u0000${index}\u0000`
   }
-  let text = escapeHtml(value)
+  // 占位符使用 NUL 分隔，原文中的 NUL 去掉，避免伪造占位符复制其他链接。
+  let text = escapeHtml(value).replace(/\u0000/g, '')
 
   text = text.replace(/`([^`\n]+)`/g, (_, code) => token(`<code>${code}</code>`))
   text = text.replace(/!\[([^\]\n]*)\]\([^)\n]+\)/g, '$1')

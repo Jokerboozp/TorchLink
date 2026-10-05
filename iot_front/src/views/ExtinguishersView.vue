@@ -14,7 +14,8 @@ import {
   inputTimestamp,
   inspectionPayload,
   canReviewInspection,
-  fireQuery
+  fireQuery,
+  requiredFieldErrors
 } from '../fireSafetyManagement'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
@@ -168,16 +169,21 @@ function openAsset(row) {
   for (const key of Object.keys(form)) delete form[key]
   Object.assign(form, blank(), row ? JSON.parse(JSON.stringify(row)) : {})
   saveError.value = ''
+  fieldErrors.value = {}
   dialog.value = true
   loadOptions()
 }
+// 必填项逐项标在对应字段下方。
+const fieldErrors = ref({})
 async function saveAsset() {
   if (saving.value || !can(form.id ? 'PUT /api/v1/extinguishers/:id' : 'POST /api/v1/extinguishers')) return
   saving.value = true
   saveError.value = ''
   try {
-    if (!form.code.trim() || !form.stationId || !form.location.trim()) throw new Error('请填写灭火器编号、放置位置并选择所属消防站')
-    if (!Number.isInteger(form.inspectionCycleDays) || form.inspectionCycleDays < 1) throw new Error('巡检周期须为正整数天数')
+    fieldErrors.value = requiredFieldErrors('extinguishers', form)
+    if (!Number.isInteger(form.inspectionCycleDays) || form.inspectionCycleDays < 1)
+      fieldErrors.value.inspectionCycleDays = '巡检周期须为正整数天数'
+    if (Object.keys(fieldErrors.value).length) return
     await api(`/api/v1/extinguishers${form.id ? `/${encodeURIComponent(form.id)}` : ''}`, {
       method: form.id ? 'PUT' : 'POST',
       body: JSON.stringify(managementPayload('extinguishers', form))
@@ -637,8 +643,8 @@ onMounted(refresh)
         <section class="fire-section">
           <h3>资产与放置位置</h3>
           <div class="fire-form-grid">
-            <ui-form-item label="灭火器编号 *"><ui-input v-model="form.code" :disabled="saving" /></ui-form-item
-            ><ui-form-item label="所属消防站 *"
+            <ui-form-item label="灭火器编号 *" :error="fieldErrors.code"><ui-input v-model="form.code" :disabled="saving" /></ui-form-item
+            ><ui-form-item label="所属消防站 *" :error="fieldErrors.stationId"
               ><ui-select v-model="form.stationId" :disabled="saving" filterable
                 ><ui-option
                   v-for="item in options.stations"
@@ -646,7 +652,7 @@ onMounted(refresh)
                   :label="`${item.name}${!item.enabled ? '（已停用）' : ''}`"
                   :value="item.id"
                   :disabled="!item.enabled && item.id !== form.stationId" /></ui-select></ui-form-item
-            ><ui-form-item label="放置位置 *"
+            ><ui-form-item label="放置位置 *" :error="fieldErrors.location"
               ><ui-input v-model="form.location" :disabled="saving" placeholder="建筑、楼层或具体点位" /></ui-form-item
             ><ui-form-item label="灭火器类型"
               ><ui-select v-model="form.type" :disabled="saving"
@@ -673,7 +679,7 @@ onMounted(refresh)
               ><input v-model="form.serviceDueOn" type="date" class="fire-date" :disabled="saving" /></ui-form-item
             ><ui-form-item label="计划报废日期"
               ><input v-model="form.retireOn" type="date" class="fire-date" :disabled="saving" /></ui-form-item
-            ><ui-form-item label="巡检周期（天）"
+            ><ui-form-item label="巡检周期（天）" :error="fieldErrors.inspectionCycleDays"
               ><ui-input-number v-model="form.inspectionCycleDays" :disabled="saving" :min="1" :max="3650" :precision="0"
             /></ui-form-item>
           </div>

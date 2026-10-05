@@ -12,7 +12,8 @@ import {
   jsonValue,
   mappingFields,
   validateEndpoint,
-  validateSource
+  validateSource,
+  fieldError
 } from '../externalData'
 const props = defineProps({
   value: { type: Object, required: true },
@@ -26,6 +27,8 @@ const form = ref({})
 const fields = ref([])
 const step = ref(1)
 const error = ref('')
+// 字段校验失败时提示同时显示在对应输入框下方。
+const fieldErrors = ref({})
 const hosts = ref('')
 const headers = ref('{}')
 const query = ref('{}')
@@ -74,6 +77,7 @@ function changeKind(kind) {
 }
 function submit() {
   error.value = ''
+  fieldErrors.value = {}
   try {
     let value = cloneExternal(form.value)
     if (props.kind === 'sources') {
@@ -98,11 +102,14 @@ function submit() {
     } else {
       value.externalId = value.externalId.trim()
       value.targetId = value.targetId.trim()
-      if (!value.sourceId || !value.externalId || !value.targetId) throw new Error('请选择来源并填写外部编号和平台编号')
+      if (!value.sourceId) throw fieldError('sourceId', '请选择数据来源')
+      if (!value.externalId) throw fieldError('externalId', '请填写外部系统编号')
+      if (!value.targetId) throw fieldError('targetId', '请填写平台编号')
     }
     emit('save', value)
   } catch (e) {
     error.value = e.message
+    if (e.field) fieldErrors.value = { [e.field]: e.message }
   }
 }
 </script>
@@ -111,8 +118,10 @@ function submit() {
   <ui-form :model="form" label-position="top" class="external-editor">
     <template v-if="kind === 'sources'">
       <div class="form-grid">
-        <ui-form-item label="来源名称"><ui-input v-model="form.name" placeholder="例如 视频分析平台" /></ui-form-item>
-        <ui-form-item label="执行用户"
+        <ui-form-item label="来源名称" :error="fieldErrors.name"
+          ><ui-input v-model="form.name" placeholder="例如 视频分析平台"
+        /></ui-form-item>
+        <ui-form-item label="执行用户" :error="fieldErrors.username"
           ><ui-input v-model="form.username" :disabled="!!form.id" placeholder="平台登录用户名"
         /></ui-form-item>
       </div>
@@ -120,7 +129,7 @@ function submit() {
       <ui-form-item label="允许访问的主机和端口（每行一个）"
         ><ui-input v-model="hosts" type="textarea" :rows="3" placeholder="api.example.com:443&#10;10.0.0.10:80"
       /></ui-form-item>
-      <ui-form-item label="来源请求最小间隔（毫秒，所有接口合计，0 使用默认 1000）"
+      <ui-form-item label="来源请求最小间隔（毫秒，所有接口合计，0 使用默认 1000）" :error="fieldErrors.requestIntervalMillis"
         ><ui-input-number v-model="form.requestIntervalMillis" :min="0" :max="3600000" :step="100"
       /></ui-form-item>
       <p class="hint">
@@ -138,15 +147,17 @@ function submit() {
 
     <template v-else-if="kind === 'bindings'">
       <p class="hint">将外部系统编号对应到已登记的平台资料。摄像头还需要关联执行用户有权访问的设备。</p>
-      <ui-form-item label="数据来源"
+      <ui-form-item label="数据来源" :error="fieldErrors.sourceId"
         ><ui-select v-model="form.sourceId" :disabled="!!form.id" filterable allow-create
           ><ui-option v-for="source in sourceOptions" :key="source.id" :value="source.id" :label="source.name" /></ui-select
       ></ui-form-item>
       <ui-form-item label="关联类型"
         ><ui-select v-model="form.kind"><ui-option value="device" label="设备" /><ui-option value="camera" label="摄像头" /></ui-select
       ></ui-form-item>
-      <ui-form-item label="外部系统编号"><ui-input v-model="form.externalId" placeholder="对方报文中的设备或摄像头编号" /></ui-form-item>
-      <ui-form-item :label="form.kind === 'camera' ? '平台摄像头编号' : '平台设备编号'"
+      <ui-form-item label="外部系统编号" :error="fieldErrors.externalId"
+        ><ui-input v-model="form.externalId" placeholder="对方报文中的设备或摄像头编号"
+      /></ui-form-item>
+      <ui-form-item :label="form.kind === 'camera' ? '平台摄像头编号' : '平台设备编号'" :error="fieldErrors.targetId"
         ><ui-input v-model="form.targetId" placeholder="从设备管理或摄像头资料中复制编号"
       /></ui-form-item>
     </template>
@@ -166,11 +177,13 @@ function submit() {
       </nav>
       <section v-show="step === 1">
         <div class="form-grid">
-          <ui-form-item label="数据来源"
+          <ui-form-item label="数据来源" :error="fieldErrors.sourceId"
             ><ui-select v-model="form.sourceId" :disabled="!!form.id" filterable allow-create
               ><ui-option v-for="source in sourceOptions" :key="source.id" :value="source.id" :label="source.name" /></ui-select
           ></ui-form-item>
-          <ui-form-item label="接口名称"><ui-input v-model="form.name" placeholder="例如 火焰识别告警" /></ui-form-item>
+          <ui-form-item label="接口名称" :error="fieldErrors.name"
+            ><ui-input v-model="form.name" placeholder="例如 火焰识别告警"
+          /></ui-form-item>
           <ui-form-item label="接入方式"
             ><ui-select v-model="form.mode"
               ><ui-option value="push" label="对方主动推送" /><ui-option value="pull" label="平台主动拉取" /></ui-select
@@ -181,7 +194,9 @@ function submit() {
           ></ui-form-item>
         </div>
         <template v-if="form.mode === 'pull'">
-          <ui-form-item label="请求地址"><ui-input v-model="form.url" placeholder="https://api.example.com/events" /></ui-form-item>
+          <ui-form-item label="请求地址" :error="fieldErrors.url"
+            ><ui-input v-model="form.url" placeholder="https://api.example.com/events"
+          /></ui-form-item>
           <ui-form-item label="请求方法"
             ><ui-select v-model="form.method"
               ><ui-option value="GET" label="GET" /><ui-option value="POST" label="POST" /><ui-option value="PUT" label="PUT" /></ui-select
@@ -273,7 +288,7 @@ function submit() {
       <section v-show="step === 3">
         <template v-if="form.mode === 'pull'">
           <div class="form-grid">
-            <ui-form-item label="自动拉取间隔（至少 10 秒，0 为仅手动）"
+            <ui-form-item label="自动拉取间隔（至少 10 秒，0 为仅手动）" :error="fieldErrors.intervalSeconds"
               ><ui-input-number v-model="form.intervalSeconds" :min="0"
             /></ui-form-item>
             <ui-form-item label="重叠回查时间（秒）"><ui-input-number v-model="form.overlapSeconds" :min="0" /></ui-form-item>

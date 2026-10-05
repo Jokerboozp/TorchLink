@@ -8,7 +8,14 @@ import { UiMessage } from '../ui/feedback.js'
 import { errorMessage } from '../presentation'
 import { can } from '../permissions'
 import { stationTypes, dispatchTypes, statusLabel, statusTone, dateTimeLabel } from '../fireSafety'
-import { managementPayload, localDateTimeInput, inputTimestamp, dispatchPayload, fireQuery } from '../fireSafetyManagement'
+import {
+  managementPayload,
+  localDateTimeInput,
+  inputTimestamp,
+  dispatchPayload,
+  fireQuery,
+  requiredFieldErrors
+} from '../fireSafetyManagement'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
@@ -40,7 +47,8 @@ const dialog = ref(false),
   editKind = ref('stations'),
   form = reactive({}),
   saving = ref(false),
-  saveError = ref('')
+  saveError = ref(''),
+  fieldErrors = ref({})
 const returning = ref(null),
   returnForm = reactive({ returnedAtInput: '', summary: '' }),
   returnSaving = ref(false),
@@ -182,6 +190,7 @@ function open(kind, row) {
   for (const key of Object.keys(form)) delete form[key]
   Object.assign(form, blank(kind), row ? JSON.parse(JSON.stringify(row)) : {})
   saveError.value = ''
+  fieldErrors.value = {}
   dialog.value = true
   loadOptions()
 }
@@ -195,10 +204,8 @@ async function save() {
   saving.value = true
   try {
     const kind = editKind.value
-    if (kind === 'stations' && (!form.name.trim() || !form.code.trim())) throw new Error('请填写消防站名称和编号')
-    if (kind === 'personnel' && (!form.name.trim() || !form.stationId)) throw new Error('请填写人员姓名并选择所属消防站')
-    if (kind === 'equipment' && (!form.name.trim() || !form.category.trim() || !form.unit.trim() || !form.stationId))
-      throw new Error('请填写器材名称、类别、数量单位并选择所属消防站')
+    fieldErrors.value = requiredFieldErrors(kind, form)
+    if (Object.keys(fieldErrors.value).length) return
     const value = kind === 'dispatches' ? dispatchPayload(form) : managementPayload(kind, form)
     await api(`/api/v1/${tabs[kind].path}${form.id ? `/${encodeURIComponent(form.id)}` : ''}`, {
       method: form.id ? 'PUT' : 'POST',
@@ -461,8 +468,10 @@ onMounted(refresh)
       <ui-form :model="form" label-position="top">
         <template v-if="editKind === 'stations'">
           <div class="fire-form-grid">
-            <ui-form-item label="消防站编号 *"><ui-input :disabled="saving" v-model="form.code" maxlength="64" /></ui-form-item
-            ><ui-form-item label="消防站名称 *"><ui-input :disabled="saving" v-model="form.name" maxlength="100" /></ui-form-item
+            <ui-form-item label="消防站编号 *" :error="fieldErrors.code"
+              ><ui-input :disabled="saving" v-model="form.code" maxlength="64" /></ui-form-item
+            ><ui-form-item label="消防站名称 *" :error="fieldErrors.name"
+              ><ui-input :disabled="saving" v-model="form.name" maxlength="100" /></ui-form-item
             ><ui-form-item label="消防站类型"
               ><ui-select :disabled="saving" v-model="form.type"
                 ><ui-option
@@ -483,7 +492,7 @@ onMounted(refresh)
           </div>
         </template>
         <template v-else>
-          <ui-form-item label="所属消防站 *"
+          <ui-form-item label="所属消防站 *" :error="fieldErrors.stationId"
             ><ui-select
               :disabled="saving"
               v-model="form.stationId"
@@ -497,18 +506,18 @@ onMounted(refresh)
                 :disabled="!item.enabled && item.id !== form.stationId" /></ui-select
           ></ui-form-item>
           <div v-if="editKind === 'personnel'" class="fire-form-grid">
-            <ui-form-item label="姓名 *"><ui-input :disabled="saving" v-model="form.name" /></ui-form-item
+            <ui-form-item label="姓名 *" :error="fieldErrors.name"><ui-input :disabled="saving" v-model="form.name" /></ui-form-item
             ><ui-form-item label="岗位"><ui-input :disabled="saving" v-model="form.position" /></ui-form-item
             ><ui-form-item label="联系电话"><ui-input :disabled="saving" v-model="form.phone" /></ui-form-item
             ><ui-form-item label="状态"><ui-switch :disabled="saving" v-model="form.enabled" active-text="启用" /></ui-form-item>
           </div>
           <div v-if="editKind === 'equipment'" class="fire-form-grid">
-            <ui-form-item label="器材名称 *"><ui-input :disabled="saving" v-model="form.name" /></ui-form-item
-            ><ui-form-item label="器材类别 *"
+            <ui-form-item label="器材名称 *" :error="fieldErrors.name"><ui-input :disabled="saving" v-model="form.name" /></ui-form-item
+            ><ui-form-item label="器材类别 *" :error="fieldErrors.category"
               ><ui-input :disabled="saving" v-model="form.category" placeholder="例如：防护、通信、救援" /></ui-form-item
             ><ui-form-item label="数量"
               ><ui-input-number :disabled="saving" v-model="form.quantity" :min="0" :max="1000000" :precision="0" /></ui-form-item
-            ><ui-form-item label="数量单位 *"><ui-input :disabled="saving" v-model="form.unit" /></ui-form-item
+            ><ui-form-item label="数量单位 *" :error="fieldErrors.unit"><ui-input :disabled="saving" v-model="form.unit" /></ui-form-item
             ><ui-form-item label="状态"
               ><ui-select :disabled="saving" v-model="form.status"
                 ><ui-option v-for="item in equipmentStates" :key="item.value" :value="item.value" :label="item.label" /></ui-select
@@ -516,16 +525,17 @@ onMounted(refresh)
           </div>
           <template v-if="editKind === 'dispatches'">
             <div class="fire-form-grid">
-              <ui-form-item label="出勤标题 *"><ui-input :disabled="saving" v-model="form.title" /></ui-form-item
+              <ui-form-item label="出勤标题 *" :error="fieldErrors.title"><ui-input :disabled="saving" v-model="form.title" /></ui-form-item
               ><ui-form-item label="出勤类型"
                 ><ui-select :disabled="saving" v-model="form.type"
                   ><ui-option v-for="item in dispatchTypes" :key="item.value" :label="item.label" :value="item.value" /></ui-select
               ></ui-form-item>
             </div>
-            <ui-form-item label="出勤地点 *"><ui-input :disabled="saving" v-model="form.location" /></ui-form-item
-            ><ui-form-item label="出勤时间 *"
+            <ui-form-item label="出勤地点 *" :error="fieldErrors.location"
+              ><ui-input :disabled="saving" v-model="form.location" /></ui-form-item
+            ><ui-form-item label="出勤时间 *" :error="fieldErrors.startedAtInput"
               ><input :disabled="saving" v-model="form.startedAtInput" type="datetime-local" class="fire-date" /></ui-form-item
-            ><ui-form-item label="出勤人员 *"
+            ><ui-form-item label="出勤人员 *" :error="fieldErrors.personnelIds"
               ><ui-select
                 v-model="form.personnelIds"
                 multiple
