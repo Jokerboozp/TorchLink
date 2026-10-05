@@ -90,6 +90,10 @@ func (s *Server) aiProviderConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) {
+	if !s.platformActionAllowed(r) {
+		problem(w, http.StatusForbidden, "模型、向量服务与智能体配置对全平台生效，只能由平台管理员或运维租户修改")
+		return
+	}
 	if s.aiProviderRuntime == nil {
 		problem(w, http.StatusServiceUnavailable, "AI provider runtime is unavailable")
 		return
@@ -263,6 +267,10 @@ func validAIModelName(value string) bool {
 }
 
 func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
+	if !s.platformActionAllowed(r) {
+		problem(w, http.StatusForbidden, "模型、向量服务与智能体配置对全平台生效，只能由平台管理员或运维租户修改")
+		return
+	}
 	var in struct {
 		ports.AIPluginConfig
 		Question string `json:"question"`

@@ -58,6 +58,10 @@ func knowledgeWorkflowPlugins(items []ports.AIWorkflowPlugin) []ports.AIWorkflow
 }
 
 func (s *Server) aiWorkflowManifests(w http.ResponseWriter, r *http.Request) {
+	if !s.platformActionAllowed(r) {
+		problem(w, http.StatusForbidden, "模型、向量服务与智能体配置对全平台生效，只能由平台管理员或运维租户修改")
+		return
+	}
 	pagination := parseListPagination(r)
 	manager, ok := s.engine.AIWorkflows.(ports.AIWorkflowAdminManager)
 	if !ok {
@@ -85,6 +89,10 @@ func (s *Server) aiWorkflowManifests(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) saveAIWorkflow(w http.ResponseWriter, r *http.Request) {
+	if !s.platformActionAllowed(r) {
+		problem(w, http.StatusForbidden, "模型、向量服务与智能体配置对全平台生效，只能由平台管理员或运维租户修改")
+		return
+	}
 	manager, ok := s.engine.AIWorkflows.(ports.AIWorkflowManager)
 	if !ok {
 		problem(w, http.StatusServiceUnavailable, "AI workflow harness does not support dynamic agents")
@@ -113,6 +121,10 @@ func (s *Server) saveAIWorkflow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateAIWorkflow(w http.ResponseWriter, r *http.Request) {
+	if !s.platformActionAllowed(r) {
+		problem(w, http.StatusForbidden, "模型、向量服务与智能体配置对全平台生效，只能由平台管理员或运维租户修改")
+		return
+	}
 	manager, ok := s.engine.AIWorkflows.(ports.AIWorkflowManager)
 	if !ok {
 		problem(w, http.StatusServiceUnavailable, "AI workflow harness does not support dynamic agents")
@@ -167,6 +179,10 @@ func (s *Server) updateAIWorkflow(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteAIWorkflow(w http.ResponseWriter, r *http.Request) {
+	if !s.platformActionAllowed(r) {
+		problem(w, http.StatusForbidden, "模型、向量服务与智能体配置对全平台生效，只能由平台管理员或运维租户修改")
+		return
+	}
 	manager, ok := s.engine.AIWorkflows.(ports.AIWorkflowAdminManager)
 	if !ok {
 		problem(w, http.StatusServiceUnavailable, "AI workflow harness does not support plugin management")

@@ -155,10 +155,31 @@ var protocolCodePermissions = map[string]bool{
 
 func isProtocolCodePermission(id string) bool { return protocolCodePermissions[id] }
 
+// The model provider, the embedding service and dynamic agents are stored once
+// for the whole platform and serve every tenant, so changing (or reading the
+// admin view of) them is a platform operation like backups and operations.
+var aiPlatformPermissions = map[string]bool{
+	"PUT /api/v1/ai/providers/config": true,
+	"POST /api/v1/ai/providers/test":  true,
+	"GET /api/v1/ai/embedding-config": true,
+	"PUT /api/v1/ai/embedding-config": true,
+	"POST /api/v1/ai/embedding-test":  true,
+	"GET /api/v1/ai/workflows/admin":  true,
+	"POST /api/v1/ai/workflows":       true,
+	"PUT /api/v1/ai/workflows/:id":    true,
+	"DELETE /api/v1/ai/workflows/:id": true,
+}
+
+func isAIPlatformPermission(id string) bool { return aiPlatformPermissions[id] }
+
 // protocolCodeAllowed rechecks the platform boundary inside the upload
 // handlers: the built-in administrator, or a managed user of an ops tenant
 // whose permissions were already narrowed by stripOpsPermissions.
-func (s *Server) protocolCodeAllowed(r *http.Request) bool {
+func (s *Server) protocolCodeAllowed(r *http.Request) bool { return s.platformActionAllowed(r) }
+
+// platformActionAllowed rechecks, inside a handler, that the caller may
+// change platform-wide data.
+func (s *Server) platformActionAllowed(r *http.Request) bool {
 	c := claims(r)
 	if c.TokenUse == "" {
 		return c.Role == "admin"
@@ -168,7 +189,7 @@ func (s *Server) protocolCodeAllowed(r *http.Request) bool {
 
 // platformPermission reports grants that are effective only in ops tenants.
 func platformPermission(id string) bool {
-	return isOpsPermission(id) || isBackupPermission(id) || isProtocolCodePermission(id)
+	return isOpsPermission(id) || isBackupPermission(id) || isProtocolCodePermission(id) || isAIPlatformPermission(id)
 }
 
 // stripOpsPermissions removes platform-wide grants outside ops tenants.

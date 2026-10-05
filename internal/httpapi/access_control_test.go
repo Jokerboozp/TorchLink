@@ -1002,6 +1002,52 @@ func TestProtocolCodeUploadIsPlatformOnly(t *testing.T) {
 	}
 }
 
+// Model, embedding and agent configuration serve every tenant, so business
+// tenants cannot grant or use the actions that change it.
+func TestAIConfigurationIsPlatformOnly(t *testing.T) {
+	repo := memory.NewRepository()
+	ctx := context.Background()
+	cfg := config.Load()
+	cfg.AdminUser, cfg.AdminPassword = "root", "ai-config-root-test"
+	cfg.AdminTenants = []string{"tenant_ops", "tenant_biz"}
+	cfg.Ops.Tenants = []string{"tenant_ops"}
+	cfg.JWTSecret = "ai-config-test-secret-at-least-32-bytes"
+	cfg.DevMode = true
+	api := New(cfg, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	req := func(method, path, token string, body any, status int) map[string]any {
+		t.Helper()
+		return requestJSON(t, srv.Client(), method, srv.URL+path, token, body, status)
+	}
+	login := func(tenant, user, password string) string {
+		return req("POST", "/api/v1/auth/login", "", map[string]any{"username": user, "password": password, "tenantId": tenant}, 200)["accessToken"].(string)
+	}
+	bizRoot := login("tenant_biz", "root", cfg.AdminPassword)
+	for _, item := range req("GET", "/api/v1/access/permissions", bizRoot, nil, 200)["items"].([]any) {
+		if id, _ := item.(map[string]any)["id"].(string); isAIPlatformPermission(id) {
+			t.Fatalf("business tenant catalog offers %s", id)
+		}
+	}
+	// A grant stored before the boundary existed is neither effective nor usable.
+	state, err := repo.LoadAccessState(ctx, "tenant_biz")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash, _ := bcrypt.GenerateFromPassword([]byte("ai-config-user-test"), bcrypt.MinCost)
+	grants := []string{"menu:aiProviders", "menu:ai", "PUT /api/v1/ai/providers/config", "PUT /api/v1/ai/embedding-config", "GET /api/v1/ai/embedding-config", "POST /api/v1/ai/workflows", "DELETE /api/v1/ai/workflows/:id"}
+	state.Users = append(state.Users, model.PlatformUser{Username: "legacy", PasswordHash: string(hash), Enabled: true, Permissions: grants, DeviceScope: "all"})
+	if ok, err := repo.SaveAccessState(ctx, "tenant_biz", state); err != nil || !ok {
+		t.Fatal("save legacy grant", err)
+	}
+	legacy := login("tenant_biz", "legacy", "ai-config-user-test")
+	req("PUT", "/api/v1/ai/providers/config", legacy, map[string]any{"provider": "deepseek", "baseUrl": "http://attacker.example", "model": "m"}, 403)
+	req("PUT", "/api/v1/ai/embedding-config", legacy, map[string]any{}, 403)
+	req("GET", "/api/v1/ai/embedding-config", legacy, nil, 403)
+	req("POST", "/api/v1/ai/workflows", legacy, map[string]any{"id": "x"}, 403)
+	req("DELETE", "/api/v1/ai/workflows/x", legacy, nil, 403)
+}
+
 func TestManagedUserMustChangePasswordBeforeAccess(t *testing.T) {
 	repo := memory.NewRepository()
 	cfg := config.Load()

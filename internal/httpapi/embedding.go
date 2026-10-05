@@ -67,6 +67,10 @@ func (s *Server) embeddingCandidate(w http.ResponseWriter, r *http.Request) (por
 }
 
 func (s *Server) embeddingConfig(w http.ResponseWriter, r *http.Request) {
+	if !s.platformActionAllowed(r) {
+		problem(w, http.StatusForbidden, "模型、向量服务与智能体配置对全平台生效，只能由平台管理员或运维租户修改")
+		return
+	}
 	if s.embeddingRuntime == nil {
 		problem(w, 503, "持久化知识库未配置")
 		return
@@ -75,6 +79,10 @@ func (s *Server) embeddingConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) updateEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
+	if !s.platformActionAllowed(r) {
+		problem(w, http.StatusForbidden, "模型、向量服务与智能体配置对全平台生效，只能由平台管理员或运维租户修改")
+		return
+	}
 	s.aiProviderUpdateMu.Lock()
 	defer s.aiProviderUpdateMu.Unlock()
 	cfg, ok := s.embeddingCandidate(w, r)
@@ -90,6 +98,10 @@ func (s *Server) updateEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) testEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
+	if !s.platformActionAllowed(r) {
+		problem(w, http.StatusForbidden, "模型、向量服务与智能体配置对全平台生效，只能由平台管理员或运维租户修改")
+		return
+	}
 	cfg, ok := s.embeddingCandidate(w, r)
 	if !ok {
 		return
