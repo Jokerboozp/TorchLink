@@ -7,6 +7,7 @@ import { api, apiStream, session } from '../api'
 import { useAIConversation } from '../aiConversation'
 import { reconcileRuleDraftMessages } from '../ruleDraftStatus'
 import HarnessTraceDrawer from '../components/HarnessTraceDrawer.vue'
+import OpsReportDialog from '../components/OpsReportDialog.vue'
 import MarkdownContent from '../components/MarkdownContent.vue'
 import ToolCallCard from '../components/ToolCallCard.vue'
 
@@ -27,6 +28,7 @@ const question = ref('')
 const log = ref()
 const selectedRunKey = ref('')
 const traceVisible = ref(false)
+const reportVisible = ref(false)
 
 async function refreshRuleDraftStatuses() {
   if (!can('menu:rules')) return
@@ -481,7 +483,8 @@ onBeforeUnmount(() => {
         ><span>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }} · {{ runConfig.model || '无活动模型' }}</span
         ><i :class="{ online: activeHealthy }" />{{ healthMessage }}
       </div>
-      <ui-button v-permission="'GET /api/v1/ai/workflows/admin'" size="small" @click="openAgentManagement">智能体管理</ui-button
+      <ui-button v-permission="'POST /api/v1/ai/reports'" size="small" @click="reportVisible = true">运维报告</ui-button
+      ><ui-button v-permission="'GET /api/v1/ai/workflows/admin'" size="small" @click="openAgentManagement">智能体管理</ui-button
       ><ui-button size="small" :loading="runtimeLoading" @click="loadRuntime">刷新状态</ui-button>
     </div>
   </div>
@@ -759,6 +762,7 @@ onBeforeUnmount(() => {
     <template #footer><ui-button @click="agentPreviewVisible = false">关闭</ui-button></template>
   </ui-dialog>
   <HarnessTraceDrawer v-model="traceVisible" :run="selectedRun" />
+  <OpsReportDialog v-model="reportVisible" />
 </template>
 
 <style scoped>
