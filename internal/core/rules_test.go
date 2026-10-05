@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -410,5 +412,53 @@ func TestGengineFieldNamesAndStringLiterals(t *testing.T) {
 		if err := ValidateGengineExpression(expression); err == nil {
 			t.Errorf("invalid expression accepted: %s", expression)
 		}
+	}
+}
+
+// A rule expression is parsed once and its rule tree is shared by concurrent
+// messages; each evaluation still sees only its own message.
+func TestGengineExpressionCompiledOnceAndSharedConcurrently(t *testing.T) {
+	expression := `Properties["cache-test-temperature"] > 80 && Tags["zone"] == "A"`
+	before := expressionCompiles.Load()
+	var wg sync.WaitGroup
+	errs := make(chan error, 8)
+	for worker := 0; worker < 8; worker++ {
+		wg.Add(1)
+		go func(worker int) {
+			defer wg.Done()
+			for i := 0; i < 1250; i++ {
+				hot := (worker+i)%2 == 0
+				temperature := 20.0
+				if hot {
+					temperature = 90
+				}
+				msg := model.StandardMessage{Properties: map[string]any{"cache-test-temperature": temperature}, Tags: map[string]string{"zone": "A"}}
+				matched, err := EvaluateGengineExpression(expression, msg)
+				if err != nil || matched != hot {
+					errs <- fmt.Errorf("worker %d message %d: matched=%v want=%v err=%v", worker, i, matched, hot, err)
+					return
+				}
+			}
+		}(worker)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+	if compiles := expressionCompiles.Load() - before; compiles != 1 {
+		t.Fatalf("expression compiled %d times for 10000 messages, want 1", compiles)
+	}
+	// An invalid expression is rejected from cache without reparsing.
+	broken := `Properties["cache-test"] >`
+	_ = ValidateGengineExpression(broken)
+	before = expressionCompiles.Load()
+	for i := 0; i < 100; i++ {
+		if err := ValidateGengineExpression(broken); err == nil {
+			t.Fatal("broken expression accepted")
+		}
+	}
+	if compiles := expressionCompiles.Load() - before; compiles != 0 {
+		t.Fatalf("broken expression reparsed %d times", compiles)
 	}
 }

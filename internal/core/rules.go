@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/bilibili/gengine/builder"
 	gcontext "github.com/bilibili/gengine/context"
@@ -54,18 +56,32 @@ func EvaluateGengineExpression(expression string, msg model.StandardMessage) (bo
 }
 
 func evaluateGengine(expression string, msg model.StandardMessage, execute bool) (bool, error) {
-	expression = strings.TrimSpace(expression)
-	if expression == "" {
-		return false, fmt.Errorf("expression is empty")
+	compiled, err := compileExpression(expression)
+	if err != nil {
+		return false, err
 	}
-	if len(expression) > 4096 {
-		return false, fmt.Errorf("expression exceeds 4096 bytes")
+	if !execute {
+		return false, nil
 	}
 	matched := false
 	dc := gcontext.NewDataContext()
-	expression, err := bindExpressionFields(expression, dc, msg)
-	if err != nil {
-		return false, err
+	for _, binding := range compiled.bindings {
+		var value any = float64(0)
+		var source map[string]any
+		switch binding.kind {
+		case "Properties":
+			source = msg.Properties
+		case "Event":
+			source = msg.Event
+		case "Tags":
+			if v, ok := msg.Tags[binding.field]; ok {
+				value = v
+			}
+		}
+		if v, ok := source[binding.field]; ok {
+			value = v
+		}
+		dc.Add(binding.name, value)
 	}
 	dc.Add("Message", msg)
 	dc.Add("MarkMatched", func() { matched = true })
@@ -76,17 +92,83 @@ func evaluateGengine(expression string, msg model.StandardMessage, execute bool)
 		_, ok := fieldValue(msg, field)
 		return ok
 	})
-	rb := builder.NewRuleBuilder(dc)
-	ruleText := "rule \"iot_expression\" \"controlled expression\"\nbegin\nif " + expression + " { MarkMatched() }\nend"
-	if err := rb.BuildRuleFromString(ruleText); err != nil {
-		return false, fmt.Errorf("compile gengine expression: %w", err)
-	}
-	if execute {
-		if err := engine.NewGengine().Execute(rb, true); err != nil {
-			return false, fmt.Errorf("execute gengine expression: %w", err)
-		}
+	// The compiled rule tree is read-only during execution and shared; the
+	// data context and engine carry the per-message state.
+	if err := engine.NewGengine().Execute(&builder.RuleBuilder{Kc: compiled.compiled.Kc, Dc: dc}, true); err != nil {
+		return false, fmt.Errorf("execute gengine expression: %w", err)
 	}
 	return matched, nil
+}
+
+// compiledExpression is an expression parsed once: the rewritten rule text
+// depends only on the expression, so every message reuses the rule tree and
+// binds its own field values.
+type compiledExpression struct {
+	bindings []expressionBinding
+	compiled *builder.RuleBuilder
+	err      error
+}
+
+type expressionBinding struct{ name, kind, field string }
+
+// maxCompiledExpressions bounds the cache; rule edits create new keys and the
+// cache is reset when full rather than tracking per-entry use.
+const maxCompiledExpressions = 4096
+
+var compiledExpressions = struct {
+	sync.RWMutex
+	items map[string]*expressionCacheEntry
+}{items: map[string]*expressionCacheEntry{}}
+
+// expressionCompiles counts parses so tests can verify cache reuse.
+var expressionCompiles atomic.Int64
+
+// compileExpression returns the cached compilation of expression. Invalid
+// expressions are cached too so a broken rule is not parsed per message, and
+// concurrent first uses wait for one parse.
+func compileExpression(expression string) (*compiledExpression, error) {
+	expression = strings.TrimSpace(expression)
+	compiledExpressions.RLock()
+	entry, ok := compiledExpressions.items[expression]
+	compiledExpressions.RUnlock()
+	if !ok {
+		compiledExpressions.Lock()
+		if entry, ok = compiledExpressions.items[expression]; !ok {
+			if len(compiledExpressions.items) >= maxCompiledExpressions {
+				compiledExpressions.items = map[string]*expressionCacheEntry{}
+			}
+			entry = &expressionCacheEntry{}
+			compiledExpressions.items[expression] = entry
+		}
+		compiledExpressions.Unlock()
+	}
+	entry.once.Do(func() { entry.value = buildExpression(expression) })
+	return entry.value, entry.value.err
+}
+
+type expressionCacheEntry struct {
+	once  sync.Once
+	value *compiledExpression
+}
+
+func buildExpression(expression string) *compiledExpression {
+	if expression == "" {
+		return &compiledExpression{err: fmt.Errorf("expression is empty")}
+	}
+	if len(expression) > 4096 {
+		return &compiledExpression{err: fmt.Errorf("expression exceeds 4096 bytes")}
+	}
+	rewritten, bindings, err := rewriteExpressionFields(expression)
+	if err != nil {
+		return &compiledExpression{err: err}
+	}
+	expressionCompiles.Add(1)
+	rb := builder.NewRuleBuilder(gcontext.NewDataContext())
+	ruleText := "rule \"iot_expression\" \"controlled expression\"\nbegin\nif " + rewritten + " { MarkMatched() }\nend"
+	if err := rb.BuildRuleFromString(ruleText); err != nil {
+		return &compiledExpression{err: fmt.Errorf("compile gengine expression: %w", err)}
+	}
+	return &compiledExpression{bindings: bindings, compiled: rb}
 }
 
 var expressionField = regexp.MustCompile(`^(Properties|Tags|Event)\s*\[\s*(?:"([A-Za-z0-9_.-]+)"|'([A-Za-z0-9_.-]+)')\s*\]`)
@@ -94,8 +176,9 @@ var expressionField = regexp.MustCompile(`^(Properties|Tags|Event)\s*\[\s*(?:"([
 // Scan strings before identifiers so quoted business data is neither rejected
 // as a keyword nor rewritten as a field reference. Bind full field identities
 // to unique names; punctuation normalization would alias a-b, a_b and a.b.
-func bindExpressionFields(expression string, dc *gcontext.DataContext, msg model.StandardMessage) (string, error) {
+func rewriteExpressionFields(expression string) (string, []expressionBinding, error) {
 	bound := map[string]string{}
+	bindings := []expressionBinding{}
 	var out strings.Builder
 	for i := 0; i < len(expression); {
 		ch := expression[i]
@@ -120,14 +203,14 @@ func bindExpressionFields(expression string, dc *gcontext.DataContext, msg model
 				end++
 			}
 			if !closed {
-				return "", fmt.Errorf("unterminated expression string")
+				return "", nil, fmt.Errorf("unterminated expression string")
 			}
 			out.WriteString(expression[i:end])
 			i = end
 			continue
 		}
 		if strings.ContainsRune("{};", rune(ch)) {
-			return "", fmt.Errorf("expression contains forbidden token %q", string(ch))
+			return "", nil, fmt.Errorf("expression contains forbidden token %q", string(ch))
 		}
 		if !expressionIdentifier(ch) || ch >= '0' && ch <= '9' {
 			out.WriteByte(ch)
@@ -143,7 +226,7 @@ func bindExpressionFields(expression string, dc *gcontext.DataContext, msg model
 			token := expression[i:end]
 			switch strings.ToLower(token) {
 			case "rule", "begin", "end", "import", "exec", "system":
-				return "", fmt.Errorf("expression contains forbidden token %q", token)
+				return "", nil, fmt.Errorf("expression contains forbidden token %q", token)
 			}
 			out.WriteString(token)
 			i = end
@@ -157,28 +240,13 @@ func bindExpressionFields(expression string, dc *gcontext.DataContext, msg model
 		name, exists := bound[key]
 		if !exists {
 			name = "iotField" + strconv.Itoa(len(bound))
-			var value any = float64(0)
-			switch parts[1] {
-			case "Properties":
-				if v, ok := msg.Properties[field]; ok {
-					value = v
-				}
-			case "Tags":
-				if v, ok := msg.Tags[field]; ok {
-					value = v
-				}
-			case "Event":
-				if v, ok := msg.Event[field]; ok {
-					value = v
-				}
-			}
-			dc.Add(name, value)
 			bound[key] = name
+			bindings = append(bindings, expressionBinding{name: name, kind: parts[1], field: field})
 		}
 		out.WriteString(name)
 		i += len(parts[0])
 	}
-	return out.String(), nil
+	return out.String(), bindings, nil
 }
 
 func expressionIdentifier(ch byte) bool {
