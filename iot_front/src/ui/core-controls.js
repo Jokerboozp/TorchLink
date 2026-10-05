@@ -222,7 +222,8 @@ export const UiForm = defineComponent({
 export const UiFormItem = defineComponent({
   name: 'UiFormItem',
   inheritAttrs: false,
-  props: { label: String, prop: String, required: Boolean },
+  // error 非空时在字段下方显示该提示并标红，页面自行决定何时校验。
+  props: { label: String, prop: String, required: Boolean, error: String },
   setup(props, { attrs, slots }) {
     return () =>
       h(
@@ -233,7 +234,9 @@ export const UiFormItem = defineComponent({
           label: props.label,
           path: props.prop,
           required: props.required,
-          showFeedback: false
+          showFeedback: Boolean(props.error),
+          feedback: props.error || undefined,
+          validationStatus: props.error ? 'error' : undefined
         },
         slots
       )

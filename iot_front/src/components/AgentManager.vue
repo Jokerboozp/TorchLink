@@ -1,7 +1,7 @@
 <script setup>
 // 智能体管理：内置智能体只读查看；自定义智能体用表单新建、编辑、启停和删除。
 // 字段上限与工具白名单以服务端校验为准，白名单由管理接口返回。
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api } from '../api'
 import { confirmDelete } from '../deleteAction'
 import { can } from '../permissions'
@@ -41,6 +41,9 @@ const editingId = ref('')
 const readonly = ref(false)
 const saving = ref(false)
 const formErrors = ref([])
+// 首次保存后按输入实时更新字段提示，之前不打扰填写。
+const fieldErrors = ref({})
+const checked = ref(false)
 const manifestText = ref('')
 const manifestError = ref('')
 
@@ -76,6 +79,8 @@ function fill(manifest) {
   manifestText.value = JSON.stringify(manifestFromForm(), null, 2)
   manifestError.value = ''
   formErrors.value = []
+  fieldErrors.value = {}
+  checked.value = false
 }
 
 function openEditor(item = null, view = false) {
@@ -101,26 +106,33 @@ function manifestFromForm() {
   }
 }
 
-// 与服务端规则一致的提前检查，便于在表单中直接修正。
+// 与服务端规则一致的提前检查，按字段返回提示，显示在对应输入框下方。
 function validate(manifest) {
-  const errors = []
+  const errors = {}
   const length = value => [...value].length
   if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(manifest.id))
-    errors.push('标识需以字母或数字开头，只含字母、数字、点、下划线、冒号和连字符，最长 128 字符')
-  if (builtinIds.value.includes(manifest.id) && !editingId.value) errors.push('标识与内置智能体重复')
-  if (!manifest.name || length(manifest.name) > 128) errors.push('名称必填，最长 128 字符')
-  if (!manifest.description || length(manifest.description) > 1024) errors.push('说明必填，最长 1024 字符')
-  if (!manifest.version || length(manifest.version) > 64) errors.push('版本必填，最长 64 字符')
-  if (!manifest.persona || length(manifest.persona) > 16384) errors.push('角色提示词必填，最长 16384 字符')
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(manifest.defaultModel)) errors.push('默认模型标识无效')
-  if (!Number.isInteger(manifest.maxTokens) || manifest.maxTokens < 1 || manifest.maxTokens > 8192)
-    errors.push('最大输出词元需在 1–8192 之间')
-  if (!manifest.capabilities.length || manifest.capabilities.length > 32) errors.push('能力标签需填写 1–32 项')
-  if (manifest.capabilities.some(item => length(item) > 64)) errors.push('每个能力标签最长 64 字符')
-  if (new Set(manifest.capabilities).size !== manifest.capabilities.length) errors.push('能力标签不能重复')
-  if (!manifest.allowedTools.length || manifest.allowedTools.length > 6) errors.push('可用工具需选择 1–6 项')
+    errors.id = '以字母或数字开头，只含字母、数字、点、下划线、冒号和连字符，最长 128 字符'
+  else if (builtinIds.value.includes(manifest.id) && !editingId.value) errors.id = '与内置智能体重复'
+  if (!manifest.name || length(manifest.name) > 128) errors.name = '必填，最长 128 字符'
+  if (!manifest.description || length(manifest.description) > 1024) errors.description = '必填，最长 1024 字符'
+  if (!manifest.version || length(manifest.version) > 64) errors.version = '必填，最长 64 字符'
+  if (!manifest.persona || length(manifest.persona) > 16384) errors.persona = '必填，最长 16384 字符'
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$/.test(manifest.defaultModel)) errors.defaultModel = '模型标识无效'
+  if (!Number.isInteger(manifest.maxTokens) || manifest.maxTokens < 1 || manifest.maxTokens > 8192) errors.maxTokens = '需在 1–8192 之间'
+  if (!manifest.capabilities.length || manifest.capabilities.length > 32) errors.capabilities = '需填写 1–32 项'
+  else if (manifest.capabilities.some(item => length(item) > 64)) errors.capabilities = '每项最长 64 字符'
+  else if (new Set(manifest.capabilities).size !== manifest.capabilities.length) errors.capabilities = '不能重复'
+  if (!manifest.allowedTools.length || manifest.allowedTools.length > 6) errors.allowedTools = '需选择 1–6 项'
   return errors
 }
+
+watch(
+  form,
+  () => {
+    if (checked.value) fieldErrors.value = validate(manifestFromForm())
+  },
+  { deep: true }
+)
 
 function applyManifestText() {
   try {
@@ -139,8 +151,10 @@ function applyManifestText() {
 async function save() {
   if (saving.value || readonly.value) return
   const manifest = manifestFromForm()
-  formErrors.value = validate(manifest)
-  if (formErrors.value.length) return
+  formErrors.value = []
+  fieldErrors.value = validate(manifest)
+  checked.value = true
+  if (Object.keys(fieldErrors.value).length) return
   saving.value = true
   try {
     const saved = editingId.value
@@ -265,17 +279,17 @@ onMounted(load)
       <ui-alert v-if="formErrors.length" type="error" :closable="false" :title="formErrors.join('；')" />
       <ui-form label-position="top" class="agent-form" :disabled="readonly || saving">
         <div class="agent-form__grid">
-          <ui-form-item label="名称" required
+          <ui-form-item label="名称" required :error="fieldErrors.name"
             ><ui-input v-model="form.name" maxlength="128" placeholder="例如 巡检值班助手"
           /></ui-form-item>
-          <ui-form-item label="标识" required>
+          <ui-form-item label="标识" required :error="fieldErrors.id">
             <ui-input v-model="form.id" maxlength="128" :disabled="Boolean(editingId) || readonly" placeholder="例如 duty-assistant" />
           </ui-form-item>
         </div>
-        <ui-form-item label="说明" required>
+        <ui-form-item label="说明" required :error="fieldErrors.description">
           <ui-input v-model="form.description" type="textarea" :rows="2" maxlength="1024" placeholder="这个智能体适合回答哪些问题" />
         </ui-form-item>
-        <ui-form-item label="角色提示词" required>
+        <ui-form-item label="角色提示词" required :error="fieldErrors.persona">
           <ui-input
             v-model="form.persona"
             type="textarea"
@@ -285,12 +299,12 @@ onMounted(load)
             placeholder="描述角色、回答原则以及何时调用哪个工具，例如：回答统计问题前必须调用“查询系统概况”；只依据工具结果回答，使用简洁中文。"
           />
         </ui-form-item>
-        <ui-form-item label="可用工具（1–6 项）" required>
+        <ui-form-item label="可用工具（1–6 项）" required :error="fieldErrors.allowedTools">
           <ui-select v-model="form.allowedTools" multiple filterable placeholder="选择只读查询工具">
             <ui-option v-for="tool in toolOptions" :key="tool.value" :value="tool.value" :label="tool.label" />
           </ui-select>
         </ui-form-item>
-        <ui-form-item label="能力标签（展示给使用者，1–32 项）" required>
+        <ui-form-item label="能力标签（展示给使用者，1–32 项）" required :error="fieldErrors.capabilities">
           <ui-select
             v-model="form.capabilities"
             multiple
@@ -301,11 +315,13 @@ onMounted(load)
           />
         </ui-form-item>
         <div class="agent-form__grid agent-form__grid--three">
-          <ui-form-item label="版本"><ui-input v-model="form.version" maxlength="64" /></ui-form-item>
-          <ui-form-item label="单次最大输出词元"><ui-input-number v-model="form.maxTokens" :min="1" :max="8192" /></ui-form-item>
+          <ui-form-item label="版本" :error="fieldErrors.version"><ui-input v-model="form.version" maxlength="64" /></ui-form-item>
+          <ui-form-item label="单次最大输出词元" :error="fieldErrors.maxTokens"
+            ><ui-input-number v-model="form.maxTokens" :min="1" :max="8192"
+          /></ui-form-item>
           <ui-form-item label="启用"><ui-switch v-model="form.enabled" /></ui-form-item>
         </div>
-        <ui-form-item label="默认模型标识">
+        <ui-form-item label="默认模型标识" :error="fieldErrors.defaultModel">
           <ui-input v-model="form.defaultModel" maxlength="128" />
           <small class="agent-form__hint">实际运行使用“模型管理”中生效的模型，此处仅作为清单记录。</small>
         </ui-form-item>
@@ -357,6 +373,7 @@ onMounted(load)
 .agent-form__grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   gap: 0 var(--space-3);
 }
 .agent-form__grid--three {
