@@ -160,9 +160,11 @@ func (s *Server) capacityPlanBody(w http.ResponseWriter, r *http.Request, start 
 	c := claims(r)
 	req.Tenant, req.OperatorToken = c.TenantID, ""
 	if start {
-		ttl := 24 * time.Hour
+		// The credential covers the whole budget (the controller rejects
+		// plans longer than capacity.MaxWallTime).
+		ttl := capacity.MaxOperatorTokenTTL
 		if p, err := capacity.ParsePlan([]byte(req.Plan)); err == nil && p.Budget.MaximumWallTime.D() > 0 {
-			ttl = min(ttl, p.Budget.MaximumWallTime.D()+30*time.Minute)
+			ttl = capacity.OperatorTokenTTL(p)
 		}
 		var token string
 		var err error

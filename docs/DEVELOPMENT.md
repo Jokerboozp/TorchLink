@@ -244,7 +244,7 @@ go run ./cmd/capacity-test run --plan <同一计划> --resume <runId>   # 控制
 go run ./cmd/capacity-test compare --runs <id1>,<id2>,<id3>        # 并列比较与扩容效率 E(n)
 ```
 
-- **计划**：示例见 `cmd/capacity-test/examples/`（`core-mixed`、`quick-local`、`full-system`、`resilience`、`resilience-postgres`、`soak-24h`）。`preset` 为 `quick`（固定档回归，不认证最大值）、`capacity`（粗阶梯 → 二分 → 候选复测）、`soak`（单档长持有）或 `resilience`（固定背景负载 + 故障注入）。`suite: full` 时未启用的业务模块在报告中列为未覆盖，结论不会是全系统通过。未知字段直接报错。
+- **计划**：示例见 `cmd/capacity-test/examples/`（`core-mixed`、`quick-local`、`full-system`、`resilience`、`resilience-postgres`、`soak-24h`）。`preset` 为 `quick`（固定档回归，不认证最大值）、`capacity`（粗阶梯 → 二分 → 候选复测）、`soak`（单档长持有）或 `resilience`（固定背景负载 + 故障注入）。`suite: full` 时未启用的业务模块在报告中列为未覆盖，结论不会是全系统通过。未知字段直接报错。从平台页面启动时，运行使用为发起人签发的操作凭据，有效期为 `budget.maximumWallTime` 加 30 分钟，因此 `maximumWallTime` 不得超过 47.5 小时；托管用户改密码、改权限或停用后该凭据立即失效。
 - **清单**：`target.inventoryRef` 指向受信任清单，列出 API、MQTT/TCP 入口、每个平台进程的 `/metrics`（`combined`、`api`、`gateway` 及 `parser`/`processor`/`jobs` 等拆分角色都要列）、Agent 与核对库的秘密引用。可选 `web`（管理端地址，视频场景经其拉取 HLS）与 `nodes`（各主机 node-exporter 地址，报告生成主机 CPU/内存/磁盘图 `hosts.svg`，瓶颈归类识别主机饱和）。控制器只访问清单中的地址。
 - **秘密**：计划与清单只写引用名；值来自环境变量 `TORCHLINK_CAPACITY_SECRET_<名称>`（`-`、`.` 换成 `_`，大写）或权限 0600 的 `--secrets` YAML 文件。需要：操作员 Bearer 令牌、核对用 PostgreSQL DSN（建议只读账户）、可选 ClickHouse URL、远程 Agent 共享令牌。报告生成时会检查秘密值没有出现在任何证据文件中。
 - **测试设备**：通过 `/api/v1/onboarding` 在计划指定的现有标准协议产品下以 `trial: true` 创建试验设备，前缀区分；调用者仍须具有设备登记和模板配置权限。容量测试不会把自动创建的模板标记为已通过首台实机验证，普通设备登记仍须完成正式验证。`reuseDevices: true` 时凭据保存在 `<results>/.work/fixtures`（0600），不进入运行目录。测试结束保留设备以便复测，保留范围写在 `manifest.json`；不再需要时在管理页删除运行或清理全部测试数据（见 [测试数据清理](#测试数据清理)）。

@@ -394,7 +394,7 @@ func TestCapacityProxyFollowsOpsBoundaryAndAudits(t *testing.T) {
 	if body := req("GET", "/api/v1/ops/capacity/status", root, nil, 200); body["enabled"] != true || body["reachable"] != true {
 		t.Fatalf("module status %v", body)
 	}
-	plan := map[string]any{"environment": "lab", "plan": "schemaVersion: 1\nbudget: {maximumWallTime: 1h}\n", "tenant": "tenant_biz", "operatorToken": "forged"}
+	plan := map[string]any{"environment": "lab", "plan": "schemaVersion: 1\nbudget: {maximumWallTime: 25h}\n", "tenant": "tenant_biz", "operatorToken": "forged"}
 	req("GET", "/api/v1/ops/capacity/environments", root, nil, 200)
 	req("POST", "/api/v1/ops/capacity/plans/validate", root, plan, 200)
 	if body := req("POST", "/api/v1/ops/capacity/runs", root, plan, 202); body["runId"] != "cap-20260928-120000-abcdef" {
@@ -409,7 +409,7 @@ func TestCapacityProxyFollowsOpsBoundaryAndAudits(t *testing.T) {
 	_ = json.Unmarshal(startBody, &forwarded)
 	mu.Unlock()
 	delegated, err := api.auth.Parse(forwarded.OperatorToken)
-	if forwarded.Tenant != "tenant_ops" || err != nil || delegated.Username != "root" || delegated.TenantID != "tenant_ops" || delegated.ExpiresAt.Time.After(time.Now().Add(91*time.Minute)) {
+	if forwarded.Tenant != "tenant_ops" || err != nil || delegated.Username != "root" || delegated.TenantID != "tenant_ops" || delegated.ExpiresAt.Time.Before(time.Now().Add(25*time.Hour+29*time.Minute)) || delegated.ExpiresAt.Time.After(time.Now().Add(25*time.Hour+31*time.Minute)) {
 		t.Fatalf("forwarded identity %+v %v %+v", forwarded.Tenant, err, delegated)
 	}
 	req("POST", "/api/v1/ops/capacity/runs/cap-20260928-120000-abcdef/stop", root, map[string]any{}, 202)

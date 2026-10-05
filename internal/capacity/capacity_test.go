@@ -465,6 +465,7 @@ func TestPlanValidationRejectsUnsupportedOrInconsistentPlans(t *testing.T) {
 	}
 	cases := map[string]func(p *Plan){
 		"sum to 1":            func(p *Plan) { p.Load.IngressShare["http"] = 0.7 },
+		"operator credential": func(p *Plan) { p.Budget.MaximumWallTime = Duration(48 * time.Hour) },
 		"resilience":          func(p *Plan) { p.Preset = PresetResilience },
 		"hard maxRuns budget": func(p *Plan) { p.Modules.AI.Enabled = true; p.Modules.AI.Mode = "mock" },
 		"only by) preset":     func(p *Plan) { p.Faults.Enabled = true },

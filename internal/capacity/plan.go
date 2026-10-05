@@ -341,6 +341,19 @@ func LoadPlan(path string) (*Plan, error) {
 	return ParsePlan(b)
 }
 
+// A run acts with an operator credential the platform issues at start for the
+// whole budget plus a margin; plans may not outlast the longest credential.
+const (
+	operatorTokenMargin = 30 * time.Minute
+	MaxOperatorTokenTTL = 48 * time.Hour
+	MaxWallTime         = MaxOperatorTokenTTL - operatorTokenMargin
+)
+
+// OperatorTokenTTL is the lifetime of the credential a run starts with.
+func OperatorTokenTTL(p *Plan) time.Duration {
+	return min(p.Budget.MaximumWallTime.D()+operatorTokenMargin, MaxOperatorTokenTTL)
+}
+
 func ParsePlan(b []byte) (*Plan, error) {
 	// Defaults are filled before decoding so an explicit zero (warmup: 0s)
 	// stays zero instead of being mistaken for "unset".
@@ -533,6 +546,9 @@ func (p *Plan) Validate() error {
 	b := p.Budget
 	if b.MaximumWallTime <= 0 || b.MaximumMessagesPerSecond <= 0 || b.MaximumEvidenceGiB <= 0 {
 		bad("budget.maximumWallTime, maximumMessagesPerSecond and maximumEvidenceGiB are required")
+	}
+	if b.MaximumWallTime.D() > MaxWallTime {
+		bad("budget.maximumWallTime must not exceed %s, the longest operator credential a run is given", MaxWallTime)
 	}
 	for _, r := range p.planRates() {
 		if r > b.MaximumMessagesPerSecond {
