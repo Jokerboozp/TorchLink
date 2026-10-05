@@ -540,237 +540,6 @@ onBeforeUnmount(() => {
 .card-header small {
   display: block;
 }
-.agent-json-editor :deep(textarea) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.55;
-}
-.agent-preview-summary {
-  margin-top: 14px;
-  padding: 12px;
-  display: grid;
-  gap: 5px;
-  background: var(--surface-muted);
-  border: 1px solid var(--info-border);
-  border-radius: 5px;
-}
-.agent-preview-summary > div {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.agent-preview-summary strong {
-  color: var(--text-strong);
-  font-size: 13px;
-}
-.agent-preview-summary small {
-  color: var(--text);
-  font-size: 12px;
-}
-.agent-preview-summary p {
-  margin: 0;
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.6;
-}
-.agent-manifest-preview {
-  max-height: min(58vh, 560px);
-  margin: 12px 0 0;
-  padding: 14px;
-  overflow: auto;
-  color: var(--text-strong);
-  background: var(--surface);
-  border: 1px solid var(--info-border);
-  border-radius: 5px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  line-height: 1.65;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.workflow-admin-panel {
-  margin-bottom: 18px;
-  padding: 12px;
-  background: var(--surface);
-  border: 1px solid var(--info-border);
-  border-radius: 6px;
-}
-.workflow-admin-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-.workflow-admin-toolbar > div:first-child {
-  min-width: 0;
-  display: grid;
-  gap: 3px;
-}
-.workflow-admin-toolbar strong {
-  color: var(--text-strong);
-  font-size: 13px;
-}
-.workflow-admin-toolbar small {
-  color: var(--text-muted);
-  font-size: 12px;
-}
-.workflow-admin-toolbar > div:last-child {
-  display: flex;
-  gap: 6px;
-  flex: none;
-}
-.workflow-admin-list {
-  display: grid;
-  gap: 7px;
-}
-.workflow-admin-item {
-  padding: 10px;
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 5px;
-}
-.workflow-admin-main {
-  min-width: 0;
-  display: grid;
-  gap: 4px;
-}
-.workflow-admin-main > div {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 5px;
-}
-.workflow-admin-main strong {
-  max-width: 260px;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.workflow-admin-main small {
-  overflow: hidden;
-  color: var(--text-muted);
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.workflow-admin-main p {
-  margin: 2px 0 0;
-  overflow: hidden;
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.5;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.workflow-admin-actions {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 5px;
-}
-.workflow-admin-actions .ui-button {
-  margin-left: 0;
-}
-.manifest-guide {
-  margin: -2px 0 16px;
-  overflow: hidden;
-  background: var(--surface);
-  border: 1px solid var(--info-border);
-  border-radius: 6px;
-}
-.manifest-guide-title {
-  padding: 12px 14px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  background: var(--surface-muted);
-  border-bottom: 1px solid var(--info-border);
-}
-.manifest-guide-title > div {
-  display: grid;
-  gap: 3px;
-}
-.manifest-guide-title strong {
-  color: var(--primary);
-  font-size: 13px;
-}
-.manifest-guide-title small {
-  color: var(--text);
-  font-size: 12px;
-}
-.manifest-field-list {
-  display: grid;
-}
-.manifest-field {
-  padding: 10px 14px;
-  display: grid;
-  grid-template-columns: 124px 74px minmax(0, 1fr);
-  align-items: start;
-  gap: 10px;
-  border-bottom: 1px solid var(--border);
-}
-.manifest-field:last-child {
-  border-bottom: 0;
-}
-.manifest-field code,
-.tool-whitelist code {
-  color: var(--primary);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-  font-weight: 700;
-  word-break: break-all;
-}
-.manifest-field > span {
-  width: max-content;
-  padding: 2px 6px;
-  color: var(--text-muted);
-  background: var(--surface-muted);
-  border-radius: 3px;
-  font-size: 12px;
-}
-.manifest-field p {
-  margin: 0;
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.55;
-}
-.tool-whitelist {
-  padding: 13px 14px;
-  display: grid;
-  gap: 10px;
-  background: var(--surface);
-  border-top: 1px solid var(--info-border);
-}
-.tool-whitelist > strong {
-  color: var(--text);
-  font-size: 12px;
-}
-.tool-whitelist > div {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px;
-}
-.tool-whitelist span {
-  min-width: 0;
-  padding: 8px 9px;
-  display: grid;
-  gap: 3px;
-  background: var(--surface);
-  border-radius: 4px;
-}
-.tool-whitelist small {
-  color: var(--text);
-  font-size: 12px;
-}
 .ai-chat-card :deep(.n-card-content) {
   display: flex;
   flex-direction: column;
@@ -987,73 +756,6 @@ onBeforeUnmount(() => {
 .runtime-warning {
   margin-top: 10px;
 }
-.manager-panel {
-  animation: manager-in 0.16s ease-out;
-}
-.manager-intro {
-  margin-bottom: 20px;
-  padding: 16px;
-  background: var(--surface-muted);
-  border: 1px solid var(--info-border);
-  border-left: 4px solid var(--primary);
-  border-radius: 6px;
-}
-.manager-intro > span {
-  color: var(--primary);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
-}
-.manager-intro > div {
-  margin-top: 5px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.manager-intro h3 {
-  margin: 0;
-  color: var(--text-strong);
-  font-size: 16px;
-}
-.manager-intro p {
-  margin: 7px 0 0;
-  color: var(--text);
-  font-size: 12px;
-  line-height: 1.6;
-}
-.drawer-form :deep(.ui-select),
-.drawer-form :deep(.ui-radio-group) {
-  width: 100%;
-}
-.drawer-form :deep(.n-radio-button) {
-  flex: 1;
-}
-.drawer-form :deep(.n-radio-button__label) {
-  width: 100%;
-}
-.workflow-manager :deep(.n-drawer-header) {
-  margin-bottom: 0;
-  padding-bottom: 16px;
-  border-bottom: 1px solid var(--border);
-}
-.workflow-manager :deep(.n-drawer-body-content-wrapper) {
-  padding-top: 16px;
-}
-.agent-editor-dialog :deep(.n-card-content) {
-  max-height: calc(100vh - 210px);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-}
-.agent-editor-dialog .drawer-form {
-  margin-top: 14px;
-}
-@keyframes manager-in {
-  from {
-    opacity: 0;
-    transform: translateX(6px);
-  }
-}
 @keyframes pulse {
   50% {
     opacity: 0.28;
@@ -1136,36 +838,6 @@ onBeforeUnmount(() => {
   }
   .chat-compose .ui-button {
     min-width: 58px;
-  }
-  .workflow-admin-toolbar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .workflow-admin-toolbar > div:last-child {
-    width: 100%;
-  }
-  .workflow-admin-toolbar > div:last-child .ui-button {
-    flex: 1;
-  }
-  .workflow-admin-item {
-    flex-direction: column;
-  }
-  .workflow-admin-actions {
-    width: 100%;
-  }
-  .workflow-admin-actions .ui-button {
-    flex: 1;
-  }
-}
-@media (max-width: 520px) {
-  .manifest-field {
-    grid-template-columns: 1fr auto;
-  }
-  .manifest-field p {
-    grid-column: 1 / -1;
-  }
-  .tool-whitelist > div {
-    grid-template-columns: 1fr;
   }
 }
 
@@ -1277,18 +949,12 @@ onBeforeUnmount(() => {
   }
 }
 .ai-runtime small,
-.workflow-admin-toolbar small,
-.workflow-admin-main small,
-.manifest-guide-title small,
-.tool-whitelist small,
 .typing,
 .message-error small,
 .message-meta,
 .chat-notice,
 .runtime-status,
-.workflow-admin-main p,
 .rule-draft-card small,
-.manager-intro p,
 .chat-message.is-canceled {
   color: var(--text);
 }
@@ -1323,22 +989,8 @@ onBeforeUnmount(() => {
   border-left: 3px solid var(--primary);
   border-radius: var(--radius-lg);
 }
-.agent-preview-summary,
-.workflow-admin-panel {
-  border: 0;
-  border-radius: 0.625rem;
-}
-.workflow-admin-item {
-  border: 1px solid transparent;
-  border-radius: 0.625rem;
-}
-.workflow-admin-main strong,
 .quick-prompts button,
 .message-meta button {
-  font-size: 13px;
-}
-.agent-json-editor :deep(textarea),
-.agent-manifest-preview {
   font-size: 13px;
 }
 /* 深色用户消息与浅色悬停状态分别使用可读的前景色。 */
