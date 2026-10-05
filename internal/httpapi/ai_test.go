@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/aiprompt"
 	"iot-platform/internal/aiworkflow"
 	"iot-platform/internal/sites"
 	"log/slog"
@@ -1564,5 +1565,35 @@ func TestSSEWriterInterleavesHeartbeatsAndStopsOnClose(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if recorder.Body.String() != body {
 		t.Fatal("heartbeat wrote after close")
+	}
+}
+
+// Chat runs tell the model the same knowledge outcome as business runs: an
+// empty match under allow-model must be stated as missing evidence.
+func TestChatRunStatesMissingKnowledgeEvidence(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	runtime := &captureWorkflowRuntime{}
+	engine.AIWorkflows = runtime
+	engine.KB = knowledge.NewLocal()
+	cfg := config.Load()
+	cfg.JWTSecret = "test-secret-at-least-32-characters"
+	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	token, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/chat", token, map[string]any{"question": "烟感告警怎么处置", "workflowId": "ops-assistant"}, http.StatusOK)
+	runtime.mu.Lock()
+	question := runtime.requests[len(runtime.requests)-1].Question
+	runtime.mu.Unlock()
+	if !strings.Contains(question, aiprompt.KnowledgeNoMatch) {
+		t.Fatalf("chat prompt does not state missing evidence: %q", question)
 	}
 }

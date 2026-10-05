@@ -91,7 +91,7 @@ HTTP 路由按业务区域注册：各区域的 `xxxRoutes()` 写在对应处理
 
 源码回归使用 `go test ./internal/core ./internal/httpapi ./internal/adapters/embedding ./internal/adapters/knowledge ./internal/backup`，Harness 使用 `node --test deploy/deepseek-harness/gateway.test.mjs`。知识任务测试覆盖进度、失败重试、重启恢复、删除、租户/Agent 范围和向量空间原子切换。
 
-业务工作流的提示词与版本号集中在 `internal/aiprompt`（`versions.go`、`prompts.go`）；修改提示词或研判上下文时同步提升对应版本号，运行记录与研判质量统计按版本区分。`go test ./internal/aiprompt` 不调用真实模型：`testdata/samples.json` 中每条样例以固定上下文生成提示词，经 `internal/aitest` 的脚本化 Harness 返回录制的答案，再用 `internal/aioutput` 解码并核对风险等级、列表与规则字段；同时校验提示词中的输出契约与解码器一致、版本号互不相同。新增工作流或输出格式时补充样例。`cmd/harness-mock` 的固定答案与真实网关同样携带 `usage`，其测试用同一解码器校验。
+业务工作流的提示词与版本号集中在 `internal/aiprompt`（`versions.go`、`prompts.go`），聊天与业务运行共用的知识策略与证据文案在 `knowledge.go`；修改提示词或研判上下文时同步提升对应版本号，运行记录与研判质量统计按版本区分。`go test ./internal/aiprompt` 不调用真实模型：`testdata/samples.json` 中每条样例以固定上下文生成提示词，经 `internal/aitest` 的脚本化 Harness 返回录制的答案，再用 `internal/aioutput` 解码并核对风险等级、列表与规则字段；同时校验提示词中的输出契约与解码器一致、版本号互不相同。新增工作流或输出格式时补充样例。`cmd/harness-mock` 的固定答案与真实网关同样携带 `usage`，其测试用同一解码器校验。
 
 | 联调 | 配置与命令 | 验证范围 |
 | --- | --- | --- |

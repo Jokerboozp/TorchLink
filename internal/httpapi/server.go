@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/aiprompt"
 	"iot-platform/internal/aiworkflow"
 	"log/slog"
 	"math"
@@ -2326,7 +2327,7 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 			}
 		}
 		scopes = filteredScopes
-		question += "\n\n[平台知识策略] 此工作流已禁用知识库，不得调用知识库工具。"
+		question += aiprompt.KnowledgeDisabled
 	} else {
 		knowledgeScope = &auth.KnowledgeScope{WorkflowID: binding.WorkflowID, TopK: binding.TopK, MinScore: binding.MinScore}
 		question += workflowKnowledgeInstruction(binding)
@@ -2335,7 +2336,7 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 		if binding.NoMatchPolicy == "require-evidence" {
 			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, errors.New("workflow knowledge base is unavailable")
 		}
-		question += "\n\n[平台知识策略] 知识库不可用，本次没有知识证据；不得声称依据知识库作答。"
+		question += aiprompt.KnowledgeUnavailable
 	}
 	if binding.RetrievalMode != "disabled" && s.engine.KB != nil {
 		callID := "knowledge_prefetch_" + randomHex(6)
@@ -2353,11 +2354,16 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 		if len(hits) == 0 && binding.NoMatchPolicy == "require-evidence" {
 			return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, errors.New("workflow requires matching knowledge evidence")
 		}
+		if aiworkflow.KeywordOnlyHits(hits) {
+			question += aiprompt.KnowledgeKeywordOnly
+		}
 		if len(hits) > 0 {
 			question, err = core.AppendKnowledgeEvidence(question, hits, 30<<10)
 			if err != nil {
 				return ports.AIWorkflowResult{RunID: runID, WorkflowID: workflowID}, err
 			}
+		} else {
+			question += aiprompt.KnowledgeNoMatch
 		}
 	}
 	ctx, err = s.authorizeAIRun(ctx, c.TenantID, "")
@@ -2382,7 +2388,7 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 
 func workflowKnowledgeInstruction(binding model.WorkflowKnowledgeBinding) string {
 	payload, _ := json.Marshal(map[string]any{"mode": binding.RetrievalMode, "workflowId": binding.WorkflowID, "topK": binding.TopK, "minScore": binding.MinScore, "noMatchPolicy": binding.NoMatchPolicy})
-	return "\n\n[平台知识策略] " + string(payload) + "。知识文档已直接绑定当前 Agent，只能检索该 Agent 的文档；服务端会强制收紧范围。"
+	return aiprompt.KnowledgeBinding(payload)
 }
 
 func (s *Server) searchWorkflowKnowledge(ctx context.Context, tenantID, question string, binding model.WorkflowKnowledgeBinding) ([]ports.KnowledgeHit, error) {
