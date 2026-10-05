@@ -271,7 +271,7 @@ go run ./cmd/capacity-test compare --runs <id1>,<id2>,<id3>        # 并列比�
 | `knowledge` | 上传生成的 Markdown 文档到指定 `workflowId`，轮询至 `INDEXED`；失败、删除中或超时计失败，时延包含索引等待 | PostgreSQL + pgvector 与已配置的外部 Embedding API 可用 |
 | `video` | 建立并释放 HLS 播放会话；清单有 `web` 时拉取播放列表和首个分片近似首帧 | 测试摄像头在直播白名单内；WebRTC 未覆盖 |
 | `backup` | 每档在测量窗口内执行一次备份、逐文件下载校验 SHA-256；`restore: true` 时恢复到独立库并核对条数 | 备份服务配置 `IOT_BACKUP_RESTORE_TARGET_DSN`（与业务库不同） |
-| `realtime` | 按页面方式取 MQTT 令牌并订阅告警与设备状态推送，测送达时延 | 清单有 `mqtt`；订阅者分摊到各 Agent |
+| `realtime` | 按页面方式取 MQTT 令牌并订阅告警与设备状态推送，测送达时延；令牌 15 分钟到期被 broker 断开后，重连时重新取令牌并重新订阅 | 清单有 `mqtt`；订阅者分摊到各 Agent |
 | `exports` | 原文批量下载、回放 DRY_RUN 任务、巡检并导出 PDF | 测试租户已有原文 |
 | `openapi` | 用绑定用户的 API Key 查询开放接口 | `keySecretRef` 指向秘密文件中的密钥 |
 

@@ -387,15 +387,23 @@ type realtimeSubscribers struct {
 
 func connectRealtime(ctx context.Context, c *http.Client, cfg AgentConfig, n int, runID string) *realtimeSubscribers {
 	rs := &realtimeSubscribers{rec: &streamRecorder{}, failures: map[string]int{}}
-	for i := 0; i < n; i++ {
+	type grant struct {
+		Username      string   `json:"username"`
+		Token         string   `json:"token"`
+		Subscriptions []string `json:"subscriptions"`
+	}
+	fetch := func(ctx context.Context) (grant, string) {
+		var tok grant
 		status, body, err := jsonCall(ctx, c, http.MethodPost, cfg.API+"/api/v1/mqtt/token", cfg.OperatorToken, nil)
-		var tok struct {
-			Username      string   `json:"username"`
-			Token         string   `json:"token"`
-			Subscriptions []string `json:"subscriptions"`
-		}
 		if err != nil || status != 200 || json.Unmarshal(body, &tok) != nil {
-			rs.failures["token_"+codeOf(status, err)]++
+			return tok, "token_" + codeOf(status, err)
+		}
+		return tok, ""
+	}
+	for i := 0; i < n; i++ {
+		tok, code := fetch(ctx)
+		if code != "" {
+			rs.failures[code]++
 			continue
 		}
 		filters := map[string]byte{}
@@ -408,7 +416,24 @@ func connectRealtime(ctx context.Context, c *http.Client, cfg AgentConfig, n int
 			rs.failures["no_alarm_or_state_scope"]++
 			continue
 		}
-		o := mqtt.NewClientOptions().AddBroker(cfg.MQTT).SetClientID(fmt.Sprintf("cap-ui-%s-%d", runID[max(0, len(runID)-6):], i)).SetUsername(tok.Username).SetPassword(tok.Token).SetAutoReconnect(true).SetCleanSession(true).SetConnectTimeout(cfg.RequestTimeout.D())
+		// Browser tokens last 15 minutes and the broker disconnects a session
+		// when its token expires; like the console, every (re)connect takes a
+		// fresh token and, with a clean session, subscribes again.
+		o := mqtt.NewClientOptions().AddBroker(cfg.MQTT).SetClientID(fmt.Sprintf("cap-ui-%s-%d", runID[max(0, len(runID)-6):], i)).SetAutoReconnect(true).SetCleanSession(true).SetConnectTimeout(cfg.RequestTimeout.D())
+		var first atomic.Pointer[grant]
+		first.Store(&tok)
+		o.SetCredentialsProvider(func() (string, string) {
+			if g := first.Swap(nil); g != nil {
+				return g.Username, g.Token
+			}
+			fctx, cancel := context.WithTimeout(context.Background(), cfg.RequestTimeout.D())
+			defer cancel()
+			g, _ := fetch(fctx)
+			return g.Username, g.Token
+		})
+		o.SetOnConnectHandler(func(client mqtt.Client) {
+			client.SubscribeMultiple(filters, rs.receive).WaitTimeout(cfg.RequestTimeout.D())
+		})
 		client := mqtt.NewClient(o)
 		if t := client.Connect(); !t.WaitTimeout(cfg.RequestTimeout.D()) {
 			rs.failures["connect_timeout"]++
@@ -417,6 +442,7 @@ func connectRealtime(ctx context.Context, c *http.Client, cfg AgentConfig, n int
 			rs.failures[realtimeConnectCode(err)]++
 			continue
 		}
+		// The connect handler subscribes too; this one reports a denial.
 		t := client.SubscribeMultiple(filters, rs.receive)
 		if !t.WaitTimeout(cfg.RequestTimeout.D()) || t.Error() != nil || subscribeDenied(t.(*mqtt.SubscribeToken).Result()) {
 			client.Disconnect(100)
