@@ -862,7 +862,7 @@ onBeforeUnmount(() => {
 }
 .external-tabs .active {
   border-bottom-color: var(--primary);
-  color: var(--primary);
+  color: var(--primary-text);
 }
 .filter-select {
   width: 190px;

@@ -1116,7 +1116,7 @@ function removeDocument(row) {
 .upload-icon {
   width: 32px;
   height: 32px;
-  color: var(--primary);
+  color: var(--primary-text);
 }
 .knowledge-upload-form :deep(.n-form-item),
 .knowledge-upload-form :deep(.n-select) {

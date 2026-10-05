@@ -48,6 +48,7 @@ import { api, notifyError, session } from './api'
 import { pageGuide } from './pageGuide'
 import { parsePath, pathFor } from './routing'
 import { can, permissionState, refreshPermissions, resetPermissions } from './permissions'
+import { isDark, setThemeMode, themeMode } from './theme/mode.js'
 import { startRealtime, stopRealtime } from './realtime'
 import { useMediaQuery } from './composables/useMediaQuery'
 
@@ -281,7 +282,13 @@ function logout() {
   authenticated.value = false
 }
 
+const themeOptions = [
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+  { value: 'system', label: '跟随系统' }
+]
 function handleAccountCommand(command) {
+  if (command?.startsWith('theme:')) setThemeMode(command.slice(6))
   if (command === 'logout') logout()
   if (command === 'password') {
     passwordChange.value = { required: false, token: '', current: '' }
@@ -414,7 +421,7 @@ onBeforeUnmount(() => {
     <div v-if="!authenticated" class="login-page">
       <section class="login-brand-panel" aria-hidden="true">
         <div class="login-brand-panel__top">
-          <img class="login-brand-panel__logo" src="/torchlink-sidebar.svg" alt="" />
+          <img class="login-brand-panel__logo" :src="isDark ? '/torchlink-sidebar-dark.svg' : '/torchlink-sidebar.svg'" alt="" />
           <span class="login-chip">消防物联网管理平台</span>
         </div>
         <div class="login-brand-panel__copy">
@@ -439,7 +446,7 @@ onBeforeUnmount(() => {
       </section>
       <section class="login-form-panel">
         <form class="login-form" @submit.prevent="login">
-          <img class="login-form__logo" src="/torchlink-login.svg" alt="炬联 TorchLink" />
+          <img class="login-form__logo" :src="isDark ? '/torchlink-login-dark.svg' : '/torchlink-login.svg'" alt="炬联 TorchLink" />
           <h2>欢迎使用炬联</h2>
           <p class="login-form__lead">登录账户，进入消防物联网工作台</p>
           <div class="login-fields">
@@ -480,7 +487,7 @@ onBeforeUnmount(() => {
     <div v-else class="app-shell" :class="{ 'is-collapsed': collapsed && !narrow, 'is-nav-open': navOpen }">
       <aside class="app-sidebar" :inert="narrow && !navOpen ? true : undefined">
         <div class="app-sidebar__brand">
-          <img src="/torchlink-sidebar.svg" alt="炬联 TorchLink" />
+          <img :src="isDark ? '/torchlink-sidebar-dark.svg' : '/torchlink-sidebar.svg'" alt="炬联 TorchLink" />
           <button v-if="narrow" type="button" class="app-sidebar__close" aria-label="关闭菜单" @click="navOpen = false"><X /></button>
         </div>
         <nav class="app-sidebar__nav" aria-label="主导航">
@@ -539,6 +546,13 @@ onBeforeUnmount(() => {
               <template #dropdown>
                 <ui-dropdown-menu>
                   <ui-dropdown-item v-if="identity.role !== 'admin'" command="password"><KeyRound />修改密码</ui-dropdown-item>
+                  <ui-dropdown-item
+                    v-for="option in themeOptions"
+                    :key="option.value"
+                    :command="`theme:${option.value}`"
+                    :disabled="themeMode === option.value"
+                    >外观：{{ option.label }}{{ themeMode === option.value ? '（当前）' : '' }}</ui-dropdown-item
+                  >
                   <ui-dropdown-item command="logout"><LogOut />退出登录</ui-dropdown-item>
                   <ui-dropdown-item v-if="platformVersion" disabled command="version">平台版本 {{ platformVersion }}</ui-dropdown-item>
                 </ui-dropdown-menu>

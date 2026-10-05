@@ -142,7 +142,7 @@ onUnmounted(() => request?.abort())
   font-size: 20px;
 }
 .quality-figures .warn strong {
-  color: var(--color-danger, #d03050);
+  color: var(--danger-text);
 }
 .quality-note {
   margin: 10px 0;

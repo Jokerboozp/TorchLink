@@ -752,7 +752,7 @@ onBeforeUnmount(() => {
 .site-placing button {
   border: 0;
   background: none;
-  color: var(--primary);
+  color: var(--primary-text);
   cursor: pointer;
   text-decoration: underline;
 }

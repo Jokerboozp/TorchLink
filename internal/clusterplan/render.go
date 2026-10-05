@@ -724,7 +724,11 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 		default: // platform roles
 			salt := idx(inv.Platform.Roles[kind].Nodes)
 			name := "iot-" + kind
-			def := service(inv.Images.Platform, map[string]any{"environment": r.platformEnv(kind, node, salt), "volumes": []string{name + "-data:/app/data"}})
+			// Every platform role serves /health/live on IOT_HTTP_ADDR; the
+			// distroless image probes it with its own healthcheck subcommand.
+			def := service(inv.Images.Platform, map[string]any{"environment": r.platformEnv(kind, node, salt), "volumes": []string{name + "-data:/app/data"}, "healthcheck": map[string]any{
+				"test": []string{"CMD", "/app/iot-platform", "healthcheck"}, "interval": "15s", "timeout": "5s", "retries": 4, "start_period": "60s",
+			}})
 			if kind == "gateway" || kind == "api" {
 				// One file descriptor per TCP device session.
 				def["ulimits"] = map[string]any{"nofile": map[string]int{"soft": 1048576, "hard": 1048576}}

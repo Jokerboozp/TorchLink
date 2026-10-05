@@ -108,7 +108,7 @@ function formatClock(value) {
   font-size: 12px;
 }
 .section-kicker {
-  color: var(--primary);
+  color: var(--primary-text);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.14em;

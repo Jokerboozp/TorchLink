@@ -87,7 +87,13 @@ export function createThemeOverrides(css) {
       textColorFocus: t('--text-strong'),
       colorHover: t('--surface-hover'),
       colorPressed: t('--border'),
-      colorFocus: t('--surface-hover')
+      colorFocus: t('--surface-hover'),
+      // 实色按钮文字固定为反色，深色主题下也不随 Naive 基底变暗。
+      ...Object.fromEntries(
+        ['Primary', 'Info', 'Success', 'Warning', 'Error'].flatMap(type =>
+          ['', 'Hover', 'Pressed', 'Focus'].map(state => [`textColor${state}${type}`, t('--text-inverse')])
+        )
+      )
     },
     Input: {
       borderHover: `1px solid ${t('--border-hover')}`,
@@ -136,7 +142,13 @@ export function createThemeOverrides(css) {
     },
     Tag: {
       borderRadius: t('--radius-sm'),
-      fontSizeSmall: t('--font-size-xs')
+      fontSizeSmall: t('--font-size-xs'),
+      // 状态标签的文字用对应的 text 色，浅色与深色底上都保持可读。
+      textColorPrimary: t('--primary-text'),
+      textColorInfo: t('--info-text'),
+      textColorSuccess: t('--success-text'),
+      textColorWarning: t('--warning-text'),
+      textColorError: t('--danger-text')
     },
     Form: {
       labelFontSizeTopMedium: t('--font-size-sm'),

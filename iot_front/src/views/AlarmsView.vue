@@ -625,11 +625,11 @@ function rowActions(row) {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 7px;
-  color: var(--primary);
+  color: var(--primary-text);
   font-size: 13px;
 }
 .analysis-progress-heading span {
-  color: var(--primary);
+  color: var(--primary-text);
   font-weight: 700;
 }
 .analysis-progress small {

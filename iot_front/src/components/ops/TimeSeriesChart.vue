@@ -5,6 +5,7 @@ import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { formatValue } from '../../ops/format.js'
+import { isDark } from '../../theme/mode.js'
 
 const props = defineProps({
   times: { type: Array, default: () => [] },
@@ -156,6 +157,10 @@ function destroy() {
   chart = null
 }
 
+// 颜色在构建时读取，切换外观后按新主题重绘。
+watch(isDark, () => {
+  if (chart) build()
+})
 watch(
   () => [props.times, props.series, props.timeRange?.from, props.timeRange?.to, props.unit, props.height, props.fill, props.bars],
   update

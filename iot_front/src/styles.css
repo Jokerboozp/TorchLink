@@ -1,5 +1,6 @@
 @import 'tailwindcss';
 @import './theme/tokens.css';
+@import './theme/tokens-dark.css';
 @import './styles/base.css';
 @import './styles/shell.css';
 @import './styles/patterns.css';

@@ -1,9 +1,11 @@
 import { Comment, Fragment, defineComponent, h, ref } from 'vue'
-import { themeOverrides } from '../theme/naive.js' /* 全站主题由 theme/tokens.css 生成。 */
+import { darkThemeOverrides, themeOverrides } from '../theme/naive.js'
+import { isDark } from '../theme/mode.js' /* 全站主题由 theme/tokens.css 生成。 */
 import {
   NCollapse,
   NCollapseItem,
   NConfigProvider,
+  darkTheme,
   NDatePicker,
   NDrawer,
   NDrawerContent,
@@ -449,6 +451,17 @@ export const UiConfigProvider = defineComponent({
   name: 'UiConfigProvider',
   inheritAttrs: false,
   setup(_, { attrs, slots }) {
-    return () => h(NConfigProvider, { ...attrs, locale: zhCN, dateLocale: dateZhCN, themeOverrides }, slots)
+    return () =>
+      h(
+        NConfigProvider,
+        {
+          ...attrs,
+          locale: zhCN,
+          dateLocale: dateZhCN,
+          theme: isDark.value ? darkTheme : null,
+          themeOverrides: isDark.value ? darkThemeOverrides : themeOverrides
+        },
+        slots
+      )
   }
 })
