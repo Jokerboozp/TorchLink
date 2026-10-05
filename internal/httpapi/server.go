@@ -509,6 +509,7 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	s.audit(r, "product.save", "product", v.ID, map[string]any{"status": v.Status, "reportIntervalSec": v.ReportIntervalSec, "offlineToleranceSec": v.OfflineToleranceSec})
 	write(w, 201, v)
 }
+
 // applyTemplateTiming moves existing device states of a template to its new
 // reporting timing in the background; a large template must not hold the
 // request open.

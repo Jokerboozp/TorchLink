@@ -15,6 +15,9 @@ type Components struct {
 	Jobs      bool
 	// OfflineScan is the device offline scan interval (jobs only).
 	OfflineScan time.Duration
+	// DeviceSignals is the device health signal interval (jobs only); the
+	// job also needs Engine.DeviceSignals and Engine.TelemetryStats.
+	DeviceSignals time.Duration
 }
 
 // AllComponents is the single-process configuration.
@@ -59,6 +62,9 @@ func (e *Engine) StartWith(ctx context.Context, c Components) error {
 		e.RunSingleton(ctx, "raw-publish-retry", 5*time.Second, e.retryPendingRawOnce)
 		e.RunSingleton(ctx, "video-media-retry", 30*time.Second, e.retryPendingVideoMediaOnce)
 		e.RunSingleton(ctx, "offline-scan", interval, e.ScanOffline)
+		if c.DeviceSignals > 0 && e.DeviceSignals != nil && e.TelemetryStats != nil {
+			e.RunSingleton(ctx, "device-signals", c.DeviceSignals, e.ComputeDeviceSignalsOnce)
+		}
 	}
 	return nil
 }

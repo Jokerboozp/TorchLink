@@ -17,6 +17,9 @@ const data = ref(null), loading = ref(false), actionBusy = ref(false), error = r
 const credential = ref(null), commandResult = ref(null), verification = ref(null), verificationBusy = ref(false)
 async function verifyDevice(){if(loading.value || verificationBusy.value || !canEdit.value || !can('menu:devices'))return;const current=generation;verificationBusy.value=true;try{const result=await api(`${base()}/verification`,{method:'POST',body:'{}',signal:controller.signal});if(current===generation)verification.value=result}catch(cause){if(current===generation && cause.name!=='AbortError')notifyError(cause)}finally{if(current===generation)verificationBusy.value=false}}
 async function readVerification(current){try{const result=await api(`${base()}/verification`,{signal:controller.signal});if(current===generation)verification.value=result}catch(cause){if(current===generation && cause.name!=='AbortError')verification.value=null}}
+const signals = ref([])
+const signalNames = { STUCK_VALUE:'数值长时间不变', REPORT_DRIFT:'上报周期偏离', OUT_OF_RANGE:'数值超出有效范围', PEER_OUTLIER:'与同型号设备差异显著' }
+async function loadSignals(current){try{const result=await api(`${base()}/signals`,{signal:controller.signal});if(current===generation)signals.value=result.items||[]}catch(cause){if(current===generation && cause.name!=='AbortError')signals.value=[]}}
 const commandReply = ref(null)
 const commandType = ref('')
 const commandValues = ref({})
@@ -68,7 +71,7 @@ async function load() {
     if (current !== generation) return
     if (!result?.device?.id) throw new Error('设备连接信息不完整，请刷新后重试。')
     data.value = result; selectedProfile.value = result.profile?.id || ''
-    const jobs = [loadList('history'),loadList('events'),readVerification(current)]
+    const jobs = [loadList('history'),loadList('events'),readVerification(current),loadSignals(current)]
     if (isParent.value) jobs.push(loadList('children'))
     if (result.connector === 'MQTT') jobs.push(loadList('commands'))
     await Promise.all(jobs)
@@ -235,6 +238,11 @@ onBeforeUnmount(() => { generation++; controller.abort(); media.removeEventListe
           </ui-table>
         </section>
 
+        <section v-if="signals.length" class="connection-section device-signals">
+          <h3>健康信号 <small>按最近一天的上报数据计算，供巡检与研判参考</small></h3>
+          <ul class="signal-list"><li v-for="item in signals" :key="`${item.signalType}:${item.property}`"><ui-tag size="small" :type="item.strength >= 0.5 ? 'warning' : 'info'">{{ signalNames[item.signalType] || item.signalType }}</ui-tag><span>{{ item.property || '整机' }}</span><small>强度 {{ Math.round(item.strength * 100) }}% · {{ formatTime(item.windowEnd) }}</small></li></ul>
+        </section>
+
         <section class="connection-section device-properties">
           <h3>最新属性 <small>{{formatTime(data.latestProperties?.[0]?.timestamp)}}</small></h3>
           <ui-table :data="properties" border empty-text="暂无已解析的属性报文">
@@ -362,4 +370,7 @@ pre { max-height:320px; margin:var(--space-3) 0 0; }
   .connection-status-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:6px; margin-bottom:var(--space-4); }
   :deep(.n-descriptions-table-header) { width:96px; }
 }
+.signal-list { display:grid; gap:6px; margin:0; padding:0; list-style:none; }
+.signal-list li { display:flex; flex-wrap:wrap; align-items:center; gap:8px; font-size:13px; }
+.signal-list small { color:var(--text-muted); }
 </style>

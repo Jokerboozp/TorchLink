@@ -46,6 +46,11 @@ type Engine struct {
 	AIWorkflows   ports.AIWorkflowRuntime
 	// AIRuns, when set, keeps the record of every finished AI run.
 	AIRuns ports.AIRunStore
+	// DeviceSignals and TelemetryStats, when set, keep and compute device
+	// health signals (see ComputeDeviceSignalsOnce).
+	DeviceSignals  ports.DeviceSignalStore
+	TelemetryStats ports.DeviceTelemetryStats
+	SignalOptions  DeviceSignalOptions
 	// HarnessTokens signs MCP credentials for business runs (alarm analysis,
 	// inspection, reports, protocol assistant, rule drafts) executed by Harness.
 	HarnessTokens    ports.HarnessTokenIssuer

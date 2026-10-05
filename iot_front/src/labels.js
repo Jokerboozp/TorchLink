@@ -1,4 +1,4 @@
-export const alarmTypes = { FIRE_RISK:'火灾风险', FIRE:'火灾告警', SMOKE_DETECTED:'检测到烟雾', FLAME_DETECTED:'检测到火焰', HIGH_TEMPERATURE:'温度过高', DEVICE_FAULT:'设备故障', DEVICE_OFFLINE:'设备离线', WATER_PRESSURE_LOW:'水压过低', WATER_LEVEL_ABNORMAL:'水位异常', ELECTRICAL_FIRE:'电气火灾', GAS_LEAK:'可燃气体泄漏', MANUAL_ALARM:'手动报警' }
+export const alarmTypes = { FIRE_RISK:'火灾风险', FIRE:'火灾告警', SMOKE_DETECTED:'检测到烟雾', FLAME_DETECTED:'检测到火焰', HIGH_TEMPERATURE:'温度过高', DEVICE_FAULT:'设备故障', DEVICE_OFFLINE:'设备离线', WATER_PRESSURE_LOW:'水压过低', WATER_LEVEL_ABNORMAL:'水位异常', ELECTRICAL_FIRE:'电气火灾', GAS_LEAK:'可燃气体泄漏', MANUAL_ALARM:'手动报警', DEVICE_HEALTH:'设备健康' }
 export const alarmLevels = { CRITICAL:'紧急', HIGH:'高', MEDIUM:'中', LOW:'低', INFO:'提示' }
 export const alarmStatuses = { ACTIVE:'活动中', ACKED:'已确认', RECOVERED:'已恢复', CLOSED:'已关闭', SUPPRESSED:'已抑制' }
 export const alarmSources = { device:'设备上报', video:'视频分析', 'managed-device':'受管设备', 'external-ingest':'外部接入', mqtt:'MQTT 接入', http:'HTTP 接入', manual:'人工录入' }

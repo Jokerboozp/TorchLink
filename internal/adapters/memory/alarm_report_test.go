@@ -13,3 +13,5 @@ func TestDeviceOverview(t *testing.T) { repositorytest.DeviceOverview(t, NewRepo
 func TestAIRuns(t *testing.T) { repositorytest.AIRuns(t, NewRepository()) }
 
 func TestAIAnalysisOutcomes(t *testing.T) { repositorytest.AIAnalysisOutcomes(t, NewRepository()) }
+
+func TestDeviceSignals(t *testing.T) { repositorytest.DeviceSignals(t, NewRepository()) }

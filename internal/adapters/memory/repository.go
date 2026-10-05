@@ -58,6 +58,7 @@ type Repository struct {
 	audits              []model.AuditLog
 	aiToolCalls         []model.AIToolCallLog
 	aiRuns              []model.AIRunRecord
+	deviceSignals       map[string][]model.DeviceSignal
 	aiProviderConfig    *ports.AIPluginConfig
 	aiWorkflowManifests map[string]ports.StoredAIWorkflowManifest
 	products            map[string]model.Product

@@ -122,6 +122,8 @@ func Run(forcedRole string) {
 	videoStore, _ := repo.(ports.VideoStore)
 	knowledgeStore, _ := repo.(ports.KnowledgeReindexStore)
 	aiRunStore, _ := repo.(ports.AIRunStore)
+	signalStore, _ := repo.(ports.DeviceSignalStore)
+	telemetryStats, _ := repo.(ports.DeviceTelemetryStats)
 	var aiProviderStore ports.AIProviderConfigStore
 	if store, ok := repo.(ports.AIProviderConfigStore); ok {
 		aiProviderStore = store
@@ -139,6 +141,7 @@ func Run(forcedRole string) {
 		videoStore = r
 		knowledgeStore = r
 		aiRunStore = r
+		signalStore, telemetryStats = r, r
 		if store, ok := any(r).(ports.AIProviderConfigStore); ok {
 			aiProviderStore = store
 		}
@@ -150,6 +153,8 @@ func Run(forcedRole string) {
 		fatal(log, "initialize clickhouse", clickErr)
 		repo = r
 		clickHouseRaw = r
+		// Telemetry properties live in ClickHouse while it is configured.
+		telemetryStats = r
 		if postgresRepo != nil {
 			// ClickHouse keeps the properties of telemetry messages; the
 			// ClickHouse repository restores them on read.
@@ -306,6 +311,8 @@ func Run(forcedRole string) {
 	parsers := parser.NewPlatformRegistry(cfg.DataDir)
 	engine := core.New(httpapi.ScopedRepository(repo), archivePort, bus, realtime, parsers, log)
 	engine.AIRuns = aiRunStore
+	engine.DeviceSignals, engine.TelemetryStats = signalStore, telemetryStats
+	engine.SignalOptions = core.DeviceSignalOptions{Window: cfg.DeviceSignalWindow, RaiseAlarms: cfg.DeviceSignalAlarm}
 	engine.SetIdentity(cfg.InstanceID)
 	engine.PublishExternalTopics = cfg.PublishExternalTopics
 	registry.SetProcessInfo(cfg.ProcessRole, cfg.InstanceID)
@@ -490,7 +497,7 @@ func Run(forcedRole string) {
 		// resent by another jobs replica after a rebalance has no effect.
 		fatal(log, "start device alarm notifications", opsService.StartDeviceNotifications(ctx, bus, filepath.Join(cfg.DataDir, "ops-state", "device-notifications")))
 	}
-	components := core.Components{Parser: cfg.Runs(config.ComponentParser), Processor: cfg.Runs(config.ComponentProcessor), Jobs: cfg.Runs(config.ComponentJobs), OfflineScan: cfg.OfflineScan}
+	components := core.Components{Parser: cfg.Runs(config.ComponentParser), Processor: cfg.Runs(config.ComponentProcessor), Jobs: cfg.Runs(config.ComponentJobs), OfflineScan: cfg.OfflineScan, DeviceSignals: cfg.DeviceSignalInterval}
 	stopCapacity, capacityErr := startLocalCapacity(&cfg, log)
 	if capacityErr != nil {
 		log.Warn("local capacity controller unavailable", "error", capacityErr)

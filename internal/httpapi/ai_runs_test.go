@@ -168,3 +168,37 @@ func TestAIRunHistoryPermissionsAndTenantIsolation(t *testing.T) {
 		requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/ai/runs/history", token, nil, scenario.status)
 	}
 }
+
+// Device health signals follow the device scope like the rest of the device.
+func TestDeviceSignalsFollowDeviceScope(t *testing.T) {
+	repo := memory.NewRepository()
+	engine := &core.Engine{Repo: ScopedRepository(repo), DeviceSignals: repo}
+	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := newTestHTTPServer(api)
+	defer server.Close()
+	ctx := context.Background()
+	for _, id := range []string{"mine", "hidden"} {
+		_ = repo.SaveManagedDevice(ctx, model.ManagedDevice{ID: id, TenantID: "tenant-a", ProductID: "p", Name: id, AccessKey: "ak-" + id})
+	}
+	if err := repo.ReplaceDeviceSignals(ctx, "tenant-a", []model.DeviceSignal{{TenantID: "tenant-a", DeviceID: "mine", SignalType: model.SignalStuckValue, Property: "t", Strength: 0.6}, {TenantID: "tenant-a", DeviceID: "hidden", SignalType: model.SignalStuckValue, Property: "t", Strength: 0.6}}); err != nil {
+		t.Fatal(err)
+	}
+	user := model.PlatformUser{Username: "scoped", Enabled: true, SessionVersion: 1, DeviceScope: "selected", DeviceIDs: []string{"mine"}, Permissions: []string{"menu:devices"}}
+	state, err := repo.LoadAccessState(ctx, "tenant-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.Users = []model.PlatformUser{user}
+	if saved, err := repo.SaveAccessState(ctx, "tenant-a", state); err != nil || !saved {
+		t.Fatal(err)
+	}
+	token, err := api.auth.IssueUser(user.Username, "tenant-a", 1, time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mine := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/device-registry/mine/signals", token, nil, 200)
+	if items := mine["items"].([]any); len(items) != 1 || items[0].(map[string]any)["deviceId"] != "mine" {
+		t.Fatalf("signals %v", mine)
+	}
+	requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/device-registry/hidden/signals", token, nil, 403)
+}

@@ -27,6 +27,7 @@ func (s *Server) RetryCredentialRevocationsOnce(ctx context.Context) error {
 func (s *Server) deviceOperationsRoutes() {
 	s.router.GET("/api/v1/device-registry/:id/history", s.authorize("viewer"), s.endpoint(s.deviceHistory, "id"))
 	s.router.GET("/api/v1/device-registry/:id/commands", s.authorize("viewer"), s.endpoint(s.listDeviceCommands, "id"))
+	s.router.GET("/api/v1/device-registry/:id/signals", s.authorize("viewer"), s.endpoint(s.deviceSignals, "id"))
 	s.router.POST("/api/v1/device-registry/:id/commands", s.authorize("operator"), s.endpoint(s.sendDeviceCommand, "id"))
 }
 func operationPage(r *http.Request) (int, int) {
@@ -105,4 +106,21 @@ func (s *Server) sendDeviceCommand(w http.ResponseWriter, r *http.Request) {
 	}
 	s.audit(r, "device.command", "device", v.DeviceID, map[string]any{"commandId": v.ID, "status": v.Status})
 	write(w, 202, v.Public())
+}
+
+// deviceSignals lists a device's current health signals.
+func (s *Server) deviceSignals(w http.ResponseWriter, r *http.Request) {
+	if !s.operationDevice(w, r) {
+		return
+	}
+	if s.engine.DeviceSignals == nil {
+		write(w, 200, map[string]any{"items": []any{}, "available": false})
+		return
+	}
+	items, err := s.engine.DeviceSignals.ListDeviceSignals(r.Context(), claims(r).TenantID, []string{r.PathValue("id")}, 50)
+	if err != nil {
+		problem(w, 500, "读取设备健康信号失败")
+		return
+	}
+	write(w, 200, map[string]any{"items": items, "available": true})
 }

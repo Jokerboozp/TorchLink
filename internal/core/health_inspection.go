@@ -37,6 +37,16 @@ func (e *Engine) InspectDeviceHealth(ctx context.Context, tenantID string) (mode
 	}); err != nil {
 		return model.DeviceHealthReport{}, err
 	}
+	// Health signals add findings such as stuck values; the job keeps at most
+	// a few per device, so the tenant's list stays small.
+	signals := map[string][]model.DeviceSignal{}
+	if e.DeviceSignals != nil {
+		if list, err := e.DeviceSignals.ListDeviceSignals(ctx, tenantID, nil, 5000); err == nil {
+			for _, s := range list {
+				signals[s.DeviceID] = append(signals[s.DeviceID], s)
+			}
+		}
+	}
 	items := []model.DeviceHealthItem{}
 	seen := map[string]struct{}{}
 	for offset := 0; ; offset += inspectionPageSize {
@@ -57,7 +67,7 @@ func (e *Engine) InspectDeviceHealth(ctx context.Context, tenantID string) (mode
 				continue
 			}
 			seen[device.ID] = struct{}{}
-			items = append(items, healthItem(device.ID, device.Name, device.ProductID, states[device.ID], activeAlarms[device.ID], now))
+			items = append(items, withSignals(healthItem(device.ID, device.Name, device.ProductID, states[device.ID], activeAlarms[device.ID], now), signals[device.ID]))
 		}
 		if len(devices) < inspectionPageSize {
 			break
@@ -73,7 +83,7 @@ func (e *Engine) InspectDeviceHealth(ctx context.Context, tenantID string) (mode
 				continue
 			}
 			seen[state.DeviceID] = struct{}{}
-			items = append(items, healthItem(state.DeviceID, state.DeviceID, state.ProductID, state, activeAlarms[state.DeviceID], now))
+			items = append(items, withSignals(healthItem(state.DeviceID, state.DeviceID, state.ProductID, state, activeAlarms[state.DeviceID], now), signals[state.DeviceID]))
 		}
 		if len(states) < inspectionPageSize {
 			break
@@ -145,6 +155,26 @@ func healthItem(deviceID, deviceName, productID string, state model.DeviceState,
 		findings = append(findings, "最近状态正常")
 	}
 	return model.DeviceHealthItem{DeviceID: deviceID, DeviceName: deviceName, ProductID: productID, BusinessStatus: status, DataStatus: state.DataStatus, LastSeenAt: state.LastSeenAt, ActiveAlarmCount: activeAlarmCount, Severity: severity, Findings: findings}
+}
+
+// withSignals adds a device's health signals to its findings; a healthy
+// device with signals needs attention.
+func withSignals(item model.DeviceHealthItem, signals []model.DeviceSignal) model.DeviceHealthItem {
+	if len(signals) == 0 {
+		return item
+	}
+	if item.Severity == "INFO" {
+		item.Severity = "MEDIUM"
+		item.Findings = item.Findings[:0]
+	}
+	for _, s := range signals {
+		finding := "健康信号：" + signalTypeNames[s.SignalType]
+		if s.Property != "" {
+			finding += "（" + s.Property + "）"
+		}
+		item.Findings = append(item.Findings, finding)
+	}
+	return item
 }
 
 // inspectionPageSize is how many devices or states one inspection query reads.

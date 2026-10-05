@@ -138,6 +138,12 @@ type Config struct {
 	BackupURL            string
 	BackupToken          string
 	OfflineScan          time.Duration
+	// DeviceSignalInterval is how often the jobs role recomputes device health
+	// signals over DeviceSignalWindow; DeviceSignalAlarm turns strong signals
+	// into DEVICE_HEALTH alarms.
+	DeviceSignalInterval time.Duration
+	DeviceSignalWindow   time.Duration
+	DeviceSignalAlarm    bool
 	ModbusAllowedCIDRs   []string
 	DevMode              bool
 	Ops                  OpsConfig
@@ -248,6 +254,9 @@ func Load() Config {
 		BackupURL:                   strings.TrimRight(strings.TrimSpace(os.Getenv("IOT_BACKUP_URL")), "/"),
 		BackupToken:                 strings.TrimSpace(os.Getenv("IOT_BACKUP_ADMIN_TOKEN")),
 		OfflineScan:                 duration("IOT_OFFLINE_SCAN_INTERVAL", 30*time.Second),
+		DeviceSignalInterval:        duration("IOT_DEVICE_SIGNAL_INTERVAL", 10*time.Minute),
+		DeviceSignalWindow:          duration("IOT_DEVICE_SIGNAL_WINDOW", 24*time.Hour),
+		DeviceSignalAlarm:           boolValue("IOT_DEVICE_SIGNAL_ALARM", false),
 		ModbusAllowedCIDRs:          split(get("IOT_MODBUS_ALLOWED_CIDRS", "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,fc00::/7,::1/128")),
 		DevMode:                     devMode,
 		Ops:                         loadOps(),

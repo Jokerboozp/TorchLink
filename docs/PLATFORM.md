@@ -111,6 +111,19 @@ Harness 为必装组件，所有业务模型调用作为工作流执行；Provid
 
 研判输入由平台按块组装（`internal/core/alarm_context.go`），每块有字节上限，超出时截断列表或整块省略并在输入中说明：当前告警（不含原始载荷，视频事件只说明是否有截图/录像，不带地址）、设备与模板、属性历史（物模型数值属性附单位、有效范围与告警阈值）、告警位置、同楼层（无楼层时同建筑）其他设备近 2 小时的告警、触发规则定义、本设备近 90 天同类告警的人工核实结论分布、本设备同类历史告警、关联摄像头与视频事件。所有读取都经发起人的设备范围过滤，周边告警只包含其有权设备。知识检索问题由告警类型、设备类型和关键症状组成（如“温度 85℃ 超过告警阈值 持续上升”）。提示词版本为 `alarm-analysis-v2`。
 
+### 设备健康信号
+
+Jobs 角色的集群单例任务 `device-signals` 每隔 `IOT_DEVICE_SIGNAL_INTERVAL`（默认 10 分钟，0 关闭）按租户统计最近 `IOT_DEVICE_SIGNAL_WINDOW`（默认 24 小时）的上报，计算不依赖模型的健康信号，写入 PostgreSQL `device_signal`（每次整租户替换，单租户计算限时 2 分钟，超时保留上次结果）：
+
+| 信号 | 判定 |
+| --- | --- |
+| `STUCK_VALUE` 数值长时间不变 | 某数值属性窗口内至少 10 次上报且取值完全相同 |
+| `REPORT_DRIFT` 上报周期偏离 | 至少 3 次上报，平均间隔与设备状态中的上报周期相差 50% 以上 |
+| `OUT_OF_RANGE` 数值超出有效范围 | 超出物模型有效范围的取值占该属性 5% 以上 |
+| `PEER_OUTLIER` 与同型号设备差异显著 | 同模板至少 5 台设备，按中位数与中位绝对偏差计算的修正 z 分数 ≥ 3.5 |
+
+统计在数据库中聚合：未配置 ClickHouse 时读 PostgreSQL `standard_message`；配置后数值属性从 ClickHouse `iot_telemetry` 统计（PostgreSQL 此时不保存遥测属性），上报次数仍取 PostgreSQL。信号进入设备详情（`GET /api/v1/device-registry/:id/signals`，受设备范围约束）、智能巡检的发现项与告警研判上下文。默认只记录；`IOT_DEVICE_SIGNAL_ALARM=true` 时强度 ≥ 0.5 的信号生成 `DEVICE_HEALTH`（低等级、来源 `device-signal`）告警，信号消失后自动恢复。
+
 ### 智能巡检与报告
 
 巡检为后台任务，进度持久化到 PostgreSQL；同租户巡检只能一个运行任务，心跳超过 30 秒视为中断，可重新发起。报告用不可变 `reportId` 保存，完成后不被进度心跳覆盖；进度接口仅返回汇总。`GET /api/v1/ai/health-inspection/reports/:jobId?limit=50&offset=0` 按保存顺序取明细，每页最多 100 条，含 `totalItems`。普通用户仍需全部设备范围和巡检权限。

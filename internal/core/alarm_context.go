@@ -34,10 +34,11 @@ var alarmContextBudgets = map[string]int{
 	"dispositionHistory": 1 << 10,
 	"similarAlarms":      2560,
 	"cameras":            1536,
+	"deviceSignals":      1 << 10,
 }
 
 // alarmContextOrder is the order of the blocks in the prompt.
-var alarmContextOrder = []string{"alarm", "device", "propertyHistory", "location", "siteAlarms", "rule", "dispositionHistory", "similarAlarms", "cameras"}
+var alarmContextOrder = []string{"alarm", "device", "propertyHistory", "location", "siteAlarms", "rule", "dispositionHistory", "similarAlarms", "cameras", "deviceSignals"}
 
 // alarmContext is the verified data an alarm analysis is given.
 type alarmContext struct {
@@ -114,6 +115,9 @@ func (e *Engine) buildAlarmContext(ctx context.Context, alarm model.Alarm) alarm
 	}
 	if cameras := alarmCameraContext(alarm); cameras != nil {
 		c.blocks["cameras"] = cameras
+	}
+	if signals := e.deviceSignalsContext(ctx, alarm.TenantID, alarm.DeviceID); signals != nil {
+		c.blocks["deviceSignals"] = signals
 	}
 	c.fitBudgets()
 	return c

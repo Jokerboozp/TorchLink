@@ -107,3 +107,5 @@ func TestExternalTelemetryProperties(t *testing.T) {
 func TestAIRuns(t *testing.T) { repositorytest.AIRuns(t, testRepository(t)) }
 
 func TestAIAnalysisOutcomes(t *testing.T) { repositorytest.AIAnalysisOutcomes(t, testRepository(t)) }
+
+func TestDeviceSignals(t *testing.T) { repositorytest.DeviceSignals(t, testRepository(t)) }
