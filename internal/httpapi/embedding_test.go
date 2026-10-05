@@ -39,7 +39,7 @@ func TestEmbeddingConfigurationPermissionsSecretsAndIndependentTest(t *testing.T
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), log)
 	engine.KB = knowledge.NewLocal()
-	api := New(config.Config{DevMode: true}, engine, metrics.New(), log)
+	api := New(config.Config{DevMode: true, RerankURL: "http://reranker:8080", LocalAIHosts: ports.DefaultLocalAIHosts}, engine, metrics.New(), log)
 	runtime := &embeddingConfigTestRuntime{config: ports.EmbeddingConfig{BaseURL: "https://embedding.example/v1", Model: "text-embedding-v4", APIKey: "private-embedding-credential", Dimensions: 1024, BatchSize: 10, TimeoutSeconds: 60}}
 	api.SetEmbeddingRuntime(runtime)
 	server := newTestHTTPServer(api)
@@ -57,6 +57,9 @@ func TestEmbeddingConfigurationPermissionsSecretsAndIndependentTest(t *testing.T
 	raw, _ := json.Marshal(view)
 	if strings.Contains(string(raw), runtime.config.APIKey) || view["apiKeyConfigured"] != true {
 		t.Fatalf("credential view invalid: %s", raw)
+	}
+	if rerank, _ := view["rerank"].(map[string]any); rerank["enabled"] != true || rerank["local"] != true || rerank["model"] != bundledRerankModel {
+		t.Fatalf("bundled reranker not shown: %s", raw)
 	}
 	candidate := map[string]any{"baseUrl": "https://other-embedding.example/v1", "model": "other-model", "dimensions": 768, "batchSize": 8, "timeoutSeconds": 30, "apiKey": ""}
 	requestJSON(t, server.Client(), "PUT", server.URL+"/api/v1/ai/embedding-config", viewer, candidate, 403)

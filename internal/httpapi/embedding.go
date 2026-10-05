@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// bundledRerankModel is the model built into the deploy/local-ai image.
+const bundledRerankModel = "bge-reranker-v2-m3"
+
 type embeddingInput struct {
 	BaseURL          string `json:"baseUrl"`
 	Model            string `json:"model"`
@@ -26,6 +29,16 @@ func (s *Server) embeddingView(cfg ports.EmbeddingConfig) map[string]any {
 	if bundled := embedding.NormalizeConfig(ports.EmbeddingConfig{BaseURL: s.cfg.EmbeddingURL, Model: s.cfg.EmbeddingModel, Dimensions: s.cfg.EmbeddingDimensions}); embedding.IsLocal(bundled) {
 		view["bundled"] = map[string]any{"baseUrl": bundled.BaseURL, "model": bundled.Model, "dimensions": bundled.Dimensions}
 	}
+	// Reranking is deployment configuration (IOT_RERANK_URL), loaded at start.
+	rerank := map[string]any{"enabled": s.cfg.RerankURL != ""}
+	if s.cfg.RerankURL != "" {
+		local := ports.LocalAIEndpoint(s.cfg.RerankURL, s.cfg.LocalAIHosts)
+		rerank["baseUrl"], rerank["local"] = s.cfg.RerankURL, local
+		if local {
+			rerank["model"] = bundledRerankModel
+		}
+	}
+	view["rerank"] = rerank
 	return view
 }
 

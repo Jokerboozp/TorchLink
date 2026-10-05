@@ -53,6 +53,8 @@ function candidate() {
 // The vector service deployed with the platform needs no API key.
 const bundled = computed(() => config.value?.bundled || null)
 const usingBundled = computed(() => Boolean(bundled.value) && form.baseUrl.trim().replace(/\/$/, '') === bundled.value.baseUrl)
+// Reranking is deployment configuration (IOT_RERANK_URL), shown read-only.
+const rerank = computed(() => config.value?.rerank || null)
 function useBundled() {
   if (!bundled.value) return
   Object.assign(form, { baseUrl:bundled.value.baseUrl, model:bundled.value.model, dimensions:bundled.value.dimensions, queryInstruction:'', apiKey:'', clearAPIKey:Boolean(config.value?.apiKeyConfigured) })
@@ -127,7 +129,10 @@ onBeforeUnmount(() => { ++loadVersion; loadController?.abort() })
   <ui-card class="surface-card embedding-config" shadow="never" v-loading="loading">
     <template #header><div class="embedding-heading"><div><strong>知识库 Embedding</strong><small>独立于对话模型，将知识分片转换为向量；知识与索引保存在 PostgreSQL / pgvector。默认使用随平台部署的本地向量服务（bge-m3），也可改用外部 HTTPS API。</small></div><ui-button v-if="canRead" size="small" plain :loading="loading" :disabled="saving || testing" @click="load">刷新配置</ui-button></div></template>
     <ui-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon />
-    <div v-if="bundled && !loadError" class="embedding-bundled"><ui-tag :type="usingBundled ? 'success' : 'info'" effect="light">{{ usingBundled ? '使用本地向量服务' : '使用外部 API' }}</ui-tag><small>本地服务：{{ bundled.model }}，{{ bundled.dimensions }} 维，无需接口密钥。</small><ui-button v-if="canSave && !usingBundled" size="small" plain :disabled="busy" @click="useBundled">切换为本地向量服务</ui-button></div>
+    <div v-if="config && !loadError" class="embedding-status">
+      <div class="embedding-bundled"><span class="embedding-label">向量计算</span><ui-tag :type="config.local ? 'success' : 'info'" effect="light">{{ config.local ? '本地向量服务' : '外部 API' }}</ui-tag><small v-if="bundled">本地服务：{{ bundled.model }}，{{ bundled.dimensions }} 维，无需接口密钥。</small><small v-else>本部署未启用本地向量服务（IOT_EMBEDDING_URL 指向外部 API），按部署文档启用后可在此切换。</small><ui-button v-if="bundled && canSave && !usingBundled" size="small" plain :disabled="busy" @click="useBundled">切换为本地向量服务</ui-button></div>
+      <div v-if="rerank" class="embedding-bundled"><span class="embedding-label">检索重排</span><ui-tag :type="rerank.enabled ? 'success' : 'warning'" effect="light">{{ !rerank.enabled ? '未启用' : rerank.local ? '本地重排服务' : '外部重排 API' }}</ui-tag><small>{{ !rerank.enabled ? '检索结果按向量与关键词得分排序。' : rerank.model ? `${rerank.model}，对检索候选按相关性重新排序。` : `外部地址 ${rerank.baseUrl}。` }}由部署配置 IOT_RERANK_URL 决定，修改后重启平台生效。</small></div>
+    </div>
     <ui-form label-position="top" :model="form" :disabled="busy || (!canSave && !canTest) || Boolean(loadError)">
       <div class="embedding-grid">
         <ui-form-item label="Embedding 服务地址"><ui-input v-model="form.baseUrl" placeholder="本地服务地址，或 https://API 服务地址/v1" /></ui-form-item>
@@ -154,7 +159,9 @@ onBeforeUnmount(() => { ++loadVersion; loadController?.abort() })
 .embedding-numbers { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
 .embedding-query { grid-column:1 / -1; }
 .embedding-hint { margin:5px 0 10px; }
-.embedding-bundled { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
+.embedding-status { display:grid; gap:8px; margin-bottom:14px; }
+.embedding-bundled { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
+.embedding-label { color:var(--text-muted); font-size:12px; min-width:56px; }
 .embedding-bundled small { color:var(--text-muted); font-size:12px; }
 .embedding-actions>div { display:flex; gap:8px; }
 .embedding-result { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:14px; font-size:12px; }
