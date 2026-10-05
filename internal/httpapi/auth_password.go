@@ -101,6 +101,6 @@ func (s *Server) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.logins.record(account, true)
-	_ = s.engine.Repo.SaveAudit(r.Context(), model.AuditLog{ID: "audit_" + randomHex(8), TenantID: c.TenantID, Actor: c.Username, Action: "auth.password.change", TargetType: "user", TargetID: c.Username, CreatedAt: time.Now().UnixMilli()})
+	s.engine.RecordAudit(r.Context(), model.AuditLog{ID: "audit_" + randomHex(8), TenantID: c.TenantID, Actor: c.Username, Action: "auth.password.change", TargetType: "user", TargetID: c.Username, CreatedAt: time.Now().UnixMilli()})
 	s.writeManagedSession(w, state, u, c.TenantID)
 }

@@ -942,3 +942,31 @@ func TestDeviceReportingTimingComesFromTemplateAndDevice(t *testing.T) {
 		t.Fatal("a 5 second interval was accepted")
 	}
 }
+
+type failingBus struct{ *local.Bus }
+
+func (failingBus) Publish(context.Context, string, string, []byte) error {
+	return errors.New("broker unavailable")
+}
+
+type failingAuditRepo struct{ *memory.Repository }
+
+func (failingAuditRepo) SaveAudit(context.Context, model.AuditLog) error {
+	return errors.New("database unavailable")
+}
+
+type countingMetrics map[string]int
+
+func (m countingMetrics) Inc(name string) { m[name]++ }
+
+// A stored alarm stays authoritative when notifying it fails, and a failed
+// audit write does not fail the audited action; both are counted.
+func TestEventDeliveryAndAuditFailuresAreCounted(t *testing.T) {
+	metrics := countingMetrics{}
+	e := &Engine{Repo: failingAuditRepo{memory.NewRepository()}, Bus: failingBus{local.NewBus()}, Realtime: local.NewRealtime(), Metrics: metrics, Log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	e.publishEvent(context.Background(), model.TopicAlarmRaised, "alarm-1", "/iot/alarm/raised/t1", []byte(`{}`))
+	e.RecordAudit(context.Background(), model.AuditLog{TenantID: "t1", Action: "alarm.confirmed"})
+	if metrics["event_publish_failed_total"] != 1 || metrics["audit_write_failed_total"] != 1 {
+		t.Fatalf("failures not counted: %v", metrics)
+	}
+}

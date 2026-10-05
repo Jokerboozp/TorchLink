@@ -2421,7 +2421,7 @@ func (s *Server) aiRuleDraft(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusInternalServerError, presentationErr.Error())
 		return
 	}
-	_ = s.engine.Repo.SaveAudit(r.Context(), model.AuditLog{ID: fmt.Sprintf("audit_%d", time.Now().UnixNano()), TenantID: c.TenantID, Actor: c.Username, Action: "ai.rule_draft", TargetType: "rule", TargetID: rule.ID, Details: map[string]any{"success": true}, CreatedAt: time.Now().UnixMilli()})
+	s.engine.RecordAudit(r.Context(), model.AuditLog{ID: fmt.Sprintf("audit_%d", time.Now().UnixNano()), TenantID: c.TenantID, Actor: c.Username, Action: "ai.rule_draft", TargetType: "rule", TargetID: rule.ID, Details: map[string]any{"success": true}, CreatedAt: time.Now().UnixMilli()})
 	_ = s.engine.Repo.SaveAIToolCall(r.Context(), model.AIToolCallLog{ID: "tool_" + randomHex(8), TenantID: c.TenantID, Actor: c.Username, Tool: "ai.rule_draft", Input: map[string]any{"text": in.Text}, Output: rule, Success: true, CreatedAt: time.Now().UnixMilli()})
 	write(w, 200, map[string]any{"draft": rule, "presentation": presentation, "requiresHumanApproval": true, "schemaValid": true, "warnings": warnings, "conflicts": conflicts})
 }
@@ -2900,7 +2900,7 @@ func secretHash(secret string) string {
 }
 func (s *Server) audit(r *http.Request, action, targetType, targetID string, details map[string]any) {
 	c := claims(r)
-	_ = s.engine.Repo.SaveAudit(r.Context(), model.AuditLog{ID: "audit_" + randomHex(10), TenantID: c.TenantID, Actor: c.Username, Action: action, TargetType: targetType, TargetID: targetID, Details: details, CreatedAt: time.Now().UnixMilli()})
+	s.engine.RecordAudit(r.Context(), model.AuditLog{ID: "audit_" + randomHex(10), TenantID: c.TenantID, Actor: c.Username, Action: action, TargetType: targetType, TargetID: targetID, Details: details, CreatedAt: time.Now().UnixMilli()})
 }
 
 type endpointHandler func(http.ResponseWriter, *http.Request)

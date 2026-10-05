@@ -36,7 +36,7 @@ func (e *Engine) StartReplay(ctx context.Context, req model.ReplayRequest) (mode
 	if err := e.Repo.SaveReplay(ctx, req); err != nil {
 		return req, err
 	}
-	_ = e.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: req.TenantID, Actor: req.CreatedBy, Action: "replay.create", TargetType: "replay", TargetID: req.ID, Details: map[string]any{"mode": req.Mode, "start": req.Start, "end": req.End}, CreatedAt: req.CreatedAt})
+	e.RecordAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: req.TenantID, Actor: req.CreatedBy, Action: "replay.create", TargetType: "replay", TargetID: req.ID, Details: map[string]any{"mode": req.Mode, "start": req.Start, "end": req.End}, CreatedAt: req.CreatedAt})
 	go e.runReplay(context.Background(), req)
 	return req, nil
 }

@@ -156,7 +156,7 @@ func (s *Server) finishAIAnalysisJob(job model.AlarmAnalysisJob, analysis model.
 	}
 	s.storeRunningAIAnalysisJob(job)
 	if err == nil {
-		_ = s.engine.Repo.SaveAudit(context.Background(), model.AuditLog{
+		s.engine.RecordAudit(context.Background(), model.AuditLog{
 			ID:         "audit_" + randomHex(10),
 			TenantID:   job.TenantID,
 			Actor:      job.Actor,
