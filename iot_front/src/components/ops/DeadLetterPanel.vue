@@ -1,11 +1,11 @@
 <script setup>
 // 死信消息：处理失败并转入 iot.dlq.<消费组> 的消息。依赖故障时消息会暂停等待恢复，
 // 只有消息本身无法处理或等待超过上限才进入这里；核对原因后可重新投递到原处理主题。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RefreshCw } from '@lucide/vue'
 import { can } from '../../permissions'
 import { UiMessage, UiMessageBox } from '../../ui/feedback.js'
-import { opsErrorText, opsGet, opsSend } from '../../ops/opsApi.js'
+import { isAbort, latest, opsErrorText, opsGet, opsSend } from '../../ops/opsApi.js'
 
 const groupNames = { parser: '解析', processor: '业务处理', state: '设备状态', 'device-alarm-notifications': '告警邮件通知' }
 const groups = ref([])
@@ -16,15 +16,21 @@ const total = computed(() => groups.value.reduce((sum, g) => sum + (g.total || 0
 const rows = computed(() => groups.value.flatMap(g => g.items.map(item => ({ ...item, groupName: groupNames[g.group] || g.group }))))
 const groupErrors = computed(() => groups.value.filter(g => g.error).map(g => `${groupNames[g.group] || g.group}：${g.error}`))
 
+// 总览刷新与本区刷新共用；同一时间只保留最新请求，旧请求不改动列表和加载状态。
+const runner = latest()
+let loadSeq = 0
 async function load() {
+  const seq = ++loadSeq
   loading.value = true
-  error.value = ''
   try {
-    groups.value = (await opsGet('/api/v1/ops/overview/dead-letters', { limit: 20 })).groups || []
+    const data = await runner.run(signal => opsGet('/api/v1/ops/overview/dead-letters', { limit: 20 }, signal))
+    if (seq !== loadSeq) return
+    groups.value = data.groups || []
+    error.value = ''
   } catch (e) {
-    error.value = opsErrorText(e)
+    if (seq === loadSeq && !isAbort(e)) error.value = opsErrorText(e)
   } finally {
-    loading.value = false
+    if (seq === loadSeq) loading.value = false
   }
 }
 
@@ -50,6 +56,8 @@ async function replay(row) {
 
 const time = value => (value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—')
 onMounted(load)
+onBeforeUnmount(() => runner.cancel())
+defineExpose({ reload: load })
 </script>
 
 <template>

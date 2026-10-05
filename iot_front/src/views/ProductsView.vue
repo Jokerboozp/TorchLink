@@ -3,7 +3,8 @@ import { takeNavigation } from '../routing'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 const emit = defineEmits(['navigate'])
 import ProductPreparation from '../components/ProductPreparation.vue'
-import { transportLabel, formatLabel } from '../presentation'
+import { errorMessage, transportLabel, formatLabel } from '../presentation'
+import { usePageState } from '../composables/usePageState.js'
 import { onMounted, ref } from 'vue'
 import { api, apiAll, isAbort } from '../api'
 import { useListLoader } from '../composables/useListLoader'
@@ -66,6 +67,8 @@ const loading = ref(false)
 const productPage = ref(1)
 const productPageSize = ref(20)
 const productTotal = ref(0)
+// 页码与每页条数在刷新或切换菜单后恢复。
+usePageState('products', { page: productPage, pageSize: productPageSize })
 
 let loadVersion = 0
 const loadError = ref('')
@@ -114,7 +117,7 @@ async function load({ catalog = true } = {}) {
     loadError.value = ''
     loadUnbound()
   } catch (error) {
-    if (version === loadVersion) loadError.value = error?.message || '设备模板读取失败'
+    if (version === loadVersion) loadError.value = error?.status === 401 ? '' : errorMessage(error) || '设备模板读取失败'
   } finally {
     if (version === loadVersion) loading.value = false
   }

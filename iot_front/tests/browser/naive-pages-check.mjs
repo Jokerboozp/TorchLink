@@ -91,13 +91,14 @@ try {
       )
     }) /* 等待异步页面出现业务内容。 */
   }
+  // 登录页不预填租户与账户：夹具登录时三项都要填写。
+  const fixtureLogin =
+    "(() => { const fill = (selector, value) => { const input = document.querySelector(selector); input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })) }; fill('.login-form #tenant-id input, .login-form input#tenant-id', 'fixture'); fill('.login-form #username input, .login-form input#username', 'admin'); fill('.login-form input[type=password]', 'fixture'); document.querySelector('.login-form button[type=submit]').click() })()"
   const freshSession = async () => {
     /* 重新载入并登录：隔离前面页面累积的状态，避免无头浏览器长时间运行后卡住。 */
     await call('Page.navigate', { url: origin })
     await until(() => evaluate("Boolean(document.querySelector('.login-form input[type=password]'))"))
-    await evaluate(
-      "(() => { const input = document.querySelector('.login-form input[type=password]'); input.value = 'fixture'; input.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('.login-form button[type=submit]').click() })()"
-    )
+    await evaluate(fixtureLogin)
     await until(() => evaluate("document.querySelectorAll('.nav-item').length >= 15"))
   }
   await call('Page.enable') /* 开启导航与截图。 */
@@ -158,9 +159,7 @@ try {
   ) /* 登录按钮与主题变量都应采用品牌陶土色。 */
   const loginCapture = await call('Page.captureScreenshot', { format: 'png' }) /* 留存登录页视觉检查截图。 */
   await writeFile(join(tmpdir(), 'iot-brand-login.png'), Buffer.from(loginCapture.data, 'base64')) /* 保存登录页截图。 */
-  await evaluate(
-    "(() => { const input = document.querySelector('.login-form input[type=password]'); input.value = 'fixture'; input.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('.login-form button[type=submit]').click() })()"
-  ) /* 完成夹具登录。 */
+  await evaluate(fixtureLogin) /* 完成夹具登录。 */
   await until(() => evaluate("document.querySelectorAll('.nav-item').length >= 15")) /* 确认全部主菜单可见。 */
   const asideBrand = await evaluate(
     "(() => {const aside=document.querySelector('.app-sidebar'),menu=aside.querySelector('.nav-item:not(.is-active)'),logo=aside.querySelector('.app-sidebar__brand img');return {background:getComputedStyle(aside).backgroundColor,menu:getComputedStyle(menu).color,logo:logo?.naturalWidth||0}})()"
@@ -394,6 +393,11 @@ try {
     )
     await evaluate(
       "(() => {const overlay=[...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden'),close=[...overlay.querySelectorAll('.n-card__footer button')].find(button=>button.getClientRects().length&&['关闭','取消','关闭详情','关闭弹窗'].includes(button.innerText.trim())&&!button.disabled);(close||overlay.querySelector('.n-base-close'))?.click()})()"
+    )
+    await delay(200)
+    // 检查中改过表单（如设备标签）时，关闭前会先确认放弃未保存的修改。
+    await evaluate(
+      "[...document.querySelectorAll('.n-dialog button')].find(button=>button.getClientRects().length&&button.innerText.trim()==='放弃修改')?.click()"
     )
     await until(() =>
       evaluate(
@@ -713,6 +717,8 @@ try {
   await evaluate(
     "[...document.querySelectorAll('.n-data-table-tbody button')].find(button=>button.innerText.includes('查看详情')).click()"
   ) /* 打开告警详情。 */
+  await until(() => evaluate("Boolean(document.querySelector('.alarm-detail-dialog details.raw-detail'))"))
+  await evaluate("document.querySelector('.alarm-detail-dialog details.raw-detail').open = true") /* 原始数据默认折叠，展开后检查长报文。 */
   await until(() =>
     evaluate(
       "Boolean([...document.querySelectorAll('.n-modal')].find(modal=>modal.getClientRects().length && modal.innerText.includes('diagnosticLines')))"
@@ -903,6 +909,14 @@ try {
     evaluate(`document.querySelector('.n-modal [role=switch]').getAttribute('aria-checked') !== ${JSON.stringify(initialSwitch)}`)
   ) /* 确认状态反转。 */
   await evaluate("document.querySelector('.n-modal .n-base-close').click()") /* 离开未保存的设备表单。 */
+  await until(() =>
+    evaluate(
+      "Boolean([...document.querySelectorAll('.n-dialog button')].find(button=>button.getClientRects().length&&button.innerText.trim()==='放弃修改'))"
+    )
+  ) /* 有未保存修改时先确认放弃。 */
+  await evaluate(
+    "[...document.querySelectorAll('.n-dialog button')].find(button=>button.getClientRects().length&&button.innerText.trim()==='放弃修改').click()"
+  )
   await until(() =>
     evaluate("![...document.querySelectorAll('.n-modal')].some(modal => modal.getClientRects().length)")
   ) /* 确认弹窗关闭。 */

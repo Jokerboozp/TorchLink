@@ -112,7 +112,8 @@ export const UiDialog = defineComponent({
     modelValue: Boolean,
     title: String,
     width: [String, Number],
-    closeOnClickModal: { type: Boolean, default: true },
+    // 默认不随遮罩点击关闭：一次误点不应丢掉填到一半的表单；只读弹窗可显式开启。
+    closeOnClickModal: { type: Boolean, default: false },
     closeOnPressEscape: { type: Boolean, default: true },
     showClose: { type: Boolean, default: true },
     destroyOnClose: Boolean,
@@ -151,7 +152,7 @@ export const UiDrawer = defineComponent({
     title: String,
     size: [String, Number],
     direction: String,
-    closeOnClickModal: { type: Boolean, default: true },
+    closeOnClickModal: { type: Boolean, default: false },
     withHeader: { type: Boolean, default: true }
   },
   emits: ['update:modelValue', 'close'],

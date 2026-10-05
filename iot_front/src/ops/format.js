@@ -44,6 +44,17 @@ export function formatDuration(seconds) {
   return `${Math.floor(seconds / 86400)} 天 ${Math.round((seconds % 86400) / 3600)} 小时`
 }
 
+// formatElapsed 显示实际已经过的时长（整秒），用于长任务“已进行 2 分 13 秒”，不做剩余时间估算。
+export function formatElapsed(ms) {
+  const total = Math.max(0, Math.floor(Number(ms || 0) / 1000))
+  const hours = Math.floor(total / 3600)
+  const minutes = Math.floor((total % 3600) / 60)
+  const seconds = total % 60
+  if (hours) return `${hours} 小时 ${minutes} 分 ${seconds} 秒`
+  if (minutes) return `${minutes} 分 ${seconds} 秒`
+  return `${seconds} 秒`
+}
+
 export const unitOptions = [
   { value: 'short', label: '数值（自动缩写）' },
   { value: 'none', label: '原始数值' },

@@ -15,7 +15,7 @@ const props = defineProps({
   initialProtocolId: { type: String, default: '' },
   context: { type: Object, default: null }
 })
-const emit = defineEmits(['navigate', 'saved', 'selected'])
+const emit = defineEmits(['navigate', 'saved', 'selected', 'state'])
 const file = ref(null),
   sampleFile = ref(null),
   draft = ref(null),
@@ -57,6 +57,14 @@ const fields = computed(() => {
     type: p.type || p.dataType
   }))
 })
+// 向外层弹窗报告“请求进行中”和“有未保存内容”，外层据此锁定关闭或先确认。
+const unsaved = computed(() =>
+  step.value === 'input' ? Boolean(file.value || form.samplePayload.trim() || form.pointTable.trim()) : Boolean(draft.value && !saved.value)
+)
+watch(
+  () => [Boolean(busy.value), unsaved.value],
+  ([working, dirty]) => emit('state', { working, dirty: dirty || working })
+)
 let controller,
   disposed = false
 let inputRevision = 0

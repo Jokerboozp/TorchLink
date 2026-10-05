@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { entryLevel, formatKpi, formatValue, parseLogFields, seriesName } from '../src/ops/format.js'
+import { entryLevel, formatElapsed, formatKpi, formatValue, parseLogFields, seriesName } from '../src/ops/format.js'
 import { parseRelative, rangeLabel, resolveRange } from '../src/ops/timeRange.js'
 import {
   alignSeries,
@@ -27,7 +27,7 @@ import { setupScript } from './helpers/vue.mjs'
 import vm from 'node:vm'
 import { readFileSync } from 'node:fs'
 import { computed, isReactive, nextTick, reactive, ref, shallowRef, watch } from 'vue'
-import { clampAlertPage, pageAlertGroups, prepareAlertGroups, sortAlerts, summarizeAlerts } from '../src/ops/alerts.js'
+import { clampAlertPage, notificationState, pageAlertGroups, prepareAlertGroups, sortAlerts, summarizeAlerts } from '../src/ops/alerts.js'
 import * as capacity from '../src/ops/capacity.js'
 
 test('运维数值按 Grafana 单位格式化，空值显示为占位', () => {
@@ -862,4 +862,150 @@ test('历史清理恢复最近任务，身份切换或离页后的迟到预览�
   finish({ preview: disposed.preview })
   await late
   assert.equal(disposed.historyDialog.value, false)
+})
+
+test('长任务已用时间按实际整秒显示，通知状态不显示原始英文状态', () => {
+  assert.equal(formatElapsed(0), '0 秒')
+  assert.equal(formatElapsed(133999), '2 分 13 秒')
+  assert.equal(formatElapsed(3725000), '1 小时 2 分 5 秒')
+  assert.equal(formatElapsed(-5), '0 秒')
+  assert.equal(notificationState({ state: 'active' }).text, '通知中')
+  assert.equal(notificationState({ state: 'suppressed', silencedBy: ['s1'] }).text, '已静默')
+  assert.equal(notificationState({ state: 'suppressed', inhibitedBy: ['i1'] }).text, '已抑制')
+  assert.equal(notificationState({ state: 'suppressed' }).text, '已静默或抑制')
+  assert.equal(notificationState({ state: 'unprocessed' }).text, '等待处理')
+  assert.equal(notificationState({ state: 'other' }).text, '未知')
+})
+
+// 与 api.js 的 latest 行为一致：新请求中止旧请求的信号，旧请求按 fetch 中止抛出 AbortError。
+function abortingLatest() {
+  let controller = null
+  let version = 0
+  return {
+    async run(task) {
+      controller?.abort()
+      controller = new AbortController()
+      const current = ++version
+      const result = await task(controller.signal)
+      if (current !== version) throw Object.assign(new Error('stale'), { name: 'AbortError' })
+      return result
+    },
+    cancel() {
+      controller?.abort()
+      version++
+    }
+  }
+}
+
+function pendingRequest(pending, entry, signal) {
+  return new Promise((resolve, reject) => {
+    pending.push({ ...entry, resolve, reject })
+    signal?.addEventListener('abort', () => reject(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' })))
+  })
+}
+
+function opsViewContext(pending, extra = {}) {
+  return vm.createContext({
+    ref,
+    shallowRef,
+    computed,
+    watch,
+    onMounted() {},
+    onBeforeUnmount() {},
+    defineEmits: () => () => {},
+    can: () => true,
+    UiMessage: { success() {}, error() {}, warning() {}, info() {} },
+    formatValue: value => String(value),
+    labelString: () => '',
+    relativeTime: () => '',
+    logLevelName: {},
+    logLevelTone: {},
+    metricResultToChart: () => ({ times: [], series: [] }),
+    latest: abortingLatest,
+    isAbort: error => error?.name === 'AbortError',
+    opsErrorText: error => error.message,
+    opsSend: (method, path, body, signal) => pendingRequest(pending, { method, path, body }, signal),
+    takeNavigation: () => null,
+    resolveRange: () => ({ from: 1, to: 2 }),
+    rangeDuration: () => 3600e3,
+    usePageState: () => ({ restored: false }),
+    setTimeout: () => 0,
+    clearTimeout() {},
+    ...extra
+  })
+}
+
+test('指标查询被新查询替换时不提示取消也不提前结束，主动取消仍提示；保存查询不重复提交', async () => {
+  const pending = []
+  const context = opsViewContext(pending, { opsGet: async () => ({ items: [] }) })
+  vm.runInContext(
+    setupScript(new URL('../src/views/OpsMetricsView.vue', import.meta.url)) +
+      '\nthis.page = { run, cancel, query, running, queryError, result, saveQuery, saving, saveForm }',
+    context
+  )
+  const p = context.page
+  p.query.value = 'up'
+  const first = p.run()
+  const second = p.run()
+  await first
+  assert.equal(p.running.value, true)
+  assert.equal(p.queryError.value, '')
+  pending[1].resolve({ series: [] })
+  await second
+  assert.equal(p.running.value, false)
+  assert.deepEqual(p.result.value, { series: [] })
+
+  const third = p.run()
+  p.cancel()
+  await third
+  assert.equal(p.queryError.value, '查询已取消')
+  assert.equal(p.running.value, false)
+  assert.deepEqual(p.result.value, { series: [] })
+
+  p.saveForm.value = { name: '常用', description: '' }
+  const save = p.saveQuery()
+  p.saveQuery()
+  assert.equal(pending.filter(r => r.path === '/api/v1/ops/preferences/saved-queries').length, 1)
+  assert.equal(p.saving.value, true)
+  pending.at(-1).resolve({})
+  await save
+  assert.equal(p.saving.value, false)
+})
+
+test('日志查询只由最新请求更新状态，加载更早日志后标记暂停自动刷新，重新查询后恢复', async () => {
+  const pending = []
+  const context = opsViewContext(pending, {
+    opsGet: (path, params, signal) =>
+      path === '/api/v1/ops/logs/search' ? pendingRequest(pending, { path, params }, signal) : Promise.resolve({ items: [], series: [] }),
+    exportLogs: async () => ({}),
+    tailLogs: async () => {}
+  })
+  vm.runInContext(
+    setupScript(new URL('../src/views/OpsLogsView.vue', import.meta.url)) +
+      '\nthis.page = { run, cancel, loadMore, entries, loading, error, olderLoaded }',
+    context
+  )
+  const p = context.page
+  const entry = n => ({ ts: String(n), line: `line ${n}`, labels: {} })
+  const first = p.run()
+  const second = p.run()
+  await first
+  assert.equal(p.loading.value, true)
+  assert.equal(p.error.value, '')
+  pending[1].resolve({ resultType: 'streams', entries: [entry(3)], nextCursor: 'c1' })
+  await second
+  assert.equal(p.loading.value, false)
+
+  const more = p.loadMore()
+  pending[2].resolve({ resultType: 'streams', entries: [entry(2)], nextCursor: '' })
+  await more
+  assert.equal(p.entries.value.length, 2)
+  assert.equal(p.olderLoaded.value, true)
+
+  const again = p.run()
+  assert.equal(p.olderLoaded.value, false)
+  p.cancel()
+  await again
+  assert.equal(p.error.value, '查询已取消')
+  assert.equal(p.loading.value, false)
 })

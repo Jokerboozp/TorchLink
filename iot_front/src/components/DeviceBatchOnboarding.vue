@@ -3,8 +3,9 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { api, apiAll, session } from '../api'
 import { createClientId } from '../clientId'
 import { parseDeviceRows } from '../onboardingPlan'
-import { UiMessage } from '../ui/feedback'
+import { UiMessage, UiMessageBox } from '../ui/feedback'
 import { copyText } from '../clipboard'
+import { useUnsavedGuard } from '../composables/unsavedGuard.js'
 const props = defineProps({ batchId: { type: String, default: '' } })
 const emit = defineEmits(['close', 'detail'])
 const products = ref([]),
@@ -23,6 +24,27 @@ const text = ref(''),
   secrets = ref(null),
   savedRequest = ref(null)
 const requestId = ref(props.batchId || createClientId())
+// 领取的密钥只在当前页面显示；复制或下载视为已保存，此前离开页面、切换菜单或刷新都先提醒。
+const secretsSaved = ref(false)
+const unsavedSecrets = computed(() => Boolean(secrets.value?.items?.length) && !secretsSaved.value)
+useUnsavedGuard(() => unsavedSecrets.value)
+async function confirmSecretsLeave() {
+  if (!unsavedSecrets.value) return true
+  try {
+    await UiMessageBox.confirm(
+      '本次领取的设备密钥只显示这一次，离开后无法再次查看，只能到设备详情中逐台重新生成凭据。请先复制或下载保存。',
+      '设备密钥尚未保存',
+      { confirmButtonText: '已保存，继续离开', cancelButtonText: '返回保存' }
+    )
+  } catch {
+    return false
+  }
+  secrets.value = null
+  return true
+}
+async function leave(event, ...args) {
+  if (await confirmSecretsLeave()) emit(event, ...args)
+}
 let timer = 0,
   version = 0,
   refreshVersion = 0,
@@ -184,6 +206,7 @@ async function claim() {
       body: '{}'
     })
     if (!currentIdentity()) return
+    secretsSaved.value = false
     secrets.value = result
     await refresh()
   } catch (cause) {
@@ -191,6 +214,19 @@ async function claim() {
   } finally {
     busy.value = ''
   }
+}
+async function clearSecrets() {
+  if (!secretsSaved.value && secrets.value?.items?.length) {
+    try {
+      await UiMessageBox.confirm('清除后无法再次查看本次领取的设备密钥，确认已复制或下载保存？', '清除设备密钥', {
+        confirmButtonText: '已保存，清除',
+        cancelButtonText: '返回保存'
+      })
+    } catch {
+      return
+    }
+  }
+  secrets.value = null
 }
 function downloadJSON(name, value) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' }))
@@ -221,8 +257,10 @@ function exportSecrets() {
   UiMessage.success('已发起下载并清除页面中的密钥，请确认文件已保存')
 }
 async function copySecrets() {
-  if (await copyText(JSON.stringify(secrets.value.items, null, 2))) UiMessage.success('凭据已复制，请妥善保存')
-  else UiMessage.warning('复制失败，请手动复制')
+  if (await copyText(JSON.stringify(secrets.value.items, null, 2))) {
+    secretsSaved.value = true
+    UiMessage.success('凭据已复制，请妥善保存')
+  } else UiMessage.warning('复制失败，请手动复制')
 }
 watch(page, () => {
   if (batch.value) refresh()
@@ -253,7 +291,7 @@ onBeforeUnmount(() => {
         <h2>批量添加设备</h2>
         <p>复用已经验证的设备模板，逐台登记并保留结果；登记成功后仍需真实上报验证。</p>
       </div>
-      <ui-button @click="emit('close')">返回设备列表</ui-button>
+      <ui-button @click="leave('close')">返回设备列表</ui-button>
     </header>
     <ui-alert v-if="error" :title="error" type="error" :closable="false" />
     <template v-if="!batch">
@@ -324,15 +362,20 @@ onBeforeUnmount(() => {
       </p>
       <ui-alert v-if="batch.error" :title="batch.error" type="warning" :closable="false" />
       <ui-table :data="batch.rows || []"
-        ><ui-table-column prop="deviceId" label="设备编号" /><ui-table-column prop="name" label="名称" /><ui-table-column label="登记状态"
+        ><ui-table-column prop="deviceId" label="设备编号" min-width="150" show-overflow-tooltip /><ui-table-column
+          prop="name"
+          label="名称"
+          min-width="140"
+          show-overflow-tooltip
+        /><ui-table-column label="登记状态" min-width="130"
           ><template #default="{ row }">{{ statusNames[row.status] || row.status }}</template></ui-table-column
-        ><ui-table-column label="现场状态"
+        ><ui-table-column label="现场状态" min-width="130"
           ><template #default="{ row }">{{ onboardingNames[row.onboardingStatus] || '待现场配置与验证' }}</template></ui-table-column
-        ><ui-table-column label="密钥"
+        ><ui-table-column label="密钥" min-width="130"
           ><template #default="{ row }">{{ credentialNames[row.credentialStatus] || '—' }}</template></ui-table-column
-        ><ui-table-column prop="error" label="原因" /><ui-table-column label="验证"
+        ><ui-table-column prop="error" label="原因" min-width="200" show-overflow-tooltip /><ui-table-column label="验证" min-width="150"
           ><template #default="{ row }"
-            ><ui-button v-if="row.status === 'SUCCEEDED'" size="small" @click="emit('detail', row.deviceId)"
+            ><ui-button v-if="row.status === 'SUCCEEDED'" size="small" @click="leave('detail', row.deviceId)"
               >配置、验证与密钥</ui-button
             ></template
           ></ui-table-column
@@ -347,7 +390,7 @@ onBeforeUnmount(() => {
           >{{ item.deviceId }} · {{ item.credential.accessKey }}
 {{ item.credential.secret }}</pre>
         <p v-for="item in secrets.unavailable" :key="item.index">{{ item.deviceId }}：{{ item.reason }}</p>
-        <ui-button @click="secrets = null">我已保存，清除显示</ui-button>
+        <ui-button @click="clearSecrets">我已保存，清除显示</ui-button>
       </section>
     </template>
   </section>

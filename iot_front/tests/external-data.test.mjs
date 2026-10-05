@@ -19,6 +19,8 @@ function view(t, overrides = {}) {
   const scope = effectScope()
   const context = {
     ...external,
+    // 页面状态恢复由各自测试覆盖，此处替换为无副作用实现。
+    usePageState: () => ({ restored: false }),
     computed,
     ref,
     watch,

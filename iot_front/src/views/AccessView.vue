@@ -14,6 +14,9 @@ import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
+import { clientPagination } from '../listPagination'
+import { usePageState } from '../composables/usePageState.js'
+import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
 defineEmits(['navigate'])
 const tab = ref('roles'),
   users = ref([]),
@@ -42,6 +45,33 @@ const scopeLabel = value =>
     : plainScopeLabel(value)
 const inheritedLabel = computed(() => plainScopeLabel(roleDeviceScope(user.roleIds, roles.value)))
 const password = reactive({ username: '', value: '', mustChangePassword: true })
+// 用户和角色接口一次返回全部记录，表格在前端分页；页签与页码在刷新或切换菜单后恢复。
+const userPage = ref(1),
+  userPageSize = ref(20),
+  rolePage = ref(1),
+  rolePageSize = ref(20)
+usePageState('access', { tab, userPage, userPageSize, rolePage, rolePageSize })
+const { paged: shownUsers, total: userTotal } = clientPagination(users, userPage, userPageSize)
+const { paged: shownRoles, total: roleTotal } = clientPagination(roles, rolePage, rolePageSize)
+// 用户、角色和重置密码弹窗关闭前检查未保存的修改。
+const editorGuard = trackDialogForm(
+  computed(() => dialog.value === 'user' || dialog.value === 'role'),
+  () => (dialog.value === 'user' ? user : role)
+)
+const passwordGuard = trackDialogForm(
+  computed(() => dialog.value === 'password'),
+  () => password
+)
+async function closeEditor() {
+  if (saving.value || !(await confirmClose(editorGuard.dirty()))) return
+  dialog.value = ''
+  user.password = ''
+}
+async function closePassword() {
+  if (saving.value || !(await confirmClose(passwordGuard.dirty()))) return
+  dialog.value = ''
+  password.value = ''
+}
 const apiKeys = ref(null)
 function refresh() {
   void load()
@@ -209,8 +239,20 @@ function roleActions(row) {
       >
     </template>
   </FilterBar>
-  <DataTableCard v-if="tab === 'users'" :title="`用户 · ${users.length} 个`"
-    ><ui-table v-loading="loading" :data="users" empty-text="暂无用户，点击添加用户创建登录账户"
+  <DataTableCard
+    v-if="tab === 'users'"
+    :title="`用户 · ${users.length} 个`"
+    :page="userPage"
+    :page-size="userPageSize"
+    :total="userTotal"
+    @update:page="value => (userPage = value)"
+    @update:page-size="
+      value => {
+        userPageSize = value
+        userPage = 1
+      }
+    "
+    ><ui-table v-loading="loading" :data="shownUsers" empty-text="暂无用户，点击添加用户创建登录账户"
       ><ui-table-column prop="username" label="用户名" /><ui-table-column prop="displayName" label="姓名 / 显示名称" /><ui-table-column
         label="设备访问范围"
         ><template #default="{ row }">{{ scopeLabel(row) }}</template></ui-table-column
@@ -224,8 +266,20 @@ function roleActions(row) {
       ><ui-table-column label="操作" width="240" fixed="right" align="right"
         ><template #default="{ row }"><RowActions :actions="userActions(row)" /></template></ui-table-column></ui-table
   ></DataTableCard>
-  <DataTableCard v-if="tab === 'roles'" :title="`角色 · ${roles.length} 个`"
-    ><ui-table v-loading="loading" :data="roles" empty-text="暂无角色，点击添加角色配置权限"
+  <DataTableCard
+    v-if="tab === 'roles'"
+    :title="`角色 · ${roles.length} 个`"
+    :page="rolePage"
+    :page-size="rolePageSize"
+    :total="roleTotal"
+    @update:page="value => (rolePage = value)"
+    @update:page-size="
+      value => {
+        rolePageSize = value
+        rolePage = 1
+      }
+    "
+    ><ui-table v-loading="loading" :data="shownRoles" empty-text="暂无角色，点击添加角色配置权限"
       ><ui-table-column prop="name" label="角色名称" /><ui-table-column label="说明"
         ><template #default="{ row }">{{ row.description || '—' }}</template></ui-table-column
       ><ui-table-column label="可用功能"
@@ -253,12 +307,7 @@ function roleActions(row) {
     :title="`${editing ? '编辑' : '添加'}${dialog === 'user' ? '用户' : '角色'}`"
     width="min(850px,94vw)"
     :close-on-click-modal="false"
-    @close="
-      () => {
-        dialog = ''
-        user.password = ''
-      }
-    "
+    @update:model-value="value => value || closeEditor()"
   >
     <ui-form v-if="dialog === 'user'" class="user-editor" label-position="top" :disabled="saving">
       <section class="user-editor-section">
@@ -370,15 +419,7 @@ function roleActions(row) {
       </section>
     </ui-form>
     <template #footer
-      ><ui-button
-        :disabled="saving"
-        @click="
-          () => {
-            dialog = ''
-            user.password = ''
-          }
-        "
-        >取消</ui-button
+      ><ui-button :disabled="saving" @click="closeEditor">取消</ui-button
       ><ui-button type="primary" :loading="saving" :disabled="deviceSelectionPending" @click="save">{{
         editing ? '保存修改' : dialog === 'user' ? '创建用户' : '创建角色'
       }}</ui-button></template
@@ -388,12 +429,7 @@ function roleActions(row) {
     :model-value="dialog === 'password'"
     title="重置密码"
     width="min(460px,94vw)"
-    @close="
-      () => {
-        dialog = ''
-        password.value = ''
-      }
-    "
+    @update:model-value="value => value || closePassword()"
     ><ui-form label-position="top"
       ><ui-form-item :label="`用户：${password.username}`"
         ><ui-input

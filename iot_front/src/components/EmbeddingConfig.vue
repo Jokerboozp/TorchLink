@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api, isAbort } from '../api'
 import { useListLoader } from '../composables/useListLoader'
 import { can } from '../permissions'
-import { UiMessage } from '../ui/feedback.js'
+import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 
 const config = ref(null)
 const form = reactive({
@@ -133,10 +133,38 @@ async function testConnection() {
   }
 }
 
+// 与后端索引签名一致：服务地址、模型、维度或查询指令变化都会生成新的向量空间并重建知识索引。
+function indexAffectingChanges(body) {
+  const current = config.value
+  if (!current?.model) return []
+  const changes = []
+  if (body.baseUrl.replace(/\/+$/, '') !== String(current.baseUrl || '').replace(/\/+$/, '')) changes.push('服务地址')
+  if (body.model !== (current.model || '')) changes.push('模型')
+  if (body.dimensions !== Number(current.dimensions || 0)) changes.push('向量维度')
+  if (body.queryInstruction !== (current.queryInstruction || '').trim()) changes.push('查询向量指令')
+  return changes
+}
+
+async function confirmRebuild(changes) {
+  if (!changes.length) return true
+  try {
+    await UiMessageBox.confirm(
+      `本次修改了${changes.join('、')}，保存后将按新配置重建全部已入库知识的索引，耗时与文档数量有关，进度可在知识库查看。重建期间继续使用旧索引检索，全部成功后才切换；失败时保留旧索引。`,
+      '确认重建知识索引',
+      { confirmButtonText: '保存并重建', cancelButtonText: '取消' }
+    )
+    return true
+  } catch {
+    return false
+  }
+}
+
 async function save() {
   if (!canSave.value || busy.value) return
   const value = candidate()
   if (!value) return
+  if (!(await confirmRebuild(indexAffectingChanges(value.body)))) return
+  if (busy.value) return
   saving.value = true
   try {
     const response = await api('/api/v1/ai/embedding-config', { method: 'PUT', body: JSON.stringify(value.body) })
@@ -234,7 +262,9 @@ onBeforeUnmount(loader.cancel)
           ><ui-input v-model="form.queryInstruction" type="textarea" :rows="2" placeholder="模型要求查询前缀时填写；文档分片不附加此指令"
         /></ui-form-item>
       </div>
-      <p class="embedding-hint">向量维度应与 API 实际输出一致。改变模型或维度会重建知识索引，进度可在知识库查看。</p>
+      <p class="embedding-hint">
+        向量维度应与 API 实际输出一致。改变服务地址、模型、维度或查询指令会重建知识索引，保存前会再次确认，进度可在知识库查看。
+      </p>
       <div class="embedding-actions">
         <small>{{ canSave ? '可直接保存，连接测试为可选操作。' : '当前账号可查看配置。' }}</small>
         <div>

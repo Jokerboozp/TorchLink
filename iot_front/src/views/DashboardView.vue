@@ -105,12 +105,17 @@ async function loadFire(current, options) {
     fireError.value = fire.value ? '刷新失败，当前显示上次成功获取的数据。' : '消防站统计读取失败，请刷新重试。'
   }
 }
+const openingDetail = ref('')
 async function showDetail(id) {
+  if (openingDetail.value) return
+  openingDetail.value = id
   try {
     detail.value = await api(`/api/v1/alarms/${encodeURIComponent(id)}`)
     if (!disposed) detailVisible.value = true
   } catch (e) {
     if (!disposed) notifyError(e)
+  } finally {
+    openingDetail.value = ''
   }
 }
 const realtime = event => {
@@ -201,7 +206,7 @@ onBeforeUnmount(() => {
               </p>
               <div class="alarm-footer">
                 <time>{{ formatTime(alarm.lastTriggeredAt) }}</time
-                ><ui-button text @click="showDetail(alarm.alarmId)">详情</ui-button>
+                ><ui-button text :loading="openingDetail === alarm.alarmId" @click="showDetail(alarm.alarmId)">详情</ui-button>
               </div>
             </article>
           </div>
@@ -360,9 +365,13 @@ onBeforeUnmount(() => {
     </section>
     <ui-dialog v-model="detailVisible" title="告警详情" width="min(680px, 94vw)"
       ><ui-descriptions v-if="detail" :column="1" border
-        ><ui-descriptions-item label="告警编号">{{ detail.alarmId }}</ui-descriptions-item
         ><ui-descriptions-item label="设备">{{ detail.deviceName || detail.deviceId }}</ui-descriptions-item
+        ><ui-descriptions-item label="告警内容">{{ detail.content || '—' }}</ui-descriptions-item
         ><ui-descriptions-item label="告警类型">{{ alarmType(detail.alarmType) }}</ui-descriptions-item
+        ><ui-descriptions-item label="等级"
+          ><ui-tag :type="tagType(detail.alarmLevel)" round>{{
+            label(alarmLevels, detail.alarmLevel, '未设置')
+          }}</ui-tag></ui-descriptions-item
         ><ui-descriptions-item label="发生时间">{{ formatTime(detail.lastTriggeredAt) }}</ui-descriptions-item></ui-descriptions
       >
       <details class="technical-details">

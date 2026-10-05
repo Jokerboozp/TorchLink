@@ -16,6 +16,9 @@ const periods = [
 const period = ref('today')
 const loading = ref(false)
 const report = ref('')
+// 已生成报告对应的时段；切换时段后旧报告保留但标为过期，避免误当成新时段的结论。
+const reportPeriod = ref('')
+const stale = computed(() => Boolean(report.value) && reportPeriod.value !== period.value)
 const error = ref('')
 const selected = computed(() => periods.find(item => item.key === period.value) || periods[0])
 let controller = null
@@ -35,13 +38,15 @@ async function generate() {
   loading.value = true
   error.value = ''
   report.value = ''
+  const requested = selected.value
   try {
     const result = await api('/api/v1/ai/reports', {
       method: 'POST',
-      body: JSON.stringify({ period: selected.value.label, ...range(selected.value) }),
+      body: JSON.stringify({ period: requested.label, ...range(requested) }),
       signal: controller.signal
     })
     report.value = result.report || ''
+    reportPeriod.value = requested.key
     if (!report.value) error.value = '模型没有返回报告内容，请稍后重试'
   } catch (e) {
     if (e?.name !== 'AbortError') error.value = e?.message || '运维报告生成失败'
@@ -70,13 +75,22 @@ onBeforeUnmount(() => controller?.abort())
         <ui-radio-button v-for="item in periods" :key="item.key" :value="item.key">{{ item.label }}</ui-radio-button>
       </ui-radio-group>
       <ui-button v-permission="'POST /api/v1/ai/reports'" type="primary" :loading="loading" @click="generate">
-        {{ report ? '重新生成' : '生成报告' }}
+        {{ report && !stale ? '重新生成' : '生成报告' }}
       </ui-button>
     </div>
     <p class="ops-report-note">汇总当前账户有权查看的设备状态与告警；仅供辅助判断，处置仍以现场核实为准。</p>
     <ui-alert v-if="error" :title="error" type="error" :closable="false" />
     <p v-else-if="loading" class="ops-report-note" role="status">正在生成报告，模型服务繁忙时可能需要几分钟…</p>
-    <MarkdownContent v-else-if="report" class="ops-report-content" :source="report" />
+    <template v-else-if="report">
+      <ui-alert
+        v-if="stale"
+        class="ops-report-stale"
+        type="warning"
+        :closable="false"
+        :title="`下方为“${periods.find(item => item.key === reportPeriod)?.label}”的报告，当前所选时段尚未生成`"
+      />
+      <MarkdownContent :source="report" />
+    </template>
     <ui-empty v-else description="选择时段后生成报告" />
     <template #footer>
       <ui-button @click="visible = false">关闭</ui-button>
@@ -98,8 +112,7 @@ onBeforeUnmount(() => controller?.abort())
   color: var(--text-muted);
   font-size: var(--font-size-sm);
 }
-.ops-report-content {
-  max-height: 60vh;
-  overflow: auto;
+.ops-report-stale {
+  margin-bottom: var(--space-3);
 }
 </style>

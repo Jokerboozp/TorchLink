@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, toRef, watch } from 'vue'
 import { Plus, RefreshCw } from '@lucide/vue'
 import { api, session } from '../api'
 import { can, permissionState } from '../permissions'
@@ -22,6 +22,9 @@ import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 import { copyText } from '../clipboard'
+import { clientPagination } from '../listPagination'
+import { usePageState } from '../composables/usePageState.js'
+import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
 
 // 一个主题对应一份业务数据查询；外部系统用开放接口密钥换取只读订阅凭据。
 defineEmits(['navigate'])
@@ -48,6 +51,15 @@ const keys = computed(() => snapshot.value?.keys || [])
 const builtinItems = computed(() => filterMessageTopics(snapshot.value?.builtin || [], filters))
 const keysEditable = computed(() => can('PUT /api/v1/access/api-keys/:id'))
 const filteredItems = computed(() => filterMessageTopics(items.value, filters))
+// 主题接口一次返回全部记录，表格在前端分页；筛选与页码在刷新或切换菜单后恢复。
+const page = ref(1),
+  pageSize = ref(20)
+usePageState('message-topics', { keyword: toRef(filters, 'keyword'), protocol: toRef(filters, 'protocol'), page, pageSize })
+const { paged: shownItems, total: shownTotal } = clientPagination(filteredItems, page, pageSize)
+watch(
+  () => [filters.keyword, filters.protocol],
+  () => (page.value = 1)
+)
 const emptyText = computed(() =>
   loading.value ? '正在读取消息主题…' : items.value.length ? '没有符合筛选条件的主题' : '暂无消息主题，可新建 MQTT 或 Kafka 主题'
 )
@@ -61,6 +73,12 @@ const editorOpen = computed({
     }
   }
 })
+// 编辑弹窗关闭前检查未保存的修改。
+const editorGuard = trackDialogForm(editorOpen, () => [form, queryForm.value, keyIds.value])
+async function closeEditor() {
+  if (saving.value) return
+  if (await confirmClose(editorGuard.dirty())) editorOpen.value = false
+}
 const canSave = computed(() => can(creating.value ? 'POST /api/v1/message-topics' : 'PUT /api/v1/message-topics/:id'))
 const exchangeEndpoint = computed(() => `${window.location.origin}/api/open/v1/message-topics/credentials`)
 let queryPreviewVersion = 0,
@@ -365,8 +383,21 @@ onBeforeUnmount(() => {
       </div>
     </details>
     <ui-alert v-if="notice" :title="notice" type="warning" :closable="false" class="topic-notice" />
-    <DataTableCard :title="`消息主题${snapshot ? ` · ${filteredItems.length} 项` : ''}`" :error="error" @retry="load"
-      ><ui-table v-if="!error" :data="filteredItems" :loading="loading" :empty-text="emptyText" row-key="id">
+    <DataTableCard
+      :title="`消息主题${snapshot ? ` · ${filteredItems.length} 项` : ''}`"
+      :error="error"
+      :page="page"
+      :page-size="pageSize"
+      :total="shownTotal"
+      @retry="load"
+      @update:page="value => (page = value)"
+      @update:page-size="
+        value => {
+          pageSize = value
+          page = 1
+        }
+      "
+      ><ui-table v-if="!error" :data="shownItems" :loading="loading" :empty-text="emptyText" row-key="id">
         <ui-table-column label="主题" width="200"
           ><template #default="{ row }"
             ><strong>{{ row.name }}</strong
@@ -427,13 +458,14 @@ onBeforeUnmount(() => {
     </p>
 
     <ui-dialog
-      v-model="editorOpen"
+      :model-value="editorOpen"
       :title="creating ? '新建消息主题' : `编辑主题 · ${editing?.name || ''}`"
       width="min(860px, 94vw)"
       :close-on-click-modal="false"
       :close-on-press-escape="!saving"
       :show-close="!saving"
       destroy-on-close
+      @update:model-value="value => value || closeEditor()"
     >
       <div v-if="editorOpen" class="topic-editor">
         <ui-alert v-if="formError" :title="formError" type="error" :closable="false" /><ui-form
@@ -513,7 +545,7 @@ onBeforeUnmount(() => {
       </div>
       <template #footer
         ><div class="topic-editor-actions">
-          <span class="topic-action-spacer" /><ui-button :disabled="saving" @click="editorOpen = false">取消</ui-button
+          <span class="topic-action-spacer" /><ui-button :disabled="saving" @click="closeEditor">取消</ui-button
           ><ui-button v-if="conflicted" type="primary" @click="load">刷新配置</ui-button
           ><ui-button v-else-if="canSave" type="primary" :loading="saving" :disabled="loading" @click="save">{{
             creating ? '创建主题' : '保存配置'

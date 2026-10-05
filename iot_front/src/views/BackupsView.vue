@@ -1,11 +1,23 @@
+<script>
+import { ref as moduleRef } from 'vue'
+import { registerUnloadWarning } from '../composables/unsavedGuard.js'
+// 备份、文件校验和恢复验证是同步长请求（最长 15 / 60 分钟）。正在执行的任务保存在模块级状态，
+// 切换菜单再回来仍显示进行中并禁止重复触发；请求本身不随页面卸载中断。
+const activeTask = moduleRef(null)
+// 刷新或关闭浏览器会中断请求并中断服务端任务；任务进行中时无论当前在哪个页面都先提示。
+registerUnloadWarning(() => Boolean(activeTask.value))
+</script>
+
 <script setup>
 import { can } from '../permissions'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
-import { api, download, isAbort, notifyError, pretty } from '../api'
+import { api, isAbort, notifyError, pretty, session } from '../api'
 import { useListLoader } from '../composables/useListLoader'
+import { formatElapsed } from '../ops/format.js'
+import { downloadWithProgress } from '../ops/opsApi.js'
 import { confirmDelete } from '../deleteAction'
 import { backupStatuses, backupTypes, backupComponents, label } from '../labels'
 import { RefreshCw } from '@lucide/vue'
@@ -18,7 +30,13 @@ const filters = reactive({ type: '', status: '' })
 const records = ref([])
 const total = ref(0)
 const loading = ref(false)
-const actionLoading = ref('')
+// 当前浏览器发起、尚未返回的备份类任务；只显示给发起它的租户与用户。
+const owner = () => `${session.tenant}:${session.user}`
+const busy = computed(() => (activeTask.value?.owner === owner() ? activeTask.value : null))
+const now = ref(Date.now())
+const busyElapsed = computed(() => (busy.value ? formatElapsed(now.value - busy.value.startedAt) : ''))
+// 文件下载按“备份标识:文件名”分别记录已接收字节，不阻塞备份任务。
+const downloads = reactive({})
 // 部署未启用备份服务时明确提示，并停用触发入口，而不是弹出通用错误。
 const serviceMissing = ref(false)
 const detailVisible = ref(false)
@@ -74,19 +92,19 @@ function idPath(value) {
   return encodeURIComponent(String(value || ''))
 }
 
-async function load(resetPage = false) {
+async function load(resetPage = false, silent = false) {
   if (resetPage) page.value = 1
   try {
     const query = new URLSearchParams({ page: String(page.value), pageSize: String(pageSize.value) })
     if (filters.type) query.set('type', filters.type)
     if (filters.status) query.set('status', filters.status)
-    const data = await loader.run(signal => api(`/api/v1/backups?${query.toString()}`, { signal }))
+    const data = await loader.run(signal => api(`/api/v1/backups?${query.toString()}`, { signal }), { silent })
     serviceMissing.value = false
     loadError.value = ''
     records.value = data.items || []
     total.value = Number(data.total ?? data.count ?? records.value.length)
   } catch (error) {
-    if (isAbort(error)) return
+    if (isAbort(error) || silent) return
     serviceMissing.value = error?.status === 503 && /not configured/i.test(error.originalMessage || '')
     loadError.value = serviceMissing.value ? '' : error?.message || '备份记录读取失败'
   }
@@ -139,20 +157,33 @@ function changeManifestPageSize(value) {
   if (detail.value?.id) loadManifest(detail.value.id).catch(notifyError)
 }
 
-async function runBackup(type) {
-  actionLoading.value = `run:${type}`
+// runTask 同一时间只允许一个备份、文件校验或恢复验证请求；返回前其他触发入口全部停用。
+async function runTask(task, work) {
+  if (busy.value) return
+  const entry = { ...task, owner: owner(), startedAt: Date.now() }
+  activeTask.value = entry
   try {
-    await api('/api/v1/backups', { method: 'POST', body: JSON.stringify({ type }) })
-    UiMessage.success(`${label(backupTypes, type)}已完成`)
-    await load()
-  } catch (error) {
-    notifyError(error)
+    await work()
   } finally {
-    actionLoading.value = ''
+    if (activeTask.value === entry) activeTask.value = null
+    load(false, true)
   }
 }
 
+function runBackup(type) {
+  const name = label(backupTypes, type)
+  return runTask({ key: `run:${type}`, label: name }, async () => {
+    try {
+      await api('/api/v1/backups', { method: 'POST', body: JSON.stringify({ type }) })
+      UiMessage.success(`${name}已完成`)
+    } catch (error) {
+      notifyError(error)
+    }
+  })
+}
+
 async function restoreDrill(row) {
+  if (busy.value) return
   try {
     await UiMessageBox.confirm(`将校验“${row.id}”中的备份文件，是否继续？`, '文件校验', {
       type: 'warning',
@@ -162,19 +193,19 @@ async function restoreDrill(row) {
   } catch {
     return
   }
-  actionLoading.value = `drill:${row.id}`
-  try {
-    const result = await api(`/api/v1/backups/${idPath(row.id)}/restore-drill`, { method: 'POST' })
-    UiMessage.success(`文件校验完成，已校验 ${result.artifactsChecked || 0} 个文件`)
-    await load()
-  } catch (error) {
-    notifyError(error)
-  } finally {
-    actionLoading.value = ''
-  }
+  await runTask({ key: `drill:${row.id}`, label: '文件校验' }, async () => {
+    try {
+      const result = await api(`/api/v1/backups/${idPath(row.id)}/restore-drill`, { method: 'POST' })
+      if (result.status === 'COMPLETED') UiMessage.success(`文件校验完成，已校验 ${result.artifactsChecked || 0} 个文件`)
+      else UiMessage.error(`文件校验未通过，已校验 ${result.artifactsChecked || 0} 个文件，请在校验记录详情中查看原因`)
+    } catch (error) {
+      notifyError(error)
+    }
+  })
 }
 
 async function restoreToTarget(row) {
+  if (busy.value) return
   try {
     await UiMessageBox.confirm(`将把“${row.id}”恢复到备份服务配置的独立恢复库并核对条数，不会写入当前业务库。是否继续？`, '恢复验证', {
       type: 'warning',
@@ -184,32 +215,69 @@ async function restoreToTarget(row) {
   } catch {
     return
   }
-  actionLoading.value = `restore:${row.id}`
-  try {
-    const result = await api(`/api/v1/backups/${idPath(row.id)}/restore`, { method: 'POST' })
-    const kinds = Object.values(result.kinds || {})
-    const restored = kinds.reduce((sum, item) => sum + (item.restored || 0), 0)
-    UiMessage.success(`恢复验证完成：写入独立库 ${restored} 条，${result.status === 'COMPLETED' ? '与备份清单一致' : '与备份清单不一致'}`)
-    await load()
-  } catch (error) {
-    notifyError(error)
-  } finally {
-    actionLoading.value = ''
-  }
+  await runTask({ key: `restore:${row.id}`, label: '恢复验证' }, async () => {
+    try {
+      const result = await api(`/api/v1/backups/${idPath(row.id)}/restore`, { method: 'POST' })
+      const kinds = Object.values(result.kinds || {})
+      const restored = kinds.reduce((sum, item) => sum + (item.restored || 0), 0)
+      if (result.status === 'COMPLETED') UiMessage.success(`恢复验证完成：写入独立库 ${restored} 条，与备份清单一致`)
+      else if (result.status === 'MISMATCH')
+        UiMessage.warning(`恢复验证未通过：写入独立库 ${restored} 条，与备份清单条数不一致，请在恢复验证记录详情中核对`)
+      else UiMessage.error(`恢复验证失败${result.error ? `：${result.error}` : ''}`)
+    } catch (error) {
+      notifyError(error)
+    }
+  })
+}
+
+const downloadKey = (row, artifact) => `${row.id}:${artifact.filename}`
+function downloadText(row, artifact, idle = '下载') {
+  const state = downloads[downloadKey(row, artifact)]
+  if (!state) return idle
+  if (state.total) return `下载中 ${Math.min(99, Math.floor((state.loaded / state.total) * 100))}%`
+  return state.loaded ? `已接收 ${formatBytes(state.loaded)}` : '下载中…'
 }
 
 async function downloadArtifact(row, artifact) {
-  const key = `${row.id}:${artifact.filename}`
-  actionLoading.value = `download:${key}`
+  const key = downloadKey(row, artifact)
+  if (downloads[key]) return
+  downloads[key] = { loaded: 0, total: 0 }
   try {
-    await download(`/api/v1/backups/${idPath(row.id)}/files/${encodeURIComponent(artifact.filename)}`, artifact.filename)
-    UiMessage.success(`已下载 ${artifact.filename}`)
+    await downloadWithProgress(
+      `/api/v1/backups/${idPath(row.id)}/files/${encodeURIComponent(artifact.filename)}`,
+      artifact.filename,
+      (loaded, total) => {
+        downloads[key] = { loaded, total }
+      }
+    )
+    UiMessage.success(`${artifact.filename} 已取回，浏览器已开始保存`)
   } catch (error) {
     notifyError(error)
   } finally {
-    actionLoading.value = ''
+    delete downloads[key]
   }
 }
+
+// 任务进行中每秒更新已用时间，并定时静默刷新列表，使服务端写入的“执行中”记录及时出现。
+let tickTimer = 0
+let pollTimer = 0
+function stopBusyTimers() {
+  clearInterval(tickTimer)
+  clearInterval(pollTimer)
+  tickTimer = pollTimer = 0
+}
+watch(
+  busy,
+  value => {
+    stopBusyTimers()
+    if (!value) return
+    now.value = Date.now()
+    tickTimer = setInterval(() => (now.value = Date.now()), 1000)
+    pollTimer = setInterval(() => load(false, true), 5000)
+  },
+  { immediate: true }
+)
+onBeforeUnmount(stopBusyTimers)
 
 onMounted(load)
 function removeBackup(row) {
@@ -234,7 +302,8 @@ function rowActions(row) {
       permission: 'POST /api/v1/backups/:id/restore-drill',
       hidden:
         !isAdmin.value || row.status !== 'COMPLETED' || !['DATABASE', 'FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type),
-      loading: actionLoading.value === `drill:${row.id}`,
+      loading: busy.value?.key === `drill:${row.id}`,
+      disabled: Boolean(busy.value),
       onClick: () => restoreDrill(row)
     },
     {
@@ -243,7 +312,8 @@ function rowActions(row) {
       permission: 'POST /api/v1/backups/:id/restore',
       hidden:
         !isAdmin.value || row.status !== 'COMPLETED' || !['DATABASE', 'FULL', 'DEVICE_DAILY', 'INCREMENTAL', 'RAW_LOGS'].includes(row.type),
-      loading: actionLoading.value === `restore:${row.id}`,
+      loading: busy.value?.key === `restore:${row.id}`,
+      disabled: Boolean(busy.value),
       onClick: () => restoreToTarget(row)
     },
     {
@@ -283,23 +353,23 @@ function rowActions(row) {
       <template v-if="isAdmin">
         <ui-button
           v-permission="'POST /api/v1/backups'"
-          :loading="actionLoading === 'run:DEVICE_DAILY'"
-          :disabled="serviceMissing"
+          :loading="busy?.key === 'run:DEVICE_DAILY'"
+          :disabled="serviceMissing || Boolean(busy)"
           @click="runBackup('DEVICE_DAILY')"
           >备份昨日数据</ui-button
         >
         <ui-button
           v-permission="'POST /api/v1/backups'"
-          :loading="actionLoading === 'run:DATABASE'"
-          :disabled="serviceMissing"
+          :loading="busy?.key === 'run:DATABASE'"
+          :disabled="serviceMissing || Boolean(busy)"
           @click="runBackup('DATABASE')"
           >立即整库备份</ui-button
         >
         <ui-button
           v-permission="'POST /api/v1/backups'"
           type="primary"
-          :loading="actionLoading === 'run:FULL'"
-          :disabled="serviceMissing"
+          :loading="busy?.key === 'run:FULL'"
+          :disabled="serviceMissing || Boolean(busy)"
           @click="runBackup('FULL')"
           >立即完整备份</ui-button
         >
@@ -312,6 +382,15 @@ function rowActions(row) {
     title="当前部署未启用备份服务"
     description="备份记录与手动备份暂不可用。请在部署配置中启用备份服务（IOT_BACKUP_URL）后刷新。"
     type="warning"
+    :closable="false"
+    show-icon
+  />
+  <ui-alert
+    v-if="busy"
+    class="backup-missing"
+    type="info"
+    :title="`${busy.label}正在执行 · 已进行 ${busyElapsed}`"
+    description="完成前不能再触发其他备份、文件校验或恢复验证。切换菜单不会中断任务；刷新或关闭页面会中断请求，可能导致任务失败。"
     :closable="false"
     show-icon
   />
@@ -423,9 +502,9 @@ function rowActions(row) {
             v-if="isAdmin"
             plain
             type="primary"
-            :loading="actionLoading === `download:${detail.id}:manifest.json`"
+            :loading="Boolean(downloads[`${detail.id}:manifest.json`])"
             @click="downloadArtifact(detail, { filename: 'manifest.json' })"
-            >下载文件清单</ui-button
+            >{{ downloadText(detail, { filename: 'manifest.json' }, '下载文件清单') }}</ui-button
           >
         </div>
         <ui-table :data="manifest.artifacts" stripe>
@@ -447,16 +526,16 @@ function rowActions(row) {
               ></template
             ></ui-table-column
           >
-          <ui-table-column label="操作" width="100" align="center"
+          <ui-table-column label="操作" width="130" align="center"
             ><template #default="{ row }"
               ><ui-button
                 v-permission="'GET /api/v1/backups/:id/files/:filename'"
                 v-if="isAdmin"
                 plain
                 type="primary"
-                :loading="actionLoading === `download:${detail.id}:${row.filename}`"
+                :loading="Boolean(downloads[`${detail.id}:${row.filename}`])"
                 @click="downloadArtifact(detail, row)"
-                >下载</ui-button
+                >{{ downloadText(detail, row) }}</ui-button
               ><span v-else class="muted-text">管理员可下载</span></template
             ></ui-table-column
           >

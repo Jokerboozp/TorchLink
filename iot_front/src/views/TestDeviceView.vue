@@ -40,8 +40,13 @@ function storageKey() {
   return `iot:test-device-templates:${session.tenant || 'default'}:${session.user || 'anonymous'}`
 }
 
+// 本地保存模板只是便利功能；存储不可用或已满时不能影响发送。
 function saveTemplates() {
-  localStorage.setItem(storageKey(), JSON.stringify({ ...templates }))
+  try {
+    localStorage.setItem(storageKey(), JSON.stringify({ ...templates }))
+  } catch {
+    // 忽略存储错误，模板仍保留在当前页面。
+  }
 }
 
 function restoreTemplates() {
@@ -60,7 +65,11 @@ function applyServerTemplates(value) {
 }
 
 function resetLocalTemplates() {
-  localStorage.removeItem(storageKey())
+  try {
+    localStorage.removeItem(storageKey())
+  } catch {
+    // 忽略存储错误，重新准备后仍会覆盖页面中的模板。
+  }
   prepare(true)
 }
 
@@ -96,17 +105,42 @@ function wait(ms) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
+// 解析是异步的：PARSED 与 FAILED 为最终结果，UNPARSED 或暂未归档时按退避间隔继续确认，
+// 累计约 10 秒仍无结果则返回最后一次读取并标记为未确认，不无限显示“处理中”。
+const rawPollDelays = [150, 300, 500, 800, 1200, 1500, 2000, 2000, 2000]
+const finalParseStatuses = ['PARSED', 'FAILED']
 async function loadRawDetail(messageId) {
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  let last = null,
+    lastError = null
+  for (let attempt = 0; ; attempt += 1) {
     try {
       const detail = await api(`/api/v1/raw-messages/${encodeURIComponent(messageId)}`)
-      if (detail.standardMessage || attempt === 3) return detail
+      if (detail?.standardMessage || finalParseStatuses.includes(detail?.parseStatus)) return detail
+      last = detail
     } catch (error) {
-      if (attempt === 3) throw error
+      lastError = error
     }
-    await wait(120)
+    if (attempt >= rawPollDelays.length) break
+    await wait(rawPollDelays[attempt])
   }
-  return null
+  return { ...(last || {}), unconfirmed: true, readError: last ? '' : lastError?.message || '' }
+}
+
+function parseOutcome(rawDetail) {
+  if (rawDetail?.parseStatus === 'PARSED' || rawDetail?.standardMessage) return 'parsed'
+  if (rawDetail?.parseStatus === 'FAILED') return 'failed'
+  return 'unconfirmed'
+}
+
+// 只把本次发送之后产生、再次触发或恢复的告警归到这条报文，避免把历史告警算作本次结果。
+function relatedAlarmsFor(items, kind, messageId, since) {
+  return (items || []).filter(item => {
+    if (item.triggerId === messageId) return true
+    if (item.deviceId !== device.value?.id) return false
+    if (kind === 'alarm') return Number(item.lastTriggeredAt || item.firstTriggeredAt || 0) >= since
+    if (kind === 'recovery') return Number(item.recoveredAt || 0) >= since
+    return false
+  })
 }
 
 async function sendTemplate(kind) {
@@ -124,37 +158,72 @@ async function sendTemplate(kind) {
   }
 
   sending.value = kind
-  saveTemplates()
+  const sendStartedAt = Date.now()
   try {
+    saveTemplates()
     // 测试报文走受权限保护的调试接收接口，再以归档结果确认解析状态。
     const response = await api(`/api/v1/device-registry/${encodeURIComponent(device.value.id)}/debug`, {
       method: 'POST',
       body: JSON.stringify(body)
     })
     const messageId = response.archive?.messageId || response.messageId || body.messageId
-    const rawDetail = await loadRawDetail(messageId)
-    const alarmData = await api(`/api/v1/alarms?deviceId=${encodeURIComponent(device.value.id)}&limit=20`)
-    const relatedAlarms = (alarmData.items || []).filter(
-      item => item.triggerId === messageId || ((kind === 'alarm' || kind === 'recovery') && item.deviceId === device.value.id)
-    )
+    // 优先使用服务端接收时间比较告警时间，避免浏览器与服务器时钟不一致。
+    const since = Number(response.archive?.receivedAt) || sendStartedAt
     const record = {
       id: `${messageId}-${Date.now()}`,
       kind,
       messageId,
       sentAt: Date.now(),
-      parsed: rawDetail?.parseStatus === 'PARSED',
-      messageType: rawDetail?.standardMessage?.messageType || '—',
-      alarm: relatedAlarms.some(item => item.status === 'ACTIVE')
+      state: 'pending',
+      messageType: '—',
+      alarm: false
     }
     history.value = [record, ...history.value].slice(0, 8)
-    result.value = { kind, messageId, response, rawDetail, alarms: relatedAlarms, sentAt: Date.now() }
-    UiMessage.success(`${templateNames[kind]}已发送，已进入平台处理链路`)
+    result.value = { kind, messageId, response, rawDetail: null, alarms: [], sentAt: record.sentAt, state: 'pending' }
+    UiMessage.success(`${templateNames[kind]}已发送，正在确认解析结果`)
+    let rawDetail = null,
+      alarms = [],
+      note = ''
+    try {
+      rawDetail = await loadRawDetail(messageId)
+      const alarmData = await api(`/api/v1/alarms?deviceId=${encodeURIComponent(device.value.id)}&limit=20`)
+      alarms = relatedAlarmsFor(alarmData.items, kind, messageId, since)
+    } catch (error) {
+      note = error?.message || String(error)
+    }
+    const state = parseOutcome(rawDetail)
+    const finished = {
+      ...record,
+      state,
+      parseError: rawDetail?.parseError || '',
+      messageType: rawDetail?.standardMessage?.messageType || '—',
+      alarm: alarms.some(item => item.status === 'ACTIVE')
+    }
+    history.value = history.value.map(item => (item.id === record.id ? finished : item))
+    if (result.value?.messageId === messageId)
+      result.value = { ...result.value, rawDetail, alarms, state, note: note || rawDetail?.readError || '' }
   } catch (error) {
     result.value = { kind, error: error?.message || String(error), sentAt: Date.now() }
     notifyError(error)
   } finally {
     sending.value = ''
   }
+}
+
+const historyStates = {
+  pending: { type: 'info', text: '确认中' },
+  failed: { type: 'danger', text: '解析失败' },
+  unconfirmed: { type: 'warning', text: '未确认' }
+}
+function historyTag(item) {
+  if (item.alarm) return { type: 'danger', text: '已触发告警' }
+  if (item.state === 'parsed') return { type: 'success', text: messageTypeLabel(item.messageType) }
+  return historyStates[item.state] || historyStates.unconfirmed
+}
+function parseStateText(value) {
+  if (value?.state === 'pending') return '确认中'
+  if (value?.state === 'unconfirmed') return '未确认（约 10 秒内未得到解析结果，可到原始报文中查看）'
+  return value?.rawDetail?.parseStatus ? statusLabel(value.rawDetail.parseStatus) : '已提交'
 }
 
 function resultDetail(value) {
@@ -337,9 +406,7 @@ onMounted(() => {
               <strong>{{ templateNames[item.kind] }}</strong
               ><small>{{ formatTime(item.sentAt) }} · {{ item.messageId }}</small>
             </div>
-            <ui-tag :type="item.alarm ? 'danger' : item.parsed ? 'success' : 'warning'" round>{{
-              item.alarm ? '已触发告警' : item.parsed ? messageTypeLabel(item.messageType) : '处理中'
-            }}</ui-tag>
+            <ui-tag :type="historyTag(item).type" round :title="item.parseError || undefined">{{ historyTag(item).text }}</ui-tag>
           </div>
         </ui-card>
 
@@ -355,18 +422,26 @@ onMounted(() => {
               <ui-descriptions-item label="消息编号"
                 ><code>{{ result.messageId }}</code></ui-descriptions-item
               >
-              <ui-descriptions-item label="解析状态">{{
-                result.rawDetail?.parseStatus ? statusLabel(result.rawDetail.parseStatus) : '已提交'
+              <ui-descriptions-item label="解析状态">{{ parseStateText(result) }}</ui-descriptions-item>
+              <ui-descriptions-item v-if="result.rawDetail?.parseError" label="失败原因">{{
+                result.rawDetail.parseError
               }}</ui-descriptions-item>
               <ui-descriptions-item label="标准消息">{{
                 result.rawDetail?.standardMessage
                   ? `${messageTypeLabel(result.rawDetail.standardMessage.messageType)}（${result.rawDetail.standardMessage.messageType}）`
-                  : '等待处理'
+                  : result.state === 'pending'
+                    ? '等待处理'
+                    : '未生成'
               }}</ui-descriptions-item>
               <ui-descriptions-item label="关联告警">{{
-                result.alarms?.length ? `${result.alarms.length} 条 · ${alarmType(result.alarms[0].alarmType)}` : '暂无'
+                result.alarms?.length
+                  ? `${result.alarms.length} 条 · ${alarmType(result.alarms[0].alarmType)}`
+                  : result.state === 'pending'
+                    ? '确认中'
+                    : '本次发送后暂无'
               }}</ui-descriptions-item>
             </ui-descriptions>
+            <p v-if="result.note" class="muted-text top-gap">结果读取未完成：{{ result.note }}</p>
             <pre class="result-json">{{ pretty(resultDetail(result)) }}</pre>
           </template>
         </ui-card>

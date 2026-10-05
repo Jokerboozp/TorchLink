@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, reactive, ref, toRef, watch } from 'vue'
 import { Plus, RefreshCw } from '@lucide/vue'
 import { api, isAbort } from '../api'
 import { useListLoader } from '../composables/useListLoader'
@@ -20,6 +20,8 @@ import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
+import { usePageState } from '../composables/usePageState.js'
+import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
 defineEmits(['navigate'])
 
 const tabs = {
@@ -54,6 +56,31 @@ const returning = ref(null),
   returnSaving = ref(false),
   returnError = ref('')
 const deleteSaving = ref(false)
+// 页签、筛选、统计日期与页码在刷新或切换菜单后恢复；须在监听页签切换之前恢复，避免被当作切换而清空筛选。
+usePageState('fire-stations', {
+  tab,
+  q: toRef(filters, 'q'),
+  stationId: toRef(filters, 'stationId'),
+  status: toRef(filters, 'status'),
+  from: toRef(range, 'from'),
+  to: toRef(range, 'to'),
+  page,
+  pageSize
+})
+// 资料编辑与登记归队弹窗关闭前检查未保存的修改。
+const formGuard = trackDialogForm(dialog, () => form)
+const returnGuard = trackDialogForm(
+  computed(() => Boolean(returning.value)),
+  () => returnForm
+)
+async function closeEditor() {
+  if (saving.value) return
+  if (await confirmClose(formGuard.dirty())) dialog.value = false
+}
+async function closeReturn() {
+  if (returnSaving.value) return
+  if (await confirmClose(returnGuard.dirty())) returning.value = null
+}
 const equipmentStates = [
   { value: 'ready', label: '可用' },
   { value: 'maintenance', label: '维护中' },
@@ -457,12 +484,12 @@ onMounted(refresh)
     </DataTableCard>
 
     <ui-dialog
-      v-model="dialog"
+      :model-value="dialog"
       :title="`${form.id ? '编辑' : '新增'}${editKind === 'stations' ? '消防站' : labels(editKind)}`"
       width="min(720px,94vw)"
-      :close-on-click-modal="!saving"
       :show-close="!saving"
       :close-on-press-escape="!saving"
+      @update:model-value="value => value || closeEditor()"
     >
       <ui-alert v-if="saveError" type="error" :title="saveError" :closable="false" class="fire-section" />
       <ui-form :model="form" label-position="top">
@@ -575,7 +602,7 @@ onMounted(refresh)
         /></ui-form-item>
       </ui-form>
       <template #footer
-        ><ui-button :disabled="saving" @click="dialog = false">取消</ui-button
+        ><ui-button :disabled="saving" @click="closeEditor">取消</ui-button
         ><ui-button
           v-permission="`${form.id ? 'PUT' : 'POST'} /api/v1/${tabs[editKind].path}${form.id ? '/:id' : ''}`"
           type="primary"
@@ -589,14 +616,9 @@ onMounted(refresh)
       :model-value="Boolean(returning)"
       title="登记归队"
       width="min(560px,94vw)"
-      :close-on-click-modal="!returnSaving"
       :show-close="!returnSaving"
       :close-on-press-escape="!returnSaving"
-      @update:model-value="
-        value => {
-          if (!value && !returnSaving) returning = null
-        }
-      "
+      @update:model-value="value => value || closeReturn()"
     >
       <ui-alert v-if="returnError" type="error" :title="returnError" :closable="false" class="fire-section" />
       <p>{{ returning?.title }}</p>
@@ -611,7 +633,7 @@ onMounted(refresh)
             :rows="4"
             maxlength="4000" /></ui-form-item></ui-form
       ><template #footer
-        ><ui-button :disabled="returnSaving" @click="returning = null">取消</ui-button
+        ><ui-button :disabled="returnSaving" @click="closeReturn">取消</ui-button
         ><ui-button v-permission="'POST /api/v1/fire-dispatches/:id/return'" type="primary" :loading="returnSaving" @click="saveReturn"
           >确认归队</ui-button
         ></template

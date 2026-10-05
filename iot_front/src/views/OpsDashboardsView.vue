@@ -10,6 +10,7 @@ import { takeNavigation } from '../routing'
 import DashboardImport from '../components/ops/DashboardImport.vue'
 import DashboardViewer from '../components/ops/DashboardViewer.vue'
 import DataSourcesPanel from '../components/ops/DataSourcesPanel.vue'
+import { usePageState } from '../composables/usePageState.js'
 
 const emit = defineEmits(['navigate'])
 const tab = ref('dashboards')
@@ -25,6 +26,8 @@ const favoritesOnly = ref(false)
 const openUid = ref('')
 const creating = ref(null)
 const importVisible = ref(false)
+// 列表筛选和正在查看的仪表盘随地址栏和会话保留，刷新页面或切换菜单后回到原处。
+usePageState('opsDashboards', { tab, search, folderFilter, tagFilter, favoritesOnly, openUid })
 const runner = latest()
 let searchTimer = null
 const canCreate = computed(() => can('POST /api/v1/ops/dashboards'))

@@ -23,6 +23,7 @@ import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 import { copyText } from '../clipboard'
+import { usePageState } from '../composables/usePageState.js'
 defineEmits(['navigate'])
 
 // 三个视图：接入配置（来源及其接口）、编号对应、运行记录（接收记录 / 拉取任务）。
@@ -60,6 +61,8 @@ const sample = ref(
   JSON.stringify({ id: 'event-001', deviceId: 'device-001', timestamp: Date.now(), alarmType: 'FIRE', content: '检测到火焰' }, null, 2)
 )
 const range = ref([Date.now() - 3600000, Date.now()])
+// 视图、筛选与页码在刷新或切换菜单后恢复；须在监听视图和筛选变化之前恢复，避免恢复时被当作切换而清空。
+usePageState('external-data', { view, runKind, sourceId, endpointId, status, page, pageSize })
 const keyOpen = ref(false)
 const keyResult = ref(null)
 const receiveEndpoint = ref(null)
@@ -493,8 +496,9 @@ async function copy(value) {
   else UiMessage.warning('自动复制失败，请选中文本复制')
 }
 onMounted(() => {
-  view.value = visibleTabs.value[0]?.[0] || 'config'
-  runKind.value = runKinds.value[0] || 'records'
+  // 恢复的视图仍有权限时保留，否则回到第一个可用视图。
+  if (!visibleTabs.value.some(([key]) => key === view.value)) view.value = visibleTabs.value[0]?.[0] || 'config'
+  if (!runKinds.value.includes(runKind.value)) runKind.value = runKinds.value[0] || 'records'
   load()
   loadChoices()
   poll = setInterval(() => {

@@ -214,7 +214,8 @@ function nestedMessage(data) {
 }
 
 function normalizeAlert(data, kind, topic) {
-  const alarmLevel = upper(data.alarmLevel || data.level || (kind === 'fault' ? 'HIGH' : 'HIGH')) || 'HIGH'
+  // 事件没有等级时如实显示“未标注”，不替它编一个等级。
+  const alarmLevel = upper(data.alarmLevel || data.level || '')
   const alarmTypeValue =
     upper(data.alarmType || data.alarm_type || (kind === 'fault' ? 'DEVICE_FAULT' : 'MANUAL_ALARM')) ||
     (kind === 'fault' ? 'DEVICE_FAULT' : 'MANUAL_ALARM')
@@ -248,7 +249,7 @@ function normalizeAlert(data, kind, topic) {
     alarmType: alarmTypeValue,
     alarmTypeLabel: alarmType(alarmTypeValue),
     alarmLevel,
-    alarmLevelLabel: label(alarmLevels, alarmLevel, '高'),
+    alarmLevelLabel: alarmLevel ? label(alarmLevels, alarmLevel, alarmLevel) : '未标注',
     status: upper(data.status || 'ACTIVE') || 'ACTIVE',
     source: firstText(data.source),
     timestamp: timestampOf(data),

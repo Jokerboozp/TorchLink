@@ -5,7 +5,8 @@ import { useListLoader } from '../composables/useListLoader'
 import { copyText } from '../clipboard'
 import { createClientId } from '../clientId'
 import { statusLabel, transportLabel } from '../presentation'
-import { UiMessage } from '../ui/feedback.js'
+import { UiMessage, UiMessageBox } from '../ui/feedback.js'
+import { useUnsavedGuard } from '../composables/unsavedGuard.js'
 import { CheckCircle2, CircleDashed, Copy, XCircle } from '@lucide/vue'
 import OnboardingDiagnosis from './OnboardingDiagnosis.vue'
 import {
@@ -48,6 +49,22 @@ const saving = ref(false),
   saveError = ref('')
 // 设备密钥只保存在内存中，刷新页面或离开向导后不可再读取。
 const credential = ref(null)
+// 密钥未确认保存前，切换菜单、刷新页面和离开向导都先提醒。
+useUnsavedGuard(() => Boolean(credential.value))
+async function confirmCredentialLeave() {
+  if (!credential.value) return true
+  try {
+    await UiMessageBox.confirm(
+      '设备密钥（Secret）只显示这一次，离开后无法再次查看，只能到设备详情中重新生成凭据。请确认已复制并交给现场人员。',
+      '设备密钥尚未确认保存',
+      { confirmButtonText: '已保存，继续离开', cancelButtonText: '返回保存' }
+    )
+  } catch {
+    return false
+  }
+  credential.value = null
+  return true
+}
 const status = ref(null),
   statusError = ref(''),
   statusAt = ref(0),
@@ -343,11 +360,13 @@ async function copy(text, message = '已复制') {
 function copyAll() {
   copy(configurationText(draft.result, accessInfo.value, credential.value), '接入信息已复制')
 }
-function openRaw() {
+async function openRaw() {
+  if (!(await confirmCredentialLeave())) return
   persist()
   emit('navigate', 'raw', { deviceId: draft.result.device.id, rawMessageId: status.value?.ingest?.rawMessageId })
 }
 async function addAnother() {
+  if (!(await confirmCredentialLeave())) return
   await saveDraft()
   if (draftError.value || !activeIdentity()) return
   serverDraftId.value = createClientId()
@@ -385,17 +404,20 @@ async function reloadDraft() {
   }
 }
 async function saveBeforeLeave() {
+  if (!(await confirmCredentialLeave())) throw new Error('设备密钥尚未确认保存，已留在当前页面')
   clearTimeout(draftTimer)
   await saveDraft()
   if (draftError.value) throw new Error(draftError.value)
 }
 defineExpose({ saveBeforeLeave })
 async function close() {
+  if (!(await confirmCredentialLeave())) return
   clearTimeout(draftTimer)
   await saveDraft()
   if (!draftError.value) emit('close')
 }
 async function finish() {
+  if (!(await confirmCredentialLeave())) return
   clearTimeout(draftTimer)
   await saveDraft()
   if (!draftError.value) {
@@ -403,7 +425,8 @@ async function finish() {
     emit('done')
   }
 }
-function openDetail() {
+async function openDetail() {
+  if (!(await confirmCredentialLeave())) return
   const id = draft.result?.device?.id
   forget()
   emit('detail', id)
@@ -418,9 +441,10 @@ function restart() {
   preflightError.value = ''
 }
 
-function navigate(page) {
+async function navigate(page, detail) {
+  if (!(await confirmCredentialLeave())) return
   persist()
-  emit('navigate', page)
+  emit('navigate', page, detail)
 }
 
 onMounted(async () => {
@@ -682,7 +706,7 @@ onBeforeUnmount(() => {
           <span>Secret</span><code>{{ credential.secret }}</code
           ><ui-button text aria-label="复制 Secret" @click="copy(credential.secret)"><Copy /></ui-button>
         </div>
-        <ui-button size="small" @click="credential = null">我已保存</ui-button>
+        <ui-button size="small" type="primary" @click="credential = null">我已保存，隐藏密钥</ui-button>
       </div>
       <p v-else-if="accessInfo" class="onboarding__muted">设备密钥只在首次创建时显示；如已丢失，请在设备详情中重新生成凭据。</p>
 
@@ -712,7 +736,7 @@ onBeforeUnmount(() => {
       </section>
 
       <OnboardingDiagnosis
-        @navigate="(page, detail) => emit('navigate', page, detail)"
+        @navigate="navigate"
         :status="status"
         :error="statusError"
         :refreshing="refreshing"

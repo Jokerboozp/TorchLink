@@ -32,6 +32,8 @@ import DashboardPanel from './DashboardPanel.vue'
 import DashboardSettings from './DashboardSettings.vue'
 import PanelEditor from './PanelEditor.vue'
 import TimeRangeBar from './TimeRangeBar.vue'
+import { usePageState } from '../../composables/usePageState.js'
+import { useUnsavedGuard } from '../../composables/unsavedGuard.js'
 
 const props = defineProps({
   uid: { type: String, default: '' },
@@ -53,6 +55,14 @@ const editing = ref(false)
 const dirty = ref(false)
 const range = ref({ from: 'now-6h', to: 'now' })
 const refresh = ref(0)
+// 已保存仪表盘的时间范围与自动刷新随地址栏和会话保留（按仪表盘区分），刷新页面或切换菜单后恢复。
+const savedTime = ref({ uid: '', range: null, refresh: 0 })
+usePageState('opsDashboardViewer', { dashTime: savedTime })
+watch([range, refresh], () => {
+  if (view.value?.dashboard?.uid && props.uid) savedTime.value = { uid: props.uid, range: range.value, refresh: refresh.value }
+})
+// 编辑中的未保存修改在切换菜单、刷新或关闭页面前提示。
+useUnsavedGuard(() => dirty.value)
 const isNew = computed(() => !view.value?.dashboard?.uid)
 const canEdit = computed(() => can(isNew.value ? 'POST /api/v1/ops/dashboards' : 'PUT /api/v1/ops/dashboards/:uid'))
 const canPreview = computed(() => can('POST /api/v1/ops/dashboards/preview'))
@@ -248,8 +258,9 @@ async function load() {
     working.value = JSON.parse(JSON.stringify(view.value.dashboard))
     working.value.panels = working.value.panels || []
     folder.value = view.value.meta?.folderUid ?? props.folderUid ?? ''
-    range.value = { from: working.value.time?.from || 'now-6h', to: working.value.time?.to || 'now' }
-    refresh.value = refreshMs(working.value.refresh)
+    const kept = props.uid && savedTime.value.uid === props.uid && savedTime.value.range ? savedTime.value : null
+    range.value = kept ? kept.range : { from: working.value.time?.from || 'now-6h', to: working.value.time?.to || 'now' }
+    refresh.value = kept ? Number(kept.refresh) || 0 : refreshMs(working.value.refresh)
     dirty.value = false
     editing.value = !props.uid
     for (const key of Object.keys(varValues)) delete varValues[key]

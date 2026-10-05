@@ -12,6 +12,7 @@ import { label, parsers } from '../labels'
 import { UiMessage } from '../ui/feedback.js'
 import { api, download, formatTime, isAbort, notifyError, pretty } from '../api'
 import { useListLoader } from '../composables/useListLoader'
+import { confirmClose, useUnsavedGuard } from '../composables/unsavedGuard.js'
 import { confirmDelete } from '../deleteAction'
 import { RefreshCw, Upload, Wand2 } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
@@ -82,17 +83,43 @@ const hasReleaseActions = computed(
   () => canTestMapping.value || canPreviewRelease.value || canPublishRelease.value || canDownloadSource.value
 )
 const assistantRelease = ref(null),
-  assistantName = ref('')
+  assistantName = ref(''),
+  assistantState = ref({ working: false, dirty: false })
 function openAssistant(release = null, name = '') {
   releaseOpen.value = false
   assistantRelease.value = release
   assistantName.value = name
+  assistantState.value = { working: false, dirty: false }
   assistantOpen.value = true
+}
+// 生成或校验进行中、或草稿与字段映射尚未保存时，关闭弹窗、切换菜单和刷新页面都先确认。
+useUnsavedGuard(() => assistantOpen.value && assistantState.value.dirty)
+async function closeAssistant() {
+  const { working, dirty } = assistantState.value
+  const message = working
+    ? '协议正在生成或校验，关闭后将中止当前请求，已填写的资料和字段映射也会丢失。确定关闭？'
+    : '生成的协议草稿尚未保存，关闭后已编辑的字段映射将丢失。确定关闭？'
+  if (!(await confirmClose(dirty, message))) return
+  assistantOpen.value = false
+  assistantState.value = { working: false, dirty: false }
 }
 function assistantNavigate(page) {
   assistantOpen.value = false
+  assistantState.value = { working: false, dirty: false }
   emit('navigate', page)
 }
+// 最近一次源码上传或发布结果的中文摘要，原始数据折叠在下方。
+const resultSummary = computed(() => {
+  const release = result.value?.release || result.value
+  if (!release) return []
+  const rows = [
+    ['协议版本', `${release.protocolId || '—'} @ ${release.version || '—'}`],
+    ['状态', statusText(release.status)],
+    ['运行方式', `${transportLabel(release.transport)} · ${label(parsers, release.parserType, '自定义协议程序')}`]
+  ]
+  if (release.createdAt) rows.push(['创建时间', formatTime(release.createdAt)])
+  return rows
+})
 const releaseCount = computed(() => protocols.value.reduce((total, item) => total + (item.releases?.length || 0), 0))
 const loader = useListLoader(loading)
 const loadError = ref('')
@@ -376,13 +403,22 @@ function protocolActions(row) {
         </div>
       </template>
     </ui-dialog>
-    <ui-dialog v-model="assistantOpen" title="生成协议" width="min(980px, 94vw)" :close-on-click-modal="false" destroy-on-close
+    <ui-dialog
+      :model-value="assistantOpen"
+      title="生成协议"
+      width="min(980px, 94vw)"
+      :close-on-click-modal="false"
+      :close-on-press-escape="!assistantState.working"
+      :show-close="!assistantState.working"
+      destroy-on-close
+      @update:model-value="value => (value ? (assistantOpen = true) : closeAssistant())"
       ><p v-if="!assistantRelease" class="muted-text bottom-gap">通过报文或 Excel / CSV 点表生成协议</p>
       <ProtocolAssistantView
         v-if="assistantOpen"
         :initial-release="assistantRelease"
         :initial-name="assistantName"
         @saved="load"
+        @state="value => (assistantState = value)"
         @navigate="assistantNavigate"
     /></ui-dialog>
     <ui-dialog v-model="previewOpen" title="协议版本解析预览" width="min(860px, 94vw)" destroy-on-close
@@ -413,10 +449,19 @@ function protocolActions(row) {
         "
       />
     </ui-dialog>
-    <details v-if="result" class="technical-details">
-      <summary>最近操作结果</summary>
-      <pre>{{ pretty(result) }}</pre>
-    </details>
+    <section v-if="result" class="recent-result" aria-label="最近操作结果">
+      <strong>最近操作结果</strong>
+      <dl>
+        <template v-for="[name, value] in resultSummary" :key="name"
+          ><dt>{{ name }}</dt>
+          <dd>{{ value }}</dd></template
+        >
+      </dl>
+      <details class="technical-details">
+        <summary>原始数据</summary>
+        <pre>{{ pretty(result) }}</pre>
+      </details>
+    </section>
   </template>
 </template>
 <style scoped>
@@ -424,6 +469,27 @@ function protocolActions(row) {
   margin: 0 0 var(--space-3);
   color: var(--text-muted);
   font-size: var(--font-size-sm);
+}
+.recent-result {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-sm);
+}
+.recent-result dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-2) 0;
+}
+.recent-result dt {
+  color: var(--text-muted);
+}
+.recent-result dd {
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 .release-buttons {
   display: flex;

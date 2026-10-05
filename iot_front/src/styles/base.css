@@ -217,7 +217,8 @@ summary:focus-visible {
   padding: var(--space-3) var(--space-6);
   border-top: 1px solid var(--border);
 }
-.n-modal.ui-dialog.alarm-detail-dialog > .n-card-content > pre {
+.n-modal.ui-dialog.alarm-detail-dialog > .n-card-content > pre,
+.n-modal.ui-dialog.alarm-detail-dialog > .n-card-content > .raw-detail > pre {
   max-height: none;
   overflow: visible;
 }
