@@ -240,7 +240,9 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 	}
 	for name, check := range checksToRun {
 		if err := check(ctx); err != nil {
-			checks[name] = err.Error()
+			// The probe is unauthenticated: report which dependency failed, not why.
+			s.log.Warn("readiness check failed", "dependency", name, "error", err)
+			checks[name] = "unavailable"
 			status = 503
 		} else {
 			checks[name] = "ok"
@@ -256,7 +258,7 @@ func (s *Server) products(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.ListProductsPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	for i := range items {
@@ -311,7 +313,7 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	if v.VerificationRules != nil {
 		rules, e := onboarding.NormalizeVerificationRules(*v.VerificationRules)
 		if e != nil {
-			enrollProblem(w, e)
+			s.enrollProblem(w, r, e)
 			return
 		}
 		v.VerificationRules = &rules
@@ -366,7 +368,7 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	v.UpdatedAt = now
 	if err = s.engine.Repo.SaveProduct(r.Context(), v); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	s.engine.ProtocolsChanged(c.TenantID)
@@ -379,7 +381,7 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 		}
 		v, err = s.engine.Repo.GetProduct(r.Context(), c.TenantID, v.ID)
 		if err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 	}
@@ -407,7 +409,7 @@ func (s *Server) protocolPackages(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.ListProtocolPackagesPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	writeList(w, 200, items, total, pagination, map[string]any{"parserTypes": parser.ManagedParserTypes()})
@@ -473,7 +475,7 @@ func (s *Server) saveProtocolPackage(w http.ResponseWriter, r *http.Request) {
 	}
 	v.UpdatedAt = now
 	if err := s.engine.Repo.SaveProtocolPackage(r.Context(), v); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	s.audit(r, "protocol.save", "protocolPackage", v.ID, map[string]any{"version": v.Version, "status": v.Status})
@@ -523,7 +525,7 @@ func (s *Server) deviceRegistry(w http.ResponseWriter, r *http.Request) {
 	// The scope-aware repository filters limited users before totals and pagination.
 	items, total, err := s.engine.Repo.ListManagedDevicesFiltered(r.Context(), filter, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	deviceIDs := make([]string, 0, len(items))
@@ -532,7 +534,7 @@ func (s *Server) deviceRegistry(w http.ResponseWriter, r *http.Request) {
 	}
 	childCounts, err := s.engine.Repo.CountManagedDeviceChildren(r.Context(), tenantID, deviceIDs)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	productIDs := make([]string, 0, len(items))
@@ -734,7 +736,7 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	v.UpdatedAt = now
 	if err := s.engine.Repo.SaveManagedDevice(r.Context(), v); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	if timingChanged {
@@ -918,12 +920,12 @@ func (s *Server) listRaw(w http.ResponseWriter, r *http.Request) {
 	filter.TenantID, filter.Limit, filter.Offset = c.TenantID, pagination.PageSize, pagination.Offset
 	items, err := s.engine.Repo.ListRawIndexes(r.Context(), filter)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	total, err := s.engine.Repo.CountRawIndexes(r.Context(), filter)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	ids := make([]string, 0, len(items))
@@ -982,7 +984,7 @@ func (s *Server) downloadRaw(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	filename := strings.Map(func(r rune) rune {
@@ -1056,17 +1058,17 @@ func (s *Server) downloadRawBatch(w http.ResponseWriter, r *http.Request) {
 	for i, item := range items {
 		body, err := json.MarshalIndent(item.Message, "", "  ")
 		if err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 		name := fmt.Sprintf("报文/%03d_%s.json", i+1, safeAttachmentName(item.Index.MessageID))
 		file, err := zw.Create(name)
 		if err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 		if _, err = file.Write(append(body, '\n')); err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 		manifest = append(manifest, item.Index)
@@ -1077,11 +1079,11 @@ func (s *Server) downloadRawBatch(w http.ResponseWriter, r *http.Request) {
 		_, err = manifestFile.Write(append(manifestBody, '\n'))
 	}
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	if err = zw.Close(); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	filename := fmt.Sprintf("原始报文_%s_%d条.zip", time.Now().Format("20060102_150405"), len(items))
@@ -1143,12 +1145,12 @@ func (s *Server) devices(w http.ResponseWriter, r *http.Request) {
 		items, total, err = s.engine.Repo.ListDeviceStatesPage(r.Context(), tenantID, pagination.PageSize, pagination.Offset)
 	}
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	_, online, err := s.engine.Repo.CountDeviceStates(r.Context(), tenantID, unregisteredOnly)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	writeList(w, 200, items, total, pagination, map[string]any{"online": online, "offline": total - online, "unregistered": unregisteredOnly})
@@ -1182,7 +1184,7 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.PropertyHistoryPage(r.Context(), claims(r).TenantID, r.PathValue("deviceId"), property, i64(q.Get("start")), i64(q.Get("end")), pagination.PageSize, pagination.Offset)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	writeList(w, 200, items, total, pagination, nil)
@@ -1217,7 +1219,7 @@ func (s *Server) rules(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	v, total, err := s.engine.Repo.ListRulesPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	writeList(w, 200, v, total, pagination, nil)
@@ -1252,7 +1254,7 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 		v.ID = id
 		items, err := s.engine.Repo.ListRules(r.Context(), c.TenantID)
 		if err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 		found := false
@@ -1301,12 +1303,12 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 	}
 	if status == http.StatusOK && wasEnabled && !v.Enabled {
 		if err := s.engine.DisableRule(r.Context(), c.TenantID, v.ID); err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 	}
 	if err := s.engine.Repo.SaveRule(r.Context(), v); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	s.engine.RulesChanged(c.TenantID)
@@ -1328,12 +1330,12 @@ func (s *Server) alarms(w http.ResponseWriter, r *http.Request) {
 	filter := ports.AlarmFilter{TenantID: claims(r).TenantID, DeviceID: q.Get("deviceId"), Status: q.Get("status"), Level: q.Get("level"), Source: q.Get("source"), Start: i64(q.Get("start")), End: i64(q.Get("end")), Limit: pagination.PageSize, Offset: pagination.Offset}
 	items, err := s.engine.Repo.ListAlarms(r.Context(), filter)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	total, err := s.engine.Repo.CountAlarms(r.Context(), filter)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	deviceIDs := make([]string, 0, len(items))
@@ -1402,7 +1404,7 @@ func (s *Server) aiAnalysis(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 		if !found || v.CreatedAt > latest.CreatedAt {
@@ -2088,7 +2090,7 @@ func (s *Server) workflowKnowledgeBinding(w http.ResponseWriter, r *http.Request
 	if r.Method == http.MethodGet {
 		binding, err := s.engine.Repo.GetWorkflowKnowledgeBinding(r.Context(), c.TenantID, workflowID)
 		if err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 		if binding.WorkflowID == "" {
@@ -2121,7 +2123,7 @@ func (s *Server) workflowKnowledgeBinding(w http.ResponseWriter, r *http.Request
 		RetrievalMode: in.RetrievalMode, TopK: in.TopK, MinScore: in.MinScore, NoMatchPolicy: in.NoMatchPolicy, UpdatedAt: time.Now().UnixMilli(),
 	}
 	if err := s.engine.Repo.SaveWorkflowKnowledgeBinding(r.Context(), binding); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	s.audit(r, "ai.workflow.knowledge-binding.save", "ai-workflow", workflowID, map[string]any{"retrievalMode": binding.RetrievalMode, "topK": binding.TopK})
@@ -2449,7 +2451,7 @@ func (s *Server) knowledgeDocs(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.ListKnowledgeDocsPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	_, persistent := s.engine.KB.(ports.EmbeddingRuntime)
@@ -2480,7 +2482,7 @@ func (s *Server) knowledgeDocumentDetail(w http.ResponseWriter, r *http.Request)
 	}
 	documents, err := s.engine.Repo.ListKnowledgeDocs(r.Context(), claims(r).TenantID)
 	if err != nil {
-		problem(w, http.StatusInternalServerError, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	var document model.KnowledgeDoc
@@ -2623,7 +2625,7 @@ func (s *Server) knowledgeUpload(w http.ResponseWriter, r *http.Request) {
 		doc.Metadata["chunks"] = result.Chunks
 		doc.Metadata["characters"] = result.Characters
 		if err = s.engine.Repo.SaveKnowledgeDoc(r.Context(), doc); err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 		write(w, 201, doc)
@@ -2727,7 +2729,7 @@ func (s *Server) deviceMQTTToken(w http.ResponseWriter, r *http.Request) {
 
 	token, err := s.auth.IssueWithACL(v.AccessKey, v.TenantID, "device", nil, acl, ttl)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	response := map[string]any{"username": v.AccessKey, "token": token, "expiresIn": int(ttl.Seconds()), "publishTopic": topic, "receiptTopic": receiptTopic, "websocketUrl": s.mqttWebSocketURL(r)}
@@ -2750,7 +2752,7 @@ func (s *Server) mqttLoadToken(w http.ResponseWriter, r *http.Request) {
 	acl := []auth.ACLRule{{Permission: "allow", Action: "publish", Topic: topic}}
 	token, err := s.auth.IssueWithACL("loadgen:"+c.Username, c.TenantID, "loadgen", nil, acl, time.Hour)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	s.audit(r, "mqtt.load-token.issue", "product", input.ProductID, map[string]any{"topic": topic, "expiresIn": 3600})
@@ -2772,7 +2774,7 @@ func (s *Server) videoCameras(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.ListVideoCameraMappingsPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	for index := range items {
@@ -2807,7 +2809,7 @@ func (s *Server) videoRelations(w http.ResponseWriter, r *http.Request) {
 	}
 	relations, err := s.engine.Repo.ListVideoCameraRelationsByTarget(r.Context(), claims(r).TenantID, relationType, targetID)
 	if err != nil {
-		problem(w, http.StatusInternalServerError, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	write(w, http.StatusOK, map[string]any{"items": relations, "relationType": relationType, "targetId": targetID})
@@ -2875,7 +2877,7 @@ func (s *Server) saveVideoCamera(w http.ResponseWriter, r *http.Request) {
 	v.SDKCredentialRef = ""
 	v.UpdatedAt = time.Now().UnixMilli()
 	if err := s.engine.Repo.SaveVideoCameraMapping(r.Context(), v); err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	// Live configuration is stored separately and is never touched here; only
@@ -3151,6 +3153,16 @@ func write(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
+
+// internalError answers an unexpected failure without exposing its text:
+// storage and dependency errors can carry hosts, SQL or credentials. The
+// reference in the response matches the logged error.
+func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error) {
+	reference := randomHex(6)
+	s.log.Error("request failed", "reference", reference, "method", r.Method, "path", r.URL.Path, "error", err)
+	write(w, http.StatusInternalServerError, map[string]any{"type": "about:blank", "title": http.StatusText(http.StatusInternalServerError), "status": http.StatusInternalServerError, "detail": "服务内部错误，请稍后重试；如持续出现请提供编号 " + reference + " 联系管理员", "traceId": reference})
+}
+
 func problem(w http.ResponseWriter, status int, detail string) {
 	write(w, status, map[string]any{"type": "about:blank", "title": http.StatusText(status), "status": status, "detail": detail})
 }

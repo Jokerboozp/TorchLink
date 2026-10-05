@@ -333,7 +333,7 @@ func (s *Server) publishProtocolAssistant(w http.ResponseWriter, r *http.Request
 		pkg.CreatedAt = old.CreatedAt
 	}
 	if err = s.engine.Repo.SaveProtocolPackage(r.Context(), pkg); err != nil {
-		problem(w, http.StatusInternalServerError, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	s.audit(r, "ai.protocol-assistant.publish", "protocolPackage", pkg.ID, map[string]any{"version": pkg.Version, "status": pkg.Status, "fields": len(draft.Fields)})

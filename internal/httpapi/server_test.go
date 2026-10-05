@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -562,5 +563,25 @@ func TestBuiltinAdminTokenRevokedByPasswordChange(t *testing.T) {
 		if w.Code != want {
 			t.Fatalf("status=%d want %d", w.Code, want)
 		}
+	}
+}
+
+// Unexpected failures answer a reference instead of the error text, which can
+// carry dependency hosts or credentials; the log keeps the detail.
+func TestInternalErrorHidesDetailAndLogsReference(t *testing.T) {
+	var logs bytes.Buffer
+	api := New(config.Config{JWTSecret: "internal-error-secret-at-least-32-characters"}, &core.Engine{Repo: memory.NewRepository()}, metrics.New(), slog.New(slog.NewTextHandler(&logs, nil)))
+	w := httptest.NewRecorder()
+	api.internalError(w, httptest.NewRequest(http.MethodGet, "/api/v1/products", nil), errors.New("dial tcp 10.0.0.5:5432: password authentication failed"))
+	var body map[string]any
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	reference, _ := body["traceId"].(string)
+	if w.Code != http.StatusInternalServerError || reference == "" || strings.Contains(w.Body.String(), "10.0.0.5") {
+		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(logs.String(), reference) || !strings.Contains(logs.String(), "10.0.0.5") {
+		t.Fatalf("log lacks reference or detail: %s", logs.String())
 	}
 }

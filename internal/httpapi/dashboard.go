@@ -37,7 +37,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		return s.engine.Repo.DashboardCounts(ctx, c.TenantID, start.UnixMilli(), now.UnixMilli())
 	})
 	if err != nil {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	states, levels := map[string]int{}, map[string]int{}

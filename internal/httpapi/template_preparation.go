@@ -26,7 +26,7 @@ func (s *Server) templatePreparationRoutes() {
 	s.router.POST("/api/v1/device-registry/:id/verification", s.authorize("operator"), s.endpoint(s.verifyRegisteredDevice, "id"))
 }
 
-func preparationProblem(w http.ResponseWriter, err error) {
+func (s *Server) preparationProblem(w http.ResponseWriter, r *http.Request, err error) {
 	if errors.Is(err, model.ErrOnboardingChanged) || errors.Is(err, model.ErrBindingChanged) {
 		problem(w, 409, "模板或流程已被其他操作修改，请刷新后继续")
 		return
@@ -35,24 +35,24 @@ func preparationProblem(w http.ResponseWriter, err error) {
 		problem(w, 404, "设备模板或关联记录不存在")
 		return
 	}
-	enrollProblem(w, err)
+	s.enrollProblem(w, r, err)
 }
 
 func (s *Server) templatePreparation(w http.ResponseWriter, r *http.Request) {
 	tenant, id := claims(r).TenantID, r.PathValue("id")
 	current, err := s.onboarding.CurrentCandidate(r.Context(), tenant, id)
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	rec, prep, err := s.onboarding.TemplateRecord(r.Context(), tenant, id)
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	status, ready, err := s.onboarding.TemplateReadiness(r.Context(), tenant, id)
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	if rec.Revision == 0 {
@@ -60,7 +60,7 @@ func (s *Server) templatePreparation(w http.ResponseWriter, r *http.Request) {
 	}
 	_, total, err := s.engine.Repo.ListManagedDevicesFiltered(r.Context(), ports.DeviceFilter{TenantID: tenant, RestrictProducts: true, ProductIDs: []string{id}}, 1, 0)
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	runtime := "PENDING"
@@ -174,16 +174,16 @@ func (s *Server) saveTemplatePreparation(w http.ResponseWriter, r *http.Request)
 	tenant, id := claims(r).TenantID, r.PathValue("id")
 	rec, prep, err := s.onboarding.TemplateRecord(r.Context(), tenant, id)
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	if rec.Revision != in.Revision {
-		preparationProblem(w, model.ErrOnboardingChanged)
+		s.preparationProblem(w, r, model.ErrOnboardingChanged)
 		return
 	}
 	candidate := in.Candidate
 	if _, err = s.engine.Repo.GetProduct(r.Context(), tenant, id); err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	candidate.Product.ID = id
@@ -191,14 +191,14 @@ func (s *Server) saveTemplatePreparation(w http.ResponseWriter, r *http.Request)
 	candidate.Product.PreparationStatus = ""
 	candidate.Product.Reusable = false
 	if err = onboarding.ValidatePreparationDraft(candidate); err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	prep.Candidate = candidate
 	if prep.Fingerprint == "" {
 		prep.Fingerprint, err = s.onboarding.TemplateFingerprint(r.Context(), tenant, id)
 		if err != nil {
-			preparationProblem(w, err)
+			s.preparationProblem(w, r, err)
 			return
 		}
 	}
@@ -209,7 +209,7 @@ func (s *Server) saveTemplatePreparation(w http.ResponseWriter, r *http.Request)
 	}
 	_, err = s.onboarding.SaveTemplateRecord(r.Context(), rec, prep)
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	s.templatePreparation(w, r)
@@ -223,7 +223,7 @@ func (s *Server) applyTemplatePreparation(w http.ResponseWriter, r *http.Request
 		return
 	}
 	if err := s.applyPreparedCandidate(r, in.Revision, false); err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	s.templatePreparation(w, r)
@@ -353,7 +353,7 @@ func (s *Server) applyPreparedCandidate(r *http.Request, revision int64, rollbac
 func (s *Server) verifyRegisteredDevice(w http.ResponseWriter, r *http.Request) {
 	result, err := s.onboarding.VerifyDevice(r.Context(), claims(r).TenantID, r.PathValue("id"))
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	if r.Method == "POST" {
@@ -361,13 +361,13 @@ func (s *Server) verifyRegisteredDevice(w http.ResponseWriter, r *http.Request) 
 		if errors.Is(e, model.ErrNotFound) {
 			rec = model.OnboardingRecord{TenantID: claims(r).TenantID, ID: "verification:" + result.DeviceID, OwnerID: "device", Kind: "device-verification"}
 		} else if e != nil {
-			preparationProblem(w, e)
+			s.preparationProblem(w, r, e)
 			return
 		}
 		rec.Status = result.Status
 		rec.Body, _ = json.Marshal(result)
 		if _, e = s.engine.Repo.SaveOnboardingRecord(r.Context(), rec, rec.Revision); e != nil {
-			preparationProblem(w, e)
+			s.preparationProblem(w, r, e)
 			return
 		}
 	}
@@ -384,7 +384,7 @@ func (s *Server) verifyTemplate(w http.ResponseWriter, r *http.Request) {
 	tenant, id := claims(r).TenantID, r.PathValue("id")
 	result, err := s.onboarding.VerifyDevice(r.Context(), tenant, in.DeviceID)
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	if result.ProductID != id {
@@ -393,16 +393,16 @@ func (s *Server) verifyTemplate(w http.ResponseWriter, r *http.Request) {
 	}
 	rec, prep, err := s.onboarding.TemplateRecord(r.Context(), tenant, id)
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	current, err := s.onboarding.CurrentCandidate(r.Context(), tenant, id)
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	if s.onboarding.CandidateFingerprint(current) != result.Fingerprint {
-		preparationProblem(w, model.ErrOnboardingChanged)
+		s.preparationProblem(w, r, model.ErrOnboardingChanged)
 		return
 	}
 	if rec.Revision == 0 {
@@ -415,7 +415,7 @@ func (s *Server) verifyTemplate(w http.ResponseWriter, r *http.Request) {
 		prep.Status = "READY"
 	}
 	if _, err = s.onboarding.SaveTemplateRecord(r.Context(), rec, prep); err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	s.audit(r, "template.verify", "product", id, map[string]any{"deviceId": in.DeviceID, "status": result.Status, "fingerprint": result.Fingerprint})
@@ -432,11 +432,11 @@ func (s *Server) rollbackTemplatePreparation(w http.ResponseWriter, r *http.Requ
 	}
 	rec, prep, err := s.onboarding.TemplateRecord(r.Context(), claims(r).TenantID, r.PathValue("id"))
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	if rec.Revision != in.Revision {
-		preparationProblem(w, model.ErrOnboardingChanged)
+		s.preparationProblem(w, r, model.ErrOnboardingChanged)
 		return
 	}
 	found := false
@@ -453,11 +453,11 @@ func (s *Server) rollbackTemplatePreparation(w http.ResponseWriter, r *http.Requ
 	}
 	saved, err := s.onboarding.SaveTemplateRecord(r.Context(), rec, prep)
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	if err = s.applyPreparedCandidate(r, saved.Revision, true); err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	s.templatePreparation(w, r)
@@ -480,16 +480,16 @@ func (s *Server) trialTemplatePreparation(w http.ResponseWriter, r *http.Request
 	tenant, id := claims(r).TenantID, r.PathValue("id")
 	rec, prep, err := s.onboarding.TemplateRecord(r.Context(), tenant, id)
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	if rec.Revision != in.Revision {
-		preparationProblem(w, model.ErrOnboardingChanged)
+		s.preparationProblem(w, r, model.ErrOnboardingChanged)
 		return
 	}
 	candidate, release, err := s.normalizeCandidate(r, id, prep.Candidate)
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	sourceFingerprint := s.onboarding.CandidateFingerprint(candidate)
@@ -497,7 +497,7 @@ func (s *Server) trialTemplatePreparation(w http.ResponseWriter, r *http.Request
 	if prep.TrialProductID != "" && prep.TrialFingerprint == sourceFingerprint {
 		trialRecord, trialPrep, e := s.onboarding.TemplateRecord(r.Context(), tenant, prep.TrialProductID)
 		if e != nil {
-			preparationProblem(w, e)
+			s.preparationProblem(w, r, e)
 			return
 		}
 		actual, e := s.onboarding.TemplateFingerprint(r.Context(), tenant, prep.TrialProductID)
@@ -527,7 +527,7 @@ func (s *Server) trialTemplatePreparation(w http.ResponseWriter, r *http.Request
 	}
 	all, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), "")
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	for _, p := range candidate.Profiles {
@@ -560,7 +560,7 @@ func (s *Server) trialTemplatePreparation(w http.ResponseWriter, r *http.Request
 	prep.TrialConfigFingerprint = s.onboarding.CandidateFingerprint(candidate)
 	saved, err := s.onboarding.SaveTemplateRecord(r.Context(), rec, prep)
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	trialPrep := model.TemplatePreparation{Candidate: candidate, Status: "AWAITING_VALIDATION", Fingerprint: s.onboarding.CandidateFingerprint(candidate), AppliedAt: now, History: []model.TemplateRevision{}}
@@ -568,7 +568,7 @@ func (s *Server) trialTemplatePreparation(w http.ResponseWriter, r *http.Request
 	record := model.OnboardingRecord{TenantID: tenant, ID: onboarding.TemplateRecordID(trialID), OwnerID: "template", Kind: "template-preparation", Status: trialPrep.Status, Body: body}
 	err = s.engine.Repo.SwitchProductProtocol(r.Context(), model.ProtocolSwitch{Product: candidate.Product, Package: legacyProtocolShim(release), Binding: model.ProductProtocolBinding{TenantID: tenant, ProductID: trialID, ProtocolID: release.ProtocolID, Version: release.Version, UpdatedAt: now}, Preparation: &model.TemplateSwitch{CreateProduct: true, ExpectedProduct: candidate.Product, Profiles: candidate.Profiles, Record: record}})
 	if err != nil {
-		preparationProblem(w, err)
+		s.preparationProblem(w, r, err)
 		return
 	}
 	s.engine.ProtocolsChanged(tenant)

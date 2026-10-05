@@ -42,7 +42,7 @@ func (s *Server) saveGeneratedProtocol(w http.ResponseWriter, r *http.Request, i
 		problem(w, 409, "该版本已存在，请使用新的版本号")
 		return
 	} else if !errors.Is(err, model.ErrNotFound) {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	var preview *model.StandardMessage
@@ -62,13 +62,13 @@ func (s *Server) saveGeneratedProtocol(w http.ResponseWriter, r *http.Request, i
 	}
 	definition, err := s.engine.Repo.GetProtocolDefinition(r.Context(), tenant, id)
 	if err != nil && !errors.Is(err, model.ErrNotFound) {
-		problem(w, 500, err.Error())
+		s.internalError(w, r, err)
 		return
 	}
 	if errors.Is(err, model.ErrNotFound) {
 		definition = model.ProtocolDefinition{TenantID: tenant, ID: id, Name: draft.Name, Description: draft.Description, CreatedAt: now, UpdatedAt: now}
 		if err = s.engine.Repo.SaveProtocolDefinition(r.Context(), definition); err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 	}
@@ -306,7 +306,7 @@ func (s *Server) previewGeneratedRelease(w http.ResponseWriter, r *http.Request)
 	}
 	if release.Status == "DRAFT" && !input.ReadOnly && input.Operation == "decode" && matched {
 		if err = s.engine.Repo.UpdateProtocolReleaseStatus(r.Context(), release.TenantID, release.ProtocolID, release.Version, "VALIDATED", 0); err != nil {
-			problem(w, 500, err.Error())
+			s.internalError(w, r, err)
 			return
 		}
 		s.engine.ProtocolsChanged(release.TenantID)
