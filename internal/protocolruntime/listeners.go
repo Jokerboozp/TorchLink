@@ -751,6 +751,10 @@ func (s *listenerSession) write(data []byte) error {
 	return err
 }
 
+// ErrListenerNotLocal means this process does not run the access profile's
+// listener, so it holds none of its device sessions.
+var ErrListenerNotLocal = errors.New("protocol listener is not running")
+
 // Command dispatches through the package that owns the online session. A
 // nonempty correlationId waits for matching, successfully ingested ingress;
 // packages without correlation support return an explicit sent status.
@@ -759,7 +763,7 @@ func (r *Listeners) Command(ctx context.Context, tenant, profileID, deviceID str
 	h := r.hosts[listenerKey(tenant, profileID)]
 	r.mu.Unlock()
 	if h == nil {
-		return nil, errors.New("protocol listener is not running")
+		return nil, ErrListenerNotLocal
 	}
 	requestedDevice := deviceID
 	var child *model.ManagedDevice

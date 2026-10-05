@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"iot-platform/internal/protocolruntime"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -201,4 +203,37 @@ func TestDeviceSignalsFollowDeviceScope(t *testing.T) {
 		t.Fatalf("signals %v", mine)
 	}
 	requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/device-registry/hidden/signals", token, nil, 403)
+}
+
+type notLocalCommander struct{}
+
+func (notLocalCommander) Command(context.Context, string, string, string, map[string]any) (map[string]any, error) {
+	return nil, protocolruntime.ErrListenerNotLocal
+}
+
+// A command for a listener this replica does not run says how to route it
+// instead of returning the runtime's internal error.
+func TestProtocolCommandWithoutLocalListenerIsActionable(t *testing.T) {
+	for _, coordination := range []bool{false, true} {
+		repo := memory.NewRepository()
+		if err := repo.SaveDeviceAccessProfile(context.Background(), model.DeviceAccessProfile{ID: "listen", TenantID: "tenant-a", ProductID: "p", Mode: "listener", Network: "tcp", Enabled: true}); err != nil {
+			t.Fatal(err)
+		}
+		api := New(config.Config{DevMode: true, AccessCoordination: coordination}, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		api.SetProtocolListeners(notLocalCommander{})
+		server := newTestHTTPServer(api)
+		admin, err := api.auth.Issue("admin", "tenant-a", "admin", nil, time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, keyword := http.StatusConflict, "IOT_ACCESS_COORDINATION"
+		if coordination {
+			want, keyword = http.StatusServiceUnavailable, "没有在任何接入副本上运行"
+		}
+		body := requestJSON(t, server.Client(), "POST", server.URL+"/api/v2/device-access-profiles/listen/devices/d1/commands", admin, map[string]any{"type": "read", "confirmed": true}, want)
+		if detail, _ := body["detail"].(string); !strings.Contains(detail, keyword) {
+			t.Fatalf("coordination=%v detail=%q", coordination, detail)
+		}
+		server.Close()
+	}
 }

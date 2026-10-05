@@ -37,6 +37,8 @@ Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交�
 
 部署脚本修改使用独立 Compose 可执行文件（不能传 `docker compose` 子命令）：Bash 运行 `bash scripts/tests/deployment-smoke.sh /path/to/docker-compose`，PowerShell 运行 `pwsh -File scripts/tests/deployment-smoke.ps1 -ComposeExe /path/to/docker-compose`。它们使用真实 Compose 解析，模拟 Docker/HTTP 操作，不部署服务。安装器用例集中于 `scripts/tests/docker-bootstrap-smoke.sh`，openEuler 打包用例集中于 `scripts/tests/openeuler-smoke.sh`。
 
+未设置 `IOT_KAFKA_BROKERS` 时平台使用进程内事件总线（`internal/adapters/local/bus.go`）：发布时按订阅顺序同步调用全部订阅者，第一个订阅者出错即中止本次发布并把错误返回给发布方，不重试、不进入死信，消费组参数被忽略。单元测试和不带 Kafka 的精简运行受此影响；`scripts/setup-local.sh` 生成的 `.env.local` 已配置 Kafka。在精简运行中复现的“消费失败”“重复处理”等现象不能代表线上 Kafka 的重试、死信和分区顺序行为。
+
 ### 持续集成
 
 `.github/workflows/ci.yml` 在推送到 main 与 Pull Request 时运行：`gofmt`、`go vet`，以真实 PostgreSQL（pgvector 0.8.1 / PG17）、ClickHouse 25.7、Redis 7.4 服务容器执行 `go test ./cmd/... ./internal/... ./deploy/toolaccounts`（依赖 `IOT_TEST_POSTGRES_DSN` 等的仓储与迁移测试不再跳过），独立协议 module 测试，`govulncheck`；前端 `npm test`、`npm run build` 与提示性 `npm audit`；部署脚本冒烟与 Prometheus 规则 `promtool` 校验。本地可用相同变量指向一次性数据库复现。

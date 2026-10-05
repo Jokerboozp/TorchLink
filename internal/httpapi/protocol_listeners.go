@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"iot-platform/internal/protocolruntime"
 	"net"
 	"net/http"
 	"strings"
@@ -63,6 +64,16 @@ func (s *Server) protocolDeviceCommand(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	result, err := s.protocolListeners.Command(ctx, claims(r).TenantID, r.PathValue("id"), r.PathValue("deviceId"), command)
+	if errors.Is(err, protocolruntime.ErrListenerNotLocal) {
+		// With access coordination the request was routed to the lease
+		// holder; reaching here means no replica currently runs the listener.
+		if s.cfg.AccessCoordination {
+			problem(w, http.StatusServiceUnavailable, "该接入点的监听当前没有在任何接入副本上运行，设备连接不在线；请确认接入点已启用并稍后重试")
+		} else {
+			problem(w, http.StatusConflict, "该接入点的设备连接不在处理本请求的副本上；多副本部署请开启接入协调（IOT_ACCESS_COORDINATION），或改为单副本运行接入网关")
+		}
+		return
+	}
 	if err != nil {
 		problem(w, 422, err.Error())
 		return

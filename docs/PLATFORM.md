@@ -136,7 +136,7 @@ PDF 请求可用 `?jobId=...` 固定报告；未指定时取最近完成报告�
 
 浏览器 SSE 与内部 NDJSON 均使用 `run.started`、`text.delta`、`tool.started`、`tool.completed`、`run.completed`、`run.failed`。不向浏览器输出 reasoning、工具完整参数/结果或服务凭据。结构化结果由 `internal/aioutput` 校验，错误按失败处理。
 
-Harness 并发与驻留上限以 `IOT_HARNESS_MAX_CONCURRENCY`、`IOT_HARNESS_MAX_CACHED_CONVERSATIONS` 控制，业务遇到 429 退避等待，交互问答不自动重试。
+Harness 并发与驻留上限以 `IOT_HARNESS_MAX_CONCURRENCY`、`IOT_HARNESS_MAX_CACHED_CONVERSATIONS` 控制，业务遇到 429 退避等待，交互问答不自动重试。业务任务的输入上限为 30 KiB：巡检只把最严重的 40 台异常设备（含健康信号）与全量汇总计数写入提示词，正常设备只计数，设备规模增长不会撑大输入；告警研判按块限定上下文（见[告警手动研判](#告警手动研判)）。
 
 会话 ID 由租户、用户及浏览器会话派生，同会话 FIFO 执行并复用驻留进程。运行时只持有随机回环代理密钥；每轮 MCP JWT 在代理内更新，不交给子进程。JSONL 留存历史不等于模型冷恢复：当前上下文连续性依赖驻留池，重启创建新会话。会话目录需要按磁盘容量维护。
 
