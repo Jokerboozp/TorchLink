@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"iot-platform/internal/mcpserver"
+	"iot-platform/internal/version"
 )
 
 // routeModule registers the routes of one area of the API.
@@ -96,7 +97,9 @@ func (s *Server) deviceIngestRoutes() {
 func (s *Server) platformRoutes() {
 	s.router.POST("/api/v1/auth/login", s.endpoint(s.login))
 	s.router.POST("/api/v1/auth/password", s.endpoint(s.changeOwnPassword))
-	s.router.GET("/health/live", s.endpoint(func(w http.ResponseWriter, r *http.Request) { write(w, 200, map[string]string{"status": "ok"}) }))
+	s.router.GET("/health/live", s.endpoint(func(w http.ResponseWriter, r *http.Request) {
+		write(w, 200, map[string]string{"status": "ok", "version": version.Version})
+	}))
 	s.router.GET("/health/ready", s.endpoint(s.ready))
 	s.router.GET("/metrics", s.endpoint(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; version=0.0.4")

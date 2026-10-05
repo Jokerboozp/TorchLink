@@ -8,6 +8,7 @@ import (
 
 	"iot-platform/internal/auth"
 	"iot-platform/internal/model"
+	"iot-platform/internal/version"
 )
 
 const passwordChangeTTL = 15 * time.Minute
@@ -21,7 +22,7 @@ func (s *Server) writeManagedSession(w http.ResponseWriter, state model.AccessSt
 	}
 	permissions := effectivePermissions(state, u)
 	s.stripOpsPermissions(tenant, permissions)
-	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": tenant, "role": "operator", "permissions": permissionList(permissions), "displayName": u.DisplayName, "accessVersion": s.accessVersion(resolveUserDeviceScope(state, u), permissions, tenant)})
+	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": tenant, "role": "operator", "permissions": permissionList(permissions), "displayName": u.DisplayName, "accessVersion": s.accessVersion(resolveUserDeviceScope(state, u), permissions, tenant), "platformVersion": version.Version})
 }
 
 // changeOwnPassword lets a managed user change the password with the current

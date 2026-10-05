@@ -20,6 +20,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        IOT_VERSION: ${IOT_VERSION:-dev}
+        IOT_REVISION: ${IOT_REVISION:-}
     environment:
       IOT_PROCESS_ROLE: ${IOT_PROCESS_ROLE:-combined}
       IOT_ACCESS_GATEWAY_URL: ${IOT_ACCESS_GATEWAY_URL:-}

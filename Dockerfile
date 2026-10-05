@@ -6,7 +6,10 @@ COPY . .
 # Cluster tools ship in the same image so a deployment needs no Go toolchain:
 # cluster-render and cluster-ssh (controller), cluster-init and
 # clickhouse-migrate (on a node); capacity-test serves the capacity module.
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/iot-platform ./cmd/iot-access-gateway ./cmd/cluster-render ./cmd/cluster-init ./cmd/clickhouse-migrate ./cmd/cluster-ssh ./cmd/capacity-test
+# Release builds pass the bundle version and commit; local builds report "dev".
+ARG IOT_VERSION=dev
+ARG IOT_REVISION=
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X iot-platform/internal/version.Version=${IOT_VERSION} -X iot-platform/internal/version.Revision=${IOT_REVISION}" -o /out/ ./cmd/iot-platform ./cmd/iot-access-gateway ./cmd/cluster-render ./cmd/cluster-init ./cmd/clickhouse-migrate ./cmd/cluster-ssh ./cmd/capacity-test
 RUN mkdir -p /runtime-data /runtime-run && chmod 0750 /runtime-data && chmod 0700 /runtime-run
 
 FROM gcr.io/distroless/static-debian12:nonroot

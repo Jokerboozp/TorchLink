@@ -115,12 +115,12 @@ func (r *Registry) Inc(name string) {
 	r.mu.Unlock()
 }
 
-// SetProcessInfo exposes process_info{role,instance} 1 so per-instance
-// scrapes can be attributed without per-device labels.
-func (r *Registry) SetProcessInfo(role, instance string) {
+// SetProcessInfo exposes process_info{role,instance,version} 1 so
+// per-instance scrapes can be attributed without per-device labels.
+func (r *Registry) SetProcessInfo(role, instance, version string) {
 	q := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", "")
 	r.mu.Lock()
-	r.info = fmt.Sprintf("# TYPE process_info gauge\nprocess_info{role=\"%s\",instance=\"%s\"} 1\n", q.Replace(role), q.Replace(instance))
+	r.info = fmt.Sprintf("# TYPE process_info gauge\nprocess_info{role=\"%s\",instance=\"%s\",version=\"%s\"} 1\n", q.Replace(role), q.Replace(instance), q.Replace(version))
 	r.mu.Unlock()
 }
 func (r *Registry) Add(name string, v uint64)  { r.mu.Lock(); r.counters[name] += v; r.mu.Unlock() }

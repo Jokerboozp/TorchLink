@@ -14,6 +14,7 @@ import (
 	"iot-platform/internal/auth"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/version"
 )
 
 type permissionItem struct {
@@ -427,7 +428,7 @@ func (s *Server) currentIdentity(w http.ResponseWriter, r *http.Request) {
 		perms = permissionList(p)
 		name = u.DisplayName
 	}
-	write(w, 200, map[string]any{"username": c.Username, "displayName": name, "tenantId": c.TenantID, "role": c.Role, "permissions": perms, "accessVersion": requestAccessVersion(r.Context(), c)})
+	write(w, 200, map[string]any{"username": c.Username, "displayName": name, "tenantId": c.TenantID, "role": c.Role, "permissions": perms, "accessVersion": requestAccessVersion(r.Context(), c), "platformVersion": version.Version})
 }
 
 func (s *Server) canConfigureAI(r *http.Request) bool {

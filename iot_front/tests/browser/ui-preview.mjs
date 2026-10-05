@@ -53,8 +53,9 @@ const server = http.createServer(async (req, res) => {
     res.setHeader('Content-Type', 'application/json; charset=utf-8')
     let data = list([])
     if (u.pathname === '/api/v1/auth/login')
-      data = { accessToken: 'local-ui-fixture', tenantId: '界面验收租户', role: 'admin', permissions: ['*'] }
-    else if (u.pathname === '/api/v1/auth/me') data = { tenantId: '界面验收租户', username: 'admin', role: 'admin', permissions: ['*'] }
+      data = { accessToken: 'local-ui-fixture', tenantId: '界面验收租户', role: 'admin', permissions: ['*'], platformVersion: 'v1.2.3' }
+    else if (u.pathname === '/api/v1/auth/me')
+      data = { tenantId: '界面验收租户', username: 'admin', role: 'admin', permissions: ['*'], platformVersion: 'v1.2.3' }
     else if (u.pathname === '/api/v1/events') data = { permissions: ['*'], alarms: [], devices: [] }
     else if (u.pathname === '/api/v1/ops/capacity/status') data = { enabled: false }
     else if (u.pathname === '/api/v1/test-devices/provision' && req.method === 'POST')

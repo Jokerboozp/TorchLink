@@ -468,7 +468,7 @@ func TestWorkerRolesServeOnlyHealthAndMetrics(t *testing.T) {
 		cfg := config.Load()
 		cfg.ProcessRole, cfg.InstanceID = role, role+"-1"
 		registry := metrics.New()
-		registry.SetProcessInfo(role, cfg.InstanceID)
+		registry.SetProcessInfo(role, cfg.InstanceID, "dev")
 		server := New(cfg, engine, registry, log)
 		call := func(path string) *httptest.ResponseRecorder {
 			w := httptest.NewRecorder()
@@ -478,7 +478,7 @@ func TestWorkerRolesServeOnlyHealthAndMetrics(t *testing.T) {
 		if w := call("/api/v1/devices"); w.Code != 404 {
 			t.Fatal(role, "worker served a business route", w.Code)
 		}
-		if w := call("/metrics"); w.Code != 200 || !strings.Contains(w.Body.String(), `process_info{role="`+role+`",instance="`+role+`-1"} 1`) {
+		if w := call("/metrics"); w.Code != 200 || !strings.Contains(w.Body.String(), `process_info{role="`+role+`",instance="`+role+`-1",version="dev"} 1`) {
 			t.Fatal(role, "worker metrics not attributable", w.Code)
 		}
 		w := call("/health/ready")

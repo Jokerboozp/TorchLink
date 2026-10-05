@@ -233,6 +233,8 @@ sha256sum iot-platform-offline-xxxx.tar > iot-platform-offline-xxxx.tar.sha256
 
 ### 安装与升级
 
+**确认版本**：`/health/live` 返回 `version`，用户菜单底部显示“平台版本”，启动日志 `platform build` 记录版本与提交。发布工作流用 `IOT_VERSION`、`IOT_REVISION` 构建参数写入离线包版本号与提交；自行构建未设置时显示 `dev`。
+
 升级前把原 `.env.offline` 复制到新包，保持原项目、数据卷、协议制品和密钥，不能用新配置中的凭据直接连接旧数据库。在包根目录执行：
 
 ```bash
@@ -757,7 +759,7 @@ Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env
   | `processor` | 按设备顺序消费 `iot.device.business`：规则、告警、设备状态、完成标记、outbox 转发 | 业务流积压、数据库等待 |
   | `jobs` | 离线扫描、原文重发、视频媒体重试、凭据吊销重试及批量接入恢复，按任务或资源租约协调执行；设备告警通知按消费组分摊，重复投递由 Alertmanager 去重 | 待执行量 |
 
-  Worker 只开放 `/health/*` 与 `/metrics`；`/health/ready` 只检查本角色依赖，并返回 `role`、`instance`。指标带 `process_info{role,instance}`。所有拆分角色都需要共享 PostgreSQL 与 Kafka；只有 `api`（及 `combined`）需要 `IOT_AI_HARNESS_URL`。告警研判由 API 进程按用户操作运行。
+  Worker 只开放 `/health/*` 与 `/metrics`；`/health/ready` 只检查本角色依赖，并返回 `role`、`instance`。指标带 `process_info{role,instance,version}`。所有拆分角色都需要共享 PostgreSQL 与 Kafka；只有 `api`（及 `combined`）需要 `IOT_AI_HARNESS_URL`。告警研判由 API 进程按用户操作运行。
 - `IOT_INSTANCE_ID` 为实例名（默认主机名），用于指标、租约所有者和日志。显式设置后 MQTT 持久队列目录变为 `mqtt-inbox/<角色>/<实例>`；同一数据卷上运行同角色多副本时每个副本必须设置不同值。未设置时沿用旧目录，升级不会遗留未确认报文。
 - `cmd/iot-access-gateway` 强制 gateway 角色：执行通信、鉴权和 Raw 归档，发布到共享 Kafka；不启动 Raw 业务消费者。HTTP 只开放接入与健康相关路由，管理用户身份在目标接口重新校验。
 - api/gateway 两个进程必须配置同一个 PostgreSQL、Kafka 及一致的 Raw 分层存储。协议制品目录也必须共享；不能让两个进程各自使用内存仓库或本地消息总线。

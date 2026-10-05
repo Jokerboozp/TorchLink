@@ -39,6 +39,7 @@ import (
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
 	"iot-platform/internal/sites"
+	"iot-platform/internal/version"
 	"iot-platform/internal/video"
 )
 
@@ -206,7 +207,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		problem(w, http.StatusInternalServerError, "无法签发登录凭据")
 		return
 	}
-	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": in.TenantID, "role": "admin", "permissions": []string{"*"}})
+	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": in.TenantID, "role": "admin", "permissions": []string{"*"}, "platformVersion": version.Version})
 }
 
 // adminSessionVersion derives the built-in administrator's session version

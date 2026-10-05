@@ -65,6 +65,10 @@ jobs:
 
       - name: 构建完整离线包
         # Public release archives are created after removing private credentials.
+        # The platform image reports this version in /health/live and process_info.
+        env:
+          IOT_VERSION: ${{ env.RELEASE_VERSION }}
+          IOT_REVISION: ${{ github.sha }}
         run: bash scripts/package-offline.sh --output-dir offline-bundles --target-os generic --skip-bundle-archive
 
       - name: 验证 RustFS 运行与健康检查

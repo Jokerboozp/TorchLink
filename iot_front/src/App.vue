@@ -108,6 +108,8 @@ const loginLoading = ref(false)
 const globalAlertPopup = ref(null)
 const loginForm = ref({ tenantId: 'tenant_001', username: 'admin', password: '' })
 const identity = ref({ tenant: session.tenant, user: session.user, role: session.role })
+// 平台版本只用于排查与反馈问题，来自 /api/v1/auth/me。
+const platformVersion = ref('')
 const currentUser = computed(() => identity.value.user || loginForm.value.username || '账户')
 const currentRole = computed(() => ({ admin: '管理员', operator: '运维人员', viewer: '访客' })[identity.value.role] || '平台用户')
 
@@ -197,7 +199,7 @@ async function syncIdentity() {
   if (!authenticated.value) return
   lastFocusSync = Date.now()
   try {
-    await refreshPermissions()
+    platformVersion.value = (await refreshPermissions())?.platformVersion || ''
     if (!routeApplied) applyRoute(true)
     else if (!can('menu:' + active.value)) active.value = firstAllowedPage()
   } catch (error) {
@@ -226,6 +228,7 @@ const passwordChange = ref({ required: false, token: '', current: '' })
 function startSession(data, username) {
   session.save(data, username)
   identity.value = { tenant: data.tenantId || '', user: username, role: data.role || '' }
+  platformVersion.value = data.platformVersion || ''
   authenticated.value = true
   permissionState.accessVersion = data.accessVersion || ''
   permissionState.items = data.permissions || []
@@ -537,6 +540,7 @@ onBeforeUnmount(() => {
                 <ui-dropdown-menu>
                   <ui-dropdown-item v-if="identity.role !== 'admin'" command="password"><KeyRound />修改密码</ui-dropdown-item>
                   <ui-dropdown-item command="logout"><LogOut />退出登录</ui-dropdown-item>
+                  <ui-dropdown-item v-if="platformVersion" disabled command="version">平台版本 {{ platformVersion }}</ui-dropdown-item>
                 </ui-dropdown-menu>
               </template>
             </ui-dropdown>
