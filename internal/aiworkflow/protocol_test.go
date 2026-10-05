@@ -210,7 +210,7 @@ func protocolAssistantSpreadsheetFixture(t *testing.T) []byte {
 	return data.Bytes()
 }
 
-type hexMappingAI struct{ protocolAssistantAI }
+type hexMappingAI struct{}
 
 func (hexMappingAI) GenerateJSON(context.Context, string, string, string) (string, error) {
 	return `{"name":"HEX temperature","protocol":"temp","transport":"MQTT","payloadFormat":"hex","parserType":"configurable_hex_parser","messageType":"PROPERTY_REPORT","config":{"startHex":"AA","fields":[{"name":"temperature","offset":1,"length":2,"type":"uint16","endian":"big","scale":0.1}]},"fields":[{"name":"temperature"}]}`, nil

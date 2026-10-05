@@ -169,7 +169,7 @@ func validMessageType(value model.MessageType) bool {
 }
 
 func installJavaScriptHelpers(vm *goja.Runtime) {
-	vm.Set("hexToBytes", func(call goja.FunctionCall) goja.Value {
+	_ = vm.Set("hexToBytes", func(call goja.FunctionCall) goja.Value {
 		text := strings.NewReplacer(" ", "", "\r", "", "\n", "", "\t", "").Replace(call.Argument(0).String())
 		data, err := hex.DecodeString(text)
 		if err != nil {
@@ -181,7 +181,7 @@ func installJavaScriptHelpers(vm *goja.Runtime) {
 		}
 		return vm.ToValue(values)
 	})
-	vm.Set("toInt", func(call goja.FunctionCall) goja.Value {
+	_ = vm.Set("toInt", func(call goja.FunctionCall) goja.Value {
 		value, err := strconv.ParseInt(strings.TrimSpace(call.Argument(0).String()), 10, 64)
 		if err != nil {
 			panic(vm.ToValue("invalid integer: " + err.Error()))

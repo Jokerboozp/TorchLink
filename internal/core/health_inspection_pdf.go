@@ -586,7 +586,7 @@ func inspectionPDFWrapText(value string, size, maxWidth float64) []string {
 		}
 		current := make([]rune, 0, len([]rune(paragraph)))
 		width := 0.0
-		for _, r := range []rune(paragraph) {
+		for _, r := range paragraph {
 			runeWidth := inspectionPDFRuneWidth(r, size)
 			if len(current) > 0 && width+runeWidth > maxWidth {
 				wrapped = append(wrapped, string(current))
@@ -619,7 +619,7 @@ func drawInspectionWrapped(c *inspectionPDFCanvas, x, top float64, lines []strin
 
 func inspectionPDFTextWidth(value string, size float64) float64 {
 	width := 0.0
-	for _, r := range []rune(value) {
+	for _, r := range value {
 		width += inspectionPDFRuneWidth(r, size)
 	}
 	return width

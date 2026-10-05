@@ -1056,7 +1056,7 @@ func TestBackupPlatformTenantBoundary(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls.Add(1)
 		if r.Header.Get("Authorization") != "Bearer synthetic-backup-token" {
-			http.Error(w, "missing service credential", 401)
+			http.Error(w, "missing service credential", http.StatusUnauthorized)
 			return
 		}
 		write(w, 200, map[string]any{"tenantId": "other-tenant", "deviceId": "private-device"})

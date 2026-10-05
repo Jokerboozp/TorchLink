@@ -73,7 +73,7 @@ func (s *Server) externalAlarmMedia(w http.ResponseWriter, r *http.Request) {
 	}
 	prefix = prefix[:n]
 	contentType := http.DetectContentType(prefix)
-	extensions := map[string]string{}
+	var extensions map[string]string
 	if kind == "snapshot" {
 		extensions = map[string]string{"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/bmp": ".bmp"}
 	} else {

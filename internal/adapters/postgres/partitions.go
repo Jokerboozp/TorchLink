@@ -278,7 +278,9 @@ func (r *Repository) ExpiredPartitions(ctx context.Context, table string, cutoff
 			continue
 		}
 		var year, month int
-		fmt.Sscanf(m[1]+" "+m[2], "%d %d", &year, &month)
+		if _, err := fmt.Sscanf(m[1]+" "+m[2], "%d %d", &year, &month); err != nil {
+			continue
+		}
 		from := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 		if to := from.AddDate(0, 1, 0); !to.After(cutoff) {
 			out = append(out, model.TablePartition{Name: name, From: from, To: to})

@@ -414,13 +414,6 @@ func builtinAdminTenant(ctx context.Context) (string, error) {
 	}
 	return c.TenantID, nil
 }
-func tenantFrom(ctx context.Context) (string, error) {
-	c, ok := auth.ClaimsFromContext(ctx)
-	if !ok || c.TenantID == "" {
-		return "", fmt.Errorf("authenticated tenant context is required")
-	}
-	return c.TenantID, nil
-}
 func result(v any, err error) (*mcp.CallToolResult, error) {
 	if err != nil {
 		return mcp.NewToolResultError(err.Error()), nil

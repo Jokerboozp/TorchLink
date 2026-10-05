@@ -83,6 +83,8 @@ func routeAction(method, path string) string {
 	switch method + " " + path {
 	case "POST /api/v1/alarms/:id/disposition":
 		return "填写告警核实结论"
+	case "POST /api/v1/ai/reports":
+		return "生成运维报告"
 	case "GET " + alarmExportPath:
 		return "导出告警"
 	case "GET " + alarmMonthlyPath:

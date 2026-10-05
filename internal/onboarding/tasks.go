@@ -109,7 +109,7 @@ func (s *TaskService) ListDrafts(ctx context.Context, tenant string, owner TaskO
 		return nil, 0, invalid("草稿用途必须为 preparation 或 device")
 	}
 	_, regularErr := s.authorize(ctx, tenant, owner)
-	var templateErr error = errors.New("template draft permission unavailable")
+	templateErr := errors.New("template draft permission unavailable")
 	if s.TemplateDraftAuthorize != nil {
 		_, templateErr = s.TemplateDraftAuthorize(ctx, tenant, owner)
 	}
