@@ -25,38 +25,58 @@ func (e *Engine) InspectDeviceHealth(ctx context.Context, tenantID string) (mode
 		}
 	}
 	now := e.Clock.Now().UnixMilli()
-	devices, err := e.Repo.ListManagedDevices(ctx, tenantID)
-	if err != nil {
-		return model.DeviceHealthReport{}, err
-	}
-	states, err := e.Repo.ListDeviceStates(ctx, tenantID)
-	if err != nil {
-		return model.DeviceHealthReport{}, err
-	}
-	alarms, err := e.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenantID, Status: "ACTIVE", Limit: 10000})
-	if err != nil {
-		return model.DeviceHealthReport{}, err
-	}
-	stateByDevice := make(map[string]model.DeviceState, len(states))
-	for _, state := range states {
-		stateByDevice[state.DeviceID] = state
-	}
+	// Active alarms are streamed and devices read in pages, so the inspection
+	// holds one small item per device rather than the tenant's full records.
 	activeAlarms := make(map[string]int)
-	for _, alarm := range alarms {
+	alarmCount := 0
+	if err := e.Repo.EachAlarm(ctx, ports.AlarmFilter{TenantID: tenantID, Status: "ACTIVE", Summary: true}, func(alarm model.Alarm) error {
 		activeAlarms[alarm.DeviceID]++
+		alarmCount++
+		return nil
+	}); err != nil {
+		return model.DeviceHealthReport{}, err
 	}
-	items := make([]model.DeviceHealthItem, 0, len(devices)+len(states))
-	seen := make(map[string]struct{}, len(devices))
-	for _, device := range devices {
-		state := stateByDevice[device.ID]
-		items = append(items, healthItem(device.ID, device.Name, device.ProductID, state, activeAlarms[device.ID], now))
-		seen[device.ID] = struct{}{}
-	}
-	for _, state := range states {
-		if _, ok := seen[state.DeviceID]; ok {
-			continue
+	items := []model.DeviceHealthItem{}
+	seen := map[string]struct{}{}
+	for offset := 0; ; offset += inspectionPageSize {
+		devices, _, err := e.Repo.ListManagedDevicesFiltered(ctx, ports.DeviceFilter{TenantID: tenantID}, inspectionPageSize, offset)
+		if err != nil {
+			return model.DeviceHealthReport{}, err
 		}
-		items = append(items, healthItem(state.DeviceID, state.DeviceID, state.ProductID, state, activeAlarms[state.DeviceID], now))
+		ids := make([]string, 0, len(devices))
+		for _, device := range devices {
+			ids = append(ids, device.ID)
+		}
+		states, err := e.Repo.GetDeviceStatesByIDs(ctx, tenantID, ids)
+		if err != nil {
+			return model.DeviceHealthReport{}, err
+		}
+		for _, device := range devices {
+			if _, ok := seen[device.ID]; ok {
+				continue
+			}
+			seen[device.ID] = struct{}{}
+			items = append(items, healthItem(device.ID, device.Name, device.ProductID, states[device.ID], activeAlarms[device.ID], now))
+		}
+		if len(devices) < inspectionPageSize {
+			break
+		}
+	}
+	for offset := 0; ; offset += inspectionPageSize {
+		states, _, err := e.Repo.ListUnregisteredDeviceStatesPage(ctx, tenantID, inspectionPageSize, offset)
+		if err != nil {
+			return model.DeviceHealthReport{}, err
+		}
+		for _, state := range states {
+			if _, ok := seen[state.DeviceID]; ok {
+				continue
+			}
+			seen[state.DeviceID] = struct{}{}
+			items = append(items, healthItem(state.DeviceID, state.DeviceID, state.ProductID, state, activeAlarms[state.DeviceID], now))
+		}
+		if len(states) < inspectionPageSize {
+			break
+		}
 	}
 	sort.Slice(items, func(i, j int) bool {
 		severityRank := map[string]int{"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "LOW": 3, "INFO": 4}
@@ -65,7 +85,7 @@ func (e *Engine) InspectDeviceHealth(ctx context.Context, tenantID string) (mode
 		}
 		return items[i].DeviceID < items[j].DeviceID
 	})
-	counts := map[string]int{"total": len(items), "healthy": 0, "attention": 0, "critical": 0, "offline": 0, "activeAlarms": len(alarms)}
+	counts := map[string]int{"total": len(items), "healthy": 0, "attention": 0, "critical": 0, "offline": 0, "activeAlarms": alarmCount}
 	for _, item := range items {
 		if item.Severity == "INFO" {
 			counts["healthy"]++
@@ -125,6 +145,9 @@ func healthItem(deviceID, deviceName, productID string, state model.DeviceState,
 	}
 	return model.DeviceHealthItem{DeviceID: deviceID, DeviceName: deviceName, ProductID: productID, BusinessStatus: status, DataStatus: state.DataStatus, LastSeenAt: state.LastSeenAt, ActiveAlarmCount: activeAlarmCount, Severity: severity, Findings: findings}
 }
+
+// inspectionPageSize is how many devices or states one inspection query reads.
+const inspectionPageSize = 500
 
 // inspectionPromptLimit caps how many devices are written into the model
 // prompt: a large tenant would otherwise exceed the model's context window.

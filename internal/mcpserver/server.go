@@ -198,16 +198,16 @@ func buildSystemOverview(ctx context.Context, engine *core.Engine, tenant string
 			return nil, err
 		}
 	}
-	var devices []model.ManagedDevice
+	// Devices and alarms are counted in the store so the overview does not
+	// grow with the tenant's fleet or alarm history.
+	devices := model.NewDeviceOverview()
+	alarms := model.NewAlarmOverview()
 	if can("devices") {
-		devices, err = engine.Repo.ListManagedDevices(ctx, tenant)
+		devices, err = engine.Repo.DeviceOverviewCounts(ctx, tenant, false, nil)
 		if err != nil {
 			return nil, err
 		}
-	}
-	var states []model.DeviceState
-	if can("devices") {
-		states, err = engine.Repo.ListDeviceStates(ctx, tenant)
+		alarms, err = engine.Repo.AlarmOverviewCounts(ctx, ports.AlarmFilter{TenantID: tenant}, time.Now().Add(-24*time.Hour).UnixMilli())
 		if err != nil {
 			return nil, err
 		}
@@ -215,13 +215,6 @@ func buildSystemOverview(ctx context.Context, engine *core.Engine, tenant string
 	var rules []model.AlarmRule
 	if can("rules") {
 		rules, err = engine.Repo.ListRules(ctx, tenant)
-		if err != nil {
-			return nil, err
-		}
-	}
-	var alarms []model.Alarm
-	if can("devices") {
-		alarms, err = engine.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: tenant, Limit: 10000})
 		if err != nil {
 			return nil, err
 		}
@@ -250,53 +243,10 @@ func buildSystemOverview(ctx context.Context, engine *core.Engine, tenant string
 	for _, item := range protocols {
 		increment(protocolStatus, item.Status)
 	}
-	deviceStatus, deviceRole := map[string]int{}, map[string]int{}
-	registered := make(map[string]struct{}, len(devices))
-	autoRegistered := 0
-	for _, item := range devices {
-		registered[item.ID] = struct{}{}
-		increment(deviceStatus, item.Status)
-		increment(deviceRole, item.DeviceRole)
-		if item.AutoRegistered {
-			autoRegistered++
-		}
-	}
-	connectionStatus, dataStatus, businessStatus := map[string]int{}, map[string]int{}, map[string]int{}
-	reported, discovered, latestSeenAt := 0, 0, int64(0)
-	for _, item := range states {
-		if _, ok := registered[item.DeviceID]; !ok {
-			discovered++
-			continue
-		}
-		reported++
-		increment(connectionStatus, item.ConnectionStatus)
-		increment(dataStatus, item.DataStatus)
-		increment(businessStatus, item.BusinessStatus)
-		if item.LastSeenAt > latestSeenAt {
-			latestSeenAt = item.LastSeenAt
-		}
-	}
 	ruleEnabled := 0
 	for _, item := range rules {
 		if item.Enabled {
 			ruleEnabled++
-		}
-	}
-	alarmStatus, alarmLevel, alarmSource := map[string]int{}, map[string]int{}, map[string]int{}
-	active, highActive, recent24h := 0, 0, 0
-	cutoff := time.Now().Add(-24 * time.Hour).UnixMilli()
-	for _, item := range alarms {
-		increment(alarmStatus, item.Status)
-		increment(alarmLevel, item.AlarmLevel)
-		increment(alarmSource, item.Source)
-		if item.Status == "ACTIVE" {
-			active++
-			if item.AlarmLevel == "HIGH" || item.AlarmLevel == "CRITICAL" || item.AlarmLevel == "EMERGENCY" {
-				highActive++
-			}
-		}
-		if item.LastTriggeredAt >= cutoff {
-			recent24h++
 		}
 	}
 	cameraEnabled, linkedDevices := 0, 0
@@ -338,8 +288,8 @@ func buildSystemOverview(ctx context.Context, engine *core.Engine, tenant string
 		"tenantId": tenant, "generatedAt": time.Now().UnixMilli(), "systemStatus": status, "components": components,
 		"products":         map[string]any{"total": len(products), "byStatus": productStatus, "byCategory": productCategory},
 		"protocolPackages": map[string]any{"total": len(protocols), "byStatus": protocolStatus},
-		"devices":          map[string]any{"total": len(devices), "byStatus": deviceStatus, "byRole": deviceRole, "autoRegistered": autoRegistered, "reported": reported, "neverReported": max(0, len(devices)-reported), "discoveredUnregistered": discovered, "connectionStatus": connectionStatus, "dataStatus": dataStatus, "businessStatus": businessStatus, "latestSeenAt": latestSeenAt},
-		"alarms":           map[string]any{"loaded": len(alarms), "truncated": len(alarms) == 10000, "active": active, "highRiskActive": highActive, "triggeredLast24h": recent24h, "byStatus": alarmStatus, "byLevel": alarmLevel, "bySource": alarmSource},
+		"devices":          map[string]any{"total": devices.Total, "byStatus": devices.ByStatus, "byRole": devices.ByRole, "autoRegistered": devices.AutoRegistered, "reported": devices.Reported, "neverReported": max(0, devices.Total-devices.Reported), "discoveredUnregistered": devices.DiscoveredUnregistered, "connectionStatus": devices.ConnectionStatus, "dataStatus": devices.DataStatus, "businessStatus": devices.BusinessStatus, "latestSeenAt": devices.LatestSeenAt},
+		"alarms":           map[string]any{"total": alarms.Total, "active": alarms.Active, "highRiskActive": alarms.HighRiskActive, "triggeredLast24h": alarms.Recent, "byStatus": alarms.ByStatus, "byLevel": alarms.ByLevel, "bySource": alarms.BySource},
 		"rules":            map[string]any{"total": len(rules), "enabled": ruleEnabled, "disabled": len(rules) - ruleEnabled},
 		"cameras":          map[string]any{"total": len(cameras), "enabled": cameraEnabled, "linkedDevices": linkedDevices},
 		"knowledge":        map[string]any{"documents": len(documents), "indexed": indexedDocs, "chunks": chunks},

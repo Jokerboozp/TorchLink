@@ -532,7 +532,7 @@ func testAssistantDeviceScope(t *testing.T, inherited bool) {
 	}
 	overview := map[string]any{}
 	must(json.Unmarshal([]byte(tool(first.MCPToken, "query_system_overview", nil, false)), &overview))
-	if overview["devices"].(map[string]any)["total"] != float64(1) || overview["alarms"].(map[string]any)["loaded"] != float64(1) {
+	if overview["devices"].(map[string]any)["total"] != float64(1) || overview["alarms"].(map[string]any)["total"] != float64(1) {
 		t.Fatal("overview leaked device scope", overview)
 	}
 	for _, field := range []string{"rules", "products", "protocolPackages", "cameras", "knowledge"} {
@@ -784,6 +784,30 @@ func TestScopedChildCountsStayInStorage(t *testing.T) {
 	counts, err := ScopedRepository(base).CountManagedDeviceChildren(ctx, "t", []string{"g"})
 	if err != nil || counts["g"] != 1 || len(counts) != 1 || base.fullReads != 0 {
 		t.Fatalf("counts=%v fullRegistryReads=%d err=%v", counts, base.fullReads, err)
+	}
+}
+
+// Overview counts for a limited user cover only granted devices and their
+// alarms, and are computed by the store.
+func TestScopedOverviewCountsStayInStorage(t *testing.T) {
+	base := &noFullRegistryRepo{Repository: memory.NewRepository()}
+	ctx := context.WithValue(context.Background(), deviceScopeKey{}, deviceScope{Tenant: "t", IDs: map[string]bool{"a": true}})
+	for _, id := range []string{"a", "b"} {
+		_ = base.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ID: id, Status: "ENABLED", AccessKey: "ak-" + id})
+		_ = base.UpsertDeviceState(ctx, model.DeviceState{TenantID: "t", DeviceID: id, BusinessStatus: "ONLINE", LastSeenAt: 10})
+		_, _, _ = base.UpsertAlarm(ctx, model.Alarm{TenantID: "t", ID: "alarm-" + id, DeviceID: id, Status: "ACTIVE", AlarmLevel: "HIGH", LastTriggeredAt: 10})
+	}
+	repo := ScopedRepository(base)
+	devices, err := repo.DeviceOverviewCounts(ctx, "t", false, nil)
+	if err != nil || devices.Total != 1 || devices.Reported != 1 || devices.DiscoveredUnregistered != 0 || base.fullReads != 0 {
+		t.Fatalf("devices=%+v fullRegistryReads=%d err=%v", devices, base.fullReads, err)
+	}
+	alarms, err := repo.AlarmOverviewCounts(ctx, ports.AlarmFilter{TenantID: "t"}, 0)
+	if err != nil || alarms.Total != 1 || alarms.HighRiskActive != 1 {
+		t.Fatalf("alarms=%+v err=%v", alarms, err)
+	}
+	if all, _ := repo.DeviceOverviewCounts(context.Background(), "t", false, nil); all.Total != 2 {
+		t.Fatalf("unscoped total=%d", all.Total)
 	}
 }
 

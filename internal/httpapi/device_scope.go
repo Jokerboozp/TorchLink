@@ -358,6 +358,25 @@ func (r *deviceScopeRepository) EachAlarm(ctx context.Context, f ports.AlarmFilt
 	}
 	return r.Repository.EachAlarm(ctx, f, fn)
 }
+func (r *deviceScopeRepository) AlarmOverviewCounts(ctx context.Context, f ports.AlarmFilter, since int64) (model.AlarmOverview, error) {
+	if limited(ctx) {
+		var ok bool
+		if f.DeviceIDs, ok = r.scopedDevices(ctx, f.TenantID, f.DeviceID, f.DeviceIDs); !ok {
+			return model.NewAlarmOverview(), nil
+		}
+	}
+	return r.Repository.AlarmOverviewCounts(ctx, f, since)
+}
+func (r *deviceScopeRepository) DeviceOverviewCounts(ctx context.Context, t string, restrict bool, ids []string) (model.DeviceOverview, error) {
+	if limited(ctx) {
+		if restrict {
+			ids = r.scopedIDs(ctx, t, ids)
+		} else {
+			restrict, ids = true, grantedIDs(ctx, t)
+		}
+	}
+	return r.Repository.DeviceOverviewCounts(ctx, t, restrict, ids)
+}
 func (r *deviceScopeRepository) CountAlarms(ctx context.Context, f ports.AlarmFilter) (int, error) {
 	if limited(ctx) {
 		var ok bool

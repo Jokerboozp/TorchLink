@@ -23,7 +23,7 @@ func AlarmReports(t *testing.T, repo ports.Repository) {
 	base, step := time.Date(2026, 9, 1, 20, 0, 0, 0, time.UTC).UnixMilli(), int64(3*time.Hour/time.Millisecond)
 	for i := range n {
 		a := model.Alarm{ID: fmt.Sprintf("a%04d", i), TenantID: "report", DeviceID: fmt.Sprintf("d%d", i%7), DeviceName: fmt.Sprintf("设备%d", i%7), RuleID: fmt.Sprintf("r%d", i),
-			AlarmType: []string{"FIRE", "DEVICE_FAULT", "SMOKE_DETECTED"}[i%3], AlarmLevel: []string{"HIGH", "CRITICAL", "LOW"}[i%3/2+i%2], Status: "CLOSED",
+			AlarmType: []string{"FIRE", "DEVICE_FAULT", "SMOKE_DETECTED"}[i%3], AlarmLevel: []string{"HIGH", "CRITICAL", "LOW"}[i%3/2+i%2], Status: []string{"CLOSED", "CLOSED", "ACTIVE"}[i%3],
 			FirstTriggeredAt: base + int64(i/10)*step, LastTriggeredAt: base + int64(i/10)*step, TriggerCount: 1}
 		if i%4 == 0 {
 			a.AckedAt = a.FirstTriggeredAt + int64(i%50)*1000
@@ -81,6 +81,24 @@ func AlarmReports(t *testing.T, repo ports.Repository) {
 	}
 	if len(breakdown.ByDay) < 10 || breakdown.ByDay[0].Day != "2026-09-02" {
 		t.Fatalf("days are not counted in the report zone: %+v", breakdown.ByDay)
+	}
+	since := base + 60*step
+	overview, err := repo.AlarmOverviewCounts(ctx, filter, since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantOverview := model.NewAlarmOverview()
+	for _, a := range seen {
+		wantOverview.AddAlarm(a, since)
+	}
+	if !reflect.DeepEqual(overview, wantOverview) {
+		t.Fatalf("overview\n got %+v\nwant %+v", overview, wantOverview)
+	}
+	if overview.Active == 0 || overview.HighRiskActive == 0 || overview.Recent == 0 || overview.Recent == n {
+		t.Fatalf("fixture does not exercise the overview: %+v", overview)
+	}
+	if empty, err := repo.AlarmOverviewCounts(ctx, ports.AlarmFilter{TenantID: "none"}, 0); err != nil || !reflect.DeepEqual(empty, model.NewAlarmOverview()) {
+		t.Fatalf("empty overview %+v %v", empty, err)
 	}
 	// Device and period filters apply.
 	scoped, err := repo.AlarmDispositionStats(ctx, ports.AlarmFilter{TenantID: "report", DeviceIDs: []string{"d1"}, Start: base, End: base + 5*step})

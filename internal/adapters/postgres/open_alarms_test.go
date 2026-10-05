@@ -11,7 +11,8 @@ import (
 
 func TestStandardCompletion(t *testing.T) { repositorytest.StandardCompletion(t, testRepository(t)) }
 
-func TestAlarmReports(t *testing.T) { repositorytest.AlarmReports(t, testRepository(t)) }
+func TestAlarmReports(t *testing.T)   { repositorytest.AlarmReports(t, testRepository(t)) }
+func TestDeviceOverview(t *testing.T) { repositorytest.DeviceOverview(t, testRepository(t)) }
 
 // TestOpenAlarmCounterFollowsEveryWrite checks the trigger-maintained
 // counter, including alarms that existed before migration 12.

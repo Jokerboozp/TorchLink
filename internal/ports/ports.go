@@ -45,6 +45,15 @@ type AlarmReportStore interface {
 	// EachAlarm calls fn for every matching alarm, newest first, reading in
 	// batches; Limit and Offset are ignored. An error from fn stops the scan.
 	EachAlarm(context.Context, AlarmFilter, func(model.Alarm) error) error
+	// AlarmOverviewCounts counts matching alarms by status, level and source;
+	// Recent counts those last triggered at or after since.
+	AlarmOverviewCounts(ctx context.Context, f AlarmFilter, since int64) (model.AlarmOverview, error)
+}
+
+// DeviceOverviewStore counts registered devices and their states in the
+// store. With restrict, only deviceIDs are counted.
+type DeviceOverviewStore interface {
+	DeviceOverviewCounts(ctx context.Context, tenant string, restrict bool, deviceIDs []string) (model.DeviceOverview, error)
 }
 
 type Repository interface {
@@ -56,6 +65,7 @@ type Repository interface {
 	FireSafetyStore
 	SiteStore
 	AlarmReportStore
+	DeviceOverviewStore
 	ObjectCleanupStore
 	OnboardingStore
 	DashboardCounts(context.Context, string, int64, int64) ([]model.DashboardCount, error)
