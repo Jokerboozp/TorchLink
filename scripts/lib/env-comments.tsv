@@ -144,6 +144,7 @@ IOT_LOCAL_AI_HOSTS	随平台部署的模型服务主机名、IP 或网段；仅�
 IOT_LOCAL_AI_THREADS	本地向量/重排服务推理线程数，-1 为全部 CPU 核
 IOT_HF_ENDPOINT	构建模型镜像时的模型下载地址，默认 https://huggingface.co，可改用 https://hf-mirror.com
 IOT_LLAMA_CPP_IMAGE	模型镜像的 llama.cpp 基础镜像；ghcr.io 受限时可指向镜像仓库中的同一镜像（保留 digest）
+IOT_ALPINE_MIRROR	构建 PostgreSQL 镜像时的 Alpine 软件源，默认 https://dl-cdn.alpinelinux.org/alpine，可改用 https://mirrors.aliyun.com/alpine
 IOT_POSTGRES_IMAGE	包含固定pgvector扩展的PostgreSQL17镜像
 IOT_BACKUP_HARNESS_DATA_DIR	可选 Harness 只读数据目录回退，仅包含 Agent 清单及会话
 IOT_BACKUP_HARNESS_SNAPSHOT_URLS	全部 Harness 实例的快照 endpoint，逗号分隔，使用服务端 Harness 令牌
