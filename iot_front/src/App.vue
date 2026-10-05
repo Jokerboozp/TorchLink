@@ -7,34 +7,35 @@ import {
   Bot,
   Boxes,
   BrainCircuit,
+  Building2,
   Cable,
   CalendarDays,
-  FireExtinguisher,
-  House,
-  Building2,
   ChevronDown,
   ChevronRight,
   ClipboardCheck,
   Cpu,
   Database,
   FileText,
+  FireExtinguisher,
   FlaskConical,
   Gauge,
+  House,
+  KeyRound,
   LayoutDashboard,
   LayoutGrid,
   Library,
   LineChart,
   LogOut,
-  KeyRound,
+  Megaphone,
   Menu,
   Network,
   PanelLeftClose,
   PanelLeftOpen,
   ScrollText,
+  Search,
   Settings2,
   ShieldCheck,
   SlidersHorizontal,
-  Megaphone,
   Video,
   X
 } from '@lucide/vue'
@@ -177,6 +178,26 @@ const visibleGroups = computed(() =>
   menuGroups.map(group => ({ ...group, items: group.items.filter(navigable) })).filter(group => group.items.length)
 )
 const firstAllowedPage = () => visibleGroups.value[0]?.items[0] || ''
+// 侧栏菜单按名称或分组筛选；回车打开第一个匹配项。
+const menuQuery = ref('')
+const shownGroups = computed(() => {
+  const query = menuQuery.value.trim().toLowerCase()
+  if (!query) return visibleGroups.value
+  return visibleGroups.value
+    .map(group => ({
+      ...group,
+      items: group.label.toLowerCase().includes(query)
+        ? group.items
+        : group.items.filter(name => pages[name].title.toLowerCase().includes(query))
+    }))
+    .filter(group => group.items.length)
+})
+function openFirstMatch() {
+  const name = shownGroups.value[0]?.items[0]
+  if (!name) return
+  menuQuery.value = ''
+  openPage(name)
+}
 
 watch(
   () => permissionState.accessVersion + '\n' + permissionState.items.join('\n'),
@@ -490,8 +511,20 @@ onBeforeUnmount(() => {
           <img :src="isDark ? '/torchlink-sidebar-dark.svg' : '/torchlink-sidebar.svg'" alt="炬联 TorchLink" />
           <button v-if="narrow" type="button" class="app-sidebar__close" aria-label="关闭菜单" @click="navOpen = false"><X /></button>
         </div>
+        <div v-if="!collapsed || narrow" class="app-sidebar__search">
+          <Search aria-hidden="true" />
+          <input
+            v-model="menuQuery"
+            type="search"
+            placeholder="搜索功能"
+            aria-label="搜索功能菜单"
+            @keydown.enter.prevent="openFirstMatch"
+            @keydown.esc="menuQuery = ''"
+          />
+        </div>
         <nav class="app-sidebar__nav" aria-label="主导航">
-          <section v-for="group in visibleGroups" :key="group.label" class="nav-group">
+          <p v-if="!shownGroups.length" class="nav-empty">没有匹配的功能</p>
+          <section v-for="group in shownGroups" :key="group.label" class="nav-group">
             <p class="nav-group__label">{{ group.label }}</p>
             <button
               v-for="name in group.items"

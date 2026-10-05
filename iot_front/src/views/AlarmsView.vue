@@ -73,6 +73,7 @@ async function load(resetPage = false) {
 
 // 近 30 天核实统计，与列表使用同一组筛选条件。
 const statistics = ref(null)
+const statisticsError = ref(false)
 const exporting = ref(false)
 const reporting = ref(false)
 // 月报默认上一个月（北京时间）。
@@ -92,8 +93,11 @@ function reportQuery() {
 async function loadStatistics() {
   try {
     statistics.value = await statisticsLoader.run(signal => api('/api/v1/alarms/statistics/disposition?' + reportQuery(), { signal }))
+    statisticsError.value = false
   } catch (error) {
-    if (!isAbort(error)) statistics.value = null
+    if (isAbort(error)) return
+    statistics.value = null
+    statisticsError.value = true
   }
 }
 const formatDuration = ms => {
@@ -379,7 +383,7 @@ function rowActions(row) {
     <ui-button v-if="filtered" text @click="resetFilters">重置筛选</ui-button>
     <template #actions
       ><span v-permission="'GET /api/v1/alarms/reports/monthly'" class="monthly-report"
-        ><input v-model="reportMonth" type="month" aria-label="月报月份" /><ui-button
+        ><ui-month v-model="reportMonth" aria-label="月报月份" placeholder="选择月份" /><ui-button
           :loading="reporting"
           :disabled="!reportMonth"
           @click="downloadMonthly"
@@ -410,6 +414,9 @@ function rowActions(row) {
         >误报最多：{{ statistics.topFalseAlarmDevices[0].deviceName || statistics.topFalseAlarmDevices[0].deviceId }}</small
       >
     </div>
+  </div>
+  <div v-else-if="statisticsError" class="alarm-stats alarm-stats-error" role="alert">
+    <span>近 30 天核实统计读取失败</span><ui-button size="small" plain @click="loadStatistics">重试</ui-button>
   </div>
 
   <DataTableCard
@@ -557,19 +564,24 @@ function rowActions(row) {
   gap: var(--space-2);
   align-items: center;
 }
-.monthly-report input {
-  height: 32px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  color: var(--text-strong);
+.monthly-report .ui-month {
+  width: 132px;
 }
 .alarm-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: var(--space-3);
   margin-bottom: var(--space-3);
+}
+.alarm-stats-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  color: var(--danger-text, var(--danger));
+  background: var(--surface);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-lg);
 }
 .alarm-stats > div {
   display: grid;
