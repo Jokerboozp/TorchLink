@@ -105,6 +105,10 @@ func routeAction(method, path string) string {
 		return "轮换开放接口密钥"
 	case "GET /api/v1/ai/runs":
 		return "查看运行中的 AI 工作流"
+	case "GET /api/v1/ai/runs/history":
+		return "查看 AI 运行记录"
+	case "GET /api/v1/ai/runs/usage":
+		return "查看 AI 用量统计"
 	case "POST /api/v1/ai/runs/:id/stop":
 		return "强制停止 AI 工作流"
 	case videoPlayPermission:
@@ -240,6 +244,8 @@ func effectivePermissions(state model.AccessState, user model.PlatformUser) map[
 	}
 	if !p["menu:devices"] || user.DeviceScope != "all" {
 		delete(p, "GET /api/v1/ai/runs")
+		delete(p, "GET /api/v1/ai/runs/history")
+		delete(p, "GET /api/v1/ai/runs/usage")
 		delete(p, "POST /api/v1/ai/runs/:id/stop")
 		delete(p, "PUT /api/v1/message-topics/:id")
 		delete(p, "DELETE /api/v1/message-topics/:id")

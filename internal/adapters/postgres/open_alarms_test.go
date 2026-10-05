@@ -103,3 +103,5 @@ func TestExternalTelemetryProperties(t *testing.T) {
 		t.Fatalf("index columns of the telemetry row: %+v %v", got, err)
 	}
 }
+
+func TestAIRuns(t *testing.T) { repositorytest.AIRuns(t, testRepository(t)) }

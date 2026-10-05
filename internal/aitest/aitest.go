@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"iot-platform/internal/auth"
+	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 )
 
@@ -23,6 +24,8 @@ type Workflows struct {
 	// Answer returns the model text for a run; nil answers "{}".
 	Answer func(ports.AIWorkflowRequest) (string, error)
 	Model  string
+	// Usage, when set, is reported as the run's token usage.
+	Usage *model.AIUsage
 }
 
 func (w *Workflows) ListWorkflows(context.Context) ([]ports.AIWorkflowPlugin, error) {
@@ -37,6 +40,9 @@ func (w *Workflows) StreamChat(_ context.Context, req ports.AIWorkflowRequest, _
 	result := ports.AIWorkflowResult{RunID: req.RunID, WorkflowID: req.WorkflowID, Model: w.Model}
 	if result.Model == "" {
 		result.Model = "aitest-model"
+	}
+	if w.Usage != nil {
+		result.Usage, result.UsageReported, result.ToolCalls = *w.Usage, true, 1
 	}
 	if answer == nil {
 		result.Answer = "{}"

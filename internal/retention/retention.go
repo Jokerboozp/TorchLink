@@ -85,6 +85,7 @@ func (s *Service) tables() []Table {
 		{model.RetentionRawLog, c.RawDays},
 		{model.RetentionStateEvents, c.StateEventDays},
 		{model.RetentionAIToolCalls, c.AILogDays},
+		{model.RetentionAIRuns, c.AILogDays},
 		{model.RetentionVideoEvents, c.VideoEventDays},
 		{model.RetentionAlarms, c.AlarmDays},
 		{model.RetentionNotifications, c.AlarmDays},

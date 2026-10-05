@@ -3,17 +3,92 @@ package metrics
 import (
 	"fmt"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
 
 type Registry struct {
-	info     string
-	mu       sync.RWMutex
-	counters map[string]uint64
-	gauges   map[string]float64
-	rates    map[string]*rate
+	info       string
+	mu         sync.RWMutex
+	counters   map[string]uint64
+	gauges     map[string]float64
+	rates      map[string]*rate
+	histograms map[string]*histogram
+}
+
+// histogramBuckets are the upper bounds, in seconds, of every histogram;
+// they suit AI runs, which take seconds to minutes.
+var histogramBuckets = []float64{1, 2, 5, 10, 20, 30, 60, 120, 300, 600}
+
+type histogram struct {
+	counts []uint64
+	sum    float64
+	count  uint64
+}
+
+// Series returns a metric name with labels, such as
+// ai_run_total{workflow="x",status="y"}; Inc and Add accept it.
+func Series(name string, labels ...string) string {
+	if len(labels) < 2 {
+		return name
+	}
+	q := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", "")
+	parts := make([]string, 0, len(labels)/2)
+	for i := 0; i+1 < len(labels); i += 2 {
+		parts = append(parts, labels[i]+`="`+q.Replace(labels[i+1])+`"`)
+	}
+	return name + "{" + strings.Join(parts, ",") + "}"
+}
+
+// Observe records value (seconds) in the histogram series name, which may
+// carry labels from Series.
+func (r *Registry) Observe(name string, value float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.histograms == nil {
+		r.histograms = map[string]*histogram{}
+	}
+	h := r.histograms[name]
+	if h == nil {
+		h = &histogram{counts: make([]uint64, len(histogramBuckets))}
+		r.histograms[name] = h
+	}
+	for i, bound := range histogramBuckets {
+		if value <= bound {
+			h.counts[i]++
+		}
+	}
+	h.sum += value
+	h.count++
+}
+
+// splitSeries separates a series into its metric name and label list.
+func splitSeries(series string) (string, string) {
+	if i := strings.IndexByte(series, '{'); i > 0 && strings.HasSuffix(series, "}") {
+		return series[:i], series[i+1 : len(series)-1]
+	}
+	return series, ""
+}
+
+// writeSamples prints series grouped by metric name, one TYPE line per name.
+func writeSamples[T any](b *strings.Builder, kind string, values map[string]T, format func(T) string) {
+	names := make([]string, 0, len(values))
+	for name := range values {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	typed := map[string]bool{}
+	for _, series := range names {
+		base, _ := splitSeries(series)
+		if !typed[base] {
+			typed[base] = true
+			fmt.Fprintf(b, "# TYPE %s %s\n", base, kind)
+		}
+		fmt.Fprintf(b, "%s %s\n", series, format(values[series]))
+	}
 }
 
 type rate struct {
@@ -58,12 +133,9 @@ func (r *Registry) Prometheus() string {
 	defer r.mu.Unlock()
 	var b strings.Builder
 	b.WriteString(r.info)
-	for k, v := range r.counters {
-		fmt.Fprintf(&b, "# TYPE %s counter\n%s %d\n", k, k, v)
-	}
-	for k, v := range r.gauges {
-		fmt.Fprintf(&b, "# TYPE %s gauge\n%s %g\n", k, k, v)
-	}
+	writeSamples(&b, "counter", r.counters, func(v uint64) string { return strconv.FormatUint(v, 10) })
+	writeSamples(&b, "gauge", r.gauges, func(v float64) string { return strconv.FormatFloat(v, 'g', -1, 64) })
+	r.writeHistograms(&b)
 	now := time.Now()
 	for name, value := range r.rates {
 		if elapsed := now.Sub(value.at).Seconds(); elapsed > 0 {
@@ -80,4 +152,34 @@ func (r *Registry) Prometheus() string {
 	fmt.Fprintf(&b, "# TYPE go_memstats_heap_inuse_bytes gauge\ngo_memstats_heap_inuse_bytes %d\n", mem.HeapInuse)
 	fmt.Fprintf(&b, "# TYPE go_memstats_sys_bytes gauge\ngo_memstats_sys_bytes %d\n", mem.Sys)
 	return b.String()
+}
+
+func (r *Registry) writeHistograms(b *strings.Builder) {
+	names := make([]string, 0, len(r.histograms))
+	for name := range r.histograms {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	typed := map[string]bool{}
+	for _, series := range names {
+		base, labels := splitSeries(series)
+		if !typed[base] {
+			typed[base] = true
+			fmt.Fprintf(b, "# TYPE %s histogram\n", base)
+		}
+		prefix := ""
+		if labels != "" {
+			prefix = labels + ","
+		}
+		h := r.histograms[series]
+		for i, bound := range histogramBuckets {
+			fmt.Fprintf(b, "%s_bucket{%sle=\"%g\"} %d\n", base, prefix, bound, h.counts[i])
+		}
+		fmt.Fprintf(b, "%s_bucket{%sle=\"+Inf\"} %d\n", base, prefix, h.count)
+		suffix := ""
+		if labels != "" {
+			suffix = "{" + labels + "}"
+		}
+		fmt.Fprintf(b, "%s_sum%s %g\n%s_count%s %d\n", base, suffix, h.sum, base, suffix, h.count)
+	}
 }

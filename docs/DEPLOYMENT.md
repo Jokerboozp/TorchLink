@@ -653,7 +653,7 @@ Windows 使用 `scripts/generate-tls-cert.ps1 -HostName <地址>`（需要 opens
 | 设备状态变更事件 | PostgreSQL | 90 天 | `IOT_RETENTION_STATE_EVENT_DAYS` | — |
 | 告警记录 | PostgreSQL | 1095 天 | `IOT_RETENTION_ALARM_DAYS` | 活动、已确认告警 |
 | 审计日志 | PostgreSQL | 1095 天 | `IOT_RETENTION_AUDIT_DAYS` | — |
-| AI 工具调用日志 | PostgreSQL | 180 天 | `IOT_RETENTION_AI_LOG_DAYS` | — |
+| AI 工具调用日志、AI 运行记录 | PostgreSQL | 180 天 | `IOT_RETENTION_AI_LOG_DAYS` | — |
 | 视频平台告警事件 | PostgreSQL | 1095 天 | `IOT_RETENTION_VIDEO_EVENT_DAYS` | — |
 | 遥测 | ClickHouse 表 TTL | 365 天 | `IOT_RETENTION_TELEMETRY_DAYS` | — |
 | 高频原文 | ClickHouse 表 TTL | 180 天 | `IOT_RETENTION_CLICKHOUSE_RAW_DAYS` | — |

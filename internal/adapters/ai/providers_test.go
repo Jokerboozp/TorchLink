@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/model"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -232,7 +233,7 @@ func TestHarnessClientSeparatesCredentialsAndParsesNDJSON(t *testing.T) {
 			_, _ = fmt.Fprintln(w, `{"type":"text.delta","delta":"hello "}`)
 			_, _ = fmt.Fprintln(w, `{"type":"tool.completed","callId":"call-1","tool":"query_alarm_list","success":true}`)
 			_, _ = fmt.Fprintln(w, `{"type":"text.delta","delta":"world"}`)
-			_, _ = fmt.Fprintln(w, `{"type":"run.completed","conversationId":"internal-conversation"}`)
+			_, _ = fmt.Fprintln(w, `{"type":"run.completed","conversationId":"internal-conversation","usage":{"inputTokens":120,"outputTokens":30,"cacheReadTokens":64,"reasoningTokens":5},"toolCalls":2}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -265,6 +266,9 @@ func TestHarnessClientSeparatesCredentialsAndParsesNDJSON(t *testing.T) {
 	})
 	if err != nil || result.Answer != "hello world" || strings.Join(types, ",") != "run.started,text.delta,tool.completed,text.delta,run.completed" {
 		t.Fatalf("result=%#v events=%v err=%v", result, types, err)
+	}
+	if !result.UsageReported || result.Usage != (model.AIUsage{InputTokens: 120, OutputTokens: 30, CacheReadTokens: 64, ReasoningTokens: 5}) || result.ToolCalls != 2 {
+		t.Fatalf("usage was not taken from run.completed: %#v", result)
 	}
 	if _, leaked := streamBody["mcpToken"]; leaked {
 		t.Fatalf("short-lived MCP token leaked into JSON body: %#v", streamBody)

@@ -121,6 +121,7 @@ func Run(forcedRole string) {
 	opsPrefs, _ := repo.(ports.OpsPreferenceStore)
 	videoStore, _ := repo.(ports.VideoStore)
 	knowledgeStore, _ := repo.(ports.KnowledgeReindexStore)
+	aiRunStore, _ := repo.(ports.AIRunStore)
 	var aiProviderStore ports.AIProviderConfigStore
 	if store, ok := repo.(ports.AIProviderConfigStore); ok {
 		aiProviderStore = store
@@ -137,6 +138,7 @@ func Run(forcedRole string) {
 		opsPrefs = r
 		videoStore = r
 		knowledgeStore = r
+		aiRunStore = r
 		if store, ok := any(r).(ports.AIProviderConfigStore); ok {
 			aiProviderStore = store
 		}
@@ -303,6 +305,7 @@ func Run(forcedRole string) {
 	}
 	parsers := parser.NewPlatformRegistry(cfg.DataDir)
 	engine := core.New(httpapi.ScopedRepository(repo), archivePort, bus, realtime, parsers, log)
+	engine.AIRuns = aiRunStore
 	engine.SetIdentity(cfg.InstanceID)
 	engine.PublishExternalTopics = cfg.PublishExternalTopics
 	registry.SetProcessInfo(cfg.ProcessRole, cfg.InstanceID)

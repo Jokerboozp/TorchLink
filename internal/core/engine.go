@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iot-platform/internal/aiprompt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -43,6 +44,8 @@ type Engine struct {
 	AI            ports.AIClient
 	AIPlugins     ports.AIPluginRegistry
 	AIWorkflows   ports.AIWorkflowRuntime
+	// AIRuns, when set, keeps the record of every finished AI run.
+	AIRuns ports.AIRunStore
 	// HarnessTokens signs MCP credentials for business runs (alarm analysis,
 	// inspection, reports, protocol assistant, rule drafts) executed by Harness.
 	HarnessTokens    ports.HarnessTokenIssuer
@@ -1254,7 +1257,7 @@ func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wit
 			Summary:       "AI 研判暂时失败，已保留告警供人工研判。",
 			RiskLevel:     alarm.AlarmLevel,
 			Model:         aiModelName(e.AI),
-			PromptVersion: "fallback-v2",
+			PromptVersion: aiprompt.AlarmFallbackVersion,
 			CreatedAt:     e.Clock.Now().UnixMilli(),
 			Error:         err.Error(),
 		}

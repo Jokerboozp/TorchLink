@@ -568,6 +568,9 @@ test('stream emits only the public NDJSON event vocabulary and suppresses reason
           params: { sessionId: options.sessionId, event },
         })
         notify({ type: 'assistant/chunk', data: { chunk: { type: 'reasoning-delta', text: 'SECRET_REASONING' } } })
+        notify({ type: 'assistant/message', data: { message: { content: [{ type: 'reasoning', text: 'SECRET_REASONING' }] }, usage: { inputTokens: 120, outputTokens: 30, cacheReadTokens: 64, reasoningTokens: 5 } } })
+        notify({ type: 'assistant/message', data: { message: { content: [] }, usage: { inputTokens: 7, outputTokens: 3, reasoningTokens: -1 } } })
+        notify({ type: 'assistant/message', data: { message: { content: [] } } })
         options.onNotification({ method: 'iot.text.delta', params: { sessionId: 'other-session', text: 'SECRET_OTHER_SESSION' } })
         options.onNotification({ method: 'iot.text.delta', params: { sessionId: options.sessionId, text: '可见结论' } })
         notify({ type: 'tool/call', data: { callId: 'call-direct', name: 'mcp__iot__query_alarm_list', arguments: { secret: true } } })
@@ -595,6 +598,8 @@ test('stream emits only the public NDJSON event vocabulary and suppresses reason
     'tool.completed',
     'run.completed',
   ])
+  assert.deepEqual(events.at(-1).usage, { inputTokens: 127, outputTokens: 33, cacheReadTokens: 64, reasoningTokens: 5 })
+  assert.equal(events.at(-1).toolCalls, 3)
   assert.equal(events[3].success, true)
   assert.equal(events[5].success, true)
   assert.equal(events[7].data.clientAction.type, 'RULE_DRAFT_READY')

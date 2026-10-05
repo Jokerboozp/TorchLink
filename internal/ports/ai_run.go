@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"iot-platform/internal/model"
 )
 
 // ErrAIWorkflowBusy means the Harness is running as many workflows as it
@@ -81,4 +83,22 @@ type AIKnowledgeRunScope struct {
 // HarnessTokenIssuer signs the short-lived MCP credential of a business run.
 type HarnessTokenIssuer interface {
 	IssueBusinessRunToken(tenantID string, identity AIRunIdentity, runID, workflowID string, scopes []string, knowledge *AIKnowledgeRunScope, ttl time.Duration) (string, error)
+}
+
+// AIRunFilter selects finished AI runs; Start and End bound StartedAt in
+// milliseconds and are ignored when zero.
+type AIRunFilter struct {
+	TenantID, WorkflowID, Status string
+	Start, End                   int64
+	Limit, Offset                int
+}
+
+// AIRunStore keeps the finished record of each AI run for cost and quality
+// review. It is separate from Repository and obtained from the unwrapped store.
+type AIRunStore interface {
+	SaveAIRun(context.Context, model.AIRunRecord) error
+	// ListAIRuns returns runs newest first and the filtered total.
+	ListAIRuns(context.Context, AIRunFilter) ([]model.AIRunRecord, int, error)
+	// AIRunUsage sums runs per report day and workflow, oldest day first.
+	AIRunUsage(context.Context, AIRunFilter) ([]model.AIRunUsage, error)
 }

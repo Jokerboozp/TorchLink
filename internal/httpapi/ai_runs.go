@@ -72,3 +72,51 @@ func workflowRunProblem(w http.ResponseWriter, err error) {
 		problem(w, http.StatusBadGateway, "无法访问 AI 工作流运行管理，请检查 Harness 服务后重试")
 	}
 }
+
+// aiRunFilter reads the run history filters; a missing range covers the
+// last 30 days.
+func aiRunFilter(r *http.Request) ports.AIRunFilter {
+	q := r.URL.Query()
+	f := ports.AIRunFilter{TenantID: claims(r).TenantID, WorkflowID: strings.TrimSpace(q.Get("workflowId")), Status: strings.ToUpper(strings.TrimSpace(q.Get("status"))), Start: queryInt64(r, "start"), End: queryInt64(r, "end")}
+	if f.Start <= 0 && f.End <= 0 {
+		f.Start = time.Now().AddDate(0, 0, -30).UnixMilli()
+	}
+	f.Limit, f.Offset = operationPage(r)
+	return f
+}
+
+// aiRunHistory lists finished runs with their sizes, token usage and outcome.
+func (s *Server) aiRunHistory(w http.ResponseWriter, r *http.Request) {
+	if limited(r.Context()) {
+		problem(w, http.StatusForbidden, "查看 AI 运行记录需要当前租户全部设备的访问权限")
+		return
+	}
+	if s.engine.AIRuns == nil {
+		write(w, http.StatusOK, map[string]any{"items": []any{}, "total": 0, "available": false})
+		return
+	}
+	items, total, err := s.engine.AIRuns.ListAIRuns(r.Context(), aiRunFilter(r))
+	if err != nil {
+		problem(w, http.StatusInternalServerError, "AI 运行记录读取失败")
+		return
+	}
+	write(w, http.StatusOK, map[string]any{"items": items, "total": total, "available": true})
+}
+
+// aiRunUsage sums runs per day and workflow for the same filters.
+func (s *Server) aiRunUsage(w http.ResponseWriter, r *http.Request) {
+	if limited(r.Context()) {
+		problem(w, http.StatusForbidden, "查看 AI 运行记录需要当前租户全部设备的访问权限")
+		return
+	}
+	if s.engine.AIRuns == nil {
+		write(w, http.StatusOK, map[string]any{"items": []any{}, "available": false})
+		return
+	}
+	items, err := s.engine.AIRuns.AIRunUsage(r.Context(), aiRunFilter(r))
+	if err != nil {
+		problem(w, http.StatusInternalServerError, "AI 用量统计读取失败")
+		return
+	}
+	write(w, http.StatusOK, map[string]any{"items": items, "available": true})
+}

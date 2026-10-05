@@ -455,6 +455,7 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 
 	result := ports.AIWorkflowResult{RunID: in.RunID, WorkflowID: in.WorkflowID, Model: in.Model}
 	var streamed strings.Builder
+	toolStarts := 0
 	scanner := bufio.NewScanner(res.Body)
 	scanner.Buffer(make([]byte, 4096), maxHarnessEventBytes)
 	for scanner.Scan() {
@@ -488,6 +489,15 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 		if event.Answer != "" && event.Type == "run.completed" {
 			result.Answer = event.Answer
 		}
+		switch event.Type {
+		case "tool.started":
+			toolStarts++
+		case "run.completed", "run.failed":
+			if event.Usage != nil {
+				result.Usage, result.UsageReported = *event.Usage, true
+			}
+			result.ToolCalls = max(event.ToolCalls, toolStarts)
+		}
 		if emit != nil {
 			if err = emit(event); err != nil {
 				return result, err
@@ -502,13 +512,14 @@ func (h *HarnessClient) StreamChat(ctx context.Context, in ports.AIWorkflowReque
 	}
 	if err = scanner.Err(); err != nil {
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-			return result, fmt.Errorf("AI 工作流超过 %s 未完成", timeout)
+			return result, workflowTimeout{timeout}
 		}
 		return result, fmt.Errorf("read harness event stream: %w", err)
 	}
 	if result.Answer == "" {
 		result.Answer = streamed.String()
 	}
+	result.ToolCalls = max(result.ToolCalls, toolStarts)
 	return result, nil
 }
 
@@ -538,3 +549,12 @@ var _ ports.AIWorkflowRuntime = (*HarnessClient)(nil)
 var _ ports.AIWorkflowManager = (*HarnessClient)(nil)
 var _ ports.AIWorkflowAdminManager = (*HarnessClient)(nil)
 var _ ports.AIWorkflowProviderRuntime = (*HarnessClient)(nil)
+
+// workflowTimeout reports a run that exceeded its time limit; it matches
+// context.DeadlineExceeded so callers can classify it as a timeout.
+type workflowTimeout struct{ limit time.Duration }
+
+func (e workflowTimeout) Error() string {
+	return fmt.Sprintf("AI 工作流超过 %s 未完成", e.limit)
+}
+func (e workflowTimeout) Is(target error) bool { return target == context.DeadlineExceeded }

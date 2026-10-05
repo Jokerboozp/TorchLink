@@ -27,6 +27,7 @@ var retentionTables = map[string]struct {
 	model.RetentionAlarms:           {"last_triggered_at", true, "status IN ('CLOSED','RECOVERED','SUPPRESSED')"},
 	model.RetentionAudit:            {"created_at", true, ""},
 	model.RetentionAIToolCalls:      {"created_at", false, ""},
+	model.RetentionAIRuns:           {"started_at", true, ""},
 	model.RetentionVideoEvents:      {"event_time", true, ""},
 	model.RetentionNotifications:    {"created_at", true, "status IN ('SENT','FAILED','CANCELLED')"},
 	model.RetentionStandardKeys:     {"created_at", true, ""},

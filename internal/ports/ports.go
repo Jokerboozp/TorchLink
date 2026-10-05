@@ -444,6 +444,9 @@ type AIWorkflowEvent struct {
 	Success    *bool          `json:"success,omitempty"`
 	Code       string         `json:"code,omitempty"`
 	Data       map[string]any `json:"data,omitempty"`
+	// Usage and ToolCalls are reported on run.completed and run.failed.
+	Usage     *model.AIUsage `json:"usage,omitempty"`
+	ToolCalls int            `json:"toolCalls,omitempty"`
 }
 
 type AIWorkflowResult struct {
@@ -451,6 +454,11 @@ type AIWorkflowResult struct {
 	WorkflowID string `json:"workflowId,omitempty"`
 	Model      string `json:"model,omitempty"`
 	Answer     string `json:"answer"`
+	// Usage is the provider's token usage; UsageReported is false when the
+	// Harness did not report it.
+	Usage         model.AIUsage `json:"usage"`
+	UsageReported bool          `json:"usageReported,omitempty"`
+	ToolCalls     int           `json:"toolCalls,omitempty"`
 }
 
 type AIWorkflowRuntime interface {

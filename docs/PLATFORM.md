@@ -136,6 +136,14 @@ Harness 并发与驻留上限以 `IOT_HARNESS_MAX_CONCURRENCY`、`IOT_HARNESS_MA
 
 停止运行任务会关闭对应驻留进程与 MCP 代理路由；排队任务直接移出队列。正在初始化的任务会在初始化返回后立即关闭，不再运行提示词。原调用收到 `RUN_STOPPED` 失败事件，智能助手显示“已停止”，业务任务按失败结束且不会因为手动停止自动重试。若进程终止无法确认，保留“停止失败”记录与并发名额，提示管理员重启 Harness，避免误报停止成功。全部运行与排队任务结束后才允许切换模型。多 Harness 实例会汇总查询并定位任务；任一实例查询失败会报错，不把不完整列表当作空闲状态。
 
+### AI 运行记录与用量
+
+每次智能助手对话和业务工作流（告警研判、巡检建议、运维报告、协议助手、规则草稿）结束后，平台写入一条运行记录（PostgreSQL `ai_workflow_run`）：工作流、提示词版本、模型、发起人、输入与输出字节数、词元用量（输入 / 输出 / 缓存命中 / 推理）、工具调用次数、耗时、结果（成功 / 失败 / 已停止 / 超时）与截断后的错误信息；不保存提示词、回答或凭据。词元用量来自 Harness 在 `run.completed` / `run.failed` 事件中汇总的模型服务 `usage`，模型服务未返回时记为“未上报”。业务任务耗时不含等待 Harness 空闲名额的时间。
+
+“模型管理 → AI 运行记录与用量”按时间范围、工作流和结果筛选，分页查看记录并按工作流汇总用量；权限与[运行中的 AI 工作流](#运行中的-ai-工作流)相同（全部设备范围 + “查看 AI 运行记录”/“查看 AI 用量统计”操作权限），接口为 `GET /api/v1/ai/runs/history` 与 `GET /api/v1/ai/runs/usage`。记录随 AI 日志留存天数清理；未使用 PostgreSQL 的精简运行不保存记录。
+
+Prometheus 指标：`ai_run_total{workflow,status}`、`ai_run_duration_seconds{workflow}`（直方图）、`ai_tokens_total{workflow,kind}`；“炬联平台运行”看板的“AI 工作流”分组展示每小时词元用量、运行次数与 P90 耗时。
+
 ### Harness 维护
 
 侧车源码在 `deploy/deepseek-harness/`，上游固定于 `REVISION`；构建上下文为仓库根目录：

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/aiprompt"
+	"iot-platform/internal/metrics"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -237,7 +239,7 @@ func TestBusinessFirstHarnessRequestContainsScopedKnowledgeEvidence(t *testing.T
 					t.Error("knowledge must be retrieved before the first HTTP Harness request")
 				}
 			})
-			result, err := engine.runBusinessWorkflow(ctx, "t1", feature.workflow, "高温 核实", "高温 核实", feature.tools, 2048)
+			result, err := engine.runBusinessWorkflow(ctx, "t1", feature.workflow, "", "高温 核实", "高温 核实", feature.tools, 2048)
 			if err != nil || result.Answer != "已接收知识证据" {
 				t.Fatalf("run result: %#v err=%v", result, err)
 			}
@@ -276,7 +278,7 @@ func TestBusinessKnowledgePermissionAndRequiredEvidenceBeforeHarness(t *testing.
 				t.Fatal(err)
 			}
 			received := installBusinessHarnessHTTP(t, engine, nil)
-			_, err := engine.runBusinessWorkflow(ctx, "t1", WorkflowOpsReport, "高温 核实", "高温 核实", []string{"query_alarm_list", "query_knowledge_base"}, 2048)
+			_, err := engine.runBusinessWorkflow(ctx, "t1", WorkflowOpsReport, "", "高温 核实", "高温 核实", []string{"query_alarm_list", "query_knowledge_base"}, 2048)
 			if len(index.Requests()) != 0 {
 				t.Fatal("a caller without knowledge permission must not prefetch")
 			}
@@ -303,7 +305,7 @@ func TestBusinessKnowledgeEvidenceStaysInsideHarnessInputBudget(t *testing.T) {
 	index := &businessKnowledgeIndex{Local: knowledge.NewLocal(), hits: []ports.KnowledgeHit{{DocumentID: "manual", ChunkID: "manual-1", WorkflowID: WorkflowProtocolAssist, Content: strings.Repeat("知识", 6000)}}}
 	engine.KB = index
 	received := installBusinessHarnessHTTP(t, engine, nil)
-	if _, err := engine.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowProtocolAssist, strings.Repeat("上", 7000), "上", []string{"query_knowledge_base"}, 2048); err != nil {
+	if _, err := engine.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowProtocolAssist, "", strings.Repeat("上", 7000), "上", []string{"query_knowledge_base"}, 2048); err != nil {
 		t.Fatal(err)
 	}
 	request := <-received
@@ -338,7 +340,7 @@ func TestBusinessKnowledgeFailuresNeverReachHarness(t *testing.T) {
 				question = strings.Repeat("文", 11000)
 			}
 			received := installBusinessHarnessHTTP(t, engine, nil)
-			if _, err := engine.runBusinessWorkflow(ctx, "t1", WorkflowProtocolAssist, question, question, []string{"query_knowledge_base"}, 2048); err == nil || len(received) != 0 {
+			if _, err := engine.runBusinessWorkflow(ctx, "t1", WorkflowProtocolAssist, "", question, question, []string{"query_knowledge_base"}, 2048); err == nil || len(received) != 0 {
 				t.Fatalf("%s must fail before the first Harness request: %v", failure, err)
 			}
 			if strings.Contains(failure, "mismatched") || failure == "managed-missing-tenant" {
@@ -353,7 +355,7 @@ func TestBusinessKnowledgeFailuresNeverReachHarness(t *testing.T) {
 func TestBusinessMissingKnowledgeAllowModelAndAlarmPrefetchGuards(t *testing.T) {
 	engine, _, workflows := newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) { return "结论", nil })
 	engine.KB = nil
-	if _, err := engine.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowOpsReport, "高温", "高温", []string{"query_knowledge_base"}, 2048); err != nil {
+	if _, err := engine.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowOpsReport, "", "高温", "高温", []string{"query_knowledge_base"}, 2048); err != nil {
 		t.Fatal(err)
 	}
 	claims, _ := aitest.Claims(workflows.Last())
@@ -778,7 +780,7 @@ func TestKnowledgeEvidenceFitsCharacterAndEscapedJSONBudgets(t *testing.T) {
 func TestBusinessRunsAreOneShotWithTheirOwnTimeout(t *testing.T) {
 	e, _, workflows := newBusinessEngine(t, nil)
 	e.BusinessRunTimeout = 7 * time.Minute
-	if _, err := e.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowOpsReport, "高温", "高温", []string{"query_alarm_list"}, 2048); err != nil {
+	if _, err := e.runBusinessWorkflow(aitest.Context(context.Background()), "t1", WorkflowOpsReport, "", "高温", "高温", []string{"query_alarm_list"}, 2048); err != nil {
 		t.Fatal(err)
 	}
 	request := workflows.Last()
@@ -823,5 +825,60 @@ func TestBusinessFeaturesRetrieveWithShortQuestions(t *testing.T) {
 	}
 	if !strings.Contains(workflows.Last().Question, "仅按关键词匹配") {
 		t.Fatal("keyword-only evidence is not marked")
+	}
+}
+
+// Every business run leaves a record with its prompt version, sizes, usage
+// and outcome, and updates the labeled AI metrics.
+func TestBusinessRunsAreRecorded(t *testing.T) {
+	failing := false
+	engine, _, workflows := newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) {
+		if failing {
+			return "", ports.ErrAIWorkflowStopped
+		}
+		return "结论", nil
+	})
+	store := memory.NewRepository()
+	registry := metrics.New()
+	engine.AIRuns, engine.Metrics, engine.KB = store, registry, nil
+	workflows.Usage = &model.AIUsage{InputTokens: 120, OutputTokens: 30, CacheReadTokens: 7}
+	ctx := aitest.Context(context.Background())
+	if _, err := engine.runBusinessWorkflow(ctx, "t1", WorkflowOpsReport, aiprompt.OpsReportVersion, "高温", "高温", []string{"query_alarm_list"}, 2048); err != nil {
+		t.Fatal(err)
+	}
+	failing = true
+	if _, err := engine.runBusinessWorkflow(ctx, "t1", WorkflowOpsReport, aiprompt.OpsReportVersion, "高温", "高温", []string{"query_alarm_list"}, 2048); err == nil {
+		t.Fatal("stopped run succeeded")
+	}
+	runs, total, err := store.ListAIRuns(context.Background(), ports.AIRunFilter{TenantID: "t1"})
+	if err != nil || total != 2 {
+		t.Fatalf("runs=%v total=%d err=%v", runs, total, err)
+	}
+	statuses := map[string]model.AIRunRecord{}
+	for _, run := range runs {
+		statuses[run.Status] = run
+	}
+	ok := statuses[model.AIRunSucceeded]
+	if ok.WorkflowID != WorkflowOpsReport || ok.PromptVersion != aiprompt.OpsReportVersion || ok.Actor != "aitest" || ok.Model != "aitest-model" ||
+		ok.Usage.InputTokens != 120 || !ok.UsageReported || ok.ToolCalls != 1 || ok.OutputBytes != len("结论") || ok.InputBytes == 0 || ok.RunID == "" {
+		t.Fatalf("succeeded record %+v", ok)
+	}
+	if stopped := statuses[model.AIRunStopped]; stopped.Error == "" {
+		t.Fatalf("stopped record %+v", stopped)
+	}
+	usage, err := store.AIRunUsage(context.Background(), ports.AIRunFilter{TenantID: "t1"})
+	if err != nil || len(usage) != 1 || usage[0].Runs != 2 || usage[0].Failed != 1 || usage[0].Usage.InputTokens != 240 {
+		t.Fatalf("usage=%+v err=%v", usage, err)
+	}
+	exposition := registry.Prometheus()
+	for _, line := range []string{
+		`ai_run_total{workflow="ops-assistant",status="SUCCEEDED"} 1`,
+		`ai_run_total{workflow="ops-assistant",status="STOPPED"} 1`,
+		`ai_tokens_total{workflow="ops-assistant",kind="input"} 240`,
+		`ai_run_duration_seconds_count{workflow="ops-assistant"} 2`,
+	} {
+		if !strings.Contains(exposition, line) {
+			t.Errorf("missing metric %s", line)
+		}
 	}
 }

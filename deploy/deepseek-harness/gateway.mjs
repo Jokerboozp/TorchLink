@@ -494,6 +494,21 @@ function sessionEvent(notification, sessionId) {
   return event !== null && typeof event === 'object' ? event : undefined
 }
 
+// addUsage adds one step's TokenUsage to total and reports whether the step
+// carried any accounting. Only non-negative safe integers are counted.
+export function addUsage(total, step) {
+  if (step === null || typeof step !== 'object') return false
+  let reported = false
+  for (const key of ['inputTokens', 'outputTokens', 'cacheReadTokens', 'reasoningTokens']) {
+    const value = step[key]
+    if (Number.isSafeInteger(value) && value >= 0) {
+      total[key] += value
+      reported = true
+    }
+  }
+  return reported
+}
+
 function toolResultFailed(data) {
   if (data?.error !== undefined) return true
   const content = data?.message?.content
@@ -1231,6 +1246,10 @@ export function createGateway(options = {}) {
       maxTokens: run.maxTokens,
     })
     const calls = new Map()
+    // Token usage of every model step; reported with the terminal event.
+    const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, reasoningTokens: 0 }
+    let usageReported = false
+    const accounting = () => ({ ...(usageReported ? { usage: { ...usage } } : {}), toolCalls: calls.size })
     let emittedText = false
     let rejectStopped
     const stopped = new Promise((_, reject) => { rejectStopped = reject })
@@ -1261,6 +1280,10 @@ export function createGateway(options = {}) {
           }
           const event = sessionEvent(notification, entry.sessionId)
           if (event === undefined) return
+          if (event.type === 'assistant/message') {
+            usageReported = addUsage(usage, event.data?.usage) || usageReported
+            return
+          }
           if (event.type === 'tool/call') {
             const callId = event.data?.callId
             const tool = event.data?.name
@@ -1293,9 +1316,10 @@ export function createGateway(options = {}) {
         emit('run.completed', {
           conversationId: run.conversationId,
           workflowId: run.workflowId,
+          ...accounting(),
         })
       } else {
-        emit('run.failed', { code: failure, message: 'Harness run did not complete successfully' })
+        emit('run.failed', { code: failure, message: 'Harness run did not complete successfully', ...accounting() })
       }
     } catch (error) {
       if (entry !== undefined) await closeEntry(cacheKey, entry)
@@ -1303,7 +1327,7 @@ export function createGateway(options = {}) {
       if (stopFailed) control.status = 'stop_failed'
       if (!clientGone) {
         const manualStop = controller.signal.reason?.code === 'RUN_STOPPED'
-        emit('run.failed', { code: stopFailed ? 'RUN_STOP_FAILED' : manualStop ? 'RUN_STOPPED' : safeRuntimeError(error), message: stopFailed ? '无法确认工作流进程退出，请联系管理员重启 Harness' : manualStop ? 'AI 工作流已被管理员强制停止' : 'Harness runtime request failed' })
+        emit('run.failed', { code: stopFailed ? 'RUN_STOP_FAILED' : manualStop ? 'RUN_STOPPED' : safeRuntimeError(error), message: stopFailed ? '无法确认工作流进程退出，请联系管理员重启 Harness' : manualStop ? 'AI 工作流已被管理员强制停止' : 'Harness runtime request failed', ...accounting() })
       }
     } finally {
       // A failed process reap must not advertise a free slot or permit model

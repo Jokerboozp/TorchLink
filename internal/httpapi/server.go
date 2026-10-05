@@ -287,6 +287,8 @@ func (s *Server) routes() {
 	s.router.POST("/api/v1/knowledge/documents/:id/retry", s.authorize("operator"), s.endpoint(s.retryKnowledgeDocument, "id"))
 	s.router.GET("/api/v1/ai/workflows", s.authorize("viewer"), s.endpoint(s.aiWorkflows))
 	s.router.GET("/api/v1/ai/runs", s.authorize("admin"), s.endpoint(s.aiWorkflowRuns))
+	s.router.GET("/api/v1/ai/runs/history", s.authorize("admin"), s.endpoint(s.aiRunHistory))
+	s.router.GET("/api/v1/ai/runs/usage", s.authorize("admin"), s.endpoint(s.aiRunUsage))
 	s.router.POST("/api/v1/ai/runs/:id/stop", s.authorize("admin"), s.endpoint(s.stopAIWorkflowRun, "id"))
 	s.router.GET("/api/v1/ai/workflows/admin", s.authorize("admin"), s.endpoint(s.aiWorkflowManifests))
 	s.router.POST("/api/v1/ai/workflows", s.authorize("admin"), s.endpoint(s.saveAIWorkflow))
@@ -2313,10 +2315,12 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 	if err != nil {
 		return ports.AIWorkflowResult{RunID: runID}, fmt.Errorf("issue harness token: %w", err)
 	}
+	started := time.Now()
 	result, err := s.engine.AIWorkflows.StreamChat(ctx, ports.AIWorkflowRequest{TenantID: c.TenantID, Actor: c.Username, RunID: runID, ConversationID: strings.TrimSpace(conversationID), WorkflowID: strings.TrimSpace(workflowID), Question: question, Model: strings.TrimSpace(modelName), MaxTokens: maxTokens, MCPToken: mcpToken}, emit)
 	if result.RunID == "" {
 		result.RunID = runID
 	}
+	s.engine.RecordAIRun(core.AIRunMeta{TenantID: c.TenantID, Actor: c.Username, WorkflowID: strings.TrimSpace(workflowID), Model: strings.TrimSpace(modelName), InputBytes: len(question), StartedAt: started}, result, err)
 	return result, err
 }
 

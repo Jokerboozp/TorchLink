@@ -386,6 +386,100 @@
       "options": {
         "showHeader": true
       }
+    },
+    {
+      "id": 9,
+      "type": "row",
+      "title": "AI 工作流",
+      "gridPos": {
+        "x": 0,
+        "y": 20,
+        "w": 24,
+        "h": 1
+      },
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "AI 词元用量（每小时）",
+      "gridPos": {
+        "x": 0,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (workflow, kind) (increase(ai_tokens_total{job=\"iot-platform\"}[1h]))",
+          "legendFormat": "{{workflow}} {{kind}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "AI 运行次数与耗时",
+      "gridPos": {
+        "x": 12,
+        "y": 21,
+        "w": 12,
+        "h": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (workflow, status) (increase(ai_run_total{job=\"iot-platform\"}[1h]))",
+          "legendFormat": "{{workflow}} {{status}}"
+        },
+        {
+          "refId": "B",
+          "expr": "histogram_quantile(0.9, sum by (workflow, le) (rate(ai_run_duration_seconds_bucket{job=\"iot-platform\"}[1h])))",
+          "legendFormat": "{{workflow}} P90 耗时（秒）"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
     }
   ]
 }

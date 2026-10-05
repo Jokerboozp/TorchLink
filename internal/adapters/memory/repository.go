@@ -57,6 +57,7 @@ type Repository struct {
 	replays             map[string]model.ReplayRequest
 	audits              []model.AuditLog
 	aiToolCalls         []model.AIToolCallLog
+	aiRuns              []model.AIRunRecord
 	aiProviderConfig    *ports.AIPluginConfig
 	aiWorkflowManifests map[string]ports.StoredAIWorkflowManifest
 	products            map[string]model.Product

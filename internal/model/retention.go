@@ -12,6 +12,7 @@ const (
 	RetentionAlarms           = "alarm_record"
 	RetentionAudit            = "audit_log"
 	RetentionAIToolCalls      = "ai_tool_call_log"
+	RetentionAIRuns           = "ai_workflow_run"
 	RetentionVideoEvents      = "video_alarm_event"
 	RetentionNotifications    = "notification_task"
 	// RetentionStandardKeys holds the recent standard message IDs that
