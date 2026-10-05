@@ -1019,7 +1019,9 @@ func TestDeviceReportingTimingComesFromTemplateAndDevice(t *testing.T) {
 		}
 	}
 	for i, d := range []struct{ product, device string }{{"json_hydrant", "hydrant-1"}, {"json_hydrant", "hydrant-2"}, {"json_plain", "plain-1"}} {
-		raw := model.RawMessage{MessageID: fmt.Sprintf("raw_timing_%d", i), TenantID: "t1", ProductID: d.product, DeviceID: d.device, Protocol: "json", PayloadFormat: "json", ReceivedAt: int64(1000 + i), Payload: json.RawMessage(`{"properties":{"pressure":0.3}}`)}
+		// Current timestamps keep the engine's offline scan from marking the
+		// devices offline while the test runs.
+		raw := model.RawMessage{MessageID: fmt.Sprintf("raw_timing_%d", i), TenantID: "t1", ProductID: d.product, DeviceID: d.device, Protocol: "json", PayloadFormat: "json", ReceivedAt: time.Now().UnixMilli(), Payload: json.RawMessage(`{"properties":{"pressure":0.3}}`)}
 		if _, _, err := e.IngestRaw(ctx, raw); err != nil {
 			t.Fatal(err)
 		}
@@ -1030,8 +1032,8 @@ func TestDeviceReportingTimingComesFromTemplateAndDevice(t *testing.T) {
 		if err != nil || state.ReportIntervalSec != interval || state.OfflineToleranceSec != tolerance {
 			t.Fatalf("%s timing %d/%d err=%v, want %d/%d", device, state.ReportIntervalSec, state.OfflineToleranceSec, err, interval, tolerance)
 		}
-		if state.OfflineCheckAt() != state.LastSeenAt+(interval+tolerance)*1000 {
-			t.Fatalf("%s offline check %d", device, state.OfflineCheckAt())
+		if state.OfflineDeadline() != state.LastSeenAt+(interval+tolerance)*1000 {
+			t.Fatalf("%s offline deadline %d", device, state.OfflineDeadline())
 		}
 	}
 	check("hydrant-1", 3600, 600)
