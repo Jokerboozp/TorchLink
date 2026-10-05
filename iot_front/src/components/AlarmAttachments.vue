@@ -139,7 +139,7 @@ function remove(att) {
   border: 0;
   padding: 0;
   cursor: pointer;
-  color: var(--primary);
+  color: var(--primary-text);
 }
 .attachment-meta small {
   color: var(--text-muted);

@@ -358,7 +358,7 @@ onBeforeUnmount(() => {
 }
 .inspection-scope span {
   padding: 3px 9px;
-  color: var(--primary);
+  color: var(--primary-text);
   background: var(--surface-muted);
   border-radius: 5px;
   font-size: 12px;
@@ -419,7 +419,7 @@ onBeforeUnmount(() => {
   gap: 4px;
 }
 .inspection-progress-heading strong {
-  color: var(--primary);
+  color: var(--primary-text);
   font-size: 14px;
 }
 .inspection-progress-heading > strong {

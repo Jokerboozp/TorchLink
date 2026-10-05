@@ -509,7 +509,7 @@ function roleActions(row) {
 }
 .user-editor-expand {
   flex: none;
-  color: var(--primary);
+  color: var(--primary-text);
   font-size: 12px;
   font-weight: 500;
 }

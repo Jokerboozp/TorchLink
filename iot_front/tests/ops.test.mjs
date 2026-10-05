@@ -102,6 +102,7 @@ test('仪表盘单点和稀疏时序固定到查询时间窗，刷新和缩放�
     },
     uPlot: Plot,
     formatValue,
+    isDark: ref(false),
     document: { documentElement: {} },
     getComputedStyle: () => ({ getPropertyValue: () => '' })
   })

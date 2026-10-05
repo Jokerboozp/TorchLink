@@ -313,7 +313,7 @@
   font-weight: var(--font-weight-medium);
 }
 .nav-item.is-active svg {
-  color: var(--primary);
+  color: var(--primary-text);
 }
 .app-shell.is-collapsed .app-sidebar__nav {
   padding-right: var(--space-2);
@@ -455,8 +455,8 @@
   place-items: center;
   width: 30px;
   height: 30px;
-  color: var(--text-inverse);
-  background: var(--gray-700);
+  color: var(--surface);
+  background: var(--text-secondary);
   border-radius: 50%;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);

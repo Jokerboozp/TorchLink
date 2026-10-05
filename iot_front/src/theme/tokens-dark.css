@@ -1,0 +1,86 @@
+/*
+ * 深色主题：只覆盖颜色类变量，字号、间距、圆角沿用 tokens.css。
+ * 暖灰阶整体反转，表面、边框和文字等语义变量随之切换；
+ * 品牌色与状态色提亮，浅底提示改为低亮度的同色系底。
+ * src/theme/naive.js 读取本文件生成深色 Naive UI 主题，因此只写变量声明。
+ */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --gray-0: #2b2a27;
+  --gray-25: #302f2c;
+  --gray-50: #1f1e1c;
+  --gray-75: #252422;
+  --gray-100: #383733;
+  --gray-150: #3d3c38;
+  --gray-200: #4a4945;
+  --gray-300: #5e5d58;
+  --gray-400: #8e8c84;
+  --gray-500: #a3a197;
+  --gray-600: #bdbbb1;
+  --gray-700: #d6d4ca;
+  --gray-800: #e8e6dc;
+  --gray-900: #f5f4ee;
+  --text-inverse: #ffffff;
+
+  --primary: #c4613f;
+  --primary-hover: #d0704d;
+  --primary-pressed: #ad5536;
+  --primary-soft: #3a2a23;
+  --primary-soft-hover: #47322a;
+  --primary-border: #7a4634;
+  --primary-text: #eb9474;
+
+  --flame-soft: #3d2b1f;
+  --flame-text: #f0a06a;
+
+  --success: #3f9963;
+  --success-hover: #4aa86f;
+  --success-pressed: #358456;
+  --success-text: #7cc796;
+  --success-soft: #1f3326;
+  --success-border: #2f5a3d;
+  --warning: #c98a2e;
+  --warning-hover: #d69a3e;
+  --warning-pressed: #b07724;
+  --warning-text: #e6b366;
+  --warning-soft: #3a2e1b;
+  --warning-border: #6b5226;
+  --danger: #d0564f;
+  --danger-hover: #dc6a63;
+  --danger-pressed: #b84740;
+  --danger-text: #f08a84;
+  --danger-soft: #3d2221;
+  --danger-border: #74393a;
+  --info: #5b8fc4;
+  --info-hover: #6c9dd0;
+  --info-pressed: #4c7fb3;
+  --info-text: #8fb8e3;
+  --info-soft: #1f2c3a;
+  --info-border: #344d69;
+
+  --chart-1: #d9734f;
+  --chart-2: #6d9bd0;
+  --chart-3: #55ad78;
+  --chart-4: #d19a3c;
+  --chart-5: #a389cf;
+  --chart-6: #4fb3b0;
+  --chart-7: #d06f93;
+  --chart-8: #a3a097;
+  --chart-9: #b3ae4a;
+  --chart-10: #e09a6a;
+
+  --code-bg: #161514;
+  --code-border: #3a3935;
+
+  --sidebar-label: #a3a197;
+  --login-panel-muted: #a3a197;
+  --login-highlight: #d9734f;
+
+  --mask: rgba(0, 0, 0, 0.55);
+  --loading-veil: rgba(31, 30, 28, 0.7);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.25), 0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-lg: 0 12px 36px rgba(0, 0, 0, 0.45), 0 2px 6px rgba(0, 0, 0, 0.25);
+  --focus-ring: 0 0 0 3px rgba(217, 115, 79, 0.32);
+}

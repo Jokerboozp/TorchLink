@@ -518,7 +518,7 @@ onBeforeUnmount(() => {
   gap: 3px;
 }
 .section-kicker {
-  color: var(--primary);
+  color: var(--primary-text);
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.14em;
@@ -600,7 +600,7 @@ onBeforeUnmount(() => {
 }
 .quick-prompts button {
   padding: 6px 9px;
-  color: var(--primary);
+  color: var(--primary-text);
   background: var(--surface-muted);
   border: 1px solid var(--info-border);
   border-radius: 3px;
@@ -749,7 +749,7 @@ onBeforeUnmount(() => {
 }
 .message-meta button {
   padding: 0;
-  color: var(--primary);
+  color: var(--primary-text);
   background: none;
   border: 0;
   font-size: 12px;
@@ -1011,7 +1011,7 @@ onBeforeUnmount(() => {
 .message-meta button {
   min-height: 24px;
   padding: 3px 8px;
-  color: var(--primary);
+  color: var(--primary-text);
   background: var(--surface-muted);
   border: 1px solid var(--info-border);
   border-radius: 0.375rem;

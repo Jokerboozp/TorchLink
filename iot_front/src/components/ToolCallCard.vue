@@ -103,7 +103,7 @@ function safeSummary(value) {
   flex: 0 0 25px;
   display: grid;
   place-items: center;
-  color: var(--primary);
+  color: var(--primary-text);
   background: var(--surface-muted);
   border-radius: 4px;
   font-size: 12px;

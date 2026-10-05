@@ -410,7 +410,7 @@ onMounted(loadRuntime)
   gap: 10px;
 }
 .ai-active-provider-main strong {
-  color: var(--primary);
+  color: var(--primary-text);
   font-size: 17px;
 }
 .ai-active-provider-main span {
@@ -468,7 +468,7 @@ onMounted(loadRuntime)
   place-items: center;
   width: 27px;
   height: 27px;
-  color: var(--primary);
+  color: var(--primary-text);
   background: var(--surface-muted);
   border-radius: 7px;
   font-size: 12px;

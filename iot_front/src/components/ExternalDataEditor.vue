@@ -344,7 +344,7 @@ function submit() {
   cursor: pointer;
 }
 .editor-steps .active {
-  color: var(--primary);
+  color: var(--primary-text);
   background: var(--primary-soft);
   border-color: var(--primary);
 }
