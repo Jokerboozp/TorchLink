@@ -394,7 +394,7 @@ sudo docker compose -p iot-platform-local --env-file .env.local \
 - 检索时向量计算限时 10 秒；向量服务不可用时退回关键词检索，结果标记为“仅关键词匹配”。重排每次最多看 20 条候选、每条前 400 字（CPU 上约数秒），失败或超时保留混合排序。
 - 建索引对连接失败、429、5xx 重试，遵守 `Retry-After`；临时失败按 1、5、15、60 分钟自动重新排队，用完才标记索引失败，等待中的文档可手动立即重试。CPU 上大文档建索引较慢，单个任务上限 2 小时（每批完成都会续租）。
 
-PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数据卷。API 迁移创建 `vector` 扩展及知识索引表；外部 PostgreSQL 须预先安装 pgvector，并由具备权限的账户执行扩展创建。知识原件继续保存在对象存储（RustFS），文档、分片、向量、Agent 绑定及索引版本存于 PostgreSQL。上传、删除、重试、原子重建及检索授权统一见[知识库使用](PLATFORM.md#ai-与知识库)；多副本共享 PostgreSQL 重建锁。
+PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数据卷。构建时 Alpine 软件源（dl-cdn.alpinelinux.org）不可达或返回 `Permission denied` 时，设置 `IOT_ALPINE_MIRROR=https://mirrors.aliyun.com/alpine` 后重跑部署脚本。API 迁移创建 `vector` 扩展及知识索引表；外部 PostgreSQL 须预先安装 pgvector，并由具备权限的账户执行扩展创建。知识原件继续保存在对象存储（RustFS），文档、分片、向量、Agent 绑定及索引版本存于 PostgreSQL。上传、删除、重试、原子重建及检索授权统一见[知识库使用](PLATFORM.md#ai-与知识库)；多副本共享 PostgreSQL 重建锁。
 
 ### 运维组件
 
