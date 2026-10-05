@@ -12,6 +12,6 @@
 `raw_archive_index`、`raw_message_log`、`standard_message`、`device_state_event`、`audit_log` 自迁移 0011 起为按月分区表（父表保留原索引名，旧数据在 `<表>_legacy` 分区）。修改这些表时：
 
 - 新增列用 `ALTER TABLE <父表> ADD COLUMN IF NOT EXISTS`，会同步到所有分区。
-- 新增索引在父表上创建会逐个分区建索引并持有锁；大表请先在各分区 `CREATE INDEX CONCURRENTLY`，再在父表 `CREATE INDEX ... ON ONLY` 并 `ALTER INDEX ... ATTACH PARTITION`。
+- 新增索引在父表上创建会逐个分区建索引并持有锁；大表请先在各分区 `CREATE INDEX CONCURRENTLY`，再在父表 `CREATE INDEX ... ON ONLY` 并 `ALTER INDEX ... ATTACH PARTITION`。分区数量随月份变化，用 `registerConnMigration` 注册事务外的 Go 迁移并调用 `createPartitionedIndex`（见 `partition_index.go`，迁移 0018），之后新建的月分区自动继承父表索引。
 - 唯一约束必须包含分区键；按消息编号去重依赖写入检查（见 `partitions.go` 注释），不要新增依赖 `ON CONFLICT (tenant_id, message_id)` 的语句。
 - 按 `ctid` 删除只能逐个分区执行（`leafTables`）。

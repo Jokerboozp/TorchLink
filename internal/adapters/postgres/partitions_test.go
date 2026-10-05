@@ -157,3 +157,27 @@ VALUES('t','old-msg','old-raw','p','d','PROPERTY_REPORT',$1,'{"messageId":"old-m
 		t.Fatalf("purge legacy row: %d %v", n, err)
 	}
 }
+
+// The pending-publish partial index covers every partition, including ones
+// created after the migration, so the publish retry never scans whole tables.
+func TestPendingPublishIndexCoversEveryPartition(t *testing.T) {
+	ctx := context.Background()
+	r := testRepository(t)
+	if err := r.EnsurePartitions(ctx, time.Now().AddDate(0, 2, 0)); err != nil {
+		t.Fatal(err)
+	}
+	var valid bool
+	if err := r.pool.QueryRow(ctx, `SELECT indisvalid FROM pg_index WHERE indexrelid=to_regclass('raw_archive_index_pending_idx')`).Scan(&valid); err != nil || !valid {
+		t.Fatalf("parent pending index missing or invalid: valid=%v err=%v", valid, err)
+	}
+	leaves, err := r.leafTables(ctx, "raw_archive_index")
+	if err != nil || len(leaves) < 2 {
+		t.Fatalf("expected partitions, got %v err=%v", leaves, err)
+	}
+	for _, leaf := range leaves {
+		var covered bool
+		if err = r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE tablename=$1 AND indexdef LIKE '%published_at = 0%')`, leaf).Scan(&covered); err != nil || !covered {
+			t.Fatalf("partition %s has no pending-publish index (err=%v)", leaf, err)
+		}
+	}
+}

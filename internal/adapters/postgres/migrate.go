@@ -43,6 +43,10 @@ type migration struct {
 	sql      string
 	noTx     bool
 	run      func(context.Context, pgx.Tx) error
+	// runConn is a Go migration that must run outside a transaction, such
+	// as building indexes concurrently on every partition. It must be
+	// idempotent: an interrupted run is repeated from the start.
+	runConn func(context.Context, *pgx.Conn) error
 }
 
 var goMigrations []migration
@@ -51,6 +55,11 @@ var goMigrations []migration
 // own transaction after the SQL migrations with smaller versions.
 func registerMigration(version int, name string, run func(context.Context, pgx.Tx) error) {
 	goMigrations = append(goMigrations, migration{version: version, name: name, checksum: "go:" + name, run: run})
+}
+
+// registerConnMigration adds a Go migration that runs outside a transaction.
+func registerConnMigration(version int, name string, run func(context.Context, *pgx.Conn) error) {
+	goMigrations = append(goMigrations, migration{version: version, name: name, checksum: "go:" + name, runConn: run})
 }
 
 func loadMigrations() ([]migration, error) {
@@ -222,6 +231,13 @@ func MigrateDSN(ctx context.Context, dsn string) error {
 }
 
 func applyMigration(ctx context.Context, conn *pgx.Conn, m migration) error {
+	if m.runConn != nil {
+		if err := m.runConn(ctx, conn); err != nil {
+			return err
+		}
+		_, err := conn.Exec(ctx, `INSERT INTO schema_migration(version,name,checksum) VALUES($1,$2,$3)`, m.version, m.name, m.checksum)
+		return err
+	}
 	if m.noTx {
 		// Statements are separated by lines containing only ";" so that
 		// bodies may contain semicolons; each runs on its own.

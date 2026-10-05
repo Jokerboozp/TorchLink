@@ -16,7 +16,7 @@ func TestMigrationFilesAreWellFormed(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, m := range migrations {
-		if m.run == nil && strings.TrimSpace(m.sql) == "" {
+		if m.run == nil && m.runConn == nil && strings.TrimSpace(m.sql) == "" {
 			t.Fatalf("migration %04d_%s is empty", m.version, m.name)
 		}
 	}
