@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"iot-platform/internal/aiprompt"
 	"log/slog"
 	"slices"
 	"strings"
@@ -54,7 +53,6 @@ type Engine struct {
 	// HarnessTokens signs MCP credentials for business runs (alarm analysis,
 	// inspection, reports, protocol assistant, rule drafts) executed by Harness.
 	HarnessTokens    ports.HarnessTokenIssuer
-	AuthorizeAIRun   func(context.Context, string, string) (context.Context, error)
 	KB               ports.KnowledgeBase
 	KnowledgeReindex *KnowledgeReindexer
 	Parsers          *parser.Registry
@@ -1209,103 +1207,6 @@ func cameraSummary(v model.VideoCameraMapping) model.CameraSummary {
 	return model.CameraSummary{CameraID: v.CameraID, Brand: v.Brand, CameraName: v.CameraName, CameraPoint: v.CameraPoint, DeviceID: v.DeviceID, Building: v.Building, Floor: v.Floor, Room: v.Room, Enabled: v.Enabled}
 }
 
-// AnalyzeAlarm runs analysis explicitly requested by an operator. withKnowledge must be
-// decided by the caller's role: knowledge-based results are stored separately
-// and only shown to roles allowed to query the knowledge base.
-func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, withKnowledge bool) (model.AIAnalysis, error) {
-	if !e.AIWorkflowsReady() {
-		return model.AIAnalysis{}, ErrAIWorkflowsUnavailable
-	}
-	if e.AuthorizeAIRun != nil {
-		var err error
-		ctx, err = e.AuthorizeAIRun(ctx, tenantID, WorkflowAlarmAnalysis)
-		if err != nil {
-			return model.AIAnalysis{}, err
-		}
-	}
-	alarm, err := e.Repo.GetAlarm(ctx, tenantID, alarmID)
-	if err != nil {
-		return model.AIAnalysis{}, err
-	}
-	analysisContext := e.buildAlarmContext(ctx, alarm)
-	knowledge := []string{}
-	scope := model.AIAnalysisScopeNone
-	var documents []string
-	if withKnowledge {
-		identity, hasIdentity := ports.AIRunIdentityFrom(ctx)
-		authorized := false
-		for _, permission := range identity.Scopes {
-			if permission == ports.MCPToolScope("query_knowledge_base") {
-				authorized = true
-				break
-			}
-		}
-		if !hasIdentity || !authorized {
-			return model.AIAnalysis{}, errors.New("当前运行身份无知识库访问权限")
-		}
-		scope = model.AlarmAnalysisWorkflowID
-		knowledge, documents, err = e.alarmAnalysisKnowledge(ctx, alarm, analysisContext.symptoms)
-	}
-	var analysis model.AIAnalysis
-	if err == nil {
-		analysis, err = e.runAlarmAnalysisWorkflow(ctx, alarm, analysisContext.payload(), knowledge, withKnowledge)
-	}
-	if err != nil {
-		if errors.Is(err, context.DeadlineExceeded) && e.Metrics != nil {
-			e.Metrics.Inc("ai_analysis_timeout_total")
-		}
-		if e.Metrics != nil {
-			e.Metrics.Inc("ai_analysis_failed_total")
-		}
-		analysis = model.AIAnalysis{
-			AlarmID:       alarm.ID,
-			Summary:       "AI 研判暂时失败，已保留告警供人工研判。",
-			RiskLevel:     alarm.AlarmLevel,
-			Model:         aiModelName(e.AI),
-			PromptVersion: aiprompt.AlarmFallbackVersion,
-			CreatedAt:     e.Clock.Now().UnixMilli(),
-			Error:         err.Error(),
-		}
-	}
-	if err == nil && e.Metrics != nil {
-		e.Metrics.Inc("ai_analysis_success_total")
-	}
-	analysis.Status = "succeeded"
-	if err != nil {
-		analysis.Status = "failed"
-	}
-	analysis.TenantID = alarm.TenantID
-	analysis.AlarmID = alarm.ID
-	analysis.KnowledgeScope = scope
-	analysis.KnowledgeDocuments = documents
-	analysis.CapacityRunID = ports.CapacityRunID(ctx)
-	saveCtx, saveCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
-	defer saveCancel()
-	if saveErr := e.Repo.SaveAIAnalysis(saveCtx, analysis); saveErr != nil {
-		return analysis, saveErr
-	}
-	if scope != model.AIAnalysisScopeNone {
-		// 引用知识库的结果只返回给发起人，不广播到告警实时主题。
-		return analysis, nil
-	}
-	payload := mustJSON(analysis)
-	_ = e.Bus.Publish(ctx, model.TopicAlarmAIAnalysis, alarm.ID, payload)
-	_ = e.Realtime.Publish(ctx, alarm.MQTTTopic("ai-analysis"), payload, 1, false)
-	return analysis, nil
-}
-
-func aiModelName(client ports.AIClient) string {
-	if provider, ok := client.(ports.AIInspectable); ok {
-		info := provider.ProviderInfo()
-		if name := strings.TrimSpace(info.Model); name != "" {
-			return name
-		}
-		if id := strings.TrimSpace(info.ID); id != "" {
-			return id
-		}
-	}
-	return "unavailable"
-}
 func (e *Engine) SetAlarmStatus(ctx context.Context, tenant, alarmID, status, actor string) (model.Alarm, error) {
 	now := e.Clock.Now().UnixMilli()
 	a, _, err := e.mutateAlarm(ctx, tenant, alarmID, func(a *model.Alarm) (bool, error) {

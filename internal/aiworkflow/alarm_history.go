@@ -1,4 +1,4 @@
-package core
+package aiworkflow
 
 import (
 	"context"
@@ -72,11 +72,11 @@ func alarmHistoryProperties(product *model.Product, ruleFields []string) []model
 // with the thing model's unit, valid range and alarm thresholds. This keeps
 // the query count at one per property and the prompt within the model's
 // context instead of repeating overlapping raw windows.
-func (e *Engine) alarmPropertyHistory(ctx context.Context, alarm model.Alarm, product *model.Product, ruleFields []string) []map[string]any {
+func (e *Service) alarmPropertyHistory(ctx context.Context, alarm model.Alarm, product *model.Product, ruleFields []string) []map[string]any {
 	end := alarm.LastTriggeredAt
 	out := []map[string]any{}
 	for _, field := range alarmHistoryProperties(product, ruleFields) {
-		items, err := e.Repo.PropertyHistory(ctx, alarm.TenantID, alarm.DeviceID, field.Identifier, end-alarmHistoryDayMs, end, alarmHistoryLimit)
+		items, err := e.engine.Repo.PropertyHistory(ctx, alarm.TenantID, alarm.DeviceID, field.Identifier, end-alarmHistoryDayMs, end, alarmHistoryLimit)
 		if err != nil || len(items) == 0 {
 			continue
 		}

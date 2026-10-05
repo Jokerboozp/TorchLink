@@ -1,8 +1,9 @@
-package core
+package aiworkflow
 
 import (
 	"errors"
 	"fmt"
+	"iot-platform/internal/core"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -113,7 +114,7 @@ func BuildProtocolAssistantSpreadsheetDraft(in ProtocolAssistantInput) (model.Pr
 }
 
 func parseProtocolAssistantWorkbook(data []byte) ([]protocolAssistantPoint, []string, error) {
-	rows, err := spreadsheetRows(data)
+	rows, err := core.SpreadsheetRows(data)
 	if err != nil {
 		return nil, nil, err
 	}

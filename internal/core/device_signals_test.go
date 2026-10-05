@@ -110,9 +110,6 @@ func TestDeviceSignalsJobStoresAndOptionallyAlarms(t *testing.T) {
 	if len(alarms) != 0 {
 		t.Fatal("signals must not raise alarms unless enabled")
 	}
-	if items := e.deviceSignalsContext(ctx, "t1", "hot"); len(items) != 1 || items[0]["name"] != "数值超出有效范围" {
-		t.Fatalf("analysis context %v", items)
-	}
 	e.SignalOptions.RaiseAlarms = true
 	if err = e.ComputeDeviceSignalsOnce(ctx); err != nil {
 		t.Fatal(err)

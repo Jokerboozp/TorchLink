@@ -34,6 +34,7 @@
 | `cmd/iot-platform/`、`cmd/iot-access-gateway/`、`internal/platformapp/` | API 与独立接入网关入口；启动、进程角色与依赖装配 |
 | `internal/httpapi/`、`internal/auth/` | HTTP 接口、认证、角色与租户边界 |
 | `internal/core/`、`internal/onboarding/`、`internal/model/`、`internal/ports/` | 业务编排、设备接入登记、领域模型和依赖接口 |
+| `internal/aiworkflow/`、`internal/aiprompt/`、`internal/aioutput/` | 业务 AI 工作流（告警研判、巡检、报告、协议助手、规则草稿）、提示词与版本、模型输出解码；消息链路不依赖它们 |
 | `internal/firesafety/` | 排班与换班审批、灭火器巡检整改、消防站资料与出勤业务 |
 | `internal/sites/` | 单位、建筑、楼层平面图与设备点位；告警位置快照与按单位授权的设备归属 |
 | `internal/messagetopics/`、`internal/externaldata/` | 对外消息主题、订阅授权与分发；第三方推送、拉取和历史补采 |

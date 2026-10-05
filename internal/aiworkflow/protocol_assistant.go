@@ -1,4 +1,4 @@
-package core
+package aiworkflow
 
 import (
 	"context"
@@ -32,7 +32,7 @@ type ProtocolAssistantInput struct {
 	DocumentData     []byte
 }
 
-func (e *Engine) GenerateProtocolAssistant(ctx context.Context, tenant string, in ProtocolAssistantInput) (model.ProtocolAssistantDraft, error) {
+func (e *Service) GenerateProtocolAssistant(ctx context.Context, tenant string, in ProtocolAssistantInput) (model.ProtocolAssistantDraft, error) {
 	if draft, handled, err := buildUploadedProtocol(in); handled {
 		if err != nil {
 			return draft, fmt.Errorf("%w: %v", ErrProtocolInput, err)

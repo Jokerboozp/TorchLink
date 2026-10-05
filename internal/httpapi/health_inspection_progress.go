@@ -101,7 +101,7 @@ func (s *Server) runHealthInspectionJob(job model.HealthInspectionJob, identity 
 		err    error
 	}, 1)
 	go func() {
-		report, err := s.engine.InspectDeviceHealth(ctx, job.TenantID)
+		report, err := s.ai.InspectDeviceHealth(ctx, job.TenantID)
 		resultCh <- struct {
 			report model.DeviceHealthReport
 			err    error

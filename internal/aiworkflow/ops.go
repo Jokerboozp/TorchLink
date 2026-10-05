@@ -1,4 +1,4 @@
-package core
+package aiworkflow
 
 import (
 	"context"
@@ -13,10 +13,10 @@ import (
 // GenerateReport summarises tenant data through the ops-assistant Harness
 // workflow. The data is gathered through repository ports; the model never
 // receives SQL access.
-func (e *Engine) GenerateReport(ctx context.Context, tenantID, period string, start, end int64) (string, error) {
-	if e.AuthorizeAIRun != nil {
+func (e *Service) GenerateReport(ctx context.Context, tenantID, period string, start, end int64) (string, error) {
+	if e.Authorizer != nil {
 		var err error
-		ctx, err = e.AuthorizeAIRun(ctx, tenantID, WorkflowOpsReport)
+		ctx, err = e.authorize(ctx, tenantID, WorkflowOpsReport)
 		if err != nil {
 			return "", err
 		}
@@ -28,15 +28,15 @@ func (e *Engine) GenerateReport(ctx context.Context, tenantID, period string, st
 		return "", fmt.Errorf("报告周期说明不能超过 80 个字符")
 	}
 	filter := ports.AlarmFilter{TenantID: tenantID, Start: start, End: end, Limit: 10, Summary: true}
-	alarms, err := e.Repo.ListAlarms(ctx, filter)
+	alarms, err := e.engine.Repo.ListAlarms(ctx, filter)
 	if err != nil {
 		return "", err
 	}
-	total, err := e.Repo.CountAlarms(ctx, filter)
+	total, err := e.engine.Repo.CountAlarms(ctx, filter)
 	if err != nil {
 		return "", err
 	}
-	groups, err := e.Repo.DashboardCounts(ctx, tenantID, start, end)
+	groups, err := e.engine.Repo.DashboardCounts(ctx, tenantID, start, end)
 	if err != nil {
 		return "", err
 	}
@@ -75,7 +75,7 @@ func (e *Engine) GenerateReport(ctx context.Context, tenantID, period string, st
 		alarmTypes = append(alarmTypes, boundedText(a.AlarmType, 80))
 	}
 	result, err := e.runBusinessWorkflow(ctx, tenantID, WorkflowOpsReport, aiprompt.OpsReportVersion, prompt, retrievalQuery("消防物联网运维 告警处置建议", alarmTypes), []string{"query_device_latest", "query_alarm_list", "query_property_history", "query_similar_alarms", "query_knowledge_base"}, 8192)
-	_ = e.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenantID, Actor: "ai-report-generator", Action: "ai.report", TargetType: "report", TargetID: id("report"), Details: map[string]any{"period": period, "start": start, "end": end, "runId": result.RunID, "success": err == nil}, CreatedAt: e.Clock.Now().UnixMilli()})
+	_ = e.engine.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenantID, Actor: "ai-report-generator", Action: "ai.report", TargetType: "report", TargetID: id("report"), Details: map[string]any{"period": period, "start": start, "end": end, "runId": result.RunID, "success": err == nil}, CreatedAt: e.engine.Clock.Now().UnixMilli()})
 	return result.Answer, err
 }
 

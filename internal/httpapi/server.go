@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/aiworkflow"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -48,6 +49,8 @@ type ctxKey string
 const claimsKey ctxKey = "claims"
 
 type Server struct {
+	// ai runs the business AI workflows for this server's requests.
+	ai                         *aiworkflow.Service
 	dashboards                 dashboardCache
 	cfg                        config.Config
 	engine                     *core.Engine
@@ -114,9 +117,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		aiAnalysisEstimateMs:       45000,
 		events:                     newEventSnapshots(),
 	}
-	if engine.AuthorizeAIRun == nil {
-		engine.AuthorizeAIRun = s.authorizeAIRun
-	}
+	s.ai = aiworkflow.New(engine, s)
 	s.onboarding.LoadRaw = engine.GetRaw
 	s.onboarding.RequirePrepared = true
 	s.onboarding.PublicHTTP = publicEndpoint(cfg.DeviceHTTPPublicURL)
@@ -1874,7 +1875,7 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		write(w, 200, result)
 		return
 	}
-	problem(w, http.StatusServiceUnavailable, core.ErrAIWorkflowsUnavailable.Error())
+	problem(w, http.StatusServiceUnavailable, aiworkflow.ErrAIWorkflowsUnavailable.Error())
 }
 
 func (s *Server) aiWorkflows(w http.ResponseWriter, r *http.Request) {
@@ -2149,7 +2150,7 @@ func boundedText(value string, maximum int) bool {
 }
 
 func defaultWorkflowKnowledgeBinding(tenantID, workflowID string) model.WorkflowKnowledgeBinding {
-	return core.DefaultWorkflowKnowledgeBinding(tenantID, workflowID)
+	return aiworkflow.DefaultWorkflowKnowledgeBinding(tenantID, workflowID)
 }
 
 func (s *Server) workflowKnowledgeBinding(w http.ResponseWriter, r *http.Request) {
@@ -2369,7 +2370,7 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 	if result.RunID == "" {
 		result.RunID = runID
 	}
-	s.engine.RecordAIRun(core.AIRunMeta{TenantID: c.TenantID, Actor: c.Username, WorkflowID: strings.TrimSpace(workflowID), Model: strings.TrimSpace(modelName), InputBytes: len(question), StartedAt: started}, result, err)
+	s.ai.RecordAIRun(aiworkflow.AIRunMeta{TenantID: c.TenantID, Actor: c.Username, WorkflowID: strings.TrimSpace(workflowID), Model: strings.TrimSpace(modelName), InputBytes: len(question), StartedAt: started}, result, err)
 	return result, err
 }
 
@@ -2379,7 +2380,7 @@ func workflowKnowledgeInstruction(binding model.WorkflowKnowledgeBinding) string
 }
 
 func (s *Server) searchWorkflowKnowledge(ctx context.Context, tenantID, question string, binding model.WorkflowKnowledgeBinding) ([]ports.KnowledgeHit, error) {
-	return core.SearchWorkflowKnowledge(ctx, s.engine.KB, tenantID, question, binding)
+	return aiworkflow.SearchWorkflowKnowledge(ctx, s.engine.KB, tenantID, question, binding)
 }
 
 func harnessConversationID(tenantID, username, conversationID string) string {
@@ -2457,7 +2458,7 @@ func (s *Server) aiRuleDraft(w http.ResponseWriter, r *http.Request) {
 	if decode(w, r, &in) != nil {
 		return
 	}
-	rule, err := s.engine.DraftRule(aiRunContext(r.Context(), claims(r)), claims(r).TenantID, in.Text) /* 由 rule-drafter 工作流生成。 */
+	rule, err := s.ai.DraftRule(aiRunContext(r.Context(), claims(r)), claims(r).TenantID, in.Text) /* 由 rule-drafter 工作流生成。 */
 	if err != nil {
 		problem(w, 502, err.Error())
 		return
@@ -2509,7 +2510,7 @@ func (s *Server) aiReport(w http.ResponseWriter, r *http.Request) {
 	if in.Period == "" {
 		in.Period = "日报"
 	}
-	report, err := s.engine.GenerateReport(aiRunContext(r.Context(), claims(r)), claims(r).TenantID, in.Period, in.Start, in.End)
+	report, err := s.ai.GenerateReport(aiRunContext(r.Context(), claims(r)), claims(r).TenantID, in.Period, in.Start, in.End)
 	if err != nil {
 		problem(w, 502, err.Error())
 		return
@@ -2700,7 +2701,7 @@ func (s *Server) mqttToken(w http.ResponseWriter, r *http.Request) {
 	c := claims(r)
 	scope := []string{fmt.Sprintf("/iot/parsed/%s/#", c.TenantID), fmt.Sprintf("/iot/alarm/%s/#", c.TenantID), fmt.Sprintf("/iot/device/state/%s/#", c.TenantID), fmt.Sprintf("/iot/ui-action/%s", c.TenantID)}
 	if c.TokenUse == "user" {
-		_, p, err := s.managedIdentity(r, c)
+		_, p, err := s.managedIdentity(r.Context(), c)
 		if err != nil {
 			problem(w, 401, "会话已失效")
 			return
@@ -3013,7 +3014,7 @@ func (s *Server) authorize(role string) gin.HandlerFunc {
 		}
 		allowed := claimsValue.Role == "admin" || claimsValue.Role == role || role == "viewer" && (claimsValue.Role == "operator" || claimsValue.Role == "viewer")
 		if claimsValue.TokenUse == "user" {
-			user, permissions, err := s.managedIdentity(c.Request, claimsValue)
+			user, permissions, err := s.managedIdentity(c.Request.Context(), claimsValue)
 			if err != nil {
 				ginProblem(c, 401, "账户已停用或会话已失效，请重新登录")
 				c.Abort()
@@ -3064,7 +3065,7 @@ func (s *Server) authorizeHarness() gin.HandlerFunc {
 			}
 		}
 		if claimsValue.ManagedUser {
-			user, permissions, err := s.managedIdentity(c.Request, claimsValue)
+			user, permissions, err := s.managedIdentity(c.Request.Context(), claimsValue)
 			if err != nil {
 				ginProblem(c, http.StatusUnauthorized, "账户已停用或会话已失效，请重新登录")
 				c.Abort()
@@ -3263,7 +3264,7 @@ func cleanStringList(values []string, maximum, maxLength int) []string {
 // invoked by their dedicated business pages/services and must not be treated
 // as user-selectable chatbots or configurable chat Agents.
 func isChatWorkflowID(id string) bool {
-	return !oneOf(strings.TrimSpace(id), core.BusinessWorkflowIDs()...)
+	return !oneOf(strings.TrimSpace(id), aiworkflow.BusinessWorkflowIDs()...)
 }
 
 func chatWorkflowPlugins(items []ports.AIWorkflowPlugin) []ports.AIWorkflowPlugin {

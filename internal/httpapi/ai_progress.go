@@ -97,7 +97,7 @@ func (s *Server) runAIAnalysisJob(job model.AlarmAnalysisJob, identity ports.AIR
 		err      error
 	}, 1)
 	go func() {
-		analysis, err := s.engine.AnalyzeAlarm(ctx, job.TenantID, job.AlarmID, job.KnowledgeScope != model.AIAnalysisScopeNone)
+		analysis, err := s.ai.AnalyzeAlarm(ctx, job.TenantID, job.AlarmID, job.KnowledgeScope != model.AIAnalysisScopeNone)
 		resultCh <- struct {
 			analysis model.AIAnalysis
 			err      error

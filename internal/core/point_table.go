@@ -30,7 +30,7 @@ func ParseModbusPointTable(filename string, data []byte, defaultPoll int) (model
 	var err error
 	switch strings.ToLower(filepath.Ext(filename)) {
 	case ".xlsx":
-		rows, err = spreadsheetRows(data)
+		rows, err = SpreadsheetRows(data)
 	case ".csv":
 		reader := csv.NewReader(bytes.NewReader(data))
 		reader.FieldsPerRecord = -1
@@ -123,7 +123,7 @@ func normalizeModbusRows(rows [][]string, defaultPoll int) ([]model.ModbusPoint,
 				dataType = "uint16"
 			}
 		}
-		registerCount, err := pointRegisterCount(dataType, pointCell(row, columns, "registerCount"))
+		registerCount, err := PointRegisterCount(dataType, pointCell(row, columns, "registerCount"))
 		if err != nil {
 			return nil, warnings, fmt.Errorf("row %d: %w", line, err)
 		}
@@ -154,7 +154,7 @@ func normalizeModbusRows(rows [][]string, defaultPoll int) ([]model.ModbusPoint,
 		}
 		identifier := strings.TrimSpace(pointCell(row, columns, "identifier"))
 		if identifier == "" {
-			identifier = generatedPointIdentifier(name, fc, address)
+			identifier = GeneratedPointIdentifier(name, fc, address)
 		}
 		if previous, duplicate := seen[identifier]; duplicate {
 			return nil, warnings, fmt.Errorf("row %d: duplicate identifier %q (first at row %d)", line, identifier, previous)
@@ -336,7 +336,7 @@ func parseModbusAddress(text, notation string, fc int) (int, string, int, error)
 	}
 	return n, notation, fc, nil
 }
-func pointRegisterCount(dataType, text string) (int, error) {
+func PointRegisterCount(dataType, text string) (int, error) {
 	if text != "" {
 		n, e := strconv.Atoi(text)
 		if e != nil || n <= 0 {
@@ -366,7 +366,7 @@ func pointWidth(p model.ModbusPoint) int {
 	}
 	return 1
 }
-func generatedPointIdentifier(name string, fc, address int) string {
+func GeneratedPointIdentifier(name string, fc, address int) string {
 	var b strings.Builder
 	for _, r := range strings.ToLower(name) {
 		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '_' {

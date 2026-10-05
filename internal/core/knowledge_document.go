@@ -52,11 +52,11 @@ func ExtractKnowledgeText(filename string, data []byte) (string, error) {
 	}
 }
 
-// spreadsheetRows reads the displayed cell values from an OOXML workbook.
+// SpreadsheetRows reads the displayed cell values from an OOXML workbook.
 // Excel commonly stores text in xl/sharedStrings.xml and leaves only an index
 // in the worksheet; treating the index as text loses the point-table meaning.
 // The returned rows preserve empty cells so column positions remain stable.
-func spreadsheetRows(data []byte) ([][]string, error) {
+func SpreadsheetRows(data []byte) ([][]string, error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return nil, fmt.Errorf("open spreadsheet: %w", err)
@@ -131,7 +131,7 @@ func spreadsheetRows(data []byte) ([][]string, error) {
 }
 
 func extractSpreadsheetXML(data []byte) (string, error) {
-	rows, err := spreadsheetRows(data)
+	rows, err := SpreadsheetRows(data)
 	if err != nil {
 		return "", err
 	}

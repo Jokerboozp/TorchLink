@@ -6,10 +6,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"net/http"
+	"iot-platform/internal/aiworkflow"
 
 	"iot-platform/internal/auth"
-	"iot-platform/internal/core"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 )
@@ -50,6 +49,11 @@ func aiRunIdentity(ctx context.Context, c auth.Claims) ports.AIRunIdentity {
 	return ports.AIRunIdentity{TenantID: c.TenantID, Username: c.Username, ManagedUser: c.TokenUse == "user", SessionVersion: c.SessionVersion, AccessVersion: requestAccessVersion(ctx, c), Scopes: workflowScopes(ctx)}
 }
 
+// AuthorizeRun implements aiworkflow.Authorizer for business workflows.
+func (s *Server) AuthorizeRun(ctx context.Context, tenantID, workflowID string) (context.Context, error) {
+	return s.authorizeAIRun(ctx, tenantID, workflowID)
+}
+
 func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string) (context.Context, error) {
 	identity, ok := ports.AIRunIdentityFrom(ctx)
 	if !ok || identity.TenantID != tenantID {
@@ -59,8 +63,7 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 		return ctx, nil
 	}
 	c := auth.Claims{TenantID: tenantID, Username: identity.Username, SessionVersion: identity.SessionVersion}
-	r := (&http.Request{}).WithContext(ctx)
-	user, permissions, err := s.managedIdentity(r, c)
+	user, permissions, err := s.managedIdentity(ctx, c)
 	if err != nil {
 		return ctx, errors.New("账户已停用或会话已失效，请重新登录")
 	}
@@ -84,15 +87,15 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 // token; chat tokens keep requiring the assistant permission instead.
 func businessWorkflowAllowed(p map[string]bool, workflow string) bool {
 	switch workflow {
-	case core.WorkflowAlarmAnalysis:
+	case aiworkflow.WorkflowAlarmAnalysis:
 		return allowsRoute(p, "POST", "/api/v1/ai/alarm-analysis/:alarmId/run")
-	case core.WorkflowHealthInspection:
+	case aiworkflow.WorkflowHealthInspection:
 		return allowsRoute(p, "POST", "/api/v1/ai/health-inspection/run") || allowsRoute(p, "POST", "/api/v1/ai/health-inspection") || allowsRoute(p, "POST", "/api/v1/ai/health-inspection/pdf")
-	case core.WorkflowOpsReport:
+	case aiworkflow.WorkflowOpsReport:
 		return allowsRoute(p, "POST", "/api/v1/ai/reports")
-	case core.WorkflowProtocolAssist:
+	case aiworkflow.WorkflowProtocolAssist:
 		return allowsRoute(p, "POST", "/api/v1/ai/protocol-assistant/generate")
-	case core.WorkflowRuleDraft:
+	case aiworkflow.WorkflowRuleDraft:
 		return allowsRoute(p, "POST", "/api/v1/ai/rule-draft")
 	}
 	return false

@@ -1,9 +1,10 @@
-package core
+package aiworkflow
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"iot-platform/internal/adapters/memory"
 	"strings"
 	"testing"
 
@@ -12,7 +13,7 @@ import (
 
 // alarmContextFixture places three devices on one floor and one in another
 // building, with a rule, verified history, cameras and a video event.
-func alarmContextFixture(t *testing.T) (*Engine, model.Alarm) {
+func alarmContextFixture(t *testing.T) (*testEngine, model.Alarm) {
 	t.Helper()
 	e, repo, _ := newBusinessEngine(t, nil)
 	ctx := context.Background()
@@ -134,5 +135,19 @@ func TestAlarmSymptomsNameThresholdsAndTrends(t *testing.T) {
 	}
 	if got := alarmSymptoms(history); len(got) != 2 || got[0] != "温度 85℃ 超过告警阈值 持续上升" || got[1] != "humidity 40" {
 		t.Fatalf("symptoms %q", got)
+	}
+}
+
+func TestAlarmContextIncludesDeviceSignals(t *testing.T) {
+	e, alarm := alarmContextFixture(t)
+	repo := e.Engine.Repo.(*memory.Repository)
+	e.Engine.DeviceSignals = repo
+	if err := repo.ReplaceDeviceSignals(context.Background(), "t1", []model.DeviceSignal{{TenantID: "t1", DeviceID: "d1", SignalType: model.SignalOutOfRange, Property: "temperature", Strength: 0.4}}); err != nil {
+		t.Fatal(err)
+	}
+	c := e.buildAlarmContext(context.Background(), alarm)
+	signals, ok := c.blocks["deviceSignals"].([]map[string]any)
+	if !ok || len(signals) != 1 || signals[0]["name"] != "数值超出有效范围" || signals[0]["property"] != "temperature" {
+		t.Fatalf("device signals block %v", c.blocks["deviceSignals"])
 	}
 }

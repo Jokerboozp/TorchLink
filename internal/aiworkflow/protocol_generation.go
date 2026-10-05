@@ -1,4 +1,4 @@
-package core
+package aiworkflow
 
 import (
 	"bytes"
@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iot-platform/internal/core"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -21,12 +22,12 @@ func buildUploadedProtocol(in ProtocolAssistantInput) (model.ProtocolAssistantDr
 			filename = "points.csv"
 			data = []byte(in.PointTable)
 		}
-		table, warnings, err := ParseModbusPointTable(filename, data, 10)
+		table, warnings, err := core.ParseModbusPointTable(filename, data, 10)
 		if err != nil && strings.EqualFold(filepath.Ext(filename), ".xlsx") {
 			if legacy, legacyErr := BuildProtocolAssistantSpreadsheetDraft(in); legacyErr == nil {
 				table.Points = nil
 				for _, field := range legacy.Fields {
-					table.Points = append(table.Points, model.ModbusPoint{Identifier: generatedPointIdentifier(field.Name, 1, field.CoilAddress), Name: field.Name, FunctionCode: 1, Address: field.CoilAddress, DataType: "bool", RegisterCount: 1, Scale: 1, PollIntervalSec: 10, Description: field.Description})
+					table.Points = append(table.Points, model.ModbusPoint{Identifier: core.GeneratedPointIdentifier(field.Name, 1, field.CoilAddress), Name: field.Name, FunctionCode: 1, Address: field.CoilAddress, DataType: "bool", RegisterCount: 1, Scale: 1, PollIntervalSec: 10, Description: field.Description})
 				}
 				warnings = legacy.Warnings
 				err = nil
@@ -35,7 +36,7 @@ func buildUploadedProtocol(in ProtocolAssistantInput) (model.ProtocolAssistantDr
 		if err != nil {
 			return model.ProtocolAssistantDraft{}, true, err
 		}
-		blocks, err := CompileModbusReadBlocks(table.Points)
+		blocks, err := core.CompileModbusReadBlocks(table.Points)
 		if err != nil {
 			return model.ProtocolAssistantDraft{}, true, err
 		}
@@ -139,7 +140,7 @@ func NormalizeGeneratedModbusConfig(config map[string]any) error {
 			return errors.New("点位地址须在 0 到 65535 之间")
 		}
 		if p.DataType != "string" {
-			width, e := pointRegisterCount(p.DataType, "")
+			width, e := core.PointRegisterCount(p.DataType, "")
 			if e != nil {
 				return e
 			}
@@ -168,11 +169,11 @@ func NormalizeGeneratedModbusConfig(config map[string]any) error {
 	if err = writer.Error(); err != nil {
 		return err
 	}
-	table, _, err := ParseModbusPointTable("points.csv", buffer.Bytes(), 10)
+	table, _, err := core.ParseModbusPointTable("points.csv", buffer.Bytes(), 10)
 	if err != nil {
 		return err
 	}
-	blocks, err := CompileModbusReadBlocks(table.Points)
+	blocks, err := core.CompileModbusReadBlocks(table.Points)
 	if err != nil {
 		return err
 	}

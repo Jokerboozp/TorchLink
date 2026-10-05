@@ -1,4 +1,4 @@
-package core
+package aiworkflow
 
 import (
 	"context"
@@ -26,7 +26,7 @@ type aiRunMetrics interface {
 
 // RecordAIRun stores the run's record and updates the AI metrics. Recording
 // never fails the run: a store error is only logged.
-func (e *Engine) RecordAIRun(meta AIRunMeta, result ports.AIWorkflowResult, runErr error) {
+func (e *Service) RecordAIRun(meta AIRunMeta, result ports.AIWorkflowResult, runErr error) {
 	// Durations use the wall clock like StartedAt, not the engine's clock.
 	now := time.Now()
 	record := model.AIRunRecord{RunID: result.RunID, TenantID: meta.TenantID, Actor: meta.Actor, WorkflowID: meta.WorkflowID, PromptVersion: meta.PromptVersion,
@@ -41,9 +41,9 @@ func (e *Engine) RecordAIRun(meta AIRunMeta, result ports.AIWorkflowResult, runE
 	if runErr != nil {
 		record.Error = truncateRunes(runErr.Error(), 512)
 	}
-	if e.Metrics != nil {
-		e.Metrics.Inc(metrics.Series("ai_run_total", "workflow", record.WorkflowID, "status", record.Status))
-		if m, ok := e.Metrics.(aiRunMetrics); ok {
+	if e.engine.Metrics != nil {
+		e.engine.Metrics.Inc(metrics.Series("ai_run_total", "workflow", record.WorkflowID, "status", record.Status))
+		if m, ok := e.engine.Metrics.(aiRunMetrics); ok {
 			m.Observe(metrics.Series("ai_run_duration_seconds", "workflow", record.WorkflowID), float64(record.DurationMs)/1000)
 			for kind, value := range map[string]int64{"input": record.Usage.InputTokens, "output": record.Usage.OutputTokens, "cache_read": record.Usage.CacheReadTokens, "reasoning": record.Usage.ReasoningTokens} {
 				if value > 0 {
@@ -52,13 +52,13 @@ func (e *Engine) RecordAIRun(meta AIRunMeta, result ports.AIWorkflowResult, runE
 			}
 		}
 	}
-	if e.AIRuns == nil || record.RunID == "" || record.TenantID == "" {
+	if e.engine.AIRuns == nil || record.RunID == "" || record.TenantID == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if err := e.AIRuns.SaveAIRun(ctx, record); err != nil && e.Log != nil {
-		e.Log.Warn("save AI run record failed", "runId", record.RunID, "workflow", record.WorkflowID, "error", err)
+	if err := e.engine.AIRuns.SaveAIRun(ctx, record); err != nil && e.engine.Log != nil {
+		e.engine.Log.Warn("save AI run record failed", "runId", record.RunID, "workflow", record.WorkflowID, "error", err)
 	}
 }
 

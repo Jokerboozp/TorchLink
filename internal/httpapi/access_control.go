@@ -375,8 +375,11 @@ func (s *Server) accessStore() (ports.AccessStore, error) {
 	}
 	return v, nil
 }
-func (s *Server) managedIdentity(r *http.Request, c auth.Claims) (model.PlatformUser, map[string]bool, error) {
-	state, err := s.authorizationAccess(r.Context(), c.TenantID)
+
+// managedIdentity resolves a managed account's current permissions and device
+// scope; it needs only the request context, so background work can call it.
+func (s *Server) managedIdentity(ctx context.Context, c auth.Claims) (model.PlatformUser, map[string]bool, error) {
+	state, err := s.authorizationAccess(ctx, c.TenantID)
 	if err != nil {
 		return model.PlatformUser{}, nil, err
 	}
@@ -411,7 +414,7 @@ func (s *Server) currentIdentity(w http.ResponseWriter, r *http.Request) {
 	perms := []string{"*"}
 	name := c.Username
 	if c.TokenUse == "user" {
-		u, p, err := s.managedIdentity(r, c)
+		u, p, err := s.managedIdentity(r.Context(), c)
 		if err != nil {
 			problem(w, 401, err.Error())
 			return
@@ -427,7 +430,7 @@ func (s *Server) canConfigureAI(r *http.Request) bool {
 	if c.TokenUse != "user" {
 		return c.Role == "admin"
 	}
-	_, p, err := s.managedIdentity(r, c)
+	_, p, err := s.managedIdentity(r.Context(), c)
 	return err == nil && p["menu:aiProviders"] && (p["PUT /api/v1/ai/providers/config"] || p["POST /api/v1/ai/providers/test"])
 }
 func (s *Server) accessState(w http.ResponseWriter, r *http.Request) (ports.AccessStore, model.AccessState, bool) {

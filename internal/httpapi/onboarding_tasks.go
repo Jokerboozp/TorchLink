@@ -40,7 +40,7 @@ func (s *Server) authorizeOnboardingTask(ctx context.Context, tenant string, own
 		}
 		return context.WithValue(ctx, deviceScopeKey{}, deviceScope{Tenant: tenant, All: true}), nil
 	}
-	user, p, err := s.managedIdentity((&http.Request{}).WithContext(ctx), auth.Claims{TenantID: tenant, Username: owner.Username, TokenUse: "user", SessionVersion: owner.SessionVersion})
+	user, p, err := s.managedIdentity(ctx, auth.Claims{TenantID: tenant, Username: owner.Username, TokenUse: "user", SessionVersion: owner.SessionVersion})
 	if err != nil || user.DeviceScope != "all" || !allowsRoute(p, "POST", "/api/v1/device-registry") {
 		return ctx, denied
 	}
@@ -66,7 +66,7 @@ func (s *Server) authorizeTemplateDraft(ctx context.Context, tenant string, owne
 	if !owner.Managed {
 		return s.authorizeOnboardingTask(ctx, tenant, owner)
 	}
-	u, p, err := s.managedIdentity((&http.Request{}).WithContext(ctx), auth.Claims{TenantID: tenant, Username: owner.Username, TokenUse: "user", SessionVersion: owner.SessionVersion})
+	u, p, err := s.managedIdentity(ctx, auth.Claims{TenantID: tenant, Username: owner.Username, TokenUse: "user", SessionVersion: owner.SessionVersion})
 	if err != nil || u.DeviceScope != "all" || !p["menu:products"] || !(allowsRoute(p, "POST", "/api/v1/products") || allowsRoute(p, "PUT", "/api/v1/products/:id")) {
 		return ctx, &onboarding.EnrollError{Status: 403, Message: "当前账号不能编辑设备模板或设备范围已变化"}
 	}

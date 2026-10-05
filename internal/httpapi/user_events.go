@@ -15,7 +15,7 @@ func (s *Server) userEvents(w http.ResponseWriter, r *http.Request) {
 	p := map[string]bool{"*": true}
 	var e error
 	if c.TokenUse == "user" {
-		_, p, e = s.managedIdentity(r, c)
+		_, p, e = s.managedIdentity(r.Context(), c)
 		if e != nil {
 			problem(w, 401, "会话已失效")
 			return

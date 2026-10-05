@@ -1,10 +1,11 @@
-package core
+package aiworkflow
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"iot-platform/internal/aiprompt"
+	"iot-platform/internal/core"
 	"strings"
 	"time"
 
@@ -37,20 +38,22 @@ func BusinessWorkflowIDs() []string {
 }
 
 // AIWorkflowsReady reports whether business AI features can run.
-func (e *Engine) AIWorkflowsReady() bool { return e.AIWorkflows != nil && e.HarnessTokens != nil }
+func (e *Service) AIWorkflowsReady() bool {
+	return e.engine.AIWorkflows != nil && e.engine.HarnessTokens != nil
+}
 
 // runBusinessWorkflow runs one business Agent for the identity in ctx. The
 // token carries only the requested tool scopes the identity may use; the
 // knowledge tool follows the Agent's knowledge binding like chat. query is the
 // short retrieval question for prefetched evidence; the prompt itself carries
 // data (snapshots, statistics, samples) and is never used as one.
-func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, promptVersion, prompt, query string, tools []string, maxTokens int) (ports.AIWorkflowResult, error) {
+func (e *Service) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, promptVersion, prompt, query string, tools []string, maxTokens int) (ports.AIWorkflowResult, error) {
 	if !e.AIWorkflowsReady() {
 		return ports.AIWorkflowResult{}, ErrAIWorkflowsUnavailable
 	}
-	if e.AuthorizeAIRun != nil {
+	if e.Authorizer != nil {
 		var err error
-		ctx, err = e.AuthorizeAIRun(ctx, tenantID, workflowID)
+		ctx, err = e.authorize(ctx, tenantID, workflowID)
 		if err != nil {
 			return ports.AIWorkflowResult{}, err
 		}
@@ -62,7 +65,7 @@ func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, 
 	if identity.TenantID != "" && identity.TenantID != tenantID || identity.ManagedUser && identity.TenantID == "" {
 		return ports.AIWorkflowResult{}, errors.New("AI 运行身份与当前租户不符，拒绝执行")
 	}
-	if err := ValidateAIInput(prompt, 30<<10); err != nil {
+	if err := core.ValidateAIInput(prompt, 30<<10); err != nil {
 		return ports.AIWorkflowResult{}, err
 	}
 	if claims, present := auth.ClaimsFromContext(ctx); present && (claims.TenantID != tenantID || claims.Username != identity.Username || identity.ManagedUser && claims.SessionVersion != identity.SessionVersion) {
@@ -81,7 +84,7 @@ func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, 
 	if strings.TrimSpace(tenantID) == "" || strings.TrimSpace(workflowID) == "" {
 		return ports.AIWorkflowResult{}, errors.New("缺少 AI 租户或工作流，拒绝执行")
 	}
-	binding, err := e.Repo.GetWorkflowKnowledgeBinding(ctx, tenantID, workflowID)
+	binding, err := e.engine.Repo.GetWorkflowKnowledgeBinding(ctx, tenantID, workflowID)
 	if err != nil {
 		return ports.AIWorkflowResult{}, fmt.Errorf("读取 %s 知识策略失败：%w", workflowID, err)
 	}
@@ -105,7 +108,7 @@ func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, 
 	if !useKnowledge && binding.NoMatchPolicy == "require-evidence" {
 		return ports.AIWorkflowResult{}, errors.New("当前运行未获此工作流所需的知识库访问权限，拒绝无证据执行")
 	}
-	if useKnowledge && e.KB == nil {
+	if useKnowledge && e.engine.KB == nil {
 		if binding.NoMatchPolicy == "require-evidence" {
 			return ports.AIWorkflowResult{}, errors.New("此工作流要求知识证据，但知识库不可用")
 		}
@@ -115,7 +118,7 @@ func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, 
 	var knowledge *ports.AIKnowledgeRunScope
 	if useKnowledge {
 		if query = ports.BoundKnowledgeQuery(query); workflowID != WorkflowAlarmAnalysis && query != "" {
-			hits, err := SearchWorkflowKnowledge(ctx, e.KB, tenantID, query, binding)
+			hits, err := SearchWorkflowKnowledge(ctx, e.engine.KB, tenantID, query, binding)
 			if err != nil {
 				return ports.AIWorkflowResult{}, fmt.Errorf("检索 %s 绑定知识失败：%w", workflowID, err)
 			}
@@ -126,7 +129,7 @@ func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, 
 				return ports.AIWorkflowResult{}, errors.New("此工作流要求匹配知识证据，但未检索到匹配内容")
 			}
 			if len(hits) > 0 {
-				prompt, err = AppendKnowledgeEvidence(prompt, hits, 30<<10)
+				prompt, err = core.AppendKnowledgeEvidence(prompt, hits, 30<<10)
 				if err != nil {
 					return ports.AIWorkflowResult{}, fmt.Errorf("知识证据超过 AI 输入预算：%w", err)
 				}
@@ -150,19 +153,19 @@ func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, 
 	runID := id("ai_run")
 	// Retrieval may outlive a permission change. Reject its entire prompt before
 	// sending evidence or device data to the model if the account grant changed.
-	if e.AuthorizeAIRun != nil {
-		ctx, err = e.AuthorizeAIRun(ctx, tenantID, workflowID)
+	if e.Authorizer != nil {
+		ctx, err = e.authorize(ctx, tenantID, workflowID)
 		if err != nil {
 			return ports.AIWorkflowResult{RunID: runID}, err
 		}
 		identity, _ = ports.AIRunIdentityFrom(ctx)
 	}
-	timeout := e.BusinessRunTimeout
+	timeout := e.engine.BusinessRunTimeout
 	if timeout <= 0 {
 		timeout = defaultBusinessRunTimeout
 	}
 	// The MCP credential must outlive waiting for a Harness slot and the run.
-	token, err := e.HarnessTokens.IssueBusinessRunToken(tenantID, identity, runID, workflowID, scopes, knowledge, businessRunCapacityWait+timeout+time.Minute)
+	token, err := e.engine.HarnessTokens.IssueBusinessRunToken(tenantID, identity, runID, workflowID, scopes, knowledge, businessRunCapacityWait+timeout+time.Minute)
 	if err != nil {
 		return ports.AIWorkflowResult{RunID: runID}, fmt.Errorf("签发 AI 工作流凭据失败：%w", err)
 	}
@@ -174,7 +177,7 @@ func (e *Engine) runBusinessWorkflow(ctx context.Context, tenantID, workflowID, 
 		}
 	}
 	request := ports.AIWorkflowRequest{TenantID: tenantID, Actor: identity.Username, RunID: runID, ConversationID: runID, WorkflowID: workflowID, Question: prompt, MaxTokens: maxTokens, MCPToken: token, OneShot: true, Timeout: timeout}
-	if err := ValidateAIInput(prompt, 30<<10); err != nil {
+	if err := core.ValidateAIInput(prompt, 30<<10); err != nil {
 		return ports.AIWorkflowResult{RunID: runID}, err
 	}
 	result, started, err := e.streamWhenAvailable(ctx, request)
@@ -212,7 +215,7 @@ func retrievalQuery(topic string, terms []string) string {
 	return ports.BoundKnowledgeQuery(strings.Join(parts, " "))
 }
 
-func (e *Engine) runAlarmAnalysisWorkflow(ctx context.Context, alarm model.Alarm, history []map[string]any, knowledge []string, withKnowledge bool) (model.AIAnalysis, error) {
+func (e *Service) runAlarmAnalysisWorkflow(ctx context.Context, alarm model.Alarm, history []map[string]any, knowledge []string, withKnowledge bool) (model.AIAnalysis, error) {
 	if withKnowledge {
 		identity, ok := ports.AIRunIdentityFrom(ctx)
 		if !ok {
@@ -254,7 +257,7 @@ func (e *Engine) runAlarmAnalysisWorkflow(ctx context.Context, alarm model.Alarm
 
 // DraftRule turns a natural-language requirement into a disabled rule draft
 // through the rule-drafter workflow. The draft is not saved here.
-func (e *Engine) DraftRule(ctx context.Context, tenantID, text string) (model.AlarmRule, error) {
+func (e *Service) DraftRule(ctx context.Context, tenantID, text string) (model.AlarmRule, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return model.AlarmRule{}, errors.New("规则描述不能为空")
@@ -268,7 +271,7 @@ func (e *Engine) DraftRule(ctx context.Context, tenantID, text string) (model.Al
 	if err != nil {
 		return rule, fmt.Errorf("AI 规则草稿格式无效：%w", err)
 	}
-	now := e.Clock.Now().UnixMilli()
+	now := e.engine.Clock.Now().UnixMilli()
 	rule.TenantID, rule.Enabled, rule.Version = tenantID, false, 1
 	rule.CreatedAt, rule.UpdatedAt = now, now
 	return rule, nil
@@ -285,12 +288,12 @@ var (
 // its concurrency limit, instead of failing background work immediately. The
 // MCP token stays valid because it outlives the wait. started is when the
 // final attempt began, so run durations exclude the wait for a slot.
-func (e *Engine) streamWhenAvailable(ctx context.Context, request ports.AIWorkflowRequest) (ports.AIWorkflowResult, time.Time, error) {
+func (e *Service) streamWhenAvailable(ctx context.Context, request ports.AIWorkflowRequest) (ports.AIWorkflowResult, time.Time, error) {
 	deadline := time.Now().Add(businessRunCapacityWait)
 	delay := businessRunRetryDelay
 	for {
 		started := time.Now()
-		result, err := e.AIWorkflows.StreamChat(ctx, request, nil)
+		result, err := e.engine.AIWorkflows.StreamChat(ctx, request, nil)
 		if !errors.Is(err, ports.ErrAIWorkflowBusy) || time.Now().Add(delay).After(deadline) {
 			return result, started, err
 		}
@@ -305,4 +308,102 @@ func (e *Engine) streamWhenAvailable(ctx context.Context, request ports.AIWorkfl
 			delay *= 2
 		}
 	}
+}
+
+// AnalyzeAlarm runs analysis explicitly requested by an operator. withKnowledge must be
+// decided by the caller's role: knowledge-based results are stored separately
+// and only shown to roles allowed to query the knowledge base.
+func (e *Service) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, withKnowledge bool) (model.AIAnalysis, error) {
+	if !e.AIWorkflowsReady() {
+		return model.AIAnalysis{}, ErrAIWorkflowsUnavailable
+	}
+	if e.Authorizer != nil {
+		var err error
+		ctx, err = e.authorize(ctx, tenantID, WorkflowAlarmAnalysis)
+		if err != nil {
+			return model.AIAnalysis{}, err
+		}
+	}
+	alarm, err := e.engine.Repo.GetAlarm(ctx, tenantID, alarmID)
+	if err != nil {
+		return model.AIAnalysis{}, err
+	}
+	analysisContext := e.buildAlarmContext(ctx, alarm)
+	knowledge := []string{}
+	scope := model.AIAnalysisScopeNone
+	var documents []string
+	if withKnowledge {
+		identity, hasIdentity := ports.AIRunIdentityFrom(ctx)
+		authorized := false
+		for _, permission := range identity.Scopes {
+			if permission == ports.MCPToolScope("query_knowledge_base") {
+				authorized = true
+				break
+			}
+		}
+		if !hasIdentity || !authorized {
+			return model.AIAnalysis{}, errors.New("当前运行身份无知识库访问权限")
+		}
+		scope = model.AlarmAnalysisWorkflowID
+		knowledge, documents, err = e.alarmAnalysisKnowledge(ctx, alarm, analysisContext.symptoms)
+	}
+	var analysis model.AIAnalysis
+	if err == nil {
+		analysis, err = e.runAlarmAnalysisWorkflow(ctx, alarm, analysisContext.payload(), knowledge, withKnowledge)
+	}
+	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) && e.engine.Metrics != nil {
+			e.engine.Metrics.Inc("ai_analysis_timeout_total")
+		}
+		if e.engine.Metrics != nil {
+			e.engine.Metrics.Inc("ai_analysis_failed_total")
+		}
+		analysis = model.AIAnalysis{
+			AlarmID:       alarm.ID,
+			Summary:       "AI 研判暂时失败，已保留告警供人工研判。",
+			RiskLevel:     alarm.AlarmLevel,
+			Model:         aiModelName(e.engine.AI),
+			PromptVersion: aiprompt.AlarmFallbackVersion,
+			CreatedAt:     e.engine.Clock.Now().UnixMilli(),
+			Error:         err.Error(),
+		}
+	}
+	if err == nil && e.engine.Metrics != nil {
+		e.engine.Metrics.Inc("ai_analysis_success_total")
+	}
+	analysis.Status = "succeeded"
+	if err != nil {
+		analysis.Status = "failed"
+	}
+	analysis.TenantID = alarm.TenantID
+	analysis.AlarmID = alarm.ID
+	analysis.KnowledgeScope = scope
+	analysis.KnowledgeDocuments = documents
+	analysis.CapacityRunID = ports.CapacityRunID(ctx)
+	saveCtx, saveCancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer saveCancel()
+	if saveErr := e.engine.Repo.SaveAIAnalysis(saveCtx, analysis); saveErr != nil {
+		return analysis, saveErr
+	}
+	if scope != model.AIAnalysisScopeNone {
+		// 引用知识库的结果只返回给发起人，不广播到告警实时主题。
+		return analysis, nil
+	}
+	payload := mustJSON(analysis)
+	_ = e.engine.Bus.Publish(ctx, model.TopicAlarmAIAnalysis, alarm.ID, payload)
+	_ = e.engine.Realtime.Publish(ctx, alarm.MQTTTopic("ai-analysis"), payload, 1, false)
+	return analysis, nil
+}
+
+func aiModelName(client ports.AIClient) string {
+	if provider, ok := client.(ports.AIInspectable); ok {
+		info := provider.ProviderInfo()
+		if name := strings.TrimSpace(info.Model); name != "" {
+			return name
+		}
+		if id := strings.TrimSpace(info.ID); id != "" {
+			return id
+		}
+	}
+	return "unavailable"
 }

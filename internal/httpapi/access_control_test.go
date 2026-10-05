@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iot-platform/internal/aiworkflow"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -710,13 +711,13 @@ func TestAlarmAnalysisKnowledgeVariantFollowsRole(t *testing.T) {
 		t.Helper()
 		requestJSON(t, srv.Client(), "POST", srv.URL+"/mcp/harness", token, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": "query_alarm_list", "arguments": map[string]any{}}}, status)
 	}
-	businessToken, err := api.auth.IssueBusinessRunToken("tenant-a", identity, "run-business", core.WorkflowAlarmAnalysis, identity.Scopes, nil, time.Minute)
+	businessToken, err := api.auth.IssueBusinessRunToken("tenant-a", identity, "run-business", aiworkflow.WorkflowAlarmAnalysis, identity.Scopes, nil, time.Minute)
 	must(err)
 	callTool(businessToken, 200)
 	chatToken, err := api.auth.IssueHarnessForIdentity(plainClaims, "run-chat", identity.Scopes, nil, time.Minute)
 	must(err)
 	callTool(chatToken, 403)
-	draftToken, err := api.auth.IssueBusinessRunToken("tenant-a", identity, "run-draft", core.WorkflowRuleDraft, identity.Scopes, nil, time.Minute)
+	draftToken, err := api.auth.IssueBusinessRunToken("tenant-a", identity, "run-draft", aiworkflow.WorkflowRuleDraft, identity.Scopes, nil, time.Minute)
 	must(err)
 	callTool(draftToken, 403)
 
@@ -874,7 +875,7 @@ func TestAIRejectsPermissionChangesDuringKnowledgePrefetch(t *testing.T) {
 			}}
 			var err error
 			if business {
-				_, err = engine.GenerateReport(aiRunContext(requestCtx, c), "tenant-a", "今日", 1, 2)
+				_, err = api.ai.GenerateReport(aiRunContext(requestCtx, c), "tenant-a", "今日", 1, 2)
 			} else {
 				_, err = api.runAIWorkflow(requestCtx, c, "查询私有知识", "test-agent", "", "", 2048, nil)
 			}
@@ -882,7 +883,7 @@ func TestAIRejectsPermissionChangesDuringKnowledgePrefetch(t *testing.T) {
 				t.Fatalf("stale evidence sent to model: err=%v requests=%d", err, len(workflows.Requests()))
 			}
 			// A queued business run must also be rejected before any prefetch.
-			if _, err = api.authorizeAIRun(aiRunContext(requestCtx, c), "tenant-a", core.WorkflowOpsReport); err == nil {
+			if _, err = api.authorizeAIRun(aiRunContext(requestCtx, c), "tenant-a", aiworkflow.WorkflowOpsReport); err == nil {
 				t.Fatal("queued stale permission snapshot accepted")
 			}
 		})

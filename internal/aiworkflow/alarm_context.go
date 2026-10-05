@@ -1,10 +1,11 @@
-package core
+package aiworkflow
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iot-platform/internal/core"
 	"strings"
 	"time"
 
@@ -53,11 +54,11 @@ type alarmContext struct {
 // buildAlarmContext gathers the analysis context of alarm. Reads go through
 // the request's scoped repository, so neighbouring alarms only include devices
 // the requester may see. A failed optional read leaves its block out.
-func (e *Engine) buildAlarmContext(ctx context.Context, alarm model.Alarm) alarmContext {
+func (e *Service) buildAlarmContext(ctx context.Context, alarm model.Alarm) alarmContext {
 	c := alarmContext{blocks: map[string]any{}}
 	c.blocks["alarm"] = alarmSummary(alarm, true)
 	var product *model.Product
-	if device, err := e.Repo.GetManagedDevice(ctx, alarm.TenantID, alarm.DeviceID); err == nil {
+	if device, err := e.engine.Repo.GetManagedDevice(ctx, alarm.TenantID, alarm.DeviceID); err == nil {
 		block := map[string]any{"id": device.ID, "name": device.Name, "productId": device.ProductID, "deviceRole": device.DeviceRole, "status": device.Status}
 		if device.GatewayID != "" {
 			block["gatewayId"] = device.GatewayID
@@ -65,14 +66,14 @@ func (e *Engine) buildAlarmContext(ctx context.Context, alarm model.Alarm) alarm
 		if len(device.Tags) > 0 {
 			block["tags"] = device.Tags
 		}
-		if p, err := e.Repo.GetProduct(ctx, alarm.TenantID, device.ProductID); err == nil {
+		if p, err := e.engine.Repo.GetProduct(ctx, alarm.TenantID, device.ProductID); err == nil {
 			product = &p
 			block["productName"], block["category"] = p.Name, p.Category
 		}
 		c.blocks["device"] = block
 	}
 	var ruleFields []string
-	if rule, ok := e.ruleByID(ctx, alarm.TenantID, alarm.RuleID); ok && alarm.RuleID != "" {
+	if rule, ok := e.engine.RuleByID(ctx, alarm.TenantID, alarm.RuleID); ok && alarm.RuleID != "" {
 		for _, condition := range rule.Conditions {
 			ruleFields = append(ruleFields, condition.Field)
 		}
@@ -104,7 +105,7 @@ func (e *Engine) buildAlarmContext(ctx context.Context, alarm model.Alarm) alarm
 	if history := e.alarmDispositionHistory(ctx, alarm); history != nil {
 		c.blocks["dispositionHistory"] = history
 	}
-	if similar, err := e.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: alarm.TenantID, DeviceID: alarm.DeviceID, Summary: true, Limit: alarmContextSimilarAlarms + 1}); err == nil {
+	if similar, err := e.engine.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: alarm.TenantID, DeviceID: alarm.DeviceID, Summary: true, Limit: alarmContextSimilarAlarms + 1}); err == nil {
 		items := []map[string]any{}
 		for _, item := range similar {
 			if item.ID != alarm.ID && item.AlarmType == alarm.AlarmType && len(items) < alarmContextSimilarAlarms {
@@ -219,8 +220,8 @@ func alarmSummary(a model.Alarm, details bool) map[string]any {
 
 // alarmsNearby lists alarms of other devices on the same floor (or building)
 // within two hours before the alarm, newest first.
-func (e *Engine) alarmsNearby(ctx context.Context, alarm model.Alarm) map[string]any {
-	locator, ok := e.Locator.(ports.NearbyDeviceLocator)
+func (e *Service) alarmsNearby(ctx context.Context, alarm model.Alarm) map[string]any {
+	locator, ok := e.engine.Locator.(ports.NearbyDeviceLocator)
 	if !ok {
 		return nil
 	}
@@ -234,7 +235,7 @@ func (e *Engine) alarmsNearby(ctx context.Context, alarm model.Alarm) map[string
 		return out
 	}
 	filter := ports.AlarmFilter{TenantID: alarm.TenantID, DeviceIDs: devices, Start: alarm.LastTriggeredAt - alarmContextSiteWindowMs, End: alarm.LastTriggeredAt, Summary: true, Limit: alarmContextSiteAlarms}
-	alarms, err := e.Repo.ListAlarms(ctx, filter)
+	alarms, err := e.engine.Repo.ListAlarms(ctx, filter)
 	if err != nil {
 		return nil
 	}
@@ -247,7 +248,7 @@ func (e *Engine) alarmsNearby(ctx context.Context, alarm model.Alarm) map[string
 		items = append(items, summary)
 	}
 	out["items"] = items
-	if total, err := e.Repo.CountAlarms(ctx, filter); err == nil {
+	if total, err := e.engine.Repo.CountAlarms(ctx, filter); err == nil {
 		out["total"] = total
 	}
 	return out
@@ -257,11 +258,11 @@ var errAlarmScanLimit = errors.New("alarm scan limit")
 
 // alarmDispositionHistory counts how this device's earlier alarms of the same
 // type were verified on site in the last 90 days.
-func (e *Engine) alarmDispositionHistory(ctx context.Context, alarm model.Alarm) map[string]any {
+func (e *Service) alarmDispositionHistory(ctx context.Context, alarm model.Alarm) map[string]any {
 	since := time.UnixMilli(alarm.LastTriggeredAt).Add(-alarmContextHistoryWindow).UnixMilli()
 	results := map[string]int{}
 	total, verified, scanned := 0, 0, 0
-	err := e.Repo.EachAlarm(ctx, ports.AlarmFilter{TenantID: alarm.TenantID, DeviceID: alarm.DeviceID, Start: since, End: alarm.LastTriggeredAt, Summary: true}, func(a model.Alarm) error {
+	err := e.engine.Repo.EachAlarm(ctx, ports.AlarmFilter{TenantID: alarm.TenantID, DeviceID: alarm.DeviceID, Start: since, End: alarm.LastTriggeredAt, Summary: true}, func(a model.Alarm) error {
 		if scanned++; scanned > alarmContextHistoryScan {
 			return errAlarmScanLimit
 		}
@@ -369,4 +370,24 @@ func abs(v float64) float64 {
 		return -v
 	}
 	return v
+}
+
+// deviceSignalsContext lists a device's current signals for AI analysis.
+func (e *Service) deviceSignalsContext(ctx context.Context, tenant, device string) []map[string]any {
+	if e.engine.DeviceSignals == nil {
+		return nil
+	}
+	signals, err := e.engine.DeviceSignals.ListDeviceSignals(ctx, tenant, []string{device}, 10)
+	if err != nil || len(signals) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, 0, len(signals))
+	for _, s := range signals {
+		item := map[string]any{"signalType": s.SignalType, "name": core.SignalTypeNames[s.SignalType], "strength": s.Strength, "evidence": s.Evidence, "windowEnd": s.WindowEnd}
+		if s.Property != "" {
+			item["property"] = s.Property
+		}
+		out = append(out, item)
+	}
+	return out
 }

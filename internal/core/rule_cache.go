@@ -54,8 +54,8 @@ func (e *Engine) RulesChanged(tenantID string) {
 	e.rules.mu.Unlock()
 }
 
-// ruleByID finds one of the tenant's rules through the rule cache.
-func (e *Engine) ruleByID(ctx context.Context, tenantID, ruleID string) (model.AlarmRule, bool) {
+// RuleByID finds one of the tenant's rules through the rule cache.
+func (e *Engine) RuleByID(ctx context.Context, tenantID, ruleID string) (model.AlarmRule, bool) {
 	rules, err := e.tenantRules(ctx, tenantID)
 	if err != nil {
 		return model.AlarmRule{}, false

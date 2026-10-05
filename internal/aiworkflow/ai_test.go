@@ -1,4 +1,4 @@
-package core
+package aiworkflow
 
 import (
 	"bytes"
@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"iot-platform/internal/aiprompt"
+	"iot-platform/internal/core"
 	"iot-platform/internal/metrics"
 	"log/slog"
 	"net/http"
@@ -33,14 +34,14 @@ import (
 	"iot-platform/internal/ports"
 )
 
-func newBusinessEngine(t *testing.T, answer func(ports.AIWorkflowRequest) (string, error)) (*Engine, *memory.Repository, *aitest.Workflows) {
+func newBusinessEngine(t *testing.T, answer func(ports.AIWorkflowRequest) (string, error)) (*testEngine, *memory.Repository, *aitest.Workflows) {
 	t.Helper()
 	repo := memory.NewRepository()
 	archive, err := local.NewArchive(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	e := New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	e := wrap(core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))))
 	workflows := &aitest.Workflows{Answer: answer}
 	e.AIWorkflows, e.HarnessTokens = workflows, aitest.Tokens()
 	e.KB = knowledge.NewLocal()
@@ -173,7 +174,7 @@ func (k *businessKnowledgeIndex) Requests() []ports.KnowledgeSearchRequest {
 	return append([]ports.KnowledgeSearchRequest(nil), k.requests...)
 }
 
-func installBusinessHarnessHTTP(t *testing.T, engine *Engine, beforeRun func(ports.AIWorkflowRequest)) <-chan ports.AIWorkflowRequest {
+func installBusinessHarnessHTTP(t *testing.T, engine *testEngine, beforeRun func(ports.AIWorkflowRequest)) <-chan ports.AIWorkflowRequest {
 	t.Helper()
 	received := make(chan ports.AIWorkflowRequest, 8)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -379,7 +380,7 @@ func TestAlarmEventsDoNotStartAnalysis(t *testing.T) {
 	e, repo, workflows := newBusinessEngine(t, func(ports.AIWorkflowRequest) (string, error) { return analysisAnswer, nil })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	if err := e.StartWith(ctx, AllComponents()); err != nil {
+	if err := e.StartWith(ctx, core.AllComponents()); err != nil {
 		t.Fatal(err)
 	}
 	alarm := model.Alarm{ID: "manual-only", TenantID: "t1", DeviceID: "device-1", Status: "ACTIVE", AlarmLevel: "HIGH"}
@@ -441,7 +442,7 @@ const analysisAnswer = `{"summary":"研判完成","possibleReasons":["现场存�
 // lastPrompt returns the prompt of the latest alarm analysis run.
 func lastPrompt(w *aitest.Workflows) string { return w.Last().Question }
 
-func newAlarmKnowledgeEngine(t *testing.T) (*Engine, *memory.Repository, *local.Realtime, *aitest.Workflows) {
+func newAlarmKnowledgeEngine(t *testing.T) (*testEngine, *memory.Repository, *local.Realtime, *aitest.Workflows) {
 	t.Helper()
 	ctx := context.Background()
 	repo := memory.NewRepository()
@@ -450,7 +451,7 @@ func newAlarmKnowledgeEngine(t *testing.T) (*Engine, *memory.Repository, *local.
 		t.Fatal(err)
 	}
 	realtime := local.NewRealtime()
-	e := New(repo, archive, local.NewBus(), realtime, parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	e := wrap(core.New(repo, archive, local.NewBus(), realtime, parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil))))
 	ai := &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { return analysisAnswer, nil }}
 	e.AIWorkflows, e.HarnessTokens = ai, aitest.Tokens()
 	kb := knowledge.NewLocal()
@@ -584,7 +585,7 @@ func TestAlarmPropertyHistoryQueriesOncePerPropertyAndCondenses(t *testing.T) {
 	}
 	smoke := []map[string]any{{"timestamp": end, "value": true}, {"timestamp": end - 1000, "value": false}, {"timestamp": end - 2000, "value": true}}
 	repo := &countingHistoryRepo{Repository: memory.NewRepository(), rows: map[string][]map[string]any{"temperature": temperature, "smoke": smoke}}
-	e := &Engine{Repo: repo}
+	e := wrap(&core.Engine{Repo: repo})
 
 	history := e.alarmPropertyHistory(context.Background(), model.Alarm{TenantID: "t1", DeviceID: "d1", LastTriggeredAt: end}, nil, nil)
 	if repo.calls != len(defaultAlarmHistoryProperties) {
@@ -637,7 +638,7 @@ func TestInspectionPromptSnapshotIsBounded(t *testing.T) {
 }
 
 func TestRenderHealthInspectionPDF(t *testing.T) {
-	data, err := RenderHealthInspectionPDF(model.DeviceHealthReport{
+	data, err := core.RenderHealthInspectionPDF(model.DeviceHealthReport{
 		GeneratedAt: 1700000000000,
 		Summary:     "共检查 1 个设备。",
 		Counts:      map[string]int{"total": 1, "healthy": 0, "attention": 1, "critical": 0, "offline": 1, "activeAlarms": 1},
@@ -688,7 +689,7 @@ func TestRenderHealthInspectionPDFStandardLayout(t *testing.T) {
 		})
 	}
 
-	data, err := RenderHealthInspectionPDF(report)
+	data, err := core.RenderHealthInspectionPDF(report)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,15 +710,15 @@ func TestRenderHealthInspectionPDFStandardLayout(t *testing.T) {
 // A tenant with more devices than the PDF lists gets the most severe rows and
 // a note of how many were left out, not thousands of pages.
 func TestRenderHealthInspectionPDFBoundsDeviceRows(t *testing.T) {
-	items := make([]model.DeviceHealthItem, InspectionPDFMaxDevices+500)
+	items := make([]model.DeviceHealthItem, core.InspectionPDFMaxDevices+500)
 	for i := range items {
 		items[i] = model.DeviceHealthItem{DeviceID: "device-" + strconv.Itoa(i), ProductID: "smoke", BusinessStatus: "NEVER_SEEN", Severity: "HIGH", Findings: []string{"设备尚未收到有效上报"}}
 	}
-	bounded, err := RenderHealthInspectionPDF(model.DeviceHealthReport{GeneratedAt: 1700000000000, Items: items})
+	bounded, err := core.RenderHealthInspectionPDF(model.DeviceHealthReport{GeneratedAt: 1700000000000, Items: items})
 	if err != nil {
 		t.Fatal(err)
 	}
-	limit, err := RenderHealthInspectionPDF(model.DeviceHealthReport{GeneratedAt: 1700000000000, Items: items[:InspectionPDFMaxDevices]})
+	limit, err := core.RenderHealthInspectionPDF(model.DeviceHealthReport{GeneratedAt: 1700000000000, Items: items[:core.InspectionPDFMaxDevices]})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -756,11 +757,11 @@ func TestOpsReportBoundsContextAtLargeDevicePopulation(t *testing.T) {
 func TestKnowledgeEvidenceFitsCharacterAndEscapedJSONBudgets(t *testing.T) {
 	hits := []ports.KnowledgeHit{{DocumentID: "doc", ChunkID: "chunk", Content: strings.Repeat("引文\"\n", 6000)}}
 	for _, prompt := range []string{strings.Repeat("上", 7000), strings.Repeat("x", 18000), strings.Repeat("\"\n", 5000)} {
-		combined, err := AppendKnowledgeEvidence(prompt, hits, 30<<10)
+		combined, err := core.AppendKnowledgeEvidence(prompt, hits, 30<<10)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err = ValidateAIInput(combined, 30<<10); err != nil || !strings.Contains(combined, "documentId=doc") {
+		if err = core.ValidateAIInput(combined, 30<<10); err != nil || !strings.Contains(combined, "documentId=doc") {
 			t.Fatalf("invalid evidence payload: %v", err)
 		}
 		wire, _ := json.Marshal(combined)
@@ -769,7 +770,7 @@ func TestKnowledgeEvidenceFitsCharacterAndEscapedJSONBudgets(t *testing.T) {
 		}
 	}
 	for _, prompt := range []string{strings.Repeat("x", 20001), strings.Repeat("\x00", 6000), strings.Repeat("🔥", 10001)} {
-		if ValidateAIInput(prompt, 30<<10) == nil {
+		if core.ValidateAIInput(prompt, 30<<10) == nil {
 			t.Fatal("invalid gateway input budget accepted")
 		}
 	}
@@ -889,7 +890,7 @@ func TestAlarmPropertyHistoryUsesThingModel(t *testing.T) {
 	end := int64(100 * alarmHistoryDayMs)
 	point := func(v any) []map[string]any { return []map[string]any{{"timestamp": end, "value": v}} }
 	repo := &countingHistoryRepo{Repository: memory.NewRepository(), rows: map[string][]map[string]any{"pressure": point(0.12), "level": point(3.0), "door": point(true), "label": point("x")}}
-	e := &Engine{Repo: repo}
+	e := wrap(&core.Engine{Repo: repo})
 	high, low, minimum := 1.2, 0.2, 0.0
 	product := &model.Product{ThingModel: &model.ThingModel{Properties: []model.ThingField{
 		{Identifier: "level", DataType: "number", Unit: "m"},

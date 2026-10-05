@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/aiworkflow"
 	"iot-platform/internal/sites"
 	"log/slog"
 	"mime/multipart"
@@ -821,16 +822,16 @@ const testAnalysisAnswer = `{"summary":"研判完成","possibleReasons":["现场
 func installEndpointWorkflows(engine *core.Engine) *aitest.Workflows {
 	workflows := &aitest.Workflows{Answer: func(req ports.AIWorkflowRequest) (string, error) {
 		switch req.WorkflowID {
-		case core.WorkflowRuleDraft:
+		case aiworkflow.WorkflowRuleDraft:
 			rule, err := protocolEndpointAI{}.RuleDraft(context.Background(), "", "")
 			if err != nil {
 				return "", err
 			}
 			body, err := json.Marshal(rule)
 			return string(body), err
-		case core.WorkflowProtocolAssist:
+		case aiworkflow.WorkflowProtocolAssist:
 			return protocolEndpointAI{}.GenerateJSON(context.Background(), "", "", "")
-		case core.WorkflowHealthInspection, core.WorkflowOpsReport:
+		case aiworkflow.WorkflowHealthInspection, aiworkflow.WorkflowOpsReport:
 			return "巡检建议已生成", nil
 		}
 		return testAnalysisAnswer, nil
@@ -1442,7 +1443,7 @@ func TestAlarmAnalysisNearbyAlarmsFollowDeviceScope(t *testing.T) {
 		}
 	}
 	scoped := context.WithValue(aitest.Context(ctx), deviceScopeKey{}, deviceScope{Tenant: "t1", IDs: map[string]bool{"mine": true, "visible": true}})
-	if _, err := engine.AnalyzeAlarm(scoped, "t1", "alarm-mine", false); err != nil {
+	if _, err := aiworkflow.New(engine, nil).AnalyzeAlarm(scoped, "t1", "alarm-mine", false); err != nil {
 		t.Fatal(err)
 	}
 	question := workflows.Last().Question

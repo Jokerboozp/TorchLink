@@ -227,8 +227,9 @@ func signalRuleID(s model.DeviceSignal) string {
 	return signalAlarmSource + ":" + s.SignalType + ":" + s.Property
 }
 
-// signalTypeNames are the Chinese names used in signal alarm content.
-var signalTypeNames = map[string]string{model.SignalStuckValue: "数值长时间不变", model.SignalReportDrift: "上报周期偏离", model.SignalOutOfRange: "数值超出有效范围", model.SignalPeerOutlier: "与同型号设备差异显著"}
+// SignalTypeNames are the Chinese names of signal types, used in alarm
+// content, inspection findings and analysis context.
+var SignalTypeNames = map[string]string{model.SignalStuckValue: "数值长时间不变", model.SignalReportDrift: "上报周期偏离", model.SignalOutOfRange: "数值超出有效范围", model.SignalPeerOutlier: "与同型号设备差异显著"}
 
 // syncSignalAlarms raises a DEVICE_HEALTH alarm for each strong signal and
 // recovers signal alarms whose signal has gone.
@@ -260,7 +261,7 @@ func (e *Engine) syncSignalAlarms(ctx context.Context, tenant string, signals []
 			continue
 		}
 		now := e.Clock.Now().UnixMilli()
-		name := signalTypeNames[s.SignalType]
+		name := SignalTypeNames[s.SignalType]
 		content := name
 		if s.Property != "" {
 			content = s.Property + " " + name
@@ -285,26 +286,6 @@ func (e *Engine) syncSignalAlarms(ctx context.Context, tenant string, signals []
 		}
 	}
 	return nil
-}
-
-// deviceSignalsContext lists a device's current signals for AI analysis.
-func (e *Engine) deviceSignalsContext(ctx context.Context, tenant, device string) []map[string]any {
-	if e.DeviceSignals == nil {
-		return nil
-	}
-	signals, err := e.DeviceSignals.ListDeviceSignals(ctx, tenant, []string{device}, 10)
-	if err != nil || len(signals) == 0 {
-		return nil
-	}
-	out := make([]map[string]any, 0, len(signals))
-	for _, s := range signals {
-		item := map[string]any{"signalType": s.SignalType, "name": signalTypeNames[s.SignalType], "strength": s.Strength, "evidence": s.Evidence, "windowEnd": s.WindowEnd}
-		if s.Property != "" {
-			item["property"] = s.Property
-		}
-		out = append(out, item)
-	}
-	return out
 }
 
 func medianOf(values []float64) float64 {

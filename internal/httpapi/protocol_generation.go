@@ -6,13 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iot-platform/internal/aiworkflow"
 	"net/http"
 	"reflect"
 	"sort"
 	"strings"
 	"time"
 
-	"iot-platform/internal/core"
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/protocolworker"
@@ -52,7 +52,7 @@ func (s *Server) saveGeneratedProtocol(w http.ResponseWriter, r *http.Request, i
 			problem(w, 422, err.Error())
 			return
 		}
-		preview, err = core.PreviewProtocolAssistant(draft, tenant, text)
+		preview, err = aiworkflow.PreviewProtocolAssistant(draft, tenant, text)
 		if err != nil {
 			problem(w, 422, "样本解析失败："+err.Error())
 			return
@@ -92,7 +92,7 @@ func validateGeneratedMapping(release model.ProtocolRelease) error {
 		if release.Transport != want || release.PayloadFormat != "hex" {
 			return errors.New("点表协议的传输方式与格式不一致")
 		}
-		if err := core.NormalizeGeneratedModbusConfig(release.Config); err != nil {
+		if err := aiworkflow.NormalizeGeneratedModbusConfig(release.Config); err != nil {
 			return err
 		}
 	} else {
@@ -289,7 +289,7 @@ func (s *Server) previewGeneratedRelease(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		draft := model.ProtocolAssistantDraft{Protocol: release.ProtocolID, ParserType: release.ParserType, Transport: release.Transport, PayloadFormat: release.PayloadFormat, Config: config}
-		message, err = core.PreviewProtocolAssistant(draft, claims(r).TenantID, payload)
+		message, err = aiworkflow.PreviewProtocolAssistant(draft, claims(r).TenantID, payload)
 		actual = map[string]any{"standardMessage": message}
 	}
 	if err != nil {
@@ -329,7 +329,7 @@ func (s *Server) previewDecode(ctx context.Context, release model.ProtocolReleas
 }
 
 func previewRaw(release model.ProtocolRelease, device string, now int64, payload string, state json.RawMessage, snapshot *model.RawMessage) (model.RawMessage, error) {
-	value, err := core.ProtocolAssistantPayload(release.PayloadFormat, payload)
+	value, err := aiworkflow.ProtocolAssistantPayload(release.PayloadFormat, payload)
 	if err != nil {
 		return model.RawMessage{}, err
 	}

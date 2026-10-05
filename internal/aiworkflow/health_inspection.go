@@ -1,10 +1,11 @@
-package core
+package aiworkflow
 
 import (
 	"context"
 	"encoding/json"
 	"fmt"
 	"iot-platform/internal/aiprompt"
+	"iot-platform/internal/core"
 	"sort"
 	"strings"
 	"time"
@@ -17,20 +18,20 @@ import (
 // the configured model for a narrative. The deterministic portion remains
 // useful when AI is unavailable and prevents the model from inventing device
 // counts or last-seen times.
-func (e *Engine) InspectDeviceHealth(ctx context.Context, tenantID string) (model.DeviceHealthReport, error) {
-	if e.AuthorizeAIRun != nil {
+func (e *Service) InspectDeviceHealth(ctx context.Context, tenantID string) (model.DeviceHealthReport, error) {
+	if e.Authorizer != nil {
 		var err error
-		ctx, err = e.AuthorizeAIRun(ctx, tenantID, WorkflowHealthInspection)
+		ctx, err = e.authorize(ctx, tenantID, WorkflowHealthInspection)
 		if err != nil {
 			return model.DeviceHealthReport{}, err
 		}
 	}
-	now := e.Clock.Now().UnixMilli()
+	now := e.engine.Clock.Now().UnixMilli()
 	// Active alarms are streamed and devices read in pages, so the inspection
 	// holds one small item per device rather than the tenant's full records.
 	activeAlarms := make(map[string]int)
 	alarmCount := 0
-	if err := e.Repo.EachAlarm(ctx, ports.AlarmFilter{TenantID: tenantID, Status: "ACTIVE", Summary: true}, func(alarm model.Alarm) error {
+	if err := e.engine.Repo.EachAlarm(ctx, ports.AlarmFilter{TenantID: tenantID, Status: "ACTIVE", Summary: true}, func(alarm model.Alarm) error {
 		activeAlarms[alarm.DeviceID]++
 		alarmCount++
 		return nil
@@ -40,8 +41,8 @@ func (e *Engine) InspectDeviceHealth(ctx context.Context, tenantID string) (mode
 	// Health signals add findings such as stuck values; the job keeps at most
 	// a few per device, so the tenant's list stays small.
 	signals := map[string][]model.DeviceSignal{}
-	if e.DeviceSignals != nil {
-		if list, err := e.DeviceSignals.ListDeviceSignals(ctx, tenantID, nil, 5000); err == nil {
+	if e.engine.DeviceSignals != nil {
+		if list, err := e.engine.DeviceSignals.ListDeviceSignals(ctx, tenantID, nil, 5000); err == nil {
 			for _, s := range list {
 				signals[s.DeviceID] = append(signals[s.DeviceID], s)
 			}
@@ -50,7 +51,7 @@ func (e *Engine) InspectDeviceHealth(ctx context.Context, tenantID string) (mode
 	items := []model.DeviceHealthItem{}
 	seen := map[string]struct{}{}
 	for offset := 0; ; offset += inspectionPageSize {
-		devices, _, err := e.Repo.ListManagedDevicesFiltered(ctx, ports.DeviceFilter{TenantID: tenantID}, inspectionPageSize, offset)
+		devices, _, err := e.engine.Repo.ListManagedDevicesFiltered(ctx, ports.DeviceFilter{TenantID: tenantID}, inspectionPageSize, offset)
 		if err != nil {
 			return model.DeviceHealthReport{}, err
 		}
@@ -58,7 +59,7 @@ func (e *Engine) InspectDeviceHealth(ctx context.Context, tenantID string) (mode
 		for _, device := range devices {
 			ids = append(ids, device.ID)
 		}
-		states, err := e.Repo.GetDeviceStatesByIDs(ctx, tenantID, ids)
+		states, err := e.engine.Repo.GetDeviceStatesByIDs(ctx, tenantID, ids)
 		if err != nil {
 			return model.DeviceHealthReport{}, err
 		}
@@ -74,7 +75,7 @@ func (e *Engine) InspectDeviceHealth(ctx context.Context, tenantID string) (mode
 		}
 	}
 	for offset := 0; ; offset += inspectionPageSize {
-		states, _, err := e.Repo.ListUnregisteredDeviceStatesPage(ctx, tenantID, inspectionPageSize, offset)
+		states, _, err := e.engine.Repo.ListUnregisteredDeviceStatesPage(ctx, tenantID, inspectionPageSize, offset)
 		if err != nil {
 			return model.DeviceHealthReport{}, err
 		}
@@ -123,7 +124,7 @@ func (e *Engine) InspectDeviceHealth(ctx context.Context, tenantID string) (mode
 	} else {
 		report.Warnings = append(report.Warnings, "AI 巡检建议未生成："+ErrAIWorkflowsUnavailable.Error())
 	}
-	_ = e.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenantID, Actor: "ai-health-inspection", Action: "ai.health-inspection", TargetType: "device-health", TargetID: fmt.Sprintf("inspection_%d", now), Details: map[string]any{"counts": counts, "success": true}, CreatedAt: now})
+	_ = e.engine.Repo.SaveAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenantID, Actor: "ai-health-inspection", Action: "ai.health-inspection", TargetType: "device-health", TargetID: fmt.Sprintf("inspection_%d", now), Details: map[string]any{"counts": counts, "success": true}, CreatedAt: now})
 	return report, nil
 }
 
@@ -168,7 +169,7 @@ func withSignals(item model.DeviceHealthItem, signals []model.DeviceSignal) mode
 		item.Findings = item.Findings[:0]
 	}
 	for _, s := range signals {
-		finding := "健康信号：" + signalTypeNames[s.SignalType]
+		finding := "健康信号：" + core.SignalTypeNames[s.SignalType]
 		if s.Property != "" {
 			finding += "（" + s.Property + "）"
 		}

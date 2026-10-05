@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/aiworkflow"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -31,7 +32,7 @@ func (s *Server) runAIAlarmAnalysis(w http.ResponseWriter, r *http.Request) {
 func (s *Server) healthInspection(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	report, err := s.engine.InspectDeviceHealth(aiRunContext(ctx, claims(r)), claims(r).TenantID)
+	report, err := s.ai.InspectDeviceHealth(aiRunContext(ctx, claims(r)), claims(r).TenantID)
 	if err != nil {
 		problem(w, http.StatusBadGateway, err.Error())
 		return
@@ -168,7 +169,7 @@ func (s *Server) generateProtocolAssistant(w http.ResponseWriter, r *http.Reques
 		problem(w, http.StatusUnprocessableEntity, "protocol document or point table is required")
 		return
 	}
-	input := core.ProtocolAssistantInput{
+	input := aiworkflow.ProtocolAssistantInput{
 		InputKind:        r.FormValue("inputKind"),
 		Name:             strings.TrimSpace(r.FormValue("name")),
 		Protocol:         strings.TrimSpace(r.FormValue("protocol")),
@@ -190,10 +191,10 @@ func (s *Server) generateProtocolAssistant(w http.ResponseWriter, r *http.Reques
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	draft, err := s.engine.GenerateProtocolAssistant(aiRunContext(ctx, claims(r)), claims(r).TenantID, input)
+	draft, err := s.ai.GenerateProtocolAssistant(aiRunContext(ctx, claims(r)), claims(r).TenantID, input)
 	if err != nil {
 		status := http.StatusBadGateway
-		if errors.Is(err, core.ErrProtocolInput) {
+		if errors.Is(err, aiworkflow.ErrProtocolInput) {
 			status = http.StatusUnprocessableEntity
 		}
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -228,7 +229,7 @@ func (s *Server) previewProtocolAssistant(w http.ResponseWriter, r *http.Request
 		problem(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
-	message, err := core.PreviewProtocolAssistant(draft, claims(r).TenantID, payload)
+	message, err := aiworkflow.PreviewProtocolAssistant(draft, claims(r).TenantID, payload)
 	if err != nil {
 		write(w, http.StatusOK, map[string]any{"success": false, "error": err.Error()})
 		return
@@ -304,7 +305,7 @@ func (s *Server) publishProtocolAssistant(w http.ResponseWriter, r *http.Request
 			return
 		}
 		if parserType == parser.ModbusCoilParserName {
-			message, err = core.PreviewProtocolAssistant(draft, claims(r).TenantID, payload)
+			message, err = aiworkflow.PreviewProtocolAssistant(draft, claims(r).TenantID, payload)
 			if err != nil {
 				problem(w, http.StatusUnprocessableEntity, "发布前解析校验失败："+err.Error())
 				return
