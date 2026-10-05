@@ -2,7 +2,8 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Plus, RefreshCw } from '@lucide/vue'
 import { api, notifyError, session } from '../api'
-import { UiMessage, UiMessageBox } from '../ui/feedback.js'
+import { confirmDelete } from '../deleteAction'
+import { UiMessage } from '../ui/feedback.js'
 import { errorMessage } from '../presentation'
 import { can } from '../permissions'
 import { extinguisherTypes, inspectionStates, statusLabel, statusTone, dateTimeLabel, dateLabel } from '../fireSafety'
@@ -200,17 +201,16 @@ async function removeAsset(row) {
   if (deleting.value || !can('DELETE /api/v1/extinguishers/:id')) return
   deleting.value = true
   try {
-    await UiMessageBox.confirm(`确定删除灭火器“${row.code}”？已有巡检记录的灭火器不能删除，可改为报废状态保留记录。`, '删除确认', {
-      type: 'warning',
-      confirmButtonText: '确定删除',
-      cancelButtonText: '取消'
+    await confirmDelete({
+      label: `灭火器 ${row.code}`,
+      path: `/api/v1/extinguishers/${encodeURIComponent(row.id)}?version=${row.version}`,
+      warning: '已有巡检记录的灭火器不能删除，可改为报废状态保留记录。',
+      blockedHint: '已有巡检记录或资料已被他人修改，请刷新后改为报废状态保留记录。',
+      onDeleted: async () => {
+        if (rows.value.length === 1 && page.value > 1) page.value--
+        await refresh()
+      }
     })
-    await api(`/api/v1/extinguishers/${encodeURIComponent(row.id)}?version=${row.version}`, { method: 'DELETE' })
-    UiMessage.success('已删除')
-    if (rows.value.length === 1 && page.value > 1) page.value--
-    await refresh()
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') notifyError(error)
   } finally {
     deleting.value = false
   }

@@ -1,8 +1,9 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Plus, RefreshCw } from '@lucide/vue'
-import { api, notifyError } from '../api'
-import { UiMessage, UiMessageBox } from '../ui/feedback.js'
+import { api } from '../api'
+import { confirmDelete } from '../deleteAction'
+import { UiMessage } from '../ui/feedback.js'
 import { errorMessage } from '../presentation'
 import { can } from '../permissions'
 import { stationTypes, dispatchTypes, statusLabel, statusTone, dateTimeLabel } from '../fireSafety'
@@ -226,17 +227,16 @@ async function remove(kind, row) {
   if (deleteSaving.value || !can(`DELETE /api/v1/${tabs[kind].path}/:id`)) return
   deleteSaving.value = true
   try {
-    await UiMessageBox.confirm(`确定删除“${row.name || row.code}”？已关联业务记录的资料不能删除。`, '删除确认', {
-      type: 'warning',
-      confirmButtonText: '确定删除',
-      cancelButtonText: '取消'
+    await confirmDelete({
+      label: row.name || row.code,
+      path: `/api/v1/${tabs[kind].path}/${encodeURIComponent(row.id)}?version=${row.version}`,
+      warning: '已关联业务记录的资料不能删除。',
+      blockedHint: '已关联业务记录或资料已被他人修改，请刷新后重试。',
+      onDeleted: async () => {
+        if (rows.value.length === 1 && page.value > 1) page.value--
+        await refresh()
+      }
     })
-    await api(`/api/v1/${tabs[kind].path}/${encodeURIComponent(row.id)}?version=${row.version}`, { method: 'DELETE' })
-    UiMessage.success('已删除')
-    if (rows.value.length === 1 && page.value > 1) page.value--
-    await refresh()
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') notifyError(error)
   } finally {
     deleteSaving.value = false
   }

@@ -4,7 +4,8 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { Plus, RefreshCw, Upload, Download, MapPin } from '@lucide/vue'
 import { api, apiBlob, download, notifyError } from '../api'
-import { UiMessage, UiMessageBox } from '../ui/feedback.js'
+import { confirmDelete } from '../deleteAction'
+import { UiMessage } from '../ui/feedback.js'
 import { errorMessage } from '../presentation'
 import { can } from '../permissions'
 import FilterBar from '../components/layout/FilterBar.vue'
@@ -125,20 +126,16 @@ async function save() {
     dialog.saving = false
   }
 }
-async function remove(kind, row) {
-  try {
-    await UiMessageBox.confirm(`确定删除${kinds[kind].label}“${row.name || row.deviceName || row.deviceId}”？`, '删除确认', {
-      type: 'warning',
-      confirmButtonText: '确定删除',
-      cancelButtonText: '取消'
-    })
-    await api(`/api/v1/sites/${kinds[kind].path}/${encodeURIComponent(row.id)}?version=${row.version}`, { method: 'DELETE' })
-    UiMessage.success('已删除')
-    if (selected.kind === kind && selected.id === row.id) Object.assign(selected, { kind: '', id: '' })
-    await load()
-  } catch (error) {
-    if (error !== 'cancel' && error !== 'close') notifyError(error)
-  }
+function remove(kind, row) {
+  return confirmDelete({
+    label: `${kinds[kind].label} ${row.name || row.deviceName || row.deviceId}`,
+    path: `/api/v1/sites/${kinds[kind].path}/${encodeURIComponent(row.id)}?version=${row.version}`,
+    blockedHint: '仍有下级资料或资料已被他人修改，请刷新后先删除下级资料。',
+    onDeleted: async () => {
+      if (selected.kind === kind && selected.id === row.id) Object.assign(selected, { kind: '', id: '' })
+      await load()
+    }
+  })
 }
 
 // 设备检索

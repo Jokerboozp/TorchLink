@@ -2,8 +2,9 @@
 // 告警通知：配置通知渠道（机器人、Webhook、邮件）和按等级逐级升级的通知策略。
 import { computed, onMounted, reactive, ref } from 'vue'
 import { Plus, RefreshCw, Send, Trash2 } from '@lucide/vue'
-import { api, notifyError } from '../api'
-import { UiMessage, UiMessageBox } from '../ui/feedback.js'
+import { api } from '../api'
+import { confirmDelete } from '../deleteAction'
+import { UiMessage } from '../ui/feedback.js'
 import { alarmLevels, alarmTypes } from '../labels'
 import { channelForm, channelPayload, channelTypes, blankStage, policyForm, policyPayload, stageSummary } from '../notifications'
 import DataTableCard from '../components/layout/DataTableCard.vue'
@@ -80,18 +81,8 @@ async function save() {
   }
 }
 
-async function remove(kind, row) {
-  try {
-    await UiMessageBox.confirm(`确认删除“${row.name}”？`, '删除确认', { type: 'warning' })
-  } catch {
-    return
-  }
-  try {
-    await api(`/api/v1/notifications/${kind}/${encodeURIComponent(row.id)}`, { method: 'DELETE' })
-    await load()
-  } catch (e) {
-    notifyError(e)
-  }
+function remove(kind, row) {
+  return confirmDelete({ label: row.name, path: `/api/v1/notifications/${kind}/${encodeURIComponent(row.id)}`, onDeleted: load })
 }
 
 function openTest(row) {

@@ -2,8 +2,9 @@
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
 import { onMounted, reactive, ref, watch } from 'vue'
-import { UiMessage, UiMessageBox } from '../ui/feedback.js'
+import { UiMessage } from '../ui/feedback.js'
 import { api, apiAll, notifyError, parseJSON, pretty } from '../api'
+import { confirmDelete } from '../deleteAction'
 import { alarmLevels, alarmType, alarmTypes, label, tagType } from '../labels'
 import { Plus, RefreshCw, Wand2 } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
@@ -228,15 +229,14 @@ async function save() {
   }
 }
 
-async function remove(id) {
-  try {
-    await UiMessageBox.confirm('删除后规则将不再参与告警计算，历史告警仍会保留。', '删除规则', { type: 'warning' })
-    await api(`/api/v1/rules/${encodeURIComponent(id)}`, { method: 'DELETE' })
-    UiMessage.success('规则已删除')
-    await load()
-  } catch (error) {
-    if (error !== 'cancel') notifyError(error)
-  }
+function remove(id) {
+  const rule = rules.value.find(item => item.id === id)
+  return confirmDelete({
+    label: rule?.name || id,
+    path: `/api/v1/rules/${encodeURIComponent(id)}`,
+    warning: '删除后规则将不再参与告警计算，历史告警仍会保留。',
+    onDeleted: load
+  })
 }
 
 function openDraft() {

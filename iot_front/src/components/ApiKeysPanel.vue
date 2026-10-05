@@ -3,6 +3,7 @@ import { computed, reactive, ref } from 'vue'
 import { Copy } from '@lucide/vue'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { api, formatTime, notifyError } from '../api'
+import { confirmDelete } from '../deleteAction'
 import DataTableCard from './layout/DataTableCard.vue'
 import RowActions from './layout/RowActions.vue'
 import StatusDot from './layout/StatusDot.vue'
@@ -97,14 +98,13 @@ async function setEnabled(key, enabled) {
     notifyError(e)
   }
 }
-async function remove(key) {
-  try {
-    await UiMessageBox.confirm(`确认删除密钥“${key.name}”？删除后使用此密钥的外部系统将无法访问。`, '删除确认', { type: 'warning' })
-    await api(`/api/v1/access/api-keys/${encodeURIComponent(key.id)}`, { method: 'DELETE' })
-    await load()
-  } catch (e) {
-    if (e !== 'cancel' && e !== 'close') notifyError(e)
-  }
+function remove(key) {
+  return confirmDelete({
+    label: `密钥 ${key.name}`,
+    path: `/api/v1/access/api-keys/${encodeURIComponent(key.id)}`,
+    warning: '删除后使用此密钥的外部系统将无法访问。',
+    onDeleted: load
+  })
 }
 async function rotate(key) {
   try {
