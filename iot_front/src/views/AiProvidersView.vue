@@ -6,10 +6,11 @@ import { UiMessage } from '../ui/feedback.js'
 import { api } from '../api'
 import AiWorkflowRuns from '../components/AiWorkflowRuns.vue'
 import AiRunHistory from '../components/AiRunHistory.vue'
-import AiAnalysisQuality from '../components/AiAnalysisQuality.vue'
 import EmbeddingConfig from '../components/EmbeddingConfig.vue'
 
 const emit = defineEmits(['navigate'])
+// 对话模型、向量服务和运行监控分页显示，避免一页堆叠全部配置与记录。
+const tab = ref('chat')
 
 const runtime = ref({
   items: [],
@@ -42,7 +43,7 @@ const capabilityLabels = {
 }
 const capabilities = [
   { title: '智能告警研判', description: '告警详情中的风险分析、原因判断和人工处置建议。', page: 'alarms', label: '告警中心' },
-  { title: '智能助手对话', description: '通过受控工具查询设备、告警、趋势和运维知识。', page: 'ai', label: '工作流' },
+  { title: '智能助手对话', description: '通过受控工具查询设备、告警、趋势和运维知识。', page: 'ai', label: '智能助手' },
   { title: '智能巡检', description: '生成设备健康巡检结论，并标记数据局限和优先处理设备。', page: 'inspection', label: '智能巡检' },
   { title: '告警规则草稿', description: '根据自然语言生成待人工复核的自动化规则草稿。', page: 'rules', label: '告警规则' },
   { title: '协议助手', description: '由报文或点表生成协议映射草稿，经样例校验后发布。', page: 'protocols', label: '协议开发' }
@@ -219,161 +220,175 @@ onMounted(loadRuntime)
       ><ui-button plain size="small" @click="loadRuntime">重新加载</ui-button></ui-alert
     >
 
-    <AiWorkflowRuns v-if="can('GET /api/v1/ai/runs')" />
-    <AiRunHistory v-if="can('GET /api/v1/ai/runs/history')" />
-    <AiAnalysisQuality v-if="can('menu:alarms')" />
-
-    <div class="ai-management-grid">
-      <ui-card shadow="never" class="surface-card ai-provider-config">
-        <template #header
-          ><div class="card-header">
-            <div><strong>模型服务配置</strong><small>填写配置后直接保存，可选测试连接</small></div>
-            <ui-tag v-if="isAdmin" effect="plain">管理员</ui-tag>
-          </div></template
-        >
-        <template v-if="isAdmin">
-          <ui-form label-position="top" :model="providerForm" :disabled="busy">
-            <section class="config-section">
-              <div class="config-section-heading">
-                <span>01</span>
-                <div><strong>选择模型来源</strong><small>默认使用 DeepSeek，也可连接其他 OpenAI 兼容 API</small></div>
-              </div>
-              <ui-form-item label="模型来源"
-                ><ui-select v-model="providerForm.provider" class="provider-select" @change="providerChanged"
-                  ><ui-option v-for="item in providerOptions" :key="item.id" :label="item.label" :value="item.id" /></ui-select
-              ></ui-form-item>
-              <p class="provider-description">{{ selectedProviderOption.description }}</p>
-            </section>
-            <section class="config-section">
-              <div class="config-section-heading">
-                <span>02</span>
-                <div><strong>填写连接信息</strong><small>地址必须能从平台服务器访问</small></div>
-              </div>
-              <ui-form-item label="服务地址"
-                ><ui-input
-                  v-model="providerForm.baseUrl"
-                  :placeholder="providerForm.provider === 'deepseek' ? 'https://api.deepseek.com' : 'https://API 服务地址/v1'"
-              /></ui-form-item>
-              <p v-if="providerForm.provider === 'openai-compatible'" class="provider-field-hint">
-                填写 API 服务提供方的兼容地址，通常以 /v1 结尾。
-              </p>
-              <ui-form-item class="cloud-key-field" label="接口密钥"
-                ><ui-input
-                  v-model="providerForm.apiKey"
-                  type="password"
-                  show-password
-                  autocomplete="off"
-                  placeholder="填写 API Key；留空沿用已保存的密钥"
-              /></ui-form-item>
-              <p v-if="runtime.config?.apiKeyConfigured && providerForm.provider === activeProvider" class="provider-field-hint">
-                已保存密钥，留空测试或保存会继续使用。
-              </p>
-            </section>
-            <section class="config-section">
-              <div class="config-section-heading">
-                <span>03</span>
-                <div><strong>设置模型与输出</strong><small>选择实际可用的模型，设置助手回复长度</small></div>
-              </div>
-              <div class="config-field-grid">
-                <ui-form-item label="模型名称"
-                  ><ui-input
-                    v-model="providerForm.model"
-                    :placeholder="providerForm.provider === 'deepseek' ? '例如 deepseek-flash' : '填写 API 服务支持的模型名称'"
-                /></ui-form-item>
-                <div>
-                  <ui-form-item label="最大输出词元"
-                    ><ui-input-number v-model="providerForm.maxTokens" :min="128" :max="8192" :step="128" controls-position="right"
+    <ui-tabs v-model="tab">
+      <ui-tab-pane name="chat" label="对话模型">
+        <div class="ai-management-grid">
+          <ui-card shadow="never" class="surface-card ai-provider-config">
+            <template #header
+              ><div class="card-header">
+                <div><strong>模型服务配置</strong><small>填写配置后直接保存，可选测试连接</small></div>
+                <ui-tag v-if="isAdmin" effect="plain">管理员</ui-tag>
+              </div></template
+            >
+            <template v-if="isAdmin">
+              <ui-form label-position="top" :model="providerForm" :disabled="busy">
+                <section class="config-section">
+                  <div class="config-section-heading">
+                    <span>01</span>
+                    <div><strong>选择模型来源</strong><small>默认使用 DeepSeek，也可连接其他 OpenAI 兼容 API</small></div>
+                  </div>
+                  <ui-form-item label="模型来源"
+                    ><ui-select v-model="providerForm.provider" class="provider-select" @change="providerChanged"
+                      ><ui-option v-for="item in providerOptions" :key="item.id" :label="item.label" :value="item.id" /></ui-select
+                  ></ui-form-item>
+                  <p class="provider-description">{{ selectedProviderOption.description }}</p>
+                </section>
+                <section class="config-section">
+                  <div class="config-section-heading">
+                    <span>02</span>
+                    <div><strong>填写连接信息</strong><small>地址必须能从平台服务器访问</small></div>
+                  </div>
+                  <ui-form-item label="服务地址"
+                    ><ui-input
+                      v-model="providerForm.baseUrl"
+                      :placeholder="providerForm.provider === 'deepseek' ? 'https://api.deepseek.com' : 'https://API 服务地址/v1'"
                   /></ui-form-item>
-                  <p class="provider-field-hint">智能助手单次回复上限，范围 128–8192。</p>
+                  <p v-if="providerForm.provider === 'openai-compatible'" class="provider-field-hint">
+                    填写 API 服务提供方的兼容地址，通常以 /v1 结尾。
+                  </p>
+                  <ui-form-item class="cloud-key-field" label="接口密钥"
+                    ><ui-input
+                      v-model="providerForm.apiKey"
+                      type="password"
+                      show-password
+                      autocomplete="off"
+                      placeholder="填写 API Key；留空沿用已保存的密钥"
+                  /></ui-form-item>
+                  <p v-if="runtime.config?.apiKeyConfigured && providerForm.provider === activeProvider" class="provider-field-hint">
+                    已保存密钥，留空测试或保存会继续使用。
+                  </p>
+                </section>
+                <section class="config-section">
+                  <div class="config-section-heading">
+                    <span>03</span>
+                    <div><strong>设置模型与输出</strong><small>选择实际可用的模型，设置助手回复长度</small></div>
+                  </div>
+                  <div class="config-field-grid">
+                    <ui-form-item label="模型名称"
+                      ><ui-input
+                        v-model="providerForm.model"
+                        :placeholder="providerForm.provider === 'deepseek' ? '例如 deepseek-flash' : '填写 API 服务支持的模型名称'"
+                    /></ui-form-item>
+                    <div>
+                      <ui-form-item label="最大输出词元"
+                        ><ui-input-number v-model="providerForm.maxTokens" :min="128" :max="8192" :step="128" controls-position="right"
+                      /></ui-form-item>
+                      <p class="provider-field-hint">智能助手单次回复上限，范围 128–8192。</p>
+                    </div>
+                  </div>
+                </section>
+                <div class="provider-actions">
+                  <span :class="{ ready: testResult?.success }">{{
+                    testResult?.success ? '测试通过，点击保存后生效' : '可直接保存，连接测试为可选操作'
+                  }}</span>
+                  <div>
+                    <ui-button v-permission="'POST /api/v1/ai/providers/test'" plain :loading="testing" @click="testProviderConfig"
+                      >测试配置</ui-button
+                    ><ui-button
+                      v-permission="'PUT /api/v1/ai/providers/config'"
+                      type="primary"
+                      :loading="applying"
+                      :disabled="busy"
+                      @click="applyProviderConfig"
+                      >保存配置</ui-button
+                    >
+                  </div>
                 </div>
+              </ui-form>
+              <ui-alert v-if="providerError" class="provider-error" :title="providerError" type="error" :closable="false" show-icon />
+              <div v-if="testResult" class="provider-test-result" :class="{ success: testResult.success, failed: !testResult.success }">
+                <div>
+                  <strong>{{ testResult.success ? '配置测试通过' : '配置测试失败' }}</strong
+                  ><span v-if="testResult.latencyMs">耗时 {{ testResult.latencyMs }} 毫秒</span>
+                </div>
+                <p v-if="testResult.answer">{{ testResult.answer }}</p>
+                <small v-if="testResult.success">测试只验证连接，点击“保存配置”后才会生效。</small>
               </div>
-            </section>
-            <div class="provider-actions">
-              <span :class="{ ready: testResult?.success }">{{
-                testResult?.success ? '测试通过，点击保存后生效' : '可直接保存，连接测试为可选操作'
-              }}</span>
-              <div>
-                <ui-button v-permission="'POST /api/v1/ai/providers/test'" plain :loading="testing" @click="testProviderConfig"
-                  >测试配置</ui-button
-                ><ui-button
-                  v-permission="'PUT /api/v1/ai/providers/config'"
-                  type="primary"
-                  :loading="applying"
-                  :disabled="busy"
-                  @click="applyProviderConfig"
-                  >保存配置</ui-button
+            </template>
+            <div v-else class="provider-viewer-summary">
+              <ui-alert title="当前账号可查看模型状态，配置修改仅限管理员。" type="info" :closable="false" show-icon />
+            </div>
+          </ui-card>
+
+          <ui-card shadow="never" class="surface-card ai-capability-card">
+            <template #header
+              ><div class="capability-card-title"><strong>智能业务能力</strong><small>保存配置后共同使用当前模型</small></div></template
+            >
+            <div class="ai-capability-list">
+              <div v-for="item in capabilities" :key="item.title" class="ai-capability-item">
+                <div>
+                  <strong>{{ item.title }}</strong>
+                  <p>{{ item.description }}</p>
+                </div>
+                <ui-button size="small" plain @click="emit('navigate', item.page)">{{ item.label }}</ui-button>
+              </div>
+            </div>
+          </ui-card>
+        </div>
+
+        <ui-card shadow="never" class="surface-card ai-provider-list"
+          ><ui-collapse
+            ><ui-collapse-item title="可用模型服务 · 查看来源与支持能力" name="providers"
+              ><ui-table v-loading="loading" :data="runtime.items || []" stripe>
+                <ui-table-column label="模型服务" min-width="190"
+                  ><template #default="{ row }"
+                    ><div class="provider-name">
+                      <strong>{{ providerLabel(row.id) }}</strong
+                      ><ui-tag v-if="row.id === activeProvider" size="small" type="success" effect="plain">使用中</ui-tag>
+                    </div></template
+                  ></ui-table-column
                 >
-              </div>
-            </div>
-          </ui-form>
-          <ui-alert v-if="providerError" class="provider-error" :title="providerError" type="error" :closable="false" show-icon />
-          <div v-if="testResult" class="provider-test-result" :class="{ success: testResult.success, failed: !testResult.success }">
-            <div>
-              <strong>{{ testResult.success ? '配置测试通过' : '配置测试失败' }}</strong
-              ><span v-if="testResult.latencyMs">耗时 {{ testResult.latencyMs }} 毫秒</span>
-            </div>
-            <p v-if="testResult.answer">{{ testResult.answer }}</p>
-            <small v-if="testResult.success">测试只验证连接，点击“保存配置”后才会生效。</small>
-          </div>
-        </template>
-        <div v-else class="provider-viewer-summary">
-          <ui-alert title="当前账号可查看模型状态，配置修改仅限管理员。" type="info" :closable="false" show-icon />
-        </div>
-      </ui-card>
-
-      <ui-card shadow="never" class="surface-card ai-capability-card">
-        <template #header
-          ><div class="capability-card-title"><strong>智能业务能力</strong><small>保存配置后共同使用当前模型</small></div></template
+                <ui-table-column label="说明" min-width="270"
+                  ><template #default="{ row }">{{ providerDescription(row) }}</template></ui-table-column
+                >
+                <ui-table-column label="默认模型" min-width="150"
+                  ><template #default="{ row }">{{ row.defaultModel || '由配置决定' }}</template></ui-table-column
+                >
+                <ui-table-column label="支持能力" min-width="240"
+                  ><template #default="{ row }"
+                    ><div class="provider-capabilities">
+                      <ui-tag v-for="capability in row.capabilities || []" :key="capability" size="small" effect="plain">{{
+                        capabilityLabel(capability)
+                      }}</ui-tag>
+                    </div></template
+                  ></ui-table-column
+                >
+              </ui-table></ui-collapse-item
+            ></ui-collapse
+          ></ui-card
         >
-        <div class="ai-capability-list">
-          <div v-for="item in capabilities" :key="item.title" class="ai-capability-item">
-            <div>
-              <strong>{{ item.title }}</strong>
-              <p>{{ item.description }}</p>
-            </div>
-            <ui-button size="small" plain @click="emit('navigate', item.page)">{{ item.label }}</ui-button>
-          </div>
+      </ui-tab-pane>
+      <ui-tab-pane v-if="can('GET /api/v1/ai/embedding-config')" name="embedding" label="向量服务">
+        <EmbeddingConfig />
+      </ui-tab-pane>
+      <ui-tab-pane v-if="can('GET /api/v1/ai/runs') || can('GET /api/v1/ai/runs/history')" name="runs" label="运行监控">
+        <div class="ai-runs-pane">
+          <AiWorkflowRuns v-if="can('GET /api/v1/ai/runs')" />
+          <AiRunHistory v-if="can('GET /api/v1/ai/runs/history')" />
         </div>
-      </ui-card>
-    </div>
-
-    <EmbeddingConfig v-if="can('GET /api/v1/ai/embedding-config')" />
-
-    <ui-card shadow="never" class="surface-card ai-provider-list"
-      ><ui-collapse
-        ><ui-collapse-item title="可用模型服务 · 查看来源与支持能力" name="providers"
-          ><ui-table v-loading="loading" :data="runtime.items || []" stripe>
-            <ui-table-column label="模型服务" min-width="190"
-              ><template #default="{ row }"
-                ><div class="provider-name">
-                  <strong>{{ providerLabel(row.id) }}</strong
-                  ><ui-tag v-if="row.id === activeProvider" size="small" type="success" effect="plain">使用中</ui-tag>
-                </div></template
-              ></ui-table-column
-            >
-            <ui-table-column label="说明" min-width="270"
-              ><template #default="{ row }">{{ providerDescription(row) }}</template></ui-table-column
-            >
-            <ui-table-column label="默认模型" min-width="150"
-              ><template #default="{ row }">{{ row.defaultModel || '由配置决定' }}</template></ui-table-column
-            >
-            <ui-table-column label="支持能力" min-width="240"
-              ><template #default="{ row }"
-                ><div class="provider-capabilities">
-                  <ui-tag v-for="capability in row.capabilities || []" :key="capability" size="small" effect="plain">{{
-                    capabilityLabel(capability)
-                  }}</ui-tag>
-                </div></template
-              ></ui-table-column
-            >
-          </ui-table></ui-collapse-item
-        ></ui-collapse
-      ></ui-card
-    >
+      </ui-tab-pane>
+    </ui-tabs>
   </div>
 </template>
 
 <style scoped>
+.ai-runs-pane {
+  display: grid;
+  gap: 16px;
+}
+.ai-provider-list {
+  margin-top: 16px;
+}
 .ai-management-page {
   display: grid;
   gap: 16px;

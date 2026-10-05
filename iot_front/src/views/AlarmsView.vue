@@ -29,6 +29,7 @@ import AlarmMediaPanel from '../components/AlarmMediaPanel.vue'
 import AlarmDisposition from '../components/AlarmDisposition.vue'
 import AlarmAttachments from '../components/AlarmAttachments.vue'
 import AlarmLocation from '../components/AlarmLocation.vue'
+import AiAnalysisQuality from '../components/AiAnalysisQuality.vue'
 
 const filters = reactive({ status: '', level: '', deviceId: '' })
 const items = ref([])
@@ -469,6 +470,10 @@ function rowActions(row) {
       ></ui-table-column>
     </ui-table>
   </DataTableCard>
+  <!-- 研判质量按需展开后才读取统计。 -->
+  <ui-collapse class="alarm-ai-quality"
+    ><ui-collapse-item title="AI 研判质量统计" name="quality"><AiAnalysisQuality /></ui-collapse-item
+  ></ui-collapse>
 
   <ui-dialog v-model="detailVisible" class="alarm-detail-dialog" title="告警详情" width="min(760px, 94vw)" @closed="handleDetailClosed">
     <!-- 告警详情的长报文跟随弹窗正文统一滚动。 -->
@@ -555,6 +560,9 @@ function rowActions(row) {
 </template>
 
 <style scoped>
+.alarm-ai-quality {
+  margin-top: 16px;
+}
 .monthly-report {
   display: inline-flex;
   gap: var(--space-2);
