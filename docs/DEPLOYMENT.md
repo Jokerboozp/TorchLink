@@ -188,7 +188,7 @@ Linux 目标支持 `arm64/aarch64` 与 `amd64/x86_64` 两种 64 位架构，不�
 
 ### 获取或制作离线包
 
-推送 `main` 会触发 `.github/workflows/offline-bundle.yml` 构建 Linux amd64 包，成功后发布到 Releases；下载同一版本的全部分卷、`SHA256SUMS` 与 `DEPLOY.txt`，按说明校验和解压。GitHub 的 Source code 不是部署包。公开包不含现场密码或 API Key，首次安装在目标机生成配置；管理员和基础服务工具账号默认使用 `admin` / `admin123`，内部密钥独立生成。
+在 GitHub Actions 页面手动运行 `.github/workflows/offline-bundle.yml`（workflow_dispatch）构建 Linux amd64 包，成功后发布到 Releases，不随合并自动发布；下载同一版本的全部分卷、`SHA256SUMS` 与 `DEPLOY.txt`，按说明校验和解压。GitHub 的 Source code 不是部署包。公开包不含现场密码或 API Key，首次安装在目标机生成配置；管理员和基础服务工具账号默认使用 `admin` / `admin123`，内部密钥独立生成。
 
 手工打包（可带现有私有配置）：
 

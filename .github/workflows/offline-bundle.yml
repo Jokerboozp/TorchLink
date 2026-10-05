@@ -1,8 +1,7 @@
 name: Linux x86_64 离线部署包
 
+# 正式 Release 由人工在 Actions 页面触发，不再随每次合并自动发布。
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
