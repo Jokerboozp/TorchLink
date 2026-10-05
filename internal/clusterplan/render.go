@@ -59,6 +59,9 @@ type Secrets struct {
 	BackupToken        string `yaml:"backupToken"`
 	// CapacityToken is shared by the platform and the capacity module.
 	CapacityToken string `yaml:"capacityToken,omitempty"`
+	// MetricsToken, when set, protects every platform /metrics endpoint;
+	// Prometheus and the capacity module send it.
+	MetricsToken string `yaml:"metricsToken,omitempty"`
 	// BackupRestoreTargetDSN is an optional separate database for restore checks.
 	BackupRestoreTargetDSN      string `yaml:"backupRestoreTargetDSN"`
 	BackupRestoreMinIOEndpoint  string `yaml:"backupRestoreMinioEndpoint,omitempty"`
@@ -310,6 +313,9 @@ func (s Secrets) validate(inv *Inventory) error {
 	if len(s.JWTSecret) < 32 || len(s.HarnessToken) < 32 {
 		missing = append(missing, "jwtSecret and harnessToken need at least 32 characters")
 	}
+	if s.MetricsToken != "" && (len(s.MetricsToken) < 32 || !urlSafe.MatchString(s.MetricsToken)) {
+		missing = append(missing, "metricsToken needs at least 32 letters, digits or . _ ~ -")
+	}
 	sort.Strings(missing)
 	if len(missing) > 0 {
 		return errors.New("secrets missing or invalid: " + strings.Join(missing, ", "))
@@ -401,6 +407,7 @@ func (r renderer) platformEnv(role, node string, salt int) map[string]string {
 		"IOT_DEV_MODE":                 "false",
 		"IOT_DATA_DIR":                 "/app/data",
 		"IOT_JWT_SECRET":               "${IOT_JWT_SECRET}",
+		"IOT_METRICS_TOKEN":            "${IOT_METRICS_TOKEN:-}",
 		"IOT_ADMIN_PASSWORD":           "${IOT_ADMIN_PASSWORD}",
 		"IOT_POSTGRES_DSN":             r.postgresDSN("read-write"),
 		"IOT_POSTGRES_READ_DSN":        r.postgresDSN("prefer-standby"),
@@ -660,7 +667,8 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 		case "prometheus":
 			files[node+"/prometheus/prometheus.yml"] = []byte(r.prometheusConfig(node))
 			files[node+"/prometheus/alerts.yml"] = []byte(clusterAlertRules())
-			add(kind, "prometheus", service(inv.Images.Prometheus, map[string]any{"command": []string{"--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=30d", "--web.enable-lifecycle"}, "volumes": []string{"prometheus-data:/prometheus", "./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro", "./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro"}}), "prometheus-data")
+			env["IOT_METRICS_TOKEN"] = r.s.MetricsToken
+			add(kind, "prometheus", service(inv.Images.Prometheus, map[string]any{"entrypoint": prometheusEntrypoint, "environment": map[string]string{"IOT_METRICS_TOKEN": "${IOT_METRICS_TOKEN:-}"}, "command": []string{"--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=30d", "--web.enable-lifecycle"}, "volumes": []string{"prometheus-data:/prometheus", "./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro", "./prometheus/alerts.yml:/etc/prometheus/alerts.yml:ro"}}), "prometheus-data")
 			files[node+"/alertmanager/alertmanager.yml"] = []byte(alertmanagerConfig(r.s.AlertWebhookURL != ""))
 			if r.s.AlertWebhookURL != "" {
 				files[node+"/alertmanager/webhook-url"] = []byte(r.s.AlertWebhookURL)
@@ -692,10 +700,11 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 					"IOT_CAPACITY_WEB_URL": "http://" + r.ip(inv.Platform.Web.Nodes[0]) + ":8080", "IOT_CAPACITY_METRICS": r.capacityMetrics(),
 					"IOT_CAPACITY_NODES": r.capacityNodes(), "IOT_CAPACITY_POSTGRES_DSN": r.postgresDSN("prefer-standby"),
 					"IOT_CAPACITY_CLICKHOUSE_URL": r.clickhouseURL(node, 0), "IOT_CAPACITY_SERVICE_TOKEN": "${IOT_OPS_CAPACITY_TOKEN}",
+					"IOT_METRICS_TOKEN": "${IOT_METRICS_TOKEN:-}",
 				},
 				"volumes": []string{"capacity-data:/app/data"},
 			}), "capacity-data")
-			env["POSTGRES_PASSWORD"], env["CLICKHOUSE_PASSWORD"], env["IOT_OPS_CAPACITY_TOKEN"] = r.s.PostgresPassword, r.s.ClickHousePassword, r.s.CapacityToken
+			env["POSTGRES_PASSWORD"], env["CLICKHOUSE_PASSWORD"], env["IOT_OPS_CAPACITY_TOKEN"], env["IOT_METRICS_TOKEN"] = r.s.PostgresPassword, r.s.ClickHousePassword, r.s.CapacityToken, r.s.MetricsToken
 		case "lb":
 			files[node+"/lb/haproxy.cfg"] = []byte(r.haproxyConfig())
 			add(kind, "lb", service(inv.Images.LB, map[string]any{"volumes": []string{"./lb/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro"}}))
@@ -770,6 +779,7 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 				env["IOT_DEVICE_MQTT_PUBLIC_URL"] = r.s.MQTTPublicURL
 			}
 			env["IOT_JWT_SECRET"], env["IOT_ADMIN_PASSWORD"], env["POSTGRES_PASSWORD"], env["REDIS_PASSWORD"], env["CLICKHOUSE_PASSWORD"] = r.s.JWTSecret, r.s.AdminPassword, r.s.PostgresPassword, r.s.RedisPassword, r.s.ClickHousePassword
+			env["IOT_METRICS_TOKEN"] = r.s.MetricsToken
 			env["MINIO_ROOT_USER"], env["MINIO_ROOT_PASSWORD"], env["IOT_EMQX_API_KEY"], env["IOT_EMQX_API_SECRET"] = r.s.MinIORootUser, r.s.MinIORootPassword, r.s.EMQXAPIKey, r.s.EMQXAPISecret
 			env["IOT_MQTT_TOOL_USERNAME"], env["IOT_MQTT_TOOL_PASSWORD"] = r.s.MQTTToolUsername, r.s.MQTTToolPassword
 			env["IOT_AI_HARNESS_TOKEN"], env["DEEPSEEK_API_KEY"], env["IOT_BACKUP_ADMIN_TOKEN"] = r.s.HarnessToken, r.s.DeepSeekAPIKey, r.s.BackupToken
@@ -977,6 +987,10 @@ func alertmanagerConfig(webhook bool) string {
 	return "route:\n  receiver: platform\n  group_by: [alertname, cluster]\n  group_wait: 30s\n  group_interval: 5m\n  repeat_interval: 4h\nreceivers:\n" + receiver
 }
 
+// prometheusEntrypoint writes IOT_METRICS_TOKEN to a private file in the data
+// volume, so the scrape configuration names a file instead of the token.
+var prometheusEntrypoint = []string{"/bin/sh", "-c", `umask 077 && printf '%s' "$$IOT_METRICS_TOKEN" > /prometheus/.metrics-token && exec /bin/prometheus "$$@"`, "prometheus"}
+
 // prometheusConfig scrapes every process per instance, labelled with role
 // and instance, never through a load balancer.
 func (r renderer) prometheusConfig(node string) string {
@@ -984,9 +998,10 @@ func (r renderer) prometheusConfig(node string) string {
 	type job struct {
 		name    string
 		path    string
+		auth    bool
 		targets map[string][2]string // address -> (role, instance)
 	}
-	jobs := []job{{name: "platform", path: "/metrics", targets: map[string][2]string{}}, {name: "node", path: "/metrics", targets: map[string][2]string{}}, {name: "redpanda", path: "/public_metrics", targets: map[string][2]string{}}, {name: "emqx", path: "/api/v5/prometheus/stats", targets: map[string][2]string{}}}
+	jobs := []job{{name: "platform", path: "/metrics", auth: true, targets: map[string][2]string{}}, {name: "node", path: "/metrics", targets: map[string][2]string{}}, {name: "redpanda", path: "/public_metrics", targets: map[string][2]string{}}, {name: "emqx", path: "/api/v5/prometheus/stats", targets: map[string][2]string{}}}
 	for _, role := range RoleNames {
 		for _, n := range inv.Platform.Roles[role].Nodes {
 			jobs[0].targets[r.ip(n)+":"+strconv.Itoa(rolePort[role])] = [2]string{role, role + "-" + n}
@@ -1016,7 +1031,13 @@ func (r renderer) prometheusConfig(node string) string {
 	}
 	fmt.Fprintf(&b, "global:\n  scrape_interval: 15s\n  external_labels:\n    cluster: %s\n%srule_files: [/etc/prometheus/alerts.yml]\nalerting:\n%s  alertmanagers:\n    - static_configs:\n        - targets: [%s]\nscrape_configs:\n", inv.Name, replica, relabel, alertmanagers)
 	for _, j := range jobs {
-		fmt.Fprintf(&b, "  - job_name: %s\n    metrics_path: %s\n    static_configs:\n", j.name, j.path)
+		fmt.Fprintf(&b, "  - job_name: %s\n    metrics_path: %s\n", j.name, j.path)
+		if j.auth {
+			// Written from IOT_METRICS_TOKEN when the container starts; the
+			// token itself only lives in the node's .env file.
+			b.WriteString("    authorization:\n      credentials_file: /prometheus/.metrics-token\n")
+		}
+		b.WriteString("    static_configs:\n")
 		addrs := make([]string, 0, len(j.targets))
 		for a := range j.targets {
 			addrs = append(addrs, a)

@@ -39,6 +39,8 @@ services:
       IOT_DEV_MODE: "false"
       IOT_DATA_DIR: /app/data
       IOT_JWT_SECRET: ${IOT_JWT_SECRET:?IOT_JWT_SECRET must be set}
+      IOT_HARNESS_JWT_SECRET: ${IOT_HARNESS_JWT_SECRET:-}
+      IOT_METRICS_TOKEN: ${IOT_METRICS_TOKEN:-}
       IOT_ADMIN_USER: ${IOT_ADMIN_USER:-admin}
       IOT_ADMIN_PASSWORD: ${IOT_ADMIN_PASSWORD:?IOT_ADMIN_PASSWORD must be set}
       IOT_ADMIN_TENANTS: ${IOT_ADMIN_TENANTS:-tenant_001}
@@ -547,6 +549,10 @@ services:
     profiles: [ops]
     <<: *service-defaults
     image: prom/prometheus:v3.5.0
+    # 抓取平台 /metrics 的令牌只放在环境变量里，启动时写入数据卷内的私有文件。
+    entrypoint: ["/bin/sh", "-c", "umask 077 && printf '%s' \"$$IOT_METRICS_TOKEN\" > /prometheus/.metrics-token && exec /bin/prometheus \"$$@\"", "prometheus"]
+    environment:
+      IOT_METRICS_TOKEN: ${IOT_METRICS_TOKEN:-}
     # 规则目录变化由 auto-reload-config 自动加载，不开放 /-/reload 与 /-/quit 管理接口。
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-30d}", "--enable-feature=auto-reload-config", "--config.auto-reload-interval=5s"]
     configs:
@@ -700,6 +706,7 @@ services:
       IOT_CAPACITY_POSTGRES_DSN: postgres://iot:${POSTGRES_PASSWORD:-admin123}@postgres:5432/iot?sslmode=disable
       IOT_CAPACITY_CLICKHOUSE_URL: ${IOT_CLICKHOUSE_URL-http://iot:${CLICKHOUSE_PASSWORD:-admin123}@clickhouse:8123?database=iot}
       IOT_CAPACITY_SERVICE_TOKEN: ${IOT_OPS_CAPACITY_TOKEN:-}
+      IOT_METRICS_TOKEN: ${IOT_METRICS_TOKEN:-}
     volumes: ["capacity-data:/app/data"]
     depends_on:
       platform-api: {condition: service_started}
@@ -753,6 +760,8 @@ configs:
       scrape_configs:
         - job_name: iot-platform
           metrics_path: /metrics
+          authorization:
+            credentials_file: /prometheus/.metrics-token
           static_configs:
             - targets: ["platform-api:8080"]
         - job_name: redpanda

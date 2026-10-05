@@ -15,6 +15,7 @@ IOT_ADMIN_PASSWORD	平台内置管理员密码，默认 admin123，可自定义�
 IOT_ADMIN_TENANTS	内置管理员可访问的租户，多个值用逗号分隔
 IOT_AI_HARNESS_TOKEN	平台与 DeepSeek Harness 之间的内部令牌
 IOT_BACKUP_ADMIN_TOKEN	备份服务管理令牌
+IOT_METRICS_TOKEN	Prometheus 抓取平台 /metrics 的令牌，部署时自动生成；置空则不校验
 GB26875_CONTROL_TOKEN	GB/T 26875 网关控制令牌
 IOT_HTTP_ADDR	Go API 监听地址和端口
 IOT_WEB_PORT	Docker 部署时 Web 对外端口

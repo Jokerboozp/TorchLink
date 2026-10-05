@@ -206,7 +206,7 @@ func (s *Server) knowledgeDocumentDetail(w http.ResponseWriter, r *http.Request)
 	}
 	chunks, err := inspector.ListKnowledgeChunks(r.Context(), claims(r).TenantID, document.ID)
 	if err != nil {
-		problem(w, http.StatusBadGateway, "load indexed chunks: "+err.Error())
+		s.internalError(w, r, fmt.Errorf("load indexed chunks: %w", err))
 		return
 	}
 	write(w, http.StatusOK, map[string]any{
@@ -301,7 +301,8 @@ func (s *Server) knowledgeUpload(w http.ResponseWriter, r *http.Request) {
 	bucket := "iot-knowledge-docs"
 	objectKey := fmt.Sprintf("%s/agents/%s/%s/%s", c.TenantID, workflowID, id, filename)
 	if _, err = s.engine.Archive.PutObject(r.Context(), bucket, objectKey, bytes.NewReader(data), int64(len(data)), h.Header.Get("Content-Type")); err != nil {
-		problem(w, 502, "store document: "+err.Error())
+		s.log.Error("store knowledge document failed", "tenant", c.TenantID, "object", objectKey, "error", err)
+		problem(w, http.StatusBadGateway, "原件保存到对象存储失败，请检查对象存储服务后重试")
 		return
 	}
 	doc := model.KnowledgeDoc{ID: id, TenantID: c.TenantID, WorkflowID: workflowID, ProductID: productID, Category: category, Tags: tags, ObjectBucket: bucket, ObjectKey: objectKey, Filename: h.Filename, Status: "UPLOADED", CreatedAt: time.Now().UnixMilli()}

@@ -233,7 +233,9 @@ sha256sum iot-platform-offline-xxxx.tar > iot-platform-offline-xxxx.tar.sha256
 
 ### 安装与升级
 
-**确认版本**：`/health/live` 返回 `version`，用户菜单底部显示“平台版本”，启动日志 `platform build` 记录版本与提交。发布工作流用 `IOT_VERSION`、`IOT_REVISION` 构建参数写入离线包版本号与提交；自行构建未设置时显示 `dev`。单机 Compose 的 `platform-api` 与集群渲染的各平台角色都用镜像内的 `/app/iot-platform healthcheck` 探测本进程 `/health/live`（按容器的 `IOT_HTTP_ADDR`），`docker compose ps` 显示 `healthy` 只代表进程存活，依赖是否就绪仍看 `/health/ready`。
+**确认版本**：`/health/live` 返回 `version`，用户菜单底部显示“平台版本”，启动日志 `platform build` 记录版本与提交。发布工作流用 `IOT_VERSION`、`IOT_REVISION` 构建参数写入离线包版本号与提交；自行构建未设置时显示 `dev`。单机 Compose 的 `platform-api` 与集群渲染的各平台角色都用镜像内的 `/app/iot-platform healthcheck` 探测本进程 `/health/live`（按容器的 `IOT_HTTP_ADDR`），`docker compose ps` 显示 `healthy` 只代表进程存活，依赖是否就绪仍看 `/health/ready`。Web 端口只转发 `/health/live`；`/health/ready` 含依赖明细，只能在 API 端口或内网访问。
+
+**数据库迁移**：平台进程启动时自动执行待执行的数据库迁移。大版本升级可先在新镜像中单独执行并查看：`docker compose run --rm --no-deps platform-api /app/iot-platform migrate --check` 只列出将要执行的迁移、不修改数据库；去掉 `--check` 则执行迁移后退出，随后再重建 API。源码环境为 `go run ./cmd/iot-platform --env-file .env.local migrate --check`。已执行的迁移文件被修改时命令报错，不会继续。
 
 升级前把原 `.env.offline` 复制到新包，保持原项目、数据卷、协议制品和密钥，不能用新配置中的凭据直接连接旧数据库。在包根目录执行：
 
@@ -397,6 +399,8 @@ PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数
 ### 运维组件
 
 单机在线与离线部署的监控组件（Prometheus、Loki、Alloy、Grafana、Alertmanager、node-exporter，Compose profile `ops`）默认部署；`--ops off`（PowerShell `-Ops off`）移除这些服务并清空运维中心的组件地址（页面显示未部署），之后不带参数的部署保持关闭，`--ops on` 恢复。开关写入 `IOT_OPS_MODULE`，离线包始终包含监控镜像。关闭后平台接入、告警和通知不受影响，但不再有指标、日志检索与 Alertmanager 告警（包括死信、消费阻塞、通知失败等平台自身告警），正式环境建议保留或接入已有监控。
+
+部署脚本首次运行时生成 `IOT_METRICS_TOKEN`（已有配置缺少该项时补齐），平台 `/metrics` 随之要求 `Authorization: Bearer <令牌>`；Prometheus 启动时把同一令牌写入数据卷内的私有文件后抓取，容量测试模块也会携带。自建监控抓取平台指标时使用同一令牌；把该项置空则不校验（不建议在开放网络使用）。集群部署在 `secrets.yaml` 的 `metricsToken` 中设置（可选，至少 32 字符）。
 
 `--dependencies-only` 包含运维基础环境，普通本地准备可加 `--include-ops` / `-IncludeOps`。源码与容器共用 `IOT_LOCAL_OPS_DIR`（默认 `data/ops`）；源码 API 须能写、组件须能读。普通远程虚拟机没有共享目录时，规则与通知配置为只读。将 `IOT_OPS_TENANTS` 设置为可授权运维的租户；Grafana 告警关闭，统一使用 Alertmanager。
 

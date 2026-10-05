@@ -16,6 +16,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"regexp"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -137,7 +138,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	if externalErr != nil {
 		log.Error("external data initialization failed", "error", externalErr)
 	}
-	router.Use(s.cors(), s.security(), s.accessLog(), s.recovery())
+	router.Use(requestID(), s.cors(), s.security(), s.accessLog(), s.recovery())
 	s.routes()
 	return s
 }
@@ -368,7 +369,7 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	} else if errors.Is(getErr, model.ErrNotFound) {
 		newProduct = true
 	} else {
-		problem(w, 500, getErr.Error())
+		s.internalError(w, r, getErr)
 		return
 	}
 	if v.CreatedAt == 0 {
@@ -723,7 +724,7 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 	} else if requested := v.ConnectorProfileID; requested != "" {
 		profiles, profileErr := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), c.TenantID)
 		if profileErr != nil {
-			problem(w, 500, profileErr.Error())
+			s.internalError(w, r, profileErr)
 			return
 		}
 		valid := false
@@ -1134,7 +1135,8 @@ func (s *Server) getReplay(w http.ResponseWriter, r *http.Request) {
 		problem(w, 404, "replay not found")
 		return
 	}
-	if v.TenantID != claims(r).TenantID {
+	// Only full-scope users can start a replay, so a limited user never owns one.
+	if v.TenantID != claims(r).TenantID || limited(r.Context()) {
 		problem(w, 404, "replay not found")
 		return
 	}
@@ -1808,7 +1810,8 @@ func (s *Server) cors() gin.HandlerFunc {
 			if _, allowed := allowedOrigins[origin]; allowed {
 				c.Header("Access-Control-Allow-Origin", origin)
 				c.Header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-				c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Device-Key, X-Device-Secret, X-Video-Platform-ID, X-Timestamp, X-Signature")
+				c.Header("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Device-Key, X-Device-Secret, X-Video-Platform-ID, X-Timestamp, X-Signature, X-Request-ID")
+				c.Header("Access-Control-Expose-Headers", "X-Request-ID")
 				c.Header("Access-Control-Max-Age", "600")
 				c.Header("Vary", "Origin")
 			} else if c.Request.Method == http.MethodOptions {
@@ -1834,14 +1837,44 @@ const slowRequest = 3 * time.Second
 // Routine successful requests (page polling, Prometheus scrapes, health
 // checks) are debug records so they do not flood the collected logs; set
 // IOT_LOG_LEVEL=debug to see every request.
+type requestIDKey struct{}
+
+var validRequestID = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,64}$`)
+
+// requestID keeps a caller's or proxy's X-Request-ID, or assigns one, and
+// echoes it so logs, error references and the client name the same request.
+func requestID() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.GetHeader("X-Request-ID")
+		if !validRequestID.MatchString(id) {
+			id = randomHex(8)
+		}
+		c.Header("X-Request-ID", id)
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), requestIDKey{}, id))
+		c.Next()
+	}
+}
+
+func requestIDFrom(ctx context.Context) string {
+	id, _ := ctx.Value(requestIDKey{}).(string)
+	return id
+}
+
 func (s *Server) accessLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
+		status, duration := c.Writer.Status(), time.Since(start)
+		route := c.FullPath()
+		if route == "" {
+			route = "unmatched"
+		}
+		if s.metrics != nil && !strings.HasPrefix(c.Writer.Header().Get("Content-Type"), "text/event-stream") {
+			s.metrics.ObserveIn(metrics.Series("http_request_duration_seconds", "route", route, "method", c.Request.Method, "code", strconv.Itoa(status)), metrics.RequestBuckets, duration.Seconds())
+		}
 		if s.log == nil {
 			return
 		}
-		status, duration := c.Writer.Status(), time.Since(start)
 		level := slog.LevelDebug
 		switch {
 		case status >= 500:
@@ -1851,7 +1884,7 @@ func (s *Server) accessLog() gin.HandlerFunc {
 		case duration >= slowRequest && !strings.HasPrefix(c.Writer.Header().Get("Content-Type"), "text/event-stream"):
 			level = slog.LevelInfo
 		}
-		s.log.Log(c.Request.Context(), level, "http request", "method", c.Request.Method, "path", c.Request.URL.Path, "route", c.FullPath(), "status", status, "duration", duration.String())
+		s.log.Log(c.Request.Context(), level, "http request", "method", c.Request.Method, "path", c.Request.URL.Path, "route", c.FullPath(), "status", status, "duration", duration.String(), "requestId", requestIDFrom(c.Request.Context()))
 	}
 }
 
@@ -1925,9 +1958,21 @@ func write(w http.ResponseWriter, status int, v any) {
 // storage and dependency errors can carry hosts, SQL or credentials. The
 // reference in the response matches the logged error.
 func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error) {
-	reference := randomHex(6)
+	reference := requestIDFrom(r.Context())
+	if reference == "" {
+		reference = randomHex(6)
+	}
 	s.log.Error("request failed", "reference", reference, "method", r.Method, "path", r.URL.Path, "error", err)
 	write(w, http.StatusInternalServerError, map[string]any{"type": "about:blank", "title": http.StatusText(http.StatusInternalServerError), "status": http.StatusInternalServerError, "detail": "服务内部错误，请稍后重试；如持续出现请提供编号 " + reference + " 联系管理员", "traceId": reference})
+}
+
+// metricsAuthorized checks the optional IOT_METRICS_TOKEN bearer token.
+func (s *Server) metricsAuthorized(r *http.Request) bool {
+	if s.cfg.MetricsToken == "" {
+		return true
+	}
+	got, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+	return ok && subtle.ConstantTimeCompare([]byte(strings.TrimSpace(got)), []byte(s.cfg.MetricsToken)) == 1
 }
 
 func problem(w http.ResponseWriter, status int, detail string) {

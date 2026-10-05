@@ -137,36 +137,88 @@ func migrateWith(ctx context.Context, pool *pgxpool.Pool, migrations []migration
 	}); err != nil {
 		return fmt.Errorf("baseline schema: %w", err)
 	}
+	pending, err := pendingMigrations(ctx, conn.Conn(), migrations)
+	if err != nil {
+		return err
+	}
+	for _, m := range pending {
+		if err = applyMigration(ctx, conn.Conn(), m); err != nil {
+			return fmt.Errorf("migration %04d_%s: %w", m.version, m.name, err)
+		}
+	}
+	return nil
+}
+
+// pendingMigrations returns the migrations not yet recorded, refusing an
+// applied migration whose file changed since.
+func pendingMigrations(ctx context.Context, conn *pgx.Conn, migrations []migration) ([]migration, error) {
 	applied := map[int]string{}
 	rows, err := conn.Query(ctx, `SELECT version,checksum FROM schema_migration`)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for rows.Next() {
 		var version int
 		var checksum string
 		if err = rows.Scan(&version, &checksum); err != nil {
 			rows.Close()
-			return err
+			return nil, err
 		}
 		applied[version] = checksum
 	}
 	rows.Close()
 	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	var pending []migration
+	for _, m := range migrations {
+		if checksum, ok := applied[m.version]; !ok {
+			pending = append(pending, m)
+		} else if checksum != m.checksum {
+			return nil, fmt.Errorf("migration %04d_%s was changed after it was applied", m.version, m.name)
+		}
+	}
+	return pending, nil
+}
+
+// Pending lists the migrations an upgrade would apply to the database at dsn,
+// without changing it. A database without schema_migration lists them all.
+func Pending(ctx context.Context, dsn string) ([]string, error) {
+	migrations, err := loadMigrations()
+	if err != nil {
+		return nil, err
+	}
+	conn, err := pgx.Connect(ctx, dsn)
+	if err != nil {
+		return nil, err
+	}
+	defer conn.Close(context.Background())
+	var exists bool
+	if err = conn.QueryRow(ctx, `SELECT to_regclass('schema_migration') IS NOT NULL`).Scan(&exists); err != nil {
+		return nil, err
+	}
+	pending := migrations
+	if exists {
+		if pending, err = pendingMigrations(ctx, conn, migrations); err != nil {
+			return nil, err
+		}
+	}
+	names := make([]string, len(pending))
+	for i, m := range pending {
+		names[i] = fmt.Sprintf("%04d_%s", m.version, m.name)
+	}
+	return names, nil
+}
+
+// MigrateDSN applies the baseline and every pending migration to the
+// database at dsn and returns, for upgrades that migrate before starting.
+func MigrateDSN(ctx context.Context, dsn string) error {
+	pool, err := pgxpool.New(ctx, dsn)
+	if err != nil {
 		return err
 	}
-	for _, m := range migrations {
-		if checksum, ok := applied[m.version]; ok {
-			if checksum != m.checksum {
-				return fmt.Errorf("migration %04d_%s was changed after it was applied", m.version, m.name)
-			}
-			continue
-		}
-		if err = applyMigration(ctx, conn.Conn(), m); err != nil {
-			return fmt.Errorf("migration %04d_%s: %w", m.version, m.name, err)
-		}
-	}
-	return nil
+	defer pool.Close()
+	return migrate(ctx, pool)
 }
 
 func applyMigration(ctx context.Context, conn *pgx.Conn, m migration) error {

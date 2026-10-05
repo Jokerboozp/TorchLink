@@ -47,6 +47,7 @@ $EnvFile = [IO.Path]::GetFullPath($EnvFile)
 Assert-DockerAvailable
 Ensure-DeploymentEnv -Path $EnvFile
 Ensure-EmqxAdminEnv -Path $EnvFile -DefaultUrl 'http://emqx:18083'
+Ensure-MetricsToken -Path $EnvFile
 Ensure-KafkaBindAddress -Path $EnvFile
 # HTTPS / MQTTS turn on when tls\tls.crt and tls\tls.key exist (scripts/generate-tls-cert.ps1).
 New-Item -ItemType Directory -Force -Path (Join-Path $projectRoot 'tls') | Out-Null
@@ -119,7 +120,7 @@ if (-not $apiPort) { $apiPort = '8081' }
 if (-not $webPort) { $webPort = '8080' }
 Wait-DeploymentHttp -Url "http://127.0.0.1:$apiPort/health/ready" -TimeoutSeconds $HealthTimeoutSeconds
 Wait-DeploymentHttp -Url "http://127.0.0.1:$webPort/" -TimeoutSeconds $HealthTimeoutSeconds
-Wait-DeploymentHttp -Url "http://127.0.0.1:$webPort/health/ready" -TimeoutSeconds $HealthTimeoutSeconds
+Wait-DeploymentHttp -Url "http://127.0.0.1:$webPort/health/live" -TimeoutSeconds $HealthTimeoutSeconds
 $backupPort = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_BACKUP_HTTP_PORT'
 if (-not $backupPort) { $backupPort = '8092' }
 Wait-DeploymentHttp -Url "http://127.0.0.1:$backupPort/health/ready" -TimeoutSeconds $HealthTimeoutSeconds

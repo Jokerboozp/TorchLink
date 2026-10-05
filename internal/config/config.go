@@ -41,7 +41,9 @@ type Config struct {
 	HTTPAddr           string
 	CORSAllowedOrigins []string
 	DataDir            string
-	JWTSecret          string
+	// MetricsToken, when set, is the bearer token /metrics requires.
+	MetricsToken string
+	JWTSecret    string
 	// HarnessJWTSecret signs Harness MCP credentials; empty derives one from
 	// JWTSecret (see auth.HarnessSecret).
 	HarnessJWTSecret string
@@ -185,6 +187,7 @@ func Load() Config {
 		DataDir:                     get("IOT_DATA_DIR", "./data"),
 		JWTSecret:                   get("IOT_JWT_SECRET", defaultJWTSecret),
 		HarnessJWTSecret:            get("IOT_HARNESS_JWT_SECRET", ""),
+		MetricsToken:                get("IOT_METRICS_TOKEN", ""),
 		AdminUser:                   get("IOT_ADMIN_USER", "admin"),
 		AdminPassword:               get("IOT_ADMIN_PASSWORD", defaultAdminPassword),
 		AdminTenants:                split(get("IOT_ADMIN_TENANTS", "tenant_001")),
@@ -377,6 +380,9 @@ func (c Config) Validate() error {
 	}
 	if c.HarnessJWTSecret != "" && (len(c.HarnessJWTSecret) < 32 || c.HarnessJWTSecret == c.JWTSecret || insecurePlaceholder(c.HarnessJWTSecret)) {
 		invalid = append(invalid, "IOT_HARNESS_JWT_SECRET must be at least 32 characters, differ from IOT_JWT_SECRET and not be a placeholder")
+	}
+	if c.MetricsToken != "" && (len(c.MetricsToken) < 32 || insecurePlaceholder(c.MetricsToken)) {
+		invalid = append(invalid, "IOT_METRICS_TOKEN must be at least 32 characters and not be a placeholder")
 	}
 	if len(invalid) > 0 {
 		return fmt.Errorf("invalid production security configuration: %s", strings.Join(invalid, "; "))

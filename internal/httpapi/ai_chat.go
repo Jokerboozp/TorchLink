@@ -307,7 +307,7 @@ func (s *Server) aiRuleDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	presentation, presentationErr := core.PresentRule(rule)
 	if presentationErr != nil {
-		problem(w, http.StatusInternalServerError, presentationErr.Error())
+		s.internalError(w, r, presentationErr)
 		return
 	}
 	s.engine.RecordAudit(r.Context(), model.AuditLog{ID: fmt.Sprintf("audit_%d", time.Now().UnixNano()), TenantID: c.TenantID, Actor: c.Username, Action: "ai.rule_draft", TargetType: "rule", TargetID: rule.ID, Details: map[string]any{"success": true}, CreatedAt: time.Now().UnixMilli()})

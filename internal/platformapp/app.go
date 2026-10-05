@@ -96,6 +96,9 @@ func Run(forcedRole string) {
 	if flag.Arg(0) == "healthcheck" {
 		os.Exit(healthcheck(os.Getenv("IOT_HTTP_ADDR")))
 	}
+	if flag.Arg(0) == "migrate" {
+		os.Exit(migrateCommand(flag.Args()[1:]))
+	}
 	level, err := config.LogLevel()
 	fatal(log, "validate configuration", err)
 	logLevel.Set(level)

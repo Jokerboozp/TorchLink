@@ -44,7 +44,7 @@ func startLocalCapacity(cfg *config.Config, log *slog.Logger) (func(), error) {
 	}
 	env := capacity.SelfEnvironment{
 		API: apiURL, MQTT: cfg.MQTTBroker, Web: "http://127.0.0.1:5173",
-		Metrics:     []capacity.MetricsTarget{{Role: config.RoleCombined, Instance: instance, URL: apiURL + "/metrics"}},
+		Metrics:     []capacity.MetricsTarget{{Role: config.RoleCombined, Instance: instance, URL: apiURL + "/metrics", Token: cfg.MetricsToken}},
 		PostgresDSN: cfg.PostgresDSN, ClickHouseURL: cfg.ClickHouseURL,
 	}
 	if _, err := env.Inventory(); err != nil {

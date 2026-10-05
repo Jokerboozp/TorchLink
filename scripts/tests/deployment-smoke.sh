@@ -254,8 +254,17 @@ done < <(compgen -e)
     echo 'Accepted an incomplete EMQX credential pair' >&2; exit 1
   fi
   cmp "$observation_env.before" "$observation_env"
+  # The metrics token is generated once; an operator's empty value is kept.
+  ensure_metrics_token "$observation_env"
+  token="$(get_deployment_env_value "$observation_env" IOT_METRICS_TOKEN)"
+  [ "${#token}" -ge 32 ]
+  ensure_metrics_token "$observation_env"
+  [ "$(get_deployment_env_value "$observation_env" IOT_METRICS_TOKEN)" = "$token" ]
+  set_deployment_env_value "$observation_env" IOT_METRICS_TOKEN ''
+  ensure_metrics_token "$observation_env"
+  [ -z "$(get_deployment_env_value "$observation_env" IOT_METRICS_TOKEN)" ]
 )
-echo 'PASS EMQX management credentials: generate once, preserve and reject incomplete pairs'
+echo 'PASS EMQX management credentials and metrics token: generate once, preserve and reject incomplete pairs'
 
 docker() {
   printf '%s\n' "$*" >> "$TEST_CALLS"

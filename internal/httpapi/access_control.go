@@ -445,7 +445,7 @@ func (s *Server) canConfigureAI(r *http.Request) bool {
 func (s *Server) accessState(w http.ResponseWriter, r *http.Request) (ports.AccessStore, model.AccessState, bool) {
 	store, err := s.accessStore()
 	if err != nil {
-		problem(w, 503, err.Error())
+		problem(w, http.StatusServiceUnavailable, "当前存储不支持权限管理")
 		return nil, model.AccessState{}, false
 	}
 	state, err := store.LoadAccessState(r.Context(), claims(r).TenantID)

@@ -141,6 +141,10 @@ func TestProductionConfigRequiresExplicitStrongJWTSecret(t *testing.T) {
 	if err := Load().Validate(); err != nil {
 		t.Fatalf("production configuration rejected a dedicated Harness key: %v", err)
 	}
+	t.Setenv("IOT_METRICS_TOKEN", "short")
+	if err := Load().Validate(); err == nil {
+		t.Fatal("production configuration accepted a weak metrics token")
+	}
 }
 
 func TestDevelopmentConfigAllowsLocalFallbacks(t *testing.T) {

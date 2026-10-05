@@ -81,7 +81,8 @@ func aiRunFilter(r *http.Request) ports.AIRunFilter {
 	if f.Start <= 0 && f.End <= 0 {
 		f.Start = time.Now().AddDate(0, 0, -30).UnixMilli()
 	}
-	f.Limit, f.Offset = operationPage(r)
+	page := parseListPagination(r)
+	f.Limit, f.Offset = page.PageSize, page.Offset
 	return f
 }
 

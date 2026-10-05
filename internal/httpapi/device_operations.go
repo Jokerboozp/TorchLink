@@ -5,7 +5,6 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/ratelimit"
 	"net/http"
-	"strconv"
 	"time"
 )
 
@@ -30,17 +29,6 @@ func (s *Server) deviceOperationsRoutes() {
 	s.router.GET("/api/v1/device-registry/:id/signals", s.authorize("viewer"), s.endpoint(s.deviceSignals, "id"))
 	s.router.POST("/api/v1/device-registry/:id/commands", s.authorize("operator"), s.endpoint(s.sendDeviceCommand, "id"))
 }
-func operationPage(r *http.Request) (int, int) {
-	limit, _ := strconv.Atoi(r.URL.Query().Get("pageSize"))
-	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
-	if limit < 1 || limit > 100 {
-		limit = 20
-	}
-	if page < 1 || page > 100000 {
-		page = 1
-	}
-	return limit, (page - 1) * limit
-}
 func (s *Server) operationDevice(w http.ResponseWriter, r *http.Request) bool {
 	_, e := s.engine.Repo.GetManagedDevice(r.Context(), claims(r).TenantID, r.PathValue("id"))
 	if e != nil {
@@ -54,7 +42,8 @@ func (s *Server) deviceHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t, d := claims(r).TenantID, r.PathValue("id")
-	limit, offset := operationPage(r)
+	page := parseListPagination(r)
+	limit, offset := page.PageSize, page.Offset
 	var items any
 	var total int
 	var e error
@@ -70,7 +59,7 @@ func (s *Server) deviceHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if e != nil {
-		problem(w, 500, e.Error())
+		s.internalError(w, r, e)
 		return
 	}
 	write(w, 200, map[string]any{"items": items, "total": total})
@@ -79,10 +68,11 @@ func (s *Server) listDeviceCommands(w http.ResponseWriter, r *http.Request) {
 	if !s.operationDevice(w, r) {
 		return
 	}
-	limit, offset := operationPage(r)
+	page := parseListPagination(r)
+	limit, offset := page.PageSize, page.Offset
 	items, total, e := s.engine.Repo.ListDeviceCommands(r.Context(), claims(r).TenantID, r.PathValue("id"), limit, offset)
 	if e != nil {
-		problem(w, 500, e.Error())
+		s.internalError(w, r, e)
 		return
 	}
 	for i := range items {

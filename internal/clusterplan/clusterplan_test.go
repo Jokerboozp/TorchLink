@@ -254,7 +254,7 @@ func TestExampleInventoryRendersIsolatedSecretsAndConfigs(t *testing.T) {
 		}
 	}
 	// Secret values only live in .env files, and only where needed.
-	secretValues := []string{s.PostgresPassword, s.PostgresSuperuserPassword, s.RedisPassword, s.ClickHousePassword, s.JWTSecret, s.AdminPassword, s.HarnessToken, s.EMQXCookie, s.MinIORootPassword}
+	secretValues := []string{s.PostgresPassword, s.PostgresSuperuserPassword, s.RedisPassword, s.ClickHousePassword, s.JWTSecret, s.AdminPassword, s.HarnessToken, s.EMQXCookie, s.MinIORootPassword, s.MetricsToken}
 	for name, body := range files {
 		if strings.HasSuffix(name, ".env") {
 			continue
@@ -294,6 +294,11 @@ func TestExampleInventoryRendersIsolatedSecretsAndConfigs(t *testing.T) {
 	prom := string(files["n4/prometheus/prometheus.yml"])
 	if !strings.Contains(prom, `"10.0.0.13:8102"`) || !strings.Contains(prom, `instance: "processor-n3"`) {
 		t.Fatal("prometheus must scrape every role instance", prom)
+	}
+	// The platform scrape authenticates from a file the container writes from
+	// its own environment; the token stays in the .env files only.
+	if !strings.Contains(prom, "credentials_file: /prometheus/.metrics-token") || !strings.Contains(string(files["n4/compose.yaml"]), "/prometheus/.metrics-token") {
+		t.Fatal("platform scrape must send the metrics token", prom)
 	}
 	if !strings.Contains(string(files["cluster.json"]), `"coordination"`) {
 		t.Fatal("start stages missing")

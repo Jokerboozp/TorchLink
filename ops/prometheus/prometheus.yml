@@ -12,6 +12,9 @@ alerting:
 scrape_configs:
   - job_name: iot-platform
     metrics_path: /metrics
+    # 平台设置 IOT_METRICS_TOKEN 时，Compose 中的 Prometheus 启动时把它写入该文件。
+    authorization:
+      credentials_file: /prometheus/.metrics-token
     static_configs:
       - targets: ["platform-api:8080"]
   - job_name: redpanda

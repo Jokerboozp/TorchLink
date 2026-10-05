@@ -127,6 +127,9 @@ func (c *Collector) Scrape(ctx context.Context) Round {
 			defer wg.Done()
 			s := InstanceSample{Instance: t.Instance, Role: t.Role}
 			req, _ := http.NewRequestWithContext(ctx, http.MethodGet, t.URL, nil)
+			if t.Token != "" {
+				req.Header.Set("Authorization", "Bearer "+t.Token)
+			}
 			resp, err := c.client.Do(req)
 			if err != nil {
 				s.Error = ShortError(err)

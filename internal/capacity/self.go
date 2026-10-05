@@ -33,6 +33,7 @@ type SelfEnvironment struct {
 //	IOT_CAPACITY_MQTT_URL        tcp://host:1883 (MQTT load and realtime push)
 //	IOT_CAPACITY_WEB_URL         management web origin (video HLS)
 //	IOT_CAPACITY_METRICS         role@instance=url,... for every platform process (required)
+//	IOT_METRICS_TOKEN            bearer token for those endpoints, when the platform sets one
 //	IOT_CAPACITY_NODES           name=url,... node-exporter endpoints
 //	IOT_CAPACITY_POSTGRES_DSN    reconciliation database (required)
 //	IOT_CAPACITY_CLICKHOUSE_URL  optional raw/telemetry row checks
@@ -48,7 +49,7 @@ func SelfEnvironmentFromEnv(getenv func(string) string) (SelfEnvironment, error)
 		if !ok || !ok2 || role == "" || instance == "" || u == "" {
 			return e, fmt.Errorf("IOT_CAPACITY_METRICS entry %q must be role@instance=url", item)
 		}
-		e.Metrics = append(e.Metrics, MetricsTarget{Role: role, Instance: instance, URL: u})
+		e.Metrics = append(e.Metrics, MetricsTarget{Role: role, Instance: instance, URL: u, Token: strings.TrimSpace(getenv("IOT_METRICS_TOKEN"))})
 	}
 	for _, item := range splitList(getenv("IOT_CAPACITY_NODES")) {
 		name, u, ok := strings.Cut(item, "=")
