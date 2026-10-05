@@ -314,12 +314,26 @@ func TestInboxReadFailureIsVisibleAndRecovers(t *testing.T) {
 		t.Fatal(err)
 	}
 	c := inboxClient(t, d)
-	// A non-regular queue entry makes Next fail on every platform. Renaming
-	// the queue root fails before the test starts on Windows because its
-	// lock file remains open for the lifetime of the queue.
-	path := filepath.Join(root, "0", "unreadable.json")
-	if err = os.Mkdir(path, 0700); err != nil {
+	// A queued entry replaced by a non-regular file makes Next fail on every
+	// platform. Renaming the queue root fails before the test starts on
+	// Windows because its lock file remains open for the lifetime of the queue.
+	topic := "/iot/up/t/p/d/event"
+	if err = d.put(topic, []byte(`{"v":1}`)); err != nil {
 		t.Fatal(err)
+	}
+	shard := filepath.Join(root, fmt.Sprint(d.shard(topic)))
+	entries, err := os.ReadDir(shard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := ""
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".json") {
+			path = filepath.Join(shard, e.Name())
+		}
+	}
+	if path == "" || os.Remove(path) != nil || os.Mkdir(path, 0700) != nil {
+		t.Fatal("cannot replace queued entry")
 	}
 	d.start(c)
 	eventually(t, func() bool { return d.health() != nil })

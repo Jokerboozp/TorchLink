@@ -30,6 +30,12 @@ type Queue struct {
 	maxItems, items int
 	lock            *os.File
 	closed          bool
+	// order is the first-reception order of active entries; Next serves its
+	// head so a backlog drains first in, first out. Entries leave active
+	// when acknowledged, rejected, quarantined or discarded and are skipped
+	// lazily. The directory lock makes this process the only writer.
+	order  []string
+	active map[string]bool
 }
 
 func OpenQueue(root string, maxBytes int64, maxItems int) (*Queue, error) {
@@ -43,12 +49,15 @@ func OpenQueue(root string, maxBytes int64, maxItems int) (*Queue, error) {
 	if err != nil {
 		return nil, err
 	}
-	q := &Queue{root: root, maxBytes: maxBytes, maxItems: maxItems, lock: lock}
+	q := &Queue{root: root, maxBytes: maxBytes, maxItems: maxItems, lock: lock, active: map[string]bool{}}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		q.Close()
 		return nil, err
 	}
+	// Each entry is written once (identical retransmissions keep the file),
+	// so its modification time is its first reception.
+	written := map[string]time.Time{}
 	for _, entry := range entries {
 		if !queueEntry(entry.Name()) {
 			continue
@@ -60,8 +69,40 @@ func OpenQueue(root string, maxBytes int64, maxItems int) (*Queue, error) {
 		}
 		q.used += info.Size()
 		q.items++
+		if strings.HasSuffix(entry.Name(), ".json") {
+			q.order = append(q.order, entry.Name())
+			q.active[entry.Name()] = true
+			written[entry.Name()] = info.ModTime()
+		}
 	}
+	sort.SliceStable(q.order, func(i, j int) bool {
+		a, b := written[q.order[i]], written[q.order[j]]
+		if !a.Equal(b) {
+			return a.Before(b)
+		}
+		return q.order[i] < q.order[j]
+	})
 	return q, nil
+}
+
+func (q *Queue) enqueue(name string) {
+	if !q.active[name] {
+		q.active[name] = true
+		q.order = append(q.order, name)
+	}
+}
+
+// head returns the oldest active entry, dropping settled names on the way.
+func (q *Queue) head() (string, bool) {
+	for len(q.order) > 0 {
+		if name := q.order[0]; q.active[name] {
+			return name, true
+		}
+		q.order[0] = ""
+		q.order = q.order[1:]
+	}
+	q.order = nil
+	return "", false
 }
 func (q *Queue) Close() error {
 	q.mu.Lock()
@@ -136,27 +177,17 @@ func (q *Queue) put(raw model.RawMessage, stamp bool) error {
 		if info, statErr := os.Stat(target); statErr == nil {
 			q.used += info.Size()
 			q.items++
+			q.enqueue(filepath.Base(target))
 		}
 		return err
 	}
 	q.used += int64(len(b))
 	q.items++
+	q.enqueue(filepath.Base(target))
 	return nil
 }
-func (q *Queue) entries() ([]string, error) {
-	all, err := os.ReadDir(q.root)
-	if err != nil {
-		return nil, err
-	}
-	out := []string{}
-	for _, e := range all {
-		if strings.HasSuffix(e.Name(), ".json") {
-			out = append(out, e.Name())
-		}
-	}
-	sort.Strings(out)
-	return out, nil
-}
+
+// Next returns the oldest unsettled entry, in first-reception order.
 func (q *Queue) Next() (model.RawMessage, bool, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
@@ -164,14 +195,22 @@ func (q *Queue) Next() (model.RawMessage, bool, error) {
 	if q.closed {
 		return raw, false, os.ErrClosed
 	}
-	entries, err := q.entries()
-	if err != nil || len(entries) == 0 {
-		return raw, false, err
-	}
-	path := filepath.Join(q.root, entries[0])
-	info, err := os.Lstat(path)
-	if err != nil {
-		return raw, false, err
+	var name, path string
+	var info os.FileInfo
+	for {
+		var found bool
+		if name, found = q.head(); !found {
+			return raw, false, nil
+		}
+		path = filepath.Join(q.root, name)
+		var err error
+		if info, err = os.Lstat(path); err == nil {
+			break
+		} else if !os.IsNotExist(err) {
+			return raw, false, err
+		}
+		// Removed outside the queue; nothing remains to deliver.
+		delete(q.active, name)
 	}
 	if !info.Mode().IsRegular() {
 		return raw, false, errors.New("queue entry is not a regular file")
@@ -193,7 +232,7 @@ func (q *Queue) Next() (model.RawMessage, bool, error) {
 		reason = "entry exceeds 1 MiB"
 	} else if json.Unmarshal(b, &raw) != nil {
 		reason = "invalid JSON"
-	} else if raw.TenantID == "" || raw.MessageID == "" || queueName(raw) != entries[0] {
+	} else if raw.TenantID == "" || raw.MessageID == "" || queueName(raw) != name {
 		reason = "identity checksum mismatch"
 	}
 	if reason != "" {
@@ -207,10 +246,11 @@ func (q *Queue) Next() (model.RawMessage, bool, error) {
 		if err := os.Rename(path, path+".corrupt"); err != nil {
 			return raw, false, err
 		}
+		delete(q.active, name)
 		if err := syncDirectory(q.root); err != nil {
 			return raw, false, err
 		}
-		return model.RawMessage{}, false, fmt.Errorf("queue entry %s quarantined: %s", entries[0], reason)
+		return model.RawMessage{}, false, fmt.Errorf("queue entry %s quarantined: %s", name, reason)
 	}
 	return raw, true, nil
 }
@@ -231,6 +271,7 @@ func (q *Queue) Ack(raw model.RawMessage) error {
 	if err = os.Remove(path); err != nil {
 		return err
 	}
+	delete(q.active, filepath.Base(path))
 	q.used -= info.Size()
 	q.items--
 	return syncDirectory(q.root)
@@ -283,6 +324,7 @@ func (q *Queue) DiscardMatching(ctx context.Context, match func(model.RawMessage
 		if err := os.Remove(path); err != nil {
 			return removed, skipped, err
 		}
+		delete(q.active, entry.Name())
 		q.used -= info.Size()
 		q.items--
 		removed++
@@ -294,7 +336,7 @@ func (q *Queue) DiscardMatching(ctx context.Context, match func(model.RawMessage
 	}
 	return removed, skipped, nil
 }
-func (q *Queue) Depth() int { q.mu.Lock(); defer q.mu.Unlock(); v, _ := q.entries(); return len(v) }
+func (q *Queue) Depth() int { q.mu.Lock(); defer q.mu.Unlock(); return len(q.active) }
 func atomicFile(path string, b []byte) error {
 	f, err := os.CreateTemp(filepath.Dir(path), ".pending-")
 	if err != nil {
@@ -331,6 +373,7 @@ func (q *Queue) Reject(raw model.RawMessage) error {
 	if err := os.Rename(path, path+".rejected"); err != nil {
 		return err
 	}
+	delete(q.active, filepath.Base(path))
 	return syncDirectory(q.root)
 }
 func (q *Queue) Rejected() int {
@@ -367,6 +410,7 @@ func (q *Queue) RetryRejected() error {
 			if err := os.Rename(source, target); err != nil {
 				return err
 			}
+			q.enqueue(filepath.Base(target))
 		}
 	}
 	return syncDirectory(q.root)

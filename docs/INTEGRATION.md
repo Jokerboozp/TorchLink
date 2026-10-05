@@ -492,12 +492,12 @@ return Frame{
 
 API/Gateway 装配使用 `NewDurableWithCredentials`，接收过程为：
 
-1. Broker 按现有 JWT/账号和 ACL 完成身份、主题授权；平台继续拒绝 retained、超限及未知路由消息。平台自身发布的 `/iot/device/state/{tenant}/{product}/{device}` retained 状态快照在重新订阅时仅确认并忽略，记录为调试日志，不作为新上报入队或刷新设备状态；其他拒收警告通过 `reason` 区分 `retained`、`payload_too_large` 和 `unknown_topic`。
+1. Broker 按现有 JWT/账号和 ACL 完成身份、主题授权；平台继续拒绝 retained、超限及未知路由消息。平台自身发布的 `/iot/device/state/{tenant}/{product}/{device}` retained 状态快照在重新订阅时仅确认并忽略，记录为调试日志，不作为新上报入队或刷新设备状态；状态主题上的空载荷是清除 retained 状态的请求（容量测试清理会发送），同样确认并忽略；其他拒收警告通过 `reason` 区分 `retained`、`payload_too_large` 和 `unknown_topic`。
 2. 入站原始字节和实际主题写入 `IOT_DATA_DIR/mqtt-inbox/<processRole>/`（显式设置 `IOT_INSTANCE_ID` 时为 `<processRole>/<实例>`）。文件刷新并原子落盘后才向 Broker 确认此投递；内存入队不构成成功接收。
 3. 后台按原路径执行设备/产品状态校验、Raw 归档、幂等索引及内部消息发布。数据库或队列暂时失败时保留磁盘记录并重试。第一次接收时间保存在队列中，补传不改成重试时间。
 4. 完成处理后删除并刷新队列目录；进程在删除前退出可能重试，因此业务仍必须幂等。标准报文使用已有 `id`，原始 MQTT 信封必须提供 `messageId`，视频信封必须提供 `eventId`，不得依赖平台每次生成随机 ID。
 
-队列使用公共 `internal/durablequeue` 的文件锁、原子写入和隔离机制，32 个固定分片，默认总上限 1 GiB / 50000 项，均分到各分片；热点主题可能先达到分片上限。接收回调在自身生命周期内完成 fsync 和 ACK，不能先返回再异步调用旧连接的 ACK。Paho 保持有序回调；每个分片的后台处理仍并行运行。回调被磁盘阻塞时，由 Broker 会话队列承接等待，设备仍须等待应用确认。同一分片内按文件名顺序处理，不保证同一设备的报文顺序。主题和原文字节的摘要用于接收队列去重，不替代业务消息 ID。满容量、写入错误或损坏隔离导致无法确认时，不 ACK，并通过重连请求 Broker 重投；没有启动无界 goroutine 或无限内存队列。
+队列使用公共 `internal/durablequeue` 的文件锁、原子写入和隔离机制，32 个固定分片，默认总上限 1 GiB / 50000 项，均分到各分片；热点主题可能先达到分片上限。接收回调在自身生命周期内完成 fsync 和 ACK，不能先返回再异步调用旧连接的 ACK。Paho 保持有序回调；每个分片的后台处理仍并行运行。回调被磁盘阻塞时，由 Broker 会话队列承接等待，设备仍须等待应用确认。同一分片内按首次接收顺序处理（重启后按记录写入时间恢复），同一主题的报文按到达顺序进入业务处理；相同报文的重传沿用原位置，积压时不会被后到报文插队。主题和原文字节的摘要用于接收队列去重，不替代业务消息 ID。满容量、写入错误或损坏隔离导致无法确认时，不 ACK，并通过重连请求 Broker 重投；没有启动无界 goroutine 或无限内存队列。
 
 平台持久会话尚未取走的报文由 EMQX 按会话队列缓存。Compose 将 `max_mqueue_len` 设为 100000（`IOT_EMQX_MAX_MQUEUE_LEN`）、`max_inflight` 设为 128（`IOT_EMQX_MAX_INFLIGHT`）；队列满时 Broker 会丢弃报文，而设备已经收到 PUBACK。
 

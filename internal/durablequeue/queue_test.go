@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"iot-platform/internal/model"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
+	"time"
 )
 
 func TestDiscardMatchingReclaimsActiveAndRejectedCapacityAndPreservesUnknown(t *testing.T) {
@@ -216,5 +219,60 @@ func TestCorruptQueueEntryDoesNotBlockValidData(t *testing.T) {
 				t.Fatal("ack removed corrupt evidence")
 			}
 		})
+	}
+}
+
+// A backlog drains in first-reception order, not file-name (hash) order, so
+// one device's reports are processed in the order they arrived.
+func TestNextServesFirstReceptionOrderAcrossRestart(t *testing.T) {
+	root := t.TempDir()
+	q, err := OpenQueue(root, 1<<20, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sent []string
+	for i := 0; i < 20; i++ {
+		raw := model.RawMessage{TenantID: "t", MessageID: fmt.Sprintf("m%02d", i), Payload: json.RawMessage(`1`)}
+		if err := q.PutReceived(raw); err != nil {
+			t.Fatal(err)
+		}
+		sent = append(sent, raw.MessageID)
+	}
+	// An identical retransmission keeps its original position.
+	if err := q.PutReceived(model.RawMessage{TenantID: "t", MessageID: "m00", Payload: json.RawMessage(`1`)}); err != nil {
+		t.Fatal(err)
+	}
+	drain := func(q *Queue, n int) []string {
+		var got []string
+		for len(got) < n {
+			raw, found, err := q.Next()
+			if err != nil || !found {
+				t.Fatalf("next: found=%v err=%v", found, err)
+			}
+			got = append(got, raw.MessageID)
+			if err := q.Ack(raw); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return got
+	}
+	if got := drain(q, 5); !slices.Equal(got, sent[:5]) {
+		t.Fatalf("drain order %v, want %v", got, sent[:5])
+	}
+	// After a restart the order comes from each entry's write time.
+	base := time.Now().Add(-time.Hour)
+	for i, id := range sent[5:] {
+		path := filepath.Join(root, queueName(model.RawMessage{TenantID: "t", MessageID: id}))
+		if err := os.Chtimes(path, base, base.Add(time.Duration(i)*time.Millisecond)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q.Close()
+	if q, err = OpenQueue(root, 1<<20, 100); err != nil {
+		t.Fatal(err)
+	}
+	defer q.Close()
+	if got := drain(q, 15); !slices.Equal(got, sent[5:]) || q.Depth() != 0 {
+		t.Fatalf("order after restart %v, want %v", got, sent[5:])
 	}
 }
