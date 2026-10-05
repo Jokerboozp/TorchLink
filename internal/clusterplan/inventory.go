@@ -31,7 +31,7 @@ type Inventory struct {
 	Postgres      PostgresSpec   `yaml:"postgres"`
 	Redis         RedisSpec      `yaml:"redis"`
 	ClickHouse    ClickHouseSpec `yaml:"clickhouse"`
-	MinIO         MinIOSpec      `yaml:"minio"`
+	RustFS        PoolSpec       `yaml:"rustfs"`
 	Harness       GroupSpec      `yaml:"harness"`
 	// Video places media servers: the first is the primary, the others
 	// standbys the live module fails over to.
@@ -59,7 +59,7 @@ type Images struct {
 	Redis        string `yaml:"redis"`
 	ClickHouse   string `yaml:"clickhouse"`
 	Keeper       string `yaml:"keeper"`
-	MinIO        string `yaml:"minio"`
+	RustFS       string `yaml:"rustfs"`
 	Prometheus   string `yaml:"prometheus"`
 	Alertmanager string `yaml:"alertmanager"`
 	NodeExporter string `yaml:"nodeExporter"`
@@ -102,15 +102,10 @@ func (p PoolSpec) Members() []string {
 	return nil
 }
 
-// MinIOSpec runs one MinIO server (node), or a distributed erasure-coded
-// deployment over nodes with drivesPerNode volumes each.
-type MinIOSpec struct {
-	PoolSpec      `yaml:",inline"`
-	DrivesPerNode int `yaml:"drivesPerNode,omitempty"`
-}
-
-// Distributed reports a multi-node MinIO deployment.
-func (m MinIOSpec) Distributed() bool { return len(m.Members()) > 1 }
+// MinRustFSNodes is the smallest distributed RustFS deployment: one data
+// directory per node (RustFS refuses several on one disk) forms an erasure
+// set that keeps reads and writes through the loss of one node.
+const MinRustFSNodes = 4
 
 type RedpandaSpec struct {
 	Nodes       []string `yaml:"nodes"`
@@ -165,21 +160,21 @@ type PlatformSpec struct {
 var Ports = map[string][]int{
 	"etcd": {2379, 2380}, "postgres": {5432, 8008}, "redpanda": {9092, 33145, 9644, 18081, 18082},
 	"emqx": {1883, 8083, 8084, 8883, 18083, 4370, 5370}, "clickhouse": {8123, 9000, 9009}, "keeper": {9181, 9234},
-	"redis": {6379}, "sentinel": {26379}, "minio": {9002, 9003}, "harness": {8091},
+	"redis": {6379}, "sentinel": {26379}, "rustfs": {9002, 9003}, "harness": {8091},
 	"video":  {80, 8000},
 	"backup": {8090}, "prometheus": {9090, 9093, 9094}, "node-exporter": {9100}, "web": {8080, 8443},
 	"api": {8081, 5060, LocalEmbeddingPort, LocalRerankPort}, "gateway": {8082, 26875}, "parser": {8101}, "processor": {8102}, "jobs": {8104},
-	"lb": {LBAPIPort, LBGatewayPort, LBMinIOPort, LBVideoPort, LBPrometheusPort, LBAlertmanagerPort}, "capacity": {7080},
+	"lb": {LBAPIPort, LBGatewayPort, LBObjectStoragePort, LBVideoPort, LBPrometheusPort, LBAlertmanagerPort}, "capacity": {7080},
 }
 
 // Local load balancer ports (bound to 127.0.0.1 on every node).
 const (
-	LBAPIPort          = 18181
-	LBGatewayPort      = 18182
-	LBMinIOPort        = 18183
-	LBVideoPort        = 18180
-	LBPrometheusPort   = 18190
-	LBAlertmanagerPort = 18193
+	LBAPIPort           = 18181
+	LBGatewayPort       = 18182
+	LBObjectStoragePort = 18183
+	LBVideoPort         = 18180
+	LBPrometheusPort    = 18190
+	LBAlertmanagerPort  = 18193
 )
 
 // Knowledge embedding and rerank services beside each API (127.0.0.1 only).
@@ -191,7 +186,7 @@ const (
 // LocalLB reports whether nodes run the local HAProxy: for the API and
 // gateway origins, or for a service with several instances.
 func (inv *Inventory) LocalLB() bool {
-	return inv.AutoLB() || inv.MinIO.Distributed() || len(inv.Monitoring.Members()) > 1 || len(inv.Video.Members()) > 1
+	return inv.AutoLB() || len(inv.RustFS.Members()) > 1 || len(inv.Monitoring.Members()) > 1 || len(inv.Video.Members()) > 1
 }
 
 // AutoLB reports whether the renderer provides the internal load balancers.
@@ -307,7 +302,7 @@ func (inv *Inventory) Placement() map[string][]string {
 	add("keeper", inv.ClickHouse.Keeper...)
 	add("redis", append([]string{inv.Redis.Master}, inv.Redis.Replicas...)...)
 	add("sentinel", inv.Redis.Sentinels...)
-	add("minio", inv.MinIO.Members()...)
+	add("rustfs", inv.RustFS.Members()...)
 	add("harness", inv.Harness.Nodes...)
 	add("video", inv.Video.Members()...)
 	add("backup", inv.Backup.Node)
@@ -412,7 +407,7 @@ func (inv *Inventory) Validate() (deploycheck.ConnectionBudget, error) {
 	if !regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`).MatchString(inv.ClickHouse.Cluster) {
 		bad("clickhouse cluster name is invalid")
 	}
-	for name, pool := range map[string]PoolSpec{"minio": inv.MinIO.PoolSpec, "video": inv.Video, "monitoring": inv.Monitoring} {
+	for name, pool := range map[string]PoolSpec{"rustfs": inv.RustFS, "video": inv.Video, "monitoring": inv.Monitoring} {
 		if pool.Node != "" && len(pool.Nodes) > 0 {
 			bad("%s: set node or nodes, not both", name)
 		}
@@ -423,14 +418,11 @@ func (inv *Inventory) Validate() (deploycheck.ConnectionBudget, error) {
 			inv.spread(name, pool.Nodes, false, bad)
 		}
 	}
-	if len(inv.MinIO.Members()) == 0 {
-		bad("minio.node or minio.nodes is required (backups and knowledge files)")
+	if len(inv.RustFS.Members()) == 0 {
+		bad("rustfs.node or rustfs.nodes is required (object storage for backups, knowledge files and attachments)")
 	}
-	if inv.MinIO.DrivesPerNode < 0 || inv.MinIO.DrivesPerNode > 16 || (!inv.MinIO.Distributed() && inv.MinIO.DrivesPerNode > 0) {
-		bad("minio.drivesPerNode applies to minio.nodes and must be 1-16")
-	}
-	if inv.MinIO.Distributed() && (len(inv.MinIO.Nodes) < 3 || len(inv.MinIO.Nodes)*max(inv.MinIO.DrivesPerNode, 1) < 4) {
-		bad("distributed minio needs at least 3 nodes and 4 drives in total, so one node can fail without losing reads or writes")
+	if n := len(inv.RustFS.Nodes); n > 1 && n < MinRustFSNodes {
+		bad("distributed rustfs needs at least %d nodes, so one node can fail without losing reads or writes", MinRustFSNodes)
 	}
 	if len(inv.Harness.Nodes) == 0 {
 		bad("harness needs at least one node (AI workflows are mandatory)")
@@ -449,7 +441,7 @@ func (inv *Inventory) Validate() (deploycheck.ConnectionBudget, error) {
 		bad("platform.web needs at least one node")
 	}
 	if inv.LocalLB() && inv.Images.LB == "" {
-		bad("images.lb (HAProxy) is required for the local load balancers (empty platform.internalURL/gatewayURL, or several minio, video or monitoring nodes)")
+		bad("images.lb (HAProxy) is required for the local load balancers (empty platform.internalURL/gatewayURL, or several rustfs, video or monitoring nodes)")
 	}
 	if !inv.AutoLB() {
 		for _, u := range []string{inv.Platform.InternalURL, inv.Platform.GatewayURL} {

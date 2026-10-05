@@ -157,41 +157,38 @@ services:
       timeout: 5s
       retries: 10
 
-  minio:
+  # S3 兼容对象存储 RustFS；宿主机端口与凭据变量沿用原 MinIO 的设置。
+  rustfs:
     <<: *service-defaults
     ports:
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:19000:9000"
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:19002:9001"
-    # Reuse the pinned official binaries already used by offline packaging;
-    # the former registry image is no longer publicly pullable.
-    image: iot-platform-minio:local
-    build:
-      context: ./deploy/minio
-    command: server /data --console-address :9001
+    image: ${IOT_RUSTFS_IMAGE:-rustfs/rustfs:1.0.1}
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin123}
-    volumes: ["minio-data:/data"]
+      RUSTFS_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
+      RUSTFS_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-admin123}
+      RUSTFS_ADDRESS: :9000
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CONSOLE_ADDRESS: :9001
+    volumes: ["rustfs-data:/data"]
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
       interval: 10s
       timeout: 5s
       retries: 10
 
-  minio-dr:
+  rustfs-dr:
     <<: *service-defaults
     ports:
       - "${IOT_LOCAL_BIND_ADDRESS:-127.0.0.1}:19001:9000"
-    image: iot-platform-minio:local
-    build:
-      context: ./deploy/minio
-    command: server /data
+    image: ${IOT_RUSTFS_IMAGE:-rustfs/rustfs:1.0.1}
     environment:
-      MINIO_ROOT_USER: ${MINIO_DR_ROOT_USER:-admin}
-      MINIO_ROOT_PASSWORD: ${MINIO_DR_ROOT_PASSWORD:-admin123}
-    volumes: ["minio-dr-data:/data"]
+      RUSTFS_ACCESS_KEY: ${MINIO_DR_ROOT_USER:-admin}
+      RUSTFS_SECRET_KEY: ${MINIO_DR_ROOT_PASSWORD:-admin123}
+      RUSTFS_ADDRESS: :9000
+    volumes: ["rustfs-dr-data:/data"]
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -335,7 +332,7 @@ services:
       IOT_BACKUP_HTTP_ADDR: :8090
       IOT_BACKUP_DIR: /app/data/backups
       IOT_POSTGRES_DSN: postgres://iot:${POSTGRES_PASSWORD:-admin123}@postgres:5432/iot?sslmode=disable
-      IOT_MINIO_ENDPOINT: minio:9000
+      IOT_MINIO_ENDPOINT: rustfs:9000
       IOT_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
       IOT_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-admin123}
       IOT_CLICKHOUSE_URL: http://iot:${CLICKHOUSE_PASSWORD:-admin123}@clickhouse:8123?database=iot
@@ -348,7 +345,7 @@ services:
       IOT_BACKUP_HARNESS_SNAPSHOT_URLS: http://deepseek-harness:8091/v1/backup/snapshot
       IOT_AI_HARNESS_TOKEN: ${IOT_AI_HARNESS_TOKEN:-local-harness-gateway-token-change-me-now}
       IOT_BACKUP_RESTORE_HARNESS_DIR: /app/data/backups/restored-harness
-      IOT_BACKUP_RESTORE_MINIO_ENDPOINT: minio-dr:9000
+      IOT_BACKUP_RESTORE_MINIO_ENDPOINT: rustfs-dr:9000
       IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY: ${MINIO_DR_ROOT_USER:-admin}
       IOT_BACKUP_RESTORE_MINIO_SECRET_KEY: ${MINIO_DR_ROOT_PASSWORD:-admin123}
     volumes:
@@ -356,7 +353,7 @@ services:
       - deepseek-harness-data:/app/harness:ro
     depends_on:
       postgres: {condition: service_healthy}
-      minio: {condition: service_healthy}
+      rustfs: {condition: service_healthy}
       clickhouse: {condition: service_healthy}
     healthcheck:
       test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8090/health/ready >/dev/null || exit 1"]
@@ -488,8 +485,8 @@ volumes:
   postgres-data: {}
   postgres-wal: {}
   redis-data: {}
-  minio-data: {}
-  minio-dr-data: {}
+  rustfs-data: {}
+  rustfs-dr-data: {}
   redpanda-data: {}
   clickhouse-data: {}
   emqx-data: {}

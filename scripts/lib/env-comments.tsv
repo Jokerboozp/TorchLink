@@ -1,10 +1,10 @@
 POSTGRES_PASSWORD	PostgreSQL 数据库密码，默认 admin123；已有配置保留
 REDIS_PASSWORD	Redis 密码，默认 admin123；已有配置保留
 CLICKHOUSE_PASSWORD	ClickHouse 数据库密码，默认 admin123；已有配置保留
-MINIO_ROOT_USER	MinIO 主存储管理员用户名
-MINIO_ROOT_PASSWORD	MinIO 主存储管理员密码，默认 admin123；已有配置保留
-MINIO_DR_ROOT_USER	MinIO 灾备存储管理员用户名
-MINIO_DR_ROOT_PASSWORD	MinIO 灾备存储管理员密码，默认 admin123；已有配置保留
+MINIO_ROOT_USER	RustFS 对象存储（主）管理员用户名
+MINIO_ROOT_PASSWORD	RustFS 对象存储（主）管理员密码，默认 admin123；已有配置保留
+MINIO_DR_ROOT_USER	RustFS 对象存储（灾备）管理员用户名
+MINIO_DR_ROOT_PASSWORD	RustFS 对象存储（灾备）管理员密码，默认 admin123；已有配置保留
 EMQX_DASHBOARD_USER	EMQX 管理页面用户名
 EMQX_DASHBOARD_PASSWORD	EMQX 管理页面密码，默认 admin123；已有配置保留
 GRAFANA_ADMIN_USER	Grafana 管理员用户名
@@ -26,9 +26,9 @@ IOT_POSTGRES_DSN	Go API 访问 PostgreSQL 的连接地址
 IOT_REDIS_ADDR	Go API 访问 Redis 的地址
 IOT_REDIS_PASSWORD	Go API 访问 Redis 的密码
 IOT_CLICKHOUSE_URL	Go API 访问 ClickHouse 的地址
-IOT_MINIO_ENDPOINT	Go API 访问 MinIO 的地址
-IOT_MINIO_ACCESS_KEY	Go API 访问 MinIO 的用户名
-IOT_MINIO_SECRET_KEY	Go API 访问 MinIO 的密码
+IOT_MINIO_ENDPOINT	Go API 访问对象存储（RustFS，S3 兼容）的地址
+IOT_MINIO_ACCESS_KEY	Go API 访问对象存储（RustFS，S3 兼容）的用户名
+IOT_MINIO_SECRET_KEY	Go API 访问对象存储（RustFS，S3 兼容）的密码
 IOT_KAFKA_BROKERS	Go API 访问 Kafka 的地址，多个值用逗号分隔
 IOT_MQTT_BROKER	Go API 访问 MQTT 的 TCP 地址
 IOT_MQTT_WEBSOCKET_PUBLIC_URL	浏览器访问 MQTT WebSocket 的公开地址
@@ -146,10 +146,10 @@ IOT_POSTGRES_IMAGE	包含固定pgvector扩展的PostgreSQL17镜像
 IOT_BACKUP_HARNESS_DATA_DIR	可选 Harness 只读数据目录回退，仅包含 Agent 清单及会话
 IOT_BACKUP_HARNESS_SNAPSHOT_URLS	全部 Harness 实例的快照 endpoint，逗号分隔，使用服务端 Harness 令牌
 IOT_BACKUP_RESTORE_HARNESS_DIR	独立Agent恢复目录，每次恢复创建新目录，不能指向运行目录
-IOT_BACKUP_RESTORE_MINIO_ENDPOINT	知识原件恢复使用的独立MinIO灾备服务地址
-IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY	独立MinIO灾备恢复访问账号，仅服务端使用
-IOT_BACKUP_RESTORE_MINIO_SECRET_KEY	独立MinIO灾备恢复密钥，仅服务端使用
-IOT_BACKUP_RESTORE_MINIO_USE_TLS	独立MinIO灾备恢复服务是否使用TLS
+IOT_BACKUP_RESTORE_MINIO_ENDPOINT	知识原件恢复使用的独立对象存储（RustFS）灾备服务地址
+IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY	独立对象存储（RustFS）灾备恢复访问账号，仅服务端使用
+IOT_BACKUP_RESTORE_MINIO_SECRET_KEY	独立对象存储（RustFS）灾备恢复密钥，仅服务端使用
+IOT_BACKUP_RESTORE_MINIO_USE_TLS	独立对象存储（RustFS）灾备恢复服务是否使用TLS
 SERVICE_ADMIN_USER	PostgreSQL、Redis、ClickHouse 工具连接用户名，默认 admin，保留原应用账号
 SERVICE_ADMIN_PASSWORD	基础服务工具连接密码，默认 admin123，已有配置保留
 IOT_MQTT_TOOL_USERNAME	MQTT 工具连接用户名，默认 admin
@@ -164,7 +164,7 @@ IOT_KAFKA_ADVERTISED_HOST	Kafka 外部监听器公告主机，填写工具可访
 IOT_KAFKA_PUBLIC_BROKERS	外部工具可访问的 Kafka 地址，逗号分隔 host:port
 KAFKA_BIND_ADDRESS	Kafka 外部监听绑定地址，默认仅本机 127.0.0.1；对外提供 Kafka 订阅时设为 0.0.0.0
 EMQX_DASHBOARD_BIND_ADDRESS	EMQX 控制台绑定地址，默认仅本机 127.0.0.1
-MINIO_CONSOLE_BIND_ADDRESS	MinIO 控制台绑定地址，默认仅本机 127.0.0.1
+MINIO_CONSOLE_BIND_ADDRESS	RustFS 控制台绑定地址，默认仅本机 127.0.0.1
 GRAFANA_BIND_ADDRESS	Grafana 绑定地址，默认仅本机 127.0.0.1
 IOT_RETENTION_ENABLED	是否每日清理超过保留期的历史数据，默认 true
 IOT_RETENTION_TIME	每日清理时间（HH:MM），默认 03:30

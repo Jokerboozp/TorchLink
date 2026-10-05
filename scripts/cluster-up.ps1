@@ -10,7 +10,7 @@
 #
 # The wizard asks for the node count and addresses, the SSH user (root by
 # default), whether all nodes share one SSH password or each has its own, the
-# unified service password (databases, Redis, ClickHouse, MinIO, EMQX console,
+# unified service password (databases, Redis, ClickHouse, RustFS, EMQX console,
 # platform administrator) and the video module. Passwords stay in memory: SSH
 # passwords are used once to install a deployment key (.cluster\<name>\deploy_key).
 # Unattended: -Nodes IP,IP,IP plus TORCHLINK_SSH_PASSWORD and
@@ -158,7 +158,7 @@ $servicePassword = $env:TORCHLINK_SERVICE_PASSWORD
 $deepseekKey = ""
 if (-not (Test-Path $Secrets) -and -not $DryRun -and $interactive) {
     if (-not $servicePassword) {
-        Write-Output "服务统一密码用于 PostgreSQL、Redis、ClickHouse、MinIO、MQTT、Kafka、EMQX 控制台和平台管理员 admin；至少 8 位，只能包含字母、数字和 . _ ~ -"
+        Write-Output "服务统一密码用于 PostgreSQL、Redis、ClickHouse、RustFS、MQTT、Kafka、EMQX 控制台和平台管理员 admin；至少 8 位，只能包含字母、数字和 . _ ~ -"
         while ($true) {
             $servicePassword = Ask-Secret "服务统一密码（直接回车使用 admin123，内部令牌独立随机）"
             if (-not $servicePassword) { break }
@@ -238,10 +238,6 @@ if (-not $Images -and -not $NoBuild) {
     foreach ($i in $imageList) {
         if ($i.Key -eq 'postgres' -and $i.Image -like 'iot-platform-postgres-ha:*') {
             Invoke-Native @('docker', 'build', '--pull', '-t', $i.Image, '-f', (Join-Path $projectRoot 'deploy/postgres/Dockerfile.spilo'), (Join-Path $projectRoot 'deploy/postgres'))
-            continue
-        }
-        if ($i.Key -eq 'minio' -and $i.Image -like 'iot-platform-minio:*') {
-            Invoke-Native @('docker', 'build', '--pull', '-t', $i.Image, (Join-Path $projectRoot 'deploy/minio'))
             continue
         }
         if (-not $envNames.ContainsKey($i.Key) -or $i.Image -like "*@sha256:*") { continue }
@@ -355,19 +351,21 @@ echo "busy=$busy"
 $checkB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($nodeCheck))
 $problems = @()
 $upgradeNodes = @()
-$localNow = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 foreach ($line in $plan | Where-Object { $_ -match '^ports ' }) {
     $f = $line -split ' '
     $node, $address, $ports = $f[1], $f[2], ($f[3..($f.Length - 1)] -join ' ')
     if ($DryRun) { Write-Output "DRY-RUN ssh $SshUser@$address (docker, compose, disk, clock, ports)"; continue }
+    # The node's clock is compared with this machine's time around its own check.
+    $checkStart = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     $r = Invoke-Remote $address "echo $checkB64 | base64 -d | sh -s -- $name $ports"
+    $checkEnd = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     if (-not $r.Ok) { $problems += "${node} (${address}): SSH failed as $SshUser — $($r.Output.Trim())"; continue }
     $v = @{}
     foreach ($l in ($r.Output -split "`n")) { if ($l -match '^(\w+)=(.*)$') { $v[$Matches[1]] = $Matches[2].Trim() } }
     if ($v["docker"] -eq "unusable") { $problems += "${node}: Docker is not installed or $SshUser cannot use it without sudo (add the user to the docker group)" }
     if ($v["compose"] -eq "missing") { $problems += "${node}: Docker Compose v2 plugin is missing" }
     if ($v["disk"] -and [int]$v["disk"] -lt 20) { $problems += "${node}: only $($v["disk"])GiB free for Docker (need at least 20GiB)" }
-    if ($v["clock"] -and [math]::Abs([long]$v["clock"] - $localNow) -gt 5) { $problems += "${node}: clock differs from this machine by more than 5s; enable NTP/chrony on all nodes" }
+    if ($v["clock"] -and ([long]$v["clock"] -lt $checkStart - 5 -or [long]$v["clock"] -gt $checkEnd + 5)) { $problems += "${node}: clock differs from this machine by more than 5s; enable NTP/chrony on all nodes" }
     if ($v["running"] -and [int]$v["running"] -gt 0) { $upgradeNodes += $node }
     elseif ($v["busy"]) { $problems += "${node}: ports already in use by other programs: $($v["busy"])" }
 }
@@ -384,7 +382,7 @@ foreach ($line in $plan | Where-Object { $_ -match '^images ' }) {
     $f = $line -split ' '
     $node, $address, $imgs = $f[1], $f[2], @($f[3..($f.Length - 1)])
     if ($DryRun) { Write-Output "DRY-RUN docker save <missing of $($imgs.Count)> | ssh $address docker load"; continue }
-    $r = Invoke-Remote $address ("for i in " + ($imgs -join ' ') + "; do docker image inspect -f '{{.Id}}' `"`$i`" 2>/dev/null || echo missing; done")
+    $r = Invoke-Remote $address ("for i in " + ($imgs -join ' ') + "; do id=`$(docker image inspect -f '{{.Id}}' `"`$i`" 2>/dev/null | head -n 1); echo `"`${id:-missing}`"; done")
     $remoteIds = @($r.Output -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
     $send = @()
     for ($k = 0; $k -lt $imgs.Count; $k++) {

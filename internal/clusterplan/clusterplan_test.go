@@ -348,14 +348,13 @@ func TestValidationRejectsUnsafeLayouts(t *testing.T) {
 		"odd number":                                  func(i *Inventory) { i.Etcd.Nodes = []string{"n1", "n2"} },
 		"hosts two clickhouse replicas":               func(i *Inventory) { i.ClickHouse.Shards[1] = []string{"n1", "n3"} },
 		"connection budget":                           func(i *Inventory) { i.Postgres.MaxConnections = 150 },
-		"unknown node":                                func(i *Inventory) { i.MinIO.Node = "n9" },
+		"unknown node":                                func(i *Inventory) { i.RustFS.Node = "n9" },
 		"secrets come from the secrets file":          func(i *Inventory) { i.Env["IOT_JWT_SECRET"] = "x" },
 		"needs at least one node":                     func(i *Inventory) { delete(i.Platform.Roles, "processor") },
 		"unknown platform role":                       func(i *Inventory) { i.Platform.Roles["unknown"] = RoleSpec{Nodes: []string{"n3", "n4"}, PoolMax: 4} },
-		"at least 3 nodes and 4 drives":               func(i *Inventory) { i.MinIO = MinIOSpec{PoolSpec: PoolSpec{Nodes: []string{"n1", "n2", "n3"}}} },
-		"not both":                                    func(i *Inventory) { i.Video.Nodes = []string{"n3", "n4"} },
-		"monitoring.nodes needs at least 2":           func(i *Inventory) { i.Monitoring = PoolSpec{Nodes: []string{"n4"}} },
-		"drivesPerNode applies to minio.nodes":        func(i *Inventory) { i.MinIO.DrivesPerNode = 2 },
+		"distributed rustfs needs at least 4 nodes":   func(i *Inventory) { i.RustFS = PoolSpec{Nodes: []string{"n1", "n2", "n3"}} },
+		"not both":                          func(i *Inventory) { i.Video.Nodes = []string{"n3", "n4"} },
+		"monitoring.nodes needs at least 2": func(i *Inventory) { i.Monitoring = PoolSpec{Nodes: []string{"n4"}} },
 	}
 	for want, mutate := range cases {
 		inv := example(t)
@@ -994,13 +993,13 @@ func TestClusterRendersAlertingAndEntryTLS(t *testing.T) {
 	}
 }
 
-// MinIO, Prometheus with Alertmanager and the media servers can each run on
-// several nodes: distributed MinIO behind the local load balancers,
+// RustFS, Prometheus with Alertmanager and the media servers can each run on
+// several nodes: distributed RustFS behind the local load balancers,
 // independent Prometheus replicas feeding one Alertmanager cluster, and
 // standby media servers the live module and the HLS proxy fail over to.
 func TestHighAvailabilityPlacementsRender(t *testing.T) {
 	inv := example(t)
-	inv.MinIO = MinIOSpec{PoolSpec: PoolSpec{Nodes: []string{"n1", "n2", "n3", "n4"}}}
+	inv.RustFS = PoolSpec{Nodes: []string{"n1", "n2", "n3", "n4"}}
 	inv.Monitoring = PoolSpec{Nodes: []string{"n3", "n4"}}
 	inv.Video = PoolSpec{Nodes: []string{"n4", "n3"}}
 	files, err := Render(inv, testSecrets())
@@ -1009,7 +1008,7 @@ func TestHighAvailabilityPlacementsRender(t *testing.T) {
 	}
 	n3 := string(files["n3/compose.yaml"])
 	for _, want := range []string{
-		"- http://10.0.0.11:9002/data1", "- http://10.0.0.14:9002/data1", "minio-data1:/data1",
+		"RUSTFS_VOLUMES: http://rustfs{1...4}:9002/data", "- rustfs1:10.0.0.11", "- rustfs4:10.0.0.14", "rustfs-data:/data",
 		"--cluster.peer=10.0.0.14:9094", "--cluster.advertise-address=10.0.0.13:9094",
 		"IOT_VIDEO_MEDIA_SERVER_ID: iot-cluster-media-2",
 	} {
@@ -1050,7 +1049,7 @@ func TestHighAvailabilityPlacementsRender(t *testing.T) {
 		t.Fatalf("prometheus config does not parse as intended: %+v %v", parsed, err)
 	}
 	lb := string(files["n2/lb/haproxy.cfg"])
-	for _, want := range []string{"bind 127.0.0.1:18183", "server minio-n4 10.0.0.14:9002", "GET /minio/health/live", "bind 127.0.0.1:18190", "bind 127.0.0.1:18180", "balance first", "server video-n4 10.0.0.14:80\n  server video-n3 10.0.0.13:80"} {
+	for _, want := range []string{"bind 127.0.0.1:18183", "server rustfs-n4 10.0.0.14:9002", "option httpchk GET /health", "bind 127.0.0.1:18190", "bind 127.0.0.1:18180", "balance first", "server video-n4 10.0.0.14:80\n  server video-n3 10.0.0.13:80"} {
 		if !strings.Contains(lb, want) {
 			t.Fatalf("haproxy lacks %q:\n%s", want, lb)
 		}

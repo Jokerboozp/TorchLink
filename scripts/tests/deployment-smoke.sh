@@ -400,8 +400,7 @@ remote_compose="$test_root/remote-compose.yaml"
 grep -q 'host_ip: 0.0.0.0' "$remote_compose"
 grep -q 'external://192.168.24.133:19092' "$remote_compose"
 grep -q 'image: iot-platform-postgres:17-pgvector-0.8.1' "$remote_compose"
-grep -q 'image: iot-platform-minio:local' "$remote_compose"
-grep -q 'context: .*/deploy/minio' "$remote_compose"
+grep -q 'image: rustfs/rustfs:1.0.1' "$remote_compose"
 grep -q 'IOT_HARNESS_MCP_ALLOWED_ORIGINS: http://192.168.24.1:8081' "$remote_compose"
 if grep -q '^  backup-service:' "$remote_compose"; then echo 'Local default Compose unexpectedly includes backup-service' >&2; exit 1; fi
 backup_compose="$test_root/remote-backup-compose.yaml"
@@ -485,7 +484,7 @@ done
 for key in IOT_JWT_SECRET IOT_AI_HARNESS_TOKEN IOT_BACKUP_ADMIN_TOKEN; do
   grep -Eq "^$key=[a-f0-9]{64}$" "$test_root/.env.online"
 done
-assert_call 'build --pull platform-api platform-web backup-service minio postgres deepseek-harness embedding reranker'
+assert_call 'build --pull platform-api platform-web backup-service postgres deepseek-harness embedding reranker'
 assert_no_call ' pull [^|]*embedding'
 grep -q '^IOT_EMBEDDING_URL=http://embedding:8080/v1$' "$test_root/.env.online"
 grep -q '^IOT_EMBEDDING_MODEL=bge-m3$' "$test_root/.env.online"
@@ -534,8 +533,8 @@ grep -q '"knowledgeStore": "postgres-pgvector"' "$bundle/manifest.json"
 grep -q 'iot-platform-postgres:17-pgvector-0.8.1' "$bundle/manifest.json"
 [ ! -e "$bundle/embedding-models.tgz" ]
 grep -q '"arch": "x86_64"' "$bundle/manifest.json"
-grep -q 'iot-platform-minio:RELEASE.2025-09-07T16-13-09Z' "$bundle/manifest.json"
-assert_call 'build --pull platform-api platform-web backup-service minio postgres'
+grep -q 'rustfs/rustfs:1.0.1' "$bundle/manifest.json"
+assert_call 'build --pull platform-api platform-web backup-service postgres'
 if grep -qx 'llm' "$bundle/profiles.txt"; then echo 'Default bundle includes the private LLM' >&2; exit 1; fi
 grep -q '^IOT_AI_PROVIDER=deepseek$' "$bundle/.env.offline"
 grep -q '^IOT_AI_MODEL=deepseek-flash$' "$bundle/.env.offline"
@@ -653,7 +652,7 @@ assert_no_call 'build --pull .*zlmediakit'
 : > "$TEST_CALLS"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-video" --video on > /dev/null
 profiles_are "$test_root/.env.online-video" clickhouse,ops,video
-assert_call 'build --pull platform-api platform-web backup-service minio postgres deepseek-harness embedding reranker zlmediakit'
+assert_call 'build --pull platform-api platform-web backup-service postgres deepseek-harness embedding reranker zlmediakit'
 assert_no_call ' pull .*zlmediakit'
 "$TEST_COMPOSE" --env-file "$test_root/.env.online-video" -f "$scripts/../compose.yaml" config > "$test_root/video-online.yaml"
 grep -q 'published: "5060"' "$test_root/video-online.yaml"

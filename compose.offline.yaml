@@ -28,12 +28,3 @@ services:
   # 可选摄像头直播媒体服务；仅在离线包包含视频组件且启用 profile "video" 时使用。
   zlmediakit:
     image: iot-zlmediakit:offline
-
-  # Build from checksum-pinned official binaries; upstream registry pulls fail.
-  minio:
-    image: iot-platform-minio:RELEASE.2025-09-07T16-13-09Z
-    build:
-      context: ./deploy/minio
-
-  minio-dr:
-    image: iot-platform-minio:RELEASE.2025-09-07T16-13-09Z

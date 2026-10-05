@@ -68,19 +68,19 @@ jobs:
         # Public release archives are created after removing private credentials.
         run: bash scripts/package-offline.sh --output-dir offline-bundles --target-os generic --skip-bundle-archive
 
-      - name: 验证 MinIO 运行与现有健康检查
+      - name: 验证 RustFS 运行与健康检查
         run: |
-          export MINIO_ROOT_USER=ci-validation
-          export MINIO_ROOT_PASSWORD="$(openssl rand -hex 32)"
-          trap 'docker rm -f minio-package-check > /dev/null 2>&1 || true' EXIT
-          docker run -d --name minio-package-check \
-            --env MINIO_ROOT_USER --env MINIO_ROOT_PASSWORD \
-            iot-platform-minio:RELEASE.2025-09-07T16-13-09Z server /data
+          export RUSTFS_ACCESS_KEY=ci-validation
+          export RUSTFS_SECRET_KEY="$(openssl rand -hex 32)"
+          trap 'docker rm -f rustfs-package-check > /dev/null 2>&1 || true' EXIT
+          docker run -d --name rustfs-package-check \
+            --env RUSTFS_ACCESS_KEY --env RUSTFS_SECRET_KEY \
+            rustfs/rustfs:1.0.1
           for attempt in $(seq 1 30); do
-            if docker exec minio-package-check mc ready local; then exit 0; fi
+            if docker exec rustfs-package-check curl -fsS http://127.0.0.1:9000/health > /dev/null; then exit 0; fi
             sleep 2
           done
-          echo 'MinIO readiness check failed' >&2
+          echo 'RustFS readiness check failed' >&2
           exit 1
 
       - name: 准备公开下载与分卷校验

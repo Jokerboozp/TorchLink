@@ -11,7 +11,7 @@
 #
 # The wizard asks for the node count and addresses, the SSH user (root by
 # default), whether all nodes share one SSH password or each has its own, the
-# unified service password (databases, Redis, ClickHouse, MinIO, EMQX console,
+# unified service password (databases, Redis, ClickHouse, RustFS, EMQX console,
 # platform administrator) and the optional modules. Passwords are only kept in
 # memory: SSH passwords are used once to install a deployment key
 # (.cluster/<name>/deploy_key); later runs log in with that key.
@@ -211,7 +211,7 @@ service_password="${TORCHLINK_SERVICE_PASSWORD:-}"
 deepseek_key=""
 if [ ! -f "$secrets" ] && [ "$dry_run" = 0 ] && [ "$interactive" = 1 ]; then
   if [ -z "$service_password" ]; then
-    echo "服务统一密码用于 PostgreSQL、Redis、ClickHouse、MinIO、MQTT、Kafka、EMQX 控制台和平台管理员 admin；至少 8 位，只能包含字母、数字和 . _ ~ -" >&2
+    echo "服务统一密码用于 PostgreSQL、Redis、ClickHouse、RustFS、MQTT、Kafka、EMQX 控制台和平台管理员 admin；至少 8 位，只能包含字母、数字和 . _ ~ -" >&2
     while :; do
       ask_secret service_password "服务统一密码（直接回车使用 admin123，内部令牌独立随机）"
       [ -z "$service_password" ] && break
@@ -280,10 +280,6 @@ if [ -z "$images_tar" ] && [ "$build" = 1 ]; then
   while read -r key image; do
     if [ "$key" = postgres ] && [[ "$image" == iot-platform-postgres-ha:* ]]; then
       run docker build --pull -t "$image" -f "$project_root/deploy/postgres/Dockerfile.spilo" "$project_root/deploy/postgres"
-      continue
-    fi
-    if [ "$key" = minio ] && [[ "$image" == iot-platform-minio:* ]]; then
-      run docker build --pull -t "$image" "$project_root/deploy/minio"
       continue
     fi
     case "$own_keys" in *" $key "*) ;; *) continue;; esac
@@ -374,11 +370,13 @@ remote_dir="/opt/$name"
 # 3. Node preflight: collect every problem before changing anything.
 say "checking nodes"
 problems=() upgrade_nodes=()
-local_now="$(date +%s)"
 while read -r kind node address rest; do
   [ "$kind" = ports ] || continue
   ports="$rest"
   if [ "$dry_run" = 1 ]; then printf 'DRY-RUN ssh %s@%s (docker, compose, disk, clock, ports)\n' "$ssh_user" "$address"; continue; fi
+  # The node's clock is compared with this machine's time around its own
+  # check, not one taken before checking every node in turn.
+  check_start="$(date +%s)"
   # shellcheck disable=SC2086
   if ! out="$(remote "$address" sh -s -- "$name" $ports 2>&1 <<'NODE_CHECK'
 project="$1"; shift
@@ -404,7 +402,8 @@ NODE_CHECK
   [ "$(value compose)" = missing ] && problems+=("$node: Docker Compose v2 plugin is missing")
   disk="$(value disk)"
   if [ -n "$disk" ] && [ "$disk" -lt 20 ]; then problems+=("$node: only ${disk}GiB free for Docker (need at least 20GiB)"); fi
-  clock="$(value clock)"; skew=$(( ${clock:-$local_now} - local_now )); skew=${skew#-}
+  check_end="$(date +%s)"; clock="$(value clock)"; clock="${clock:-$check_start}"; skew=0
+  if [ "$clock" -lt "$check_start" ]; then skew=$((check_start - clock)); elif [ "$clock" -gt "$check_end" ]; then skew=$((clock - check_end)); fi
   if [ "$skew" -gt 5 ]; then problems+=("$node: clock differs from this machine by ${skew}s; enable NTP/chrony on all nodes"); fi
   running="$(value running | tr -d ' ')"
   if [ "${running:-0}" -gt 0 ]; then
@@ -434,7 +433,9 @@ while read -r kind node address list; do
   # shellcheck disable=SC2206
   imgs=($list)
   if [ "$dry_run" = 1 ]; then printf 'DRY-RUN docker save <missing of %s> | gzip | ssh %s docker load\n' "${#imgs[@]}" "$address"; continue; fi
-  remote_ids="$(remote "$address" "for i in ${imgs[*]}; do docker image inspect -f '{{.Id}}' \"\$i\" 2>/dev/null || echo missing; done" < /dev/null)"
+  # Exactly one line per image: recent Docker prints an empty line for a
+  # missing image before failing.
+  remote_ids="$(remote "$address" "for i in ${imgs[*]}; do id=\$(docker image inspect -f '{{.Id}}' \"\$i\" 2>/dev/null | head -n 1); echo \"\${id:-missing}\"; done" < /dev/null)"
   send=() i=0
   while read -r rid; do
     [ "$rid" = "$(docker image inspect -f '{{.Id}}' "${imgs[$i]}")" ] || send+=("${imgs[$i]}")

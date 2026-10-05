@@ -23,7 +23,7 @@ images:
   redis: redis:7.4-alpine
   clickhouse: clickhouse/clickhouse-server:25.7-alpine
   keeper: clickhouse/clickhouse-keeper:25.7-alpine
-  minio: iot-platform-minio:RELEASE.2025-09-07T16-13-09Z   # built by cluster-up from deploy/minio
+  rustfs: rustfs/rustfs:1.0.1
   prometheus: prom/prometheus:v3.5.0
   alertmanager: prom/alertmanager:v0.34.1
   nodeExporter: prom/node-exporter:v1.12.1
@@ -45,10 +45,10 @@ clickhouse:
   shards: [[n1, n2], [n3, n4]]
   keeper: [n2, n3, n4]
   insertQuorum: "2"
-minio: {node: n4}
-# High availability: distributed MinIO needs >= 3 nodes and >= 4 drives in total, e.g.
-#   minio: {nodes: [n1, n2, n3, n4], drivesPerNode: 1}
-# It starts with empty drives; mirror an existing single server's buckets first (mc mirror).
+rustfs: {node: n4}               # object storage (S3, RustFS)
+# High availability: distributed RustFS needs >= 4 nodes, one data directory each:
+#   rustfs: {nodes: [n1, n2, n3, n4]}
+# It starts empty; copy an existing single server's buckets first (e.g. rclone sync).
 harness: {nodes: [n2, n3]}
 video: {node: n4}                # standby media servers: video: {nodes: [n4, n3]} (first = primary)
 backup: {node: n4}

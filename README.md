@@ -80,7 +80,7 @@ go run ./cmd/backup-service --env-file .env.local
                                                    管理端 / AI 工作流
 ```
 
-PostgreSQL 保存业务数据和索引，ClickHouse 按配置承载原文及遥测；Redis 提供缓存，Kafka / Redpanda 承载内部消息，EMQX 负责 MQTT。MinIO 保存知识原件和备份制品，外部 API 提供对话与推理，随平台部署的 embedding / reranker 服务提供向量计算与重排；PostgreSQL + pgvector 提供持久知识检索，Harness 保留自定义 Agent 与业务工作流。
+PostgreSQL 保存业务数据和索引，ClickHouse 按配置承载原文及遥测；Redis 提供缓存，Kafka / Redpanda 承载内部消息，EMQX 负责 MQTT。RustFS 保存知识原件和备份制品，外部 API 提供对话与推理，随平台部署的 embedding / reranker 服务提供向量计算与重排；PostgreSQL + pgvector 提供持久知识检索，Harness 保留自定义 Agent 与业务工作流。
 
 默认 `combined` 进程可拆分为 `api`、`gateway`、`parser`、`processor`、`jobs`，按角色分配资源；集群工具校验故障域、端口和连接预算，生成各节点配置并部署。默认 Compose 为单节点，集群示例也有单实例组件，具体见 [进程职责](docs/DEPLOYMENT.md#进程职责) 与 [高可用边界](docs/DEPLOYMENT.md#高可用边界)。工具可用不代表目标集群已经通过容量或故障切换验收。
 

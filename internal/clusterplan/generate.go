@@ -18,7 +18,7 @@ func DefaultImages() Images {
 		Redpanda: "redpandadata/redpanda:v25.2.11", EMQX: "emqx/emqx:5.8.8", Etcd: "quay.io/coreos/etcd:v3.5.21",
 		Postgres: "iot-platform-postgres-ha:17-pgvector-0.8.1", Redis: "redis:7.4-alpine",
 		ClickHouse: "clickhouse/clickhouse-server:25.7-alpine", Keeper: "clickhouse/clickhouse-keeper:25.7-alpine",
-		MinIO: "iot-platform-minio:RELEASE.2025-09-07T16-13-09Z", Prometheus: "prom/prometheus:v3.5.0", Alertmanager: "prom/alertmanager:v0.34.1",
+		RustFS: "rustfs/rustfs:1.0.1", Prometheus: "prom/prometheus:v3.5.0", Alertmanager: "prom/alertmanager:v0.34.1",
 		NodeExporter: "prom/node-exporter:v1.12.1", LB: "haproxy:3.0-alpine", LocalAI: "iot-local-ai:offline",
 	}
 }
@@ -78,7 +78,7 @@ func GenerateInventory(o GenerateOptions) (*Inventory, error) {
 	default:
 		inv.ClickHouse = ClickHouseSpec{Shards: [][]string{names[0:3], names[3:6]}, Keeper: span(n-3, 3)}
 	}
-	inv.MinIO = MinIOSpec{PoolSpec: PoolSpec{Node: last}}
+	inv.RustFS = PoolSpec{Node: last}
 	inv.Backup = SingleSpec{Node: last}
 	inv.Monitoring = PoolSpec{Node: last}
 	if o.Video {

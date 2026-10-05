@@ -229,8 +229,8 @@ function New-OfflineEnv {
         [void]$credentialLines.Add("PostgreSQL 密码：$postgresPassword")
         [void]$credentialLines.Add("Redis 密码：$redisPassword")
         [void]$credentialLines.Add("ClickHouse 密码：$clickhousePassword")
-        [void]$credentialLines.Add("MinIO 主密码：$minioPassword")
-        [void]$credentialLines.Add("MinIO 灾备密码：$minioDrPassword")
+        [void]$credentialLines.Add("RustFS（对象存储）主密码：$minioPassword")
+        [void]$credentialLines.Add("RustFS（对象存储）灾备密码：$minioDrPassword")
     }
 
     $imageValues = [ordered]@{
@@ -352,13 +352,13 @@ $bundleHashPartial = $null
 try {
     Invoke-Checked -Arguments ($composeBase + $profileArguments.ToArray() + @("config", "--quiet"))
     $pullServices = @(
-        "postgres-wal-init", "redis",
+        "postgres-wal-init", "redis", "rustfs",
         "redpanda", "redpanda-init", "clickhouse", "emqx", "prometheus",
         "grafana", "loki", "ops-init", "alertmanager",
         "alloy", "node-exporter"
     )
     Invoke-Checked -Arguments ($composeBase + @("--profile", "ops", "--profile", "clickhouse", "pull") + $pullServices)
-    Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "platform-api", "platform-web", "backup-service", "minio", "postgres"))
+    Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "platform-api", "platform-web", "backup-service", "postgres"))
     # Knowledge embedding / rerank image with its models, built for this machine's architecture.
     Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "embedding"))
     if (-not $WithoutVideo) { Invoke-Checked -Arguments ($composeBase + @("--profile", "video", "build", "--pull", "zlmediakit")) }

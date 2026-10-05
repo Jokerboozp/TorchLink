@@ -65,7 +65,7 @@ services:
       IOT_RETENTION_TELEMETRY_DAYS: ${IOT_RETENTION_TELEMETRY_DAYS:-}
       IOT_RETENTION_CLICKHOUSE_RAW_DAYS: ${IOT_RETENTION_CLICKHOUSE_RAW_DAYS:-}
       IOT_MODBUS_ALLOWED_CIDRS: ${IOT_MODBUS_ALLOWED_CIDRS:-10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,127.0.0.0/8,fc00::/7,::1/128}
-      IOT_MINIO_ENDPOINT: minio:9000
+      IOT_MINIO_ENDPOINT: rustfs:9000
       IOT_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
       IOT_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-admin123}
       IOT_KAFKA_BROKERS: redpanda:9092
@@ -162,7 +162,7 @@ services:
       postgres: {condition: service_healthy}
       postgres-tool-admin: {condition: service_completed_successfully}
       redis: {condition: service_healthy}
-      minio: {condition: service_healthy}
+      rustfs: {condition: service_healthy}
       redpanda: {condition: service_healthy}
       redpanda-init: {condition: service_completed_successfully}
       # ClickHouse is optional (profile "clickhouse"); without it the platform
@@ -350,35 +350,36 @@ services:
       timeout: 5s
       retries: 10
 
-  minio:
+  # S3 兼容对象存储 RustFS：备份制品、知识原件、平面图、告警附件。平台的
+  # IOT_MINIO_* 与凭据变量 MINIO_ROOT_* 沿用原名。
+  rustfs:
     <<: *service-defaults
-    # Built from checksum-pinned official binaries (deploy/minio); the
-    # upstream registry images are no longer public.
-    image: iot-platform-minio:RELEASE.2025-09-07T16-13-09Z
-    build:
-      context: ./deploy/minio
-    command: server /data --console-address :9001
+    image: ${IOT_RUSTFS_IMAGE:-rustfs/rustfs:1.0.1}
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-admin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-admin123}
+      RUSTFS_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
+      RUSTFS_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-admin123}
+      RUSTFS_ADDRESS: :9000
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_CONSOLE_ADDRESS: :9001
     ports: ["${MINIO_CONSOLE_BIND_ADDRESS:-127.0.0.1}:${MINIO_CONSOLE_PORT:-9001}:9001"]
-    volumes: ["minio-data:/data"]
+    volumes: ["rustfs-data:/data"]
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
       interval: 10s
       timeout: 5s
       retries: 10
 
-  minio-dr:
+  # 恢复演练用的独立对象存储，不是异地副本。
+  rustfs-dr:
     <<: *service-defaults
-    image: iot-platform-minio:RELEASE.2025-09-07T16-13-09Z
-    command: server /data
+    image: ${IOT_RUSTFS_IMAGE:-rustfs/rustfs:1.0.1}
     environment:
-      MINIO_ROOT_USER: ${MINIO_DR_ROOT_USER:-admin}
-      MINIO_ROOT_PASSWORD: ${MINIO_DR_ROOT_PASSWORD:-admin123}
-    volumes: ["minio-dr-data:/data"]
+      RUSTFS_ACCESS_KEY: ${MINIO_DR_ROOT_USER:-admin}
+      RUSTFS_SECRET_KEY: ${MINIO_DR_ROOT_PASSWORD:-admin123}
+      RUSTFS_ADDRESS: :9000
+    volumes: ["rustfs-dr-data:/data"]
     healthcheck:
-      test: ["CMD", "mc", "ready", "local"]
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/health"]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -626,7 +627,7 @@ services:
       IOT_BACKUP_HTTP_ADDR: :8090
       IOT_BACKUP_DIR: /app/data/backups
       IOT_POSTGRES_DSN: postgres://iot:${POSTGRES_PASSWORD:-admin123}@postgres:5432/iot?sslmode=disable
-      IOT_MINIO_ENDPOINT: minio:9000
+      IOT_MINIO_ENDPOINT: rustfs:9000
       IOT_MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
       IOT_MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-admin123}
       IOT_CLICKHOUSE_URL: ${IOT_CLICKHOUSE_URL-http://iot:${CLICKHOUSE_PASSWORD:-admin123}@clickhouse:8123?database=iot}
@@ -648,7 +649,7 @@ services:
       IOT_BACKUP_HARNESS_SNAPSHOT_URLS: http://deepseek-harness:8091/v1/backup/snapshot
       IOT_AI_HARNESS_TOKEN: ${IOT_AI_HARNESS_TOKEN:-local-harness-gateway-token-change-me-now}
       IOT_BACKUP_RESTORE_HARNESS_DIR: /app/data/backups/restored-harness
-      IOT_BACKUP_RESTORE_MINIO_ENDPOINT: minio-dr:9000
+      IOT_BACKUP_RESTORE_MINIO_ENDPOINT: rustfs-dr:9000
       IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY: ${MINIO_DR_ROOT_USER:-admin}
       IOT_BACKUP_RESTORE_MINIO_SECRET_KEY: ${MINIO_DR_ROOT_PASSWORD:-admin123}
     ports: ["127.0.0.1:${IOT_BACKUP_HTTP_PORT:-8092}:8090"]
@@ -991,8 +992,8 @@ volumes:
   protocol-runner-socket: {}
   postgres-data: {}
   redis-data: {}
-  minio-data: {}
-  minio-dr-data: {}
+  rustfs-data: {}
+  rustfs-dr-data: {}
   postgres-wal: {}
   redpanda-data: {}
   clickhouse-data: {}

@@ -28,6 +28,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/segmentio/kafka-go"
 
+	clickhouseadapter "iot-platform/internal/adapters/clickhouse"
 	kafkaadapter "iot-platform/internal/adapters/kafka"
 	"iot-platform/internal/adapters/postgres"
 	"iot-platform/internal/config"
@@ -262,6 +263,14 @@ func main() {
 		checks = append(checks, c)
 	}
 	if cfg.ClickHouseCluster != "" {
+		if *execute {
+			// Creates the database and the replicated and Distributed tables
+			// on every node (ON CLUSTER), as the platform would on start.
+			if _, err := clickhouseadapter.NewWithOptions(ctx, cfg.ClickHouseURL, nil, clickhouseadapter.Options{Cluster: cfg.ClickHouseCluster, InsertQuorum: cfg.ClickHouseInsertQuorum, TelemetryTTLDays: cfg.Retention.TelemetryDays, RawTTLDays: cfg.Retention.ClickRawDays}); err != nil {
+				checks = append(checks, check{Name: "clickhouse create tables", Detail: err.Error()})
+				ok = false
+			}
+		}
 		c := clickhouseTables(ctx, cfg.ClickHouseURL, cfg.ClickHouseCluster)
 		if !c.OK && !*execute {
 			c.Detail += " (tables are created by the first platform start or cmd/clickhouse-migrate)"
@@ -303,7 +312,26 @@ func bootstrapPostgres(ctx context.Context, adminDSN, password string) error {
 		return err
 	}
 	if !exists {
-		_, err = conn.Exec(ctx, `CREATE DATABASE iot OWNER iot`)
+		if _, err = conn.Exec(ctx, `CREATE DATABASE iot OWNER iot`); err != nil {
+			return err
+		}
 	}
-	return err
+	// pgvector is not a trusted extension, so the application role cannot
+	// create it; the superuser creates both extensions the schema uses.
+	appCfg, err := pgx.ParseConfig(adminDSN)
+	if err != nil {
+		return err
+	}
+	appCfg.Database = "iot"
+	db, err := pgx.ConnectConfig(ctx, appCfg)
+	if err != nil {
+		return err
+	}
+	defer db.Close(ctx)
+	for _, ext := range []string{"vector", "btree_gist"} {
+		if _, err = db.Exec(ctx, `CREATE EXTENSION IF NOT EXISTS `+ext+` WITH SCHEMA public`); err != nil {
+			return fmt.Errorf("create extension %s: %w", ext, err)
+		}
+	}
+	return nil
 }

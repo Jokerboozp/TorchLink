@@ -94,8 +94,7 @@ try {
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'platform-api') 'Local setup starts API container'
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'platform-web') 'Local setup starts Web container'
     Assert ($localModel.services.postgres.image -eq 'iot-platform-postgres:17-pgvector-0.8.1') 'Local PostgreSQL image lacks the pinned pgvector extension'
-    Assert ($localModel.services.minio.image -eq 'iot-platform-minio:local') 'Local MinIO still requires the unavailable public registry image'
-    Assert ($localModel.services.minio.build.context -match 'deploy[/\\]minio$') 'Local MinIO does not reuse the pinned binary build'
+    Assert ($localModel.services.rustfs.image -eq 'rustfs/rustfs:1.0.1') 'Local object storage is not the pinned RustFS image'
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'backup-service') 'Local default Compose includes backup-service'
     $localBackupModel = & $global:IotTest_composeParser --project-name iot-platform-local --env-file $localEnv -f (Join-Path $scripts '../compose.local.yaml') --profile backup config --format json | ConvertFrom-Json
     Assert ($LASTEXITCODE -eq 0) 'Local backup Compose model failed'
@@ -236,7 +235,7 @@ try {
         Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key $key) -eq 'admin') "Online tool username incorrect: $key"
     }
     Assert-CommentedEnv $onlineEnv
-    Assert (Contains-Call 'build --pull platform-api platform-web backup-service minio postgres deepseek-harness embedding reranker') 'Online omitted the Harness or knowledge model image build'
+    Assert (Contains-Call 'build --pull platform-api platform-web backup-service postgres deepseek-harness embedding reranker') 'Online omitted the Harness or knowledge model image build'
     Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_EMBEDDING_URL') -eq 'http://embedding:8080/v1') 'Online embedding service URL is missing'
     $onlineHash = (Get-FileHash $onlineEnv).Hash
     & (Join-Path $scripts 'deploy-online.ps1') -EnvFile $onlineEnv
@@ -314,8 +313,8 @@ try {
     Assert-CommentedEnv (Join-Path $bundle '.env.offline')
     $manifest = Get-Content (Join-Path $bundle 'manifest.json') -Raw | ConvertFrom-Json
     Assert ($manifest.images -contains 'iot-platform-backup:offline') 'Default bundle omitted backup image'
-    Assert ($manifest.images -contains 'iot-platform-minio:RELEASE.2025-09-07T16-13-09Z') 'Default bundle omitted the locally built MinIO image'
-    Assert (Contains-Call 'build --pull platform-api platform-web backup-service minio postgres') 'Offline packaging omitted the MinIO build'
+    Assert ($manifest.images -contains 'rustfs/rustfs:1.0.1') 'Default bundle omitted the RustFS image'
+    Assert (Contains-Call 'build --pull platform-api platform-web backup-service postgres') 'Offline packaging omitted the application image build'
     Assert ($manifest.images -contains 'iot-platform-postgres:17-pgvector-0.8.1') 'Bundle omitted pgvector PostgreSQL'
     Assert ($manifest.knowledgeStore -eq 'postgres-pgvector' -and $manifest.embeddingRequiresInternet) 'Knowledge architecture metadata missing'
     Assert (-not (Test-Path (Join-Path $bundle 'embedding-models.tgz'))) 'Bundle still contains model weights'

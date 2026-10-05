@@ -57,7 +57,7 @@ CREATE INDEX IF NOT EXISTS raw_archive_product_time_idx ON raw_archive_index(ten
 
 -- Low-frequency raw payloads stay in PostgreSQL during the day. The daily
 -- backup worker exports this table together with ClickHouse raw payloads to
--- one MinIO JSONL artifact.
+-- one object storage JSONL artifact.
 CREATE TABLE IF NOT EXISTS raw_message_log (
   tenant_id text NOT NULL, message_id text NOT NULL, product_id text NOT NULL,
   device_id text NOT NULL, protocol text, payload_format text,

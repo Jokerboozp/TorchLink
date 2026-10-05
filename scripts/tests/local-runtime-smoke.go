@@ -44,7 +44,7 @@ func run() error {
 	}
 	cfg := config.Load()
 	if cfg.PostgresDSN == "" || cfg.RedisAddr == "" || cfg.ClickHouseURL == "" || cfg.MinIOEndpoint == "" || len(cfg.KafkaBrokers) == 0 {
-		return fmt.Errorf("FAIL configuration must include PostgreSQL, Redis, ClickHouse, MinIO and Kafka")
+		return fmt.Errorf("FAIL configuration must include PostgreSQL, Redis, ClickHouse, object storage (RustFS) and Kafka")
 	}
 	id := fmt.Sprintf("iot_smoke_%d", time.Now().UnixNano())
 	checks := []struct {
@@ -119,7 +119,7 @@ func run() error {
 			}
 			return err
 		}},
-		{"MinIO object upload/download", func(ctx context.Context) error {
+		{"Object storage (RustFS) upload/download", func(ctx context.Context) error {
 			client, err := minio.New(cfg.MinIOEndpoint, &minio.Options{Creds: credentials.NewStaticV4(cfg.MinIOAccessKey, cfg.MinIOSecretKey, ""), Secure: cfg.MinIOUseTLS})
 			if err != nil {
 				return err

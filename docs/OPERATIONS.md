@@ -6,12 +6,12 @@
 
 | 类别 | 组件 | 说明 |
 | --- | --- | --- |
-| 核心（必装） | PostgreSQL + pgvector、Redis、Redpanda、EMQX、MinIO、platform-api 与协议运行器、platform-web、DeepSeek Harness、备份服务、ops-init | 接入、解析、告警、通知、AI 工作流和备份都依赖它们；Harness 按项目约定必装 |
+| 核心（必装） | PostgreSQL + pgvector、Redis、Redpanda、EMQX、RustFS、platform-api 与协议运行器、platform-web、DeepSeek Harness、备份服务、ops-init | 接入、解析、告警、通知、AI 工作流和备份都依赖它们；Harness 按项目约定必装 |
 | ClickHouse（默认部署） | ClickHouse | `--clickhouse off` 关闭后原文与遥测全部写 PostgreSQL，见 [ClickHouse](DEPLOYMENT.md#clickhouse)。高频接入或需要长期遥测查询时保留 |
 | 监控（默认部署） | Prometheus、Loki、Alloy、Grafana、Alertmanager、node-exporter | `--ops off` 关闭，见 [运维组件](DEPLOYMENT.md#运维组件)。关闭后没有死信、消费阻塞、通知失败等平台自身告警，正式环境建议保留，或把 `/metrics` 接入已有监控 |
 | 摄像头直播（默认部署） | ZLMediaKit | `--video off` 关闭，见 [摄像头部署](DEPLOYMENT.md#摄像头部署) |
 | 容量测试（正式部署默认关闭） | capacity | `--capacity on` 开启，见 [容量测试模块](DEPLOYMENT.md#容量测试模块) |
-| 恢复演练 | minio-dr | 仅供隔离恢复验证使用，不是异地副本；异地副本配置 `IOT_BACKUP_OFFSITE_*` |
+| 恢复演练 | rustfs-dr | 仅供隔离恢复验证使用，不是异地副本；异地副本配置 `IOT_BACKUP_OFFSITE_*` |
 
 **最小生产组合**：核心组件 + `--video off --capacity off`（设备少、上报频率低时可再加 `--clickhouse off`）；监控组件建议保留。单机组合不具备高可用，边界见 [高可用边界](DEPLOYMENT.md#高可用边界)。
 
@@ -28,6 +28,7 @@
 1. **备份**：备份中心执行“立即整库备份”并确认成功；离线环境同时保留旧离线包。
 2. **停旧任务进程**：多副本或拆分部署时，先停止或一起升级所有 Jobs 进程（`combined` / `jobs`）。新版本的数据库迁移可能改变表结构（例如按月分区），旧进程的保留任务不能在新结构上执行。
 3. **部署**：重跑原部署命令（`bash scripts/deploy-online.sh`，或 `bash scripts/deploy-offline.sh --bundle-dir <新离线包>`），不加模块参数时沿用上次的模块选择。
+   从使用 MinIO 的版本升级时，对象存储已改为 RustFS，部署后按 [从 MinIO 迁移](DEPLOYMENT.md#从-minio-迁移到-rustfs) 复制一次桶数据（旧数据卷保留）。
 4. **迁移**：API 启动时自动执行未完成的迁移，结果记在 `schema_migration`。大表的首次索引或分区准备耗时与数据量成正比，期间写入不中断，但 API 在迁移完成前不会就绪；多个进程同时启动时其余进程等待。迁移失败会使启动失败，修正原因后重启即可续跑，见 [数据库迁移](DEPLOYMENT.md#数据库迁移)。
 5. **验证**：`/health/ready` 通过；运维中心“死信”为空，消费者无积压；用测试设备上报一条告警，确认告警中心出现并收到通知。
 
@@ -48,7 +49,7 @@
 | 场景 | 做法 |
 | --- | --- |
 | 验证备份可用（例行演练） | 备份中心对整库备份点“恢复验证”，恢复到 `IOT_BACKUP_RESTORE_DATABASE_DSN` 指向的演练库，核对表数量；设备消息、知识库与外部接入的隔离恢复见 [设备数据备份](DEPLOYMENT.md#设备数据备份) |
-| 正式恢复整库 | 停止 platform-api、backup-service 等写库服务；从 MinIO `iot-backups`（或异地副本）取回整库制品并核对 SHA-256；在业务库执行 `pg_restore --clean --if-exists --no-owner -d <业务库>`；启动服务，迁移会补齐备份之后新增的结构 |
+| 正式恢复整库 | 停止 platform-api、backup-service 等写库服务；从 RustFS `iot-backups`（或异地副本）取回整库制品并核对 SHA-256；在业务库执行 `pg_restore --clean --if-exists --no-owner -d <业务库>`；启动服务，迁移会补齐备份之后新增的结构 |
 | 只缺某天设备消息 | 用该日 `DEVICE_DAILY` 恢复到演练库核对，再按需导回 |
 
 隔离恢复不替换现网数据；“备份存在”“下载成功”“恢复验证通过”“正式恢复完成”是不同结论，按实际执行的步骤记录。
@@ -68,7 +69,7 @@
 | `MQTTSubscriptionLost`、`MQTTDeliveryLoss`、`MQTTInboxBacklog`、`MQTTBrokerObservationMissing` | MQTT 订阅、投递或本地收件箱异常 | 检查 EMQX 状态与管理 API 配置、磁盘空间；收件箱积压在依赖恢复后自动排空 |
 | `AlarmNotificationFailures` | 火警通知多次重试仍失败 | 告警详情 → 通知记录查看失败原因；检查渠道地址、加签密钥、SMTP 账号和 `IOT_NOTIFY_ALLOWED_CIDRS`，修复后在通知页发送测试消息 |
 | `AIAnalysisFailures` | 研判工作流失败 | 检查 Harness 健康、DeepSeek Key 与额度、MCP 回调地址 |
-| `BackupFailures` | 备份、异地副本或恢复演练失败 | 备份中心查看失败任务；检查 MinIO、异地存储凭据、磁盘空间和 PostgreSQL 客户端版本 |
+| `BackupFailures` | 备份、异地副本或恢复演练失败 | 备份中心查看失败任务；检查 RustFS、异地存储凭据、磁盘空间和 PostgreSQL 客户端版本 |
 | `RetentionFailures` | 历史数据清理失败 | Jobs 日志中 `retention purge failed` 的表与原因；不处理会使磁盘持续增长 |
 | `PartitionMaintenanceFailures` | 未能提前创建月分区 | Jobs 日志中 `create upcoming partitions`；数据会进入 `_default` 分区，仍可读写，修复后若默认分区已有该月数据需人工迁出再建分区 |
 | `ScrapeTargetDown`、`HostDiskAlmostFull` | 监控目标不可达、磁盘将满 | 检查对应容器；磁盘不足时先确认保留任务正常，再扩容或缩短保留期 |

@@ -210,8 +210,8 @@ Grafana：admin / $grafana_password
 PostgreSQL 密码：$postgres_password
 Redis 密码：$redis_password
 ClickHouse 密码：$clickhouse_password
-MinIO 主密码：$minio_password
-MinIO 灾备密码：$minio_dr_password
+RustFS（对象存储）主密码：$minio_password
+RustFS（对象存储）灾备密码：$minio_dr_password
 EOF
   fi
 
@@ -340,12 +340,12 @@ compose_profile_args+=(--profile clickhouse)
 
 run_compose "${compose_profile_args[@]}" config --quiet
 pull_services=(
-  postgres-wal-init redis redpanda redpanda-init
+  postgres-wal-init redis redpanda redpanda-init rustfs
   clickhouse emqx prometheus grafana loki
   ops-init alertmanager alloy node-exporter
 )
 run_compose --profile ops --profile clickhouse pull "${pull_services[@]}"
-run_compose build --pull platform-api platform-web backup-service minio postgres
+run_compose build --pull platform-api platform-web backup-service postgres
 # Knowledge embedding / rerank image with its models, built for this machine's
 # architecture (amd64 or arm64) like every other packaged image.
 run_compose build --pull embedding

@@ -80,7 +80,7 @@ $capacityAction = if ($Capacity -eq 'on') { 'prepare' } else { 'unprepare' }
 & (Join-Path $scriptDir 'capacity-module.ps1') $capacityAction -Mode online -EnvFile $EnvFile -ProjectName $ProjectName
 Add-DeploymentEnvComments -Path $EnvFile
 $compose = @('compose', '--project-name', $ProjectName, '--env-file', $EnvFile, '-f', (Join-Path $projectRoot 'compose.yaml'))
-$buildServices = @('platform-api', 'platform-web', 'backup-service', 'minio', 'postgres')
+$buildServices = @('platform-api', 'platform-web', 'backup-service', 'postgres')
 $buildServices += 'deepseek-harness'
 # 知识库向量计算与重排（同一镜像，模型在构建时下载并校验）。
 $buildServices += @('embedding', 'reranker')
@@ -91,7 +91,7 @@ if ($LASTEXITCODE -ne 0) { throw '无法读取 Compose 服务列表。' }
 # 摄像头直播媒体服务（video profile，默认启用），由固定 digest 的官方镜像构建。
 if (@($allServices | ForEach-Object { $_.Trim() }) -contains 'zlmediakit') { $buildServices += 'zlmediakit' }
 # The capacity module runs from the platform image built here; it is never pulled.
-$pullServices = @($allServices | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notin $buildServices -and $_ -notin @('capacity', 'minio-dr') })
+$pullServices = @($allServices | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notin $buildServices -and $_ -ne 'capacity' })
 Write-Host '拉取运行依赖镜像……'
 Invoke-DockerChecked -Arguments ($compose + @('pull') + $pullServices)
 Write-Host '构建 API、前端、备份服务和知识库模型镜像……'

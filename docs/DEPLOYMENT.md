@@ -108,7 +108,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\deploy-online.ps1
 | PostgreSQL / Redis | `15432` / `16379` | 仅容器网络 |
 | ClickHouse | `18123` | 仅容器网络 |
 | Kafka | `19092` | `19092` 默认仅宿主机（`KAFKA_BIND_ADDRESS`），可设 `KAFKA_PORT`；对外提供 Kafka 订阅时设为 `0.0.0.0` 并把 `IOT_KAFKA_ADVERTISED_HOST` 设置为客户端可达地址。升级时 `IOT_KAFKA_PUBLIC_BROKERS` 已是非本机地址的环境由部署脚本自动保留外部监听 |
-| MinIO 数据 / 控制台 | `19000` / `19002` | 数据仅容器网络，控制台 `9001` 默认仅宿主机（`MINIO_CONSOLE_BIND_ADDRESS`） |
+| RustFS 数据 / 控制台 | `19000` / `19002` | 数据仅容器网络，控制台 `9001` 默认仅宿主机（`MINIO_CONSOLE_BIND_ADDRESS`） |
 | MQTT / WebSocket | `1883` / `8083` | `1883` / `8083` |
 | EMQX 控制台 | `18083` | `18083`（`EMQX_DASHBOARD_PORT`）默认仅宿主机（`EMQX_DASHBOARD_BIND_ADDRESS`），需要远程管理时只开放给可信网络 |
 | TCP / UDP 协议接入 | 本机 Go API 直接监听接入点端口 | `26875` TCP+UDP；其他监听端口写入 `IOT_PROTOCOL_PORTS`（单个端口或范围）后重跑部署，拆分 Gateway 时由 Gateway 发布 |
@@ -130,9 +130,9 @@ sudo bash scripts/setup-local.sh --dependencies-only \
   --api-host <依赖容器可访问的源码机地址>
 ```
 
-`--dependencies-only` 自动安装缺失的 Docker Engine、Compose、Buildx，部署 PostgreSQL（含 pgvector）、Redis、ClickHouse、Redpanda、EMQX、MinIO 主库/备库、Harness 及整套运维组件。备份服务不属于基础环境，默认与 API、Vue 一起在源码机调试；虚拟机不安装 Go/npm 源码依赖。首次需要联网下载镜像、构建 Harness、MinIO 和 PostgreSQL pgvector 镜像；失败可原命令重试，重复执行复用凭据与数据，不清理机器。
+`--dependencies-only` 自动安装缺失的 Docker Engine、Compose、Buildx，部署 PostgreSQL（含 pgvector）、Redis、ClickHouse、Redpanda、EMQX、RustFS 主库/备库、Harness 及整套运维组件。备份服务不属于基础环境，默认与 API、Vue 一起在源码机调试；虚拟机不安装 Go/npm 源码依赖。首次需要联网下载镜像、构建 Harness、RustFS 和 PostgreSQL pgvector 镜像；失败可原命令重试，重复执行复用凭据与数据，不清理机器。
 
-本地、在线、离线与集群部署的 MinIO 均由 `deploy/minio/Dockerfile` 以官方二进制构建为 `iot-platform-minio` 镜像（集群由 `cluster-up` 构建），版本仍为 `RELEASE.2025-09-07T16-13-09Z`，校验固定的 amd64/arm64 SHA-256。原 `quay.io/minio/minio` 已无法公开拉取，首次构建需要访问 GitHub Release。
+对象存储使用 S3 兼容的 RustFS（`rustfs/rustfs:1.0.1`，Apache 2.0），本地、在线、离线与集群部署相同；平台的 `IOT_MINIO_*` 与凭据变量 `MINIO_ROOT_*` / `MINIO_DR_ROOT_*` 沿用原名。RustFS 以非 root 用户运行，数据卷为 `rustfs-data` / `rustfs-dr-data`，与原 `minio-data` / `rustfs-dr-data` 不同名，见 [从 MinIO 迁移](#从-minio-迁移到-rustfs)。
 
 脚本将依赖端口绑定到 `0.0.0.0`，并配置 Kafka 公告地址、Harness 地址和 API 回调；`IOT_BACKUP_URL` 保持 `http://127.0.0.1:8092`，指向源码机的备份进程，Prometheus 从源码机采集备份指标。安全复制 `.env.local` 到源码机仓库根目录；安装 Go/Node 并准备源码依赖后，在本机启动 Go API、前端和备份服务。普通虚拟机需让源码机能够访问依赖机，且容器能反向访问源码机 `8081` 和备份指标 `8092`；源码机防火墙需允许这些访问。两台机器没有共享文件目录时，运维指标、日志和组件状态可用，依赖本地配置文件的规则/通知编辑保持只读。只有显式追加 `--include-backup` 才启动备份容器；恢复默认命令会停止旧备份容器，保留备份数据。
 
@@ -318,7 +318,7 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 
 ### 工具连接账号
 
-首次部署的基础服务工具用户名为 `admin`，密码为 `admin123`，用于 MQTT、Kafka、PostgreSQL、Redis、ClickHouse、MinIO（含灾备）、EMQX 控制台及 Grafana；平台内置管理员使用相同默认值。PostgreSQL 和 ClickHouse 仍保留 `iot` 应用账号，Redis 保留 `default` 应用账号。数据库/缓存工具账号由 `SERVICE_ADMIN_USER` / `SERVICE_ADMIN_PASSWORD` 配置，其他服务沿用各自的账号变量。
+首次部署的基础服务工具用户名为 `admin`，密码为 `admin123`，用于 MQTT、Kafka、PostgreSQL、Redis、ClickHouse、RustFS（含灾备）、EMQX 控制台及 Grafana；平台内置管理员使用相同默认值。PostgreSQL 和 ClickHouse 仍保留 `iot` 应用账号，Redis 保留 `default` 应用账号。数据库/缓存工具账号由 `SERVICE_ADMIN_USER` / `SERVICE_ADMIN_PASSWORD` 配置，其他服务沿用各自的账号变量。
 
 这些用户名和密码是连接工具中填写的登录凭据，服务地址见[端口与地址](#端口与地址)：
 
@@ -390,7 +390,7 @@ sudo docker compose -p iot-platform-local --env-file .env.local \
 - 检索时向量计算限时 10 秒；向量服务不可用时退回关键词检索，结果标记为“仅关键词匹配”。重排每次最多看 20 条候选、每条前 400 字（CPU 上约数秒），失败或超时保留混合排序。
 - 建索引对连接失败、429、5xx 重试，遵守 `Retry-After`；临时失败按 1、5、15、60 分钟自动重新排队，用完才标记索引失败，等待中的文档可手动立即重试。CPU 上大文档建索引较慢，单个任务上限 2 小时（每批完成都会续租）。
 
-PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数据卷。API 迁移创建 `vector` 扩展及知识索引表；外部 PostgreSQL 须预先安装 pgvector，并由具备权限的账户执行扩展创建。知识原件继续保存到既有 MinIO，文档、分片、向量、Agent 绑定及索引版本存于 PostgreSQL。上传、删除、重试、原子重建及检索授权统一见[知识库使用](PLATFORM.md#ai-与知识库)；多副本共享 PostgreSQL 重建锁。
+PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数据卷。API 迁移创建 `vector` 扩展及知识索引表；外部 PostgreSQL 须预先安装 pgvector，并由具备权限的账户执行扩展创建。知识原件继续保存在对象存储（RustFS），文档、分片、向量、Agent 绑定及索引版本存于 PostgreSQL。上传、删除、重试、原子重建及检索授权统一见[知识库使用](PLATFORM.md#ai-与知识库)；多副本共享 PostgreSQL 重建锁。
 
 ### 运维组件
 
@@ -498,7 +498,7 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 | EMQX | 3 节点静态集群 |
 | 平台 | api、gateway、parser、processor、jobs 各自多实例；API 之间选举视频控制实例；Harness 多实例按会话路由 |
 | 监控 | Prometheus 按实例抓取所有平台进程、Redpanda、EMQX 与各节点 node-exporter，加载与单机相同的平台告警规则；同节点 Alertmanager（9093）接收告警，运维中心可查看 |
-| MinIO | 示例为单实例；`minio.nodes`（≥3 节点、合计 ≥4 块盘，`drivesPerNode` 每节点盘数）渲染分布式纠删码部署，任一节点故障时读写可用，平台与备份经本机 HAProxy `127.0.0.1:18183` 访问健康节点 |
+| RustFS | 示例为单实例；`rustfs.nodes`（至少 4 个节点，每节点一个数据目录）渲染分布式纠删码部署，任一节点故障时读写可用，平台与备份经本机 HAProxy `127.0.0.1:18183` 访问健康节点。RustFS 拒绝同一块盘上的多个数据目录，3 节点单盘无法组成可用集群 |
 | 视频媒体 | 示例为单实例；`video.nodes` 第一个为主媒体服务器、其余为备用，直播模块与 HLS 代理（HAProxy `127.0.0.1:18180`，`balance first`）都使用第一台健康的服务器，详见 [备用媒体服务器](#摄像头部署) |
 | 监控高可用 | `monitoring.nodes`（≥2）在每个节点运行独立的 Prometheus 副本（相同抓取目标，外部标签 `replica`）和组成集群的 Alertmanager（9094 互联）；各副本向全部 Alertmanager 发送告警并去掉 `replica` 标签，由集群去重与共享静默。运维中心经 HAProxy `127.0.0.1:18190` / `18193` 访问健康实例，两个副本的历史数据各自独立 |
 
@@ -523,10 +523,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\cluster-up.ps1
 1. 集群名称（默认 `torchlink`）与**节点数量**（至少 3 台；1 台请用单机部署，2 台无法形成仲裁）。
 2. 每个节点的 IP；SSH 用户名（默认 `root`）与端口（默认 22）。
 3. **SSH 登录方式**：所有节点统一密码（输入一次）或每个节点独立密码（逐个输入）。密码隐藏输入、只在内存中使用：脚本用它登录一次，记录主机密钥（`.cluster/<名称>/known_hosts`，首次信任，之后变化即拒绝），并把部署专用公钥写入各节点 `~/.ssh/authorized_keys`（注释为 `torchlink-deploy@<名称>`，可据此撤销）；此后所有操作用私钥 `.cluster/<名称>/deploy_key` 登录，升级时不再询问密码。
-4. **服务统一密码**：用于数据库/缓存工具账号、PostgreSQL 应用、Redis、ClickHouse、MinIO、MQTT、Kafka、EMQX 控制台和平台管理员；直接回车使用 `admin123`，工具用户名默认 `admin`。自定义密码至少 8 位，只能包含字母、数字与 `. _ ~ -`。JWT、Harness、摄像头、服务间令牌以及 PostgreSQL 超级用户与复制凭据仍独立生成。默认值只填充缺项；再次执行保留已有秘密，显式指定与现有密码不同的值会拒绝，已有账号密码需单独同步。
+4. **服务统一密码**：用于数据库/缓存工具账号、PostgreSQL 应用、Redis、ClickHouse、RustFS、MQTT、Kafka、EMQX 控制台和平台管理员；直接回车使用 `admin123`，工具用户名默认 `admin`。自定义密码至少 8 位，只能包含字母、数字与 `. _ ~ -`。JWT、Harness、摄像头、服务间令牌以及 PostgreSQL 超级用户与复制凭据仍独立生成。默认值只填充缺项；再次执行保留已有秘密，显式指定与现有密码不同的值会拒绝，已有账号密码需单独同步。
 5. 是否部署摄像头直播模块；DeepSeek API Key（可留空，部署后可在“模型管理”填写）。
 
-节点布局按节点数自动生成到 `.cluster/<名称>/inventory.yaml`：每个节点视为独立故障域；etcd、PostgreSQL、Redpanda、EMQX、Redis 与 Sentinel 放在前 3 台；ClickHouse 3 台时为 1 分片×3 副本，4–5 台为 2×2，6 台及以上为 2×3；MinIO、视频、容量测试、备份与监控放在最后一台；api、gateway、jobs、Harness、Web 各 2 个实例，parser、processor 各 3 个。可以手动修改该文件后重新执行。已有自写清单时用 `--inventory <文件>`（首次同样询问 SSH 密码）；自有私钥用 `--ssh-key <文件>`，此时不安装部署密钥。
+节点布局按节点数自动生成到 `.cluster/<名称>/inventory.yaml`：每个节点视为独立故障域；etcd、PostgreSQL、Redpanda、EMQX、Redis 与 Sentinel 放在前 3 台；ClickHouse 3 台时为 1 分片×3 副本，4–5 台为 2×2，6 台及以上为 2×3；RustFS、视频、容量测试、备份与监控放在最后一台；api、gateway、jobs、Harness、Web 各 2 个实例，parser、processor 各 3 个。可以手动修改该文件后重新执行。已有自写清单时用 `--inventory <文件>`（首次同样询问 SSH 密码）；自有私钥用 `--ssh-key <文件>`，此时不安装部署密钥。
 
 无人值守：`bash scripts/cluster-up.sh --name <名称> --nodes IP1,IP2,IP3 --yes`，SSH 密码与服务统一密码经环境变量 `TORCHLINK_SSH_PASSWORD`、`TORCHLINK_SERVICE_PASSWORD` 提供（PowerShell 为 `-Name`、`-Nodes`、`-Yes`）。
 
@@ -601,7 +601,7 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 
 ## 高可用边界
 
-默认 Compose（本地、在线、离线）是**单节点**配置：PostgreSQL、ClickHouse、Redis、Redpanda、EMQX、MinIO、Harness 与 API 各运行一个实例，Redpanda 主题创建为 `--replicas 1`。它可以承担单机生产，但不具备高可用：
+默认 Compose（本地、在线、离线）是**单节点**配置：PostgreSQL、ClickHouse、Redis、Redpanda、EMQX、RustFS、Harness 与 API 各运行一个实例，Redpanda 主题创建为 `--replicas 1`。它可以承担单机生产，但不具备高可用：
 
 - 容器自动重启只在进程退出后拉起同一实例，不能在宿主机、磁盘或数据卷故障时切换。
 - MQTT 持久队列（`IOT_DATA_DIR/mqtt-inbox/`）保证已确认报文在本机磁盘上重启后可继续处理，不复制到其他节点。
@@ -609,7 +609,7 @@ bash scripts/cluster-deploy.sh --rendered dist/cluster/<名称> --ssh-user <用�
 - 拆分 `api` / `gateway` 与多副本 API 只分担接入和查询，前提是数据库、消息与对象存储本身可用。
 - 运维中心依赖（`--profile ops` 的 Prometheus、Loki、Grafana、Alertmanager）同样各一个实例；它们停止时接入与告警链路不受影响，但期间的监控数据、日志与告警通知会缺失。
 
-单机部署无法靠增加配置变成高可用：所有组件与数据都在一台宿主机上，宿主机或磁盘故障时只能在新机器上恢复（见 [运维手册](OPERATIONS.md#故障切换)）。需要高可用时使用上一节的 [集群部署](#集群部署)：Redpanda、PostgreSQL、ClickHouse、Redis、EMQX 与各平台角色均为多实例；MinIO（`minio.nodes` 分布式）、视频媒体（`video.nodes` 主备）与 Prometheus / Alertmanager（`monitoring.nodes`）也可多实例，示例清单为节省资源仍各放一个节点，按需改为多节点。视频媒体切换会中断正在播放的流并由播放器重建；已部署的单实例 MinIO 改为分布式时新集群从空盘开始，须先用 `mc mirror` 等工具迁移桶数据；Prometheus 副本之间不复制历史数据。知识索引随 PostgreSQL HA 集群保存。节点故障与切换须在目标环境演练，仓库内只验证渲染与部署编排。
+单机部署无法靠增加配置变成高可用：所有组件与数据都在一台宿主机上，宿主机或磁盘故障时只能在新机器上恢复（见 [运维手册](OPERATIONS.md#故障切换)）。需要高可用时使用上一节的 [集群部署](#集群部署)：Redpanda、PostgreSQL、ClickHouse、Redis、EMQX 与各平台角色均为多实例；RustFS（`rustfs.nodes` 分布式）、视频媒体（`video.nodes` 主备）与 Prometheus / Alertmanager（`monitoring.nodes`）也可多实例，示例清单为节省资源仍各放一个节点，按需改为多节点。视频媒体切换会中断正在播放的流并由播放器重建；已部署的单实例 RustFS 改为分布式时新集群从空盘开始，须先用 `rclone sync` 等工具迁移桶数据；Prometheus 副本之间不复制历史数据。知识索引随 PostgreSQL HA 集群保存。节点故障与切换须在目标环境演练，仓库内只验证渲染与部署编排。
 
 ### 常见排查
 
@@ -676,28 +676,45 @@ Windows 使用 `scripts/generate-tls-cert.ps1 -HostName <地址>`（需要 opens
 - **滚动升级**：旧版本的保留任务不识别分区表，升级到本版本时请先升级或停止所有 Jobs 进程（`combined` 或 `jobs`），避免旧进程在切换后执行清理。
 - 指标 `retention_partitions_dropped_total` 记录删除的分区数。实现见 `internal/adapters/postgres/partitions.go`。
 
+## 从 MinIO 迁移到 RustFS
+
+RustFS 不能直接读取 MinIO 的数据目录。升级后新的 `rustfs` 服务使用空的 `rustfs-data` 卷，原 `minio-data` 卷保留不动（升级不会删除）。已有备份制品、知识原件、平面图和告警附件需要复制一次：
+
+1. 升级前确认旧版本仍在运行，或记下旧 MinIO 的数据卷名（如 `iot-platform-online_minio-data`）。
+2. 升级完成后，用旧镜像临时启动一个只读的 MinIO（原镜像为 `iot-platform-minio:*`，本地已有），并用 rclone 复制全部桶到 RustFS，例如在线部署：
+
+```bash
+docker run -d --name minio-old --network iot-platform-online_iot -v iot-platform-online_minio-data:/data -e MINIO_ROOT_USER=<原用户> -e MINIO_ROOT_PASSWORD=<原密码> iot-platform-minio:RELEASE.2025-09-07T16-13-09Z server /data
+docker run --rm --network iot-platform-online_iot rclone/rclone sync --s3-provider Other :s3,endpoint=http://minio-old:9000,access_key_id=<原用户>,secret_access_key=<原密码>: :s3,endpoint=http://rustfs:9000,access_key_id=<用户>,secret_access_key=<密码>: --create-empty-src-dirs
+docker rm -f minio-old
+```
+
+3. 在备份中心对一个整库备份点执行“恢复验证”，并打开一张已有平面图或知识原件，确认读取正常后再按需删除旧卷。
+
+项目名与网络名以 `docker compose ls`、`docker network ls` 为准；离线环境需提前在有网机器拉取 `rclone/rclone` 镜像并导入。
+
 ## 设备数据备份
 
-备份服务把制品保存到 MinIO 的 `iot-backups` 桶，提供下载、SHA-256 校验与隔离恢复验证。按以下范围选择：
+备份服务把制品保存到 RustFS 的 `iot-backups` 桶，提供下载、SHA-256 校验与隔离恢复验证。按以下范围选择：
 
 | 类型 | 内容与时间范围 |
 | --- | --- |
 | `DEVICE_DAILY`（备份昨日数据） | PostgreSQL 原始报文、标准解析消息，ClickHouse 原始报文与解析遥测。原文按接收时间、标准消息按处理时间（旧记录回退消息时间）、遥测按消息时间分日；两种存储分别标明来源 |
 | `DATABASE`（整库备份） | `pg_dump` 自定义格式导出整个 PostgreSQL 业务库（用户与角色、设备模板与凭据、消防管理、告警、通知配置、协议发布记录等全部业务表）以及 ClickHouse 遥测与高频原文表（Native 格式）；默认每天 `IOT_BACKUP_DATABASE_TIME`（01:30，留空关闭）执行并保留最近 `IOT_BACKUP_DATABASE_KEEP`（7）份 |
-| `FULL`（立即备份设备数据） | 全量设备消息，外部数据接入的配置、密文凭据、记录与任务（`external-data.jsonl.gz`），四张知识表及索引、引用的 MinIO 原件，全部 Harness 实例的动态 Agent 与会话快照 |
+| `FULL`（立即备份设备数据） | 全量设备消息，外部数据接入的配置、密文凭据、记录与任务（`external-data.jsonl.gz`），四张知识表及索引、引用的 RustFS 原件，全部 Harness 实例的动态 Agent 与会话快照 |
 
 每日自动备份默认开启，每天上海时间 00:05 执行昨日备份；服务停机期间不自动补跑。`FULL` 使用 v2 清单，按组件记录实际包含范围；旧备份缺少的组件显示“不包含”，不补记成功。
 
-`DEVICE_DAILY` 与 `FULL` 不包含平台账号及开放密钥、Provider/API Key、消息主题与对接授权（`message_topic_configs`）、设备模板/凭据与接入配置、消防管理（`fire_safety_record`）、接入草稿/批量任务/验收/回滚历史（`onboarding_record`），也不包含 Redis、Kafka、环境文件或整个 MinIO。上述数据库内容由 `DATABASE` 整库备份覆盖；协议制品、运行配置与环境秘密另行保管。外部接入组件中的凭据仍需原环境秘密才能解密。
+`DEVICE_DAILY` 与 `FULL` 不包含平台账号及开放密钥、Provider/API Key、消息主题与对接授权（`message_topic_configs`）、设备模板/凭据与接入配置、消防管理（`fire_safety_record`）、接入草稿/批量任务/验收/回滚历史（`onboarding_record`），也不包含 Redis、Kafka、环境文件或整个 RustFS。上述数据库内容由 `DATABASE` 整库备份覆盖；协议制品、运行配置与环境秘密另行保管。外部接入组件中的凭据仍需原环境秘密才能解密。
 
 备份列表“恢复验证”调用 `POST /api/v1/backups/:id/restore`，逐项校验制品 SHA-256、大小与恢复数量：
 
 - 设备消息写入 `IOT_BACKUP_RESTORE_TARGET_DSN` 的 `restored_message`、`restore_run`；目标库未配置，或与业务库主机、端口、库名相同，返回 412。
-- 知识库恢复到该库的 `kb_restore_<标识>` schema，原件恢复到独立 MinIO 前缀，Harness 文件恢复到隔离目录。
+- 知识库恢复到该库的 `kb_restore_<标识>` schema，原件恢复到独立 RustFS 前缀，Harness 文件恢复到隔离目录。
 - 外部接入记录恢复到 `external_restore_<标识>` schema，不覆盖在线配置或重新启动任务。
 
 - 整库备份的恢复验证写入 `IOT_BACKUP_RESTORE_DATABASE_DSN` 指向的专用演练库（需预先创建，例如同实例的 `iot_drill` 库）：先清空其 `public` schema 再用 `pg_restore` 恢复并核对表数量；目标与业务库或消息恢复库相同时拒绝执行，未配置时返回 412。备份镜像内置 PostgreSQL 17 客户端，外部 PostgreSQL 主版本更高时需用 `IOT_BACKUP_POSTGRES_TOOLS_DIR` 指定匹配版本的 `pg_dump`/`pg_restore`。
-- 配置 `IOT_BACKUP_OFFSITE_ENDPOINT`、`IOT_BACKUP_OFFSITE_BUCKET`、`IOT_BACKUP_OFFSITE_ACCESS_KEY`、`IOT_BACKUP_OFFSITE_SECRET_KEY`（可选 `IOT_BACKUP_OFFSITE_REGION`、`IOT_BACKUP_OFFSITE_USE_TLS`，默认 TLS）后，每次备份的全部制品与清单另写一份到该 S3 兼容存储并逐个校验大小与 SHA-256，异地写入失败即整次备份失败并触发 `BackupFailures` 告警。同机 MinIO 与数据位于同一主机，不能单独视为灾难恢复副本。
+- 配置 `IOT_BACKUP_OFFSITE_ENDPOINT`、`IOT_BACKUP_OFFSITE_BUCKET`、`IOT_BACKUP_OFFSITE_ACCESS_KEY`、`IOT_BACKUP_OFFSITE_SECRET_KEY`（可选 `IOT_BACKUP_OFFSITE_REGION`、`IOT_BACKUP_OFFSITE_USE_TLS`，默认 TLS）后，每次备份的全部制品与清单另写一份到该 S3 兼容存储并逐个校验大小与 SHA-256，异地写入失败即整次备份失败并触发 `BackupFailures` 告警。同机 RustFS 与数据位于同一主机，不能单独视为灾难恢复副本。
 
 同一时间只运行一个备份或恢复。文件校验与隔离恢复是不同操作；隔离恢复不替换现网数据，也不等同于完整系统恢复。
 
@@ -714,15 +731,15 @@ IOT_BACKUP_DIR=./data/backups
 IOT_BACKUP_RESTORE_TARGET_DSN=
 # 内部 Harness 快照端点，多个实例用逗号分隔；沿用 IOT_AI_HARNESS_TOKEN
 IOT_BACKUP_HARNESS_SNAPSHOT_URLS=http://deepseek-harness:8091/v1/backup/snapshot
-# 恢复演练对象存储，Compose 默认已有 minio-dr
-IOT_BACKUP_RESTORE_MINIO_ENDPOINT=minio-dr:9000
+# 恢复演练对象存储，Compose 默认已有 rustfs-dr
+IOT_BACKUP_RESTORE_MINIO_ENDPOINT=rustfs-dr:9000
 IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY=
 IOT_BACKUP_RESTORE_MINIO_SECRET_KEY=
 # Agent/会话只恢复到此隔离目录，不写活跃 Harness 卷
 IOT_BACKUP_RESTORE_HARNESS_DIR=./data/restore/harness
 ```
 
-Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env-file .env.local` 或 VS Code 的 `IoT Platform (API + Web + Backup)`；数据库与 MinIO 可继续运行在 Linux 依赖机。旧备份记录与文件不删除，旧接口类型 `RAW_LOGS` / `INCREMENTAL` 兼容映射为昨日设备数据备份。
+Windows 源码调试只需 Go 环境，使用 `go run ./cmd/backup-service --env-file .env.local` 或 VS Code 的 `IoT Platform (API + Web + Backup)`；数据库与 RustFS 可继续运行在 Linux 依赖机。旧备份记录与文件不删除，旧接口类型 `RAW_LOGS` / `INCREMENTAL` 兼容映射为昨日设备数据备份。
 
 ## 独立接入进程
 

@@ -324,7 +324,7 @@ var urlSafe = regexp.MustCompile(`^[A-Za-z0-9._~-]+$`)
 var Stages = []string{"coordination", "data", "support", "workers", "edge"}
 
 var serviceStage = map[string]string{
-	"lb": "coordination", "etcd": "coordination", "keeper": "coordination", "redis": "coordination", "sentinel": "coordination", "minio": "coordination", "node-exporter": "coordination", "prometheus": "coordination",
+	"lb": "coordination", "etcd": "coordination", "keeper": "coordination", "redis": "coordination", "sentinel": "coordination", "rustfs": "coordination", "node-exporter": "coordination", "prometheus": "coordination",
 	"postgres": "data", "redpanda": "data", "clickhouse": "data", "emqx": "data",
 	"harness": "support", "video": "support", "backup": "support",
 	"parser": "workers", "processor": "workers", "jobs": "workers",
@@ -413,7 +413,7 @@ func (r renderer) platformEnv(role, node string, salt int) map[string]string {
 		"IOT_CLICKHOUSE_URL":           r.clickhouseURL(node, salt),
 		"IOT_CLICKHOUSE_CLUSTER":       inv.ClickHouse.Cluster,
 		"IOT_CLICKHOUSE_INSERT_QUORUM": inv.ClickHouse.InsertQuorum,
-		"IOT_MINIO_ENDPOINT":           r.minioEndpoint(),
+		"IOT_MINIO_ENDPOINT":           r.objectStorageEndpoint(),
 		"IOT_MINIO_ACCESS_KEY":         "${MINIO_ROOT_USER}",
 		"IOT_MINIO_SECRET_KEY":         "${MINIO_ROOT_PASSWORD}",
 		"IOT_MQTT_BROKER":              "tcp://" + r.ip(r.pick(node, inv.EMQX.Nodes, salt)) + ":1883",
@@ -605,24 +605,21 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			script := fmt.Sprintf(`if [ ! -f /data/sentinel.conf ]; then printf 'port 26379\nsentinel announce-ip %s\nsentinel monitor iot-redis %s 6379 %d\nsentinel auth-pass iot-redis %%s\nsentinel down-after-milliseconds iot-redis 5000\nsentinel failover-timeout iot-redis 60000\nsentinel parallel-syncs iot-redis 1\n' "$$REDIS_PASSWORD" > /data/sentinel.conf; fi; exec redis-sentinel /data/sentinel.conf`, ip, r.ip(inv.Redis.Master), inv.Redis.Quorum)
 			add(kind, "sentinel", service(inv.Images.Redis, map[string]any{"entrypoint": []string{"/bin/sh", "-ec"}, "command": []string{script}, "environment": map[string]string{"REDIS_PASSWORD": "${REDIS_PASSWORD}"}, "volumes": []string{"sentinel-data:/data"}}), "sentinel-data")
 			env["REDIS_PASSWORD"] = r.s.RedisPassword
-		case "minio":
-			command, mounts, vols := []string{"server", "/data"}, []string{"minio-data:/data"}, []string{"minio-data"}
-			if inv.MinIO.Distributed() {
-				// Every server lists every drive in the same order; the
-				// drives form erasure sets that survive a node failure.
-				command, mounts, vols = []string{"server"}, nil, nil
-				drives := max(inv.MinIO.DrivesPerNode, 1)
-				for _, n := range inv.MinIO.Nodes {
-					for d := 1; d <= drives; d++ {
-						command = append(command, fmt.Sprintf("http://%s:9002/data%d", r.ip(n), d))
-					}
+		case "rustfs":
+			// One data directory per node. Distributed nodes are listed as
+			// rustfs1...N (mapped to the node addresses), since RustFS
+			// expands a single ellipsis argument into one erasure pool.
+			environment := map[string]string{"RUSTFS_ACCESS_KEY": "${MINIO_ROOT_USER}", "RUSTFS_SECRET_KEY": "${MINIO_ROOT_PASSWORD}", "RUSTFS_ADDRESS": ":9002", "RUSTFS_CONSOLE_ENABLE": "true", "RUSTFS_CONSOLE_ADDRESS": "127.0.0.1:9003", "RUSTFS_VOLUMES": "/data"}
+			def := map[string]any{"environment": environment, "volumes": []string{"rustfs-data:/data"}}
+			if members := inv.RustFS.Members(); len(members) > 1 {
+				environment["RUSTFS_VOLUMES"] = fmt.Sprintf("http://rustfs{1...%d}:9002/data", len(members))
+				hosts := make([]string, len(members))
+				for i, m := range members {
+					hosts[i] = fmt.Sprintf("rustfs%d:%s", i+1, r.ip(m))
 				}
-				for d := 1; d <= drives; d++ {
-					mounts, vols = append(mounts, fmt.Sprintf("minio-data%d:/data%d", d, d)), append(vols, fmt.Sprintf("minio-data%d", d))
-				}
+				def["extra_hosts"] = hosts
 			}
-			command = append(command, "--address", ":9002", "--console-address", "127.0.0.1:9003")
-			add(kind, "minio", service(inv.Images.MinIO, map[string]any{"command": command, "environment": map[string]string{"MINIO_ROOT_USER": "${MINIO_ROOT_USER}", "MINIO_ROOT_PASSWORD": "${MINIO_ROOT_PASSWORD}"}, "volumes": mounts}), vols...)
+			add(kind, "rustfs", service(inv.Images.RustFS, def), "rustfs-data")
 			env["MINIO_ROOT_USER"], env["MINIO_ROOT_PASSWORD"] = r.s.MinIORootUser, r.s.MinIORootPassword
 		case "harness":
 			origins := []string{inv.APIURL()}
@@ -635,7 +632,7 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			add(kind, "zlmediakit", service(inv.Images.Video, map[string]any{"environment": map[string]string{"IOT_VIDEO_MEDIA_SECRET": "${IOT_VIDEO_MEDIA_SECRET}", "IOT_VIDEO_HOOK_SECRET": "${IOT_VIDEO_HOOK_SECRET}", "IOT_VIDEO_MEDIA_SERVER_ID": mediaServerID(inv, idx(inv.Video.Members())), "IOT_VIDEO_HOOK_BASE": inv.APIURL() + "/api/v1/video/hooks", "IOT_VIDEO_RTC_PORT": "8000", "IOT_VIDEO_RTC_EXTERN_IP": ip, "IOT_VIDEO_RTP_PORT_MIN": "30000", "IOT_VIDEO_RTP_PORT_MAX": "30063"}, "tmpfs": []string{"/opt/media/hls:size=512m"}}))
 			env["IOT_VIDEO_MEDIA_SECRET"], env["IOT_VIDEO_HOOK_SECRET"] = r.s.VideoMediaSecret, r.s.VideoHookSecret
 		case "backup":
-			add(kind, "backup-service", service(inv.Images.Backup, map[string]any{"environment": map[string]string{"IOT_BACKUP_HTTP_ADDR": ":8090", "IOT_BACKUP_DIR": "/app/data/backups", "IOT_POSTGRES_DSN": r.postgresDSN("read-write"), "IOT_MINIO_ENDPOINT": r.minioEndpoint(), "IOT_MINIO_ACCESS_KEY": "${MINIO_ROOT_USER}", "IOT_MINIO_SECRET_KEY": "${MINIO_ROOT_PASSWORD}", "IOT_CLICKHOUSE_URL": r.clickhouseURL(node, 0), "IOT_BACKUP_ENABLED": "true", "IOT_BACKUP_TIME": "00:05", "IOT_BACKUP_TIMEZONE": "Asia/Shanghai", "IOT_BACKUP_ADMIN_TOKEN": "${IOT_BACKUP_ADMIN_TOKEN}", "IOT_BACKUP_RESTORE_TARGET_DSN": "${IOT_BACKUP_RESTORE_TARGET_DSN:-}", "IOT_BACKUP_HARNESS_DATA_DIR": "${IOT_BACKUP_HARNESS_DATA_DIR:-}", "IOT_BACKUP_HARNESS_SNAPSHOT_URLS": strings.ReplaceAll(harnessURLs(r), ":8091", ":8091/v1/backup/snapshot"), "IOT_AI_HARNESS_TOKEN": "${IOT_AI_HARNESS_TOKEN}", "IOT_BACKUP_RESTORE_HARNESS_DIR": "/app/data/backups/restored-harness", "IOT_BACKUP_RESTORE_MINIO_ENDPOINT": "${IOT_BACKUP_RESTORE_MINIO_ENDPOINT:-}", "IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY": "${IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY:-}", "IOT_BACKUP_RESTORE_MINIO_SECRET_KEY": "${IOT_BACKUP_RESTORE_MINIO_SECRET_KEY:-}"}, "volumes": []string{"backup-staging:/app/data/backups"}}), "backup-staging")
+			add(kind, "backup-service", service(inv.Images.Backup, map[string]any{"environment": map[string]string{"IOT_BACKUP_HTTP_ADDR": ":8090", "IOT_BACKUP_DIR": "/app/data/backups", "IOT_POSTGRES_DSN": r.postgresDSN("read-write"), "IOT_MINIO_ENDPOINT": r.objectStorageEndpoint(), "IOT_MINIO_ACCESS_KEY": "${MINIO_ROOT_USER}", "IOT_MINIO_SECRET_KEY": "${MINIO_ROOT_PASSWORD}", "IOT_CLICKHOUSE_URL": r.clickhouseURL(node, 0), "IOT_BACKUP_ENABLED": "true", "IOT_BACKUP_TIME": "00:05", "IOT_BACKUP_TIMEZONE": "Asia/Shanghai", "IOT_BACKUP_ADMIN_TOKEN": "${IOT_BACKUP_ADMIN_TOKEN}", "IOT_BACKUP_RESTORE_TARGET_DSN": "${IOT_BACKUP_RESTORE_TARGET_DSN:-}", "IOT_BACKUP_HARNESS_DATA_DIR": "${IOT_BACKUP_HARNESS_DATA_DIR:-}", "IOT_BACKUP_HARNESS_SNAPSHOT_URLS": strings.ReplaceAll(harnessURLs(r), ":8091", ":8091/v1/backup/snapshot"), "IOT_AI_HARNESS_TOKEN": "${IOT_AI_HARNESS_TOKEN}", "IOT_BACKUP_RESTORE_HARNESS_DIR": "/app/data/backups/restored-harness", "IOT_BACKUP_RESTORE_MINIO_ENDPOINT": "${IOT_BACKUP_RESTORE_MINIO_ENDPOINT:-}", "IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY": "${IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY:-}", "IOT_BACKUP_RESTORE_MINIO_SECRET_KEY": "${IOT_BACKUP_RESTORE_MINIO_SECRET_KEY:-}"}, "volumes": []string{"backup-staging:/app/data/backups"}}), "backup-staging")
 			env["POSTGRES_PASSWORD"], env["MINIO_ROOT_USER"], env["MINIO_ROOT_PASSWORD"], env["CLICKHOUSE_PASSWORD"], env["IOT_BACKUP_ADMIN_TOKEN"] = r.s.PostgresPassword, r.s.MinIORootUser, r.s.MinIORootPassword, r.s.ClickHousePassword, r.s.BackupToken
 			env["IOT_BACKUP_RESTORE_TARGET_DSN"] = r.s.BackupRestoreTargetDSN
 			env["IOT_BACKUP_RESTORE_MINIO_ENDPOINT"] = r.s.BackupRestoreMinIOEndpoint
@@ -672,7 +669,13 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 					}
 				}
 			}
-			add(kind, "alertmanager", service(inv.Images.Alertmanager, map[string]any{"command": amCommand, "volumes": []string{"alertmanager-data:/alertmanager", "./alertmanager:/etc/alertmanager:ro"}}), "alertmanager-data")
+			// Single files: the rendered directories are not readable by the
+			// container's unprivileged user.
+			amVolumes := []string{"alertmanager-data:/alertmanager", "./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro"}
+			if r.s.AlertWebhookURL != "" {
+				amVolumes = append(amVolumes, "./alertmanager/webhook-url:/etc/alertmanager/webhook-url:ro")
+			}
+			add(kind, "alertmanager", service(inv.Images.Alertmanager, map[string]any{"command": amCommand, "volumes": amVolumes}), "alertmanager-data")
 		case "capacity":
 			add(kind, "capacity", service(inv.Images.Platform, map[string]any{
 				"entrypoint": []string{"/app/capacity-test"},
@@ -803,13 +806,14 @@ func mediaServerID(inv *Inventory, i int) string {
 	return fmt.Sprintf("%s-media-%d", inv.Name, i+1)
 }
 
-// minioEndpoint is the MinIO address platform services use: the server, or
-// the local load balancer in front of a distributed deployment.
-func (r renderer) minioEndpoint() string {
-	if r.inv.MinIO.Distributed() {
-		return fmt.Sprintf("127.0.0.1:%d", LBMinIOPort)
+// objectStorageEndpoint is the RustFS address platform services use: the
+// server, or the local load balancer in front of a distributed deployment.
+func (r renderer) objectStorageEndpoint() string {
+	members := r.inv.RustFS.Members()
+	if len(members) > 1 {
+		return fmt.Sprintf("127.0.0.1:%d", LBObjectStoragePort)
 	}
-	return r.ip(r.inv.MinIO.Node) + ":9002"
+	return r.ip(members[0]) + ":9002"
 }
 
 // haproxyConfig balances the local API and gateway origins across every
@@ -851,8 +855,8 @@ defaults
 			fmt.Fprintf(&b, "  server %s-%s %s:%d\n", name, n, r.ip(n), target)
 		}
 	}
-	if r.inv.MinIO.Distributed() {
-		pool("minio", LBMinIOPort, r.inv.MinIO.Nodes, 9002, "balance leastconn", "option httpchk GET /minio/health/live")
+	if nodes := r.inv.RustFS.Members(); len(nodes) > 1 {
+		pool("rustfs", LBObjectStoragePort, nodes, 9002, "balance leastconn", "option httpchk GET /health")
 	}
 	if nodes := r.inv.Monitoring.Members(); len(nodes) > 1 {
 		pool("prometheus", LBPrometheusPort, nodes, 9090, "balance first", "option httpchk GET /-/ready")
@@ -1033,7 +1037,7 @@ func Render(inv *Inventory, s Secrets) (map[string][]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	for name, img := range map[string]string{"platform": inv.Images.Platform, "web": inv.Images.Web, "harness": inv.Images.Harness, "redpanda": inv.Images.Redpanda, "emqx": inv.Images.EMQX, "etcd": inv.Images.Etcd, "postgres": inv.Images.Postgres, "redis": inv.Images.Redis, "clickhouse": inv.Images.ClickHouse, "keeper": inv.Images.Keeper, "minio": inv.Images.MinIO, "nodeExporter": inv.Images.NodeExporter} {
+	for name, img := range map[string]string{"platform": inv.Images.Platform, "web": inv.Images.Web, "harness": inv.Images.Harness, "redpanda": inv.Images.Redpanda, "emqx": inv.Images.EMQX, "etcd": inv.Images.Etcd, "postgres": inv.Images.Postgres, "redis": inv.Images.Redis, "clickhouse": inv.Images.ClickHouse, "keeper": inv.Images.Keeper, "rustfs": inv.Images.RustFS, "nodeExporter": inv.Images.NodeExporter} {
 		if img == "" {
 			return nil, fmt.Errorf("images.%s is required", name)
 		}
