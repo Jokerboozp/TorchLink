@@ -614,3 +614,31 @@ func SortState(state *model.SiteState) {
 		return state.Points[i].ComponentID < state.Points[j].ComponentID
 	})
 }
+
+// maxNearbyDevices bounds the devices listed around an alarm.
+const maxNearbyDevices = 500
+
+// DevicesNear lists the other devices placed on the same floor as loc, or in
+// the same building when loc has no floor. A location without a building
+// has no neighbours: a whole unit is too wide to suggest linked alarms.
+func (s *Service) DevicesNear(ctx context.Context, tenant string, loc model.AlarmLocation, exclude string) []string {
+	if loc.BuildingID == "" {
+		return nil
+	}
+	state, err := s.Snapshot(ctx, tenant)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{exclude: true}
+	out := []string{}
+	for _, p := range state.Points {
+		if p.BuildingID != loc.BuildingID || loc.FloorID != "" && p.FloorID != loc.FloorID || seen[p.DeviceID] {
+			continue
+		}
+		seen[p.DeviceID] = true
+		if out = append(out, p.DeviceID); len(out) == maxNearbyDevices {
+			break
+		}
+	}
+	return out
+}

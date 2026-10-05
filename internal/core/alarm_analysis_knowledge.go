@@ -31,7 +31,7 @@ func SearchWorkflowKnowledge(ctx context.Context, kb ports.KnowledgeBase, tenant
 
 // alarmAnalysisKnowledge follows the alarm-handler Agent's knowledge binding.
 // It returns the evidence text and the distinct source document IDs.
-func (e *Engine) alarmAnalysisKnowledge(ctx context.Context, alarm model.Alarm) ([]string, []string, error) {
+func (e *Engine) alarmAnalysisKnowledge(ctx context.Context, alarm model.Alarm, symptoms []string) ([]string, []string, error) {
 	binding, err := e.Repo.GetWorkflowKnowledgeBinding(ctx, alarm.TenantID, model.AlarmAnalysisWorkflowID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("读取告警研判知识策略失败：%w", err)
@@ -45,7 +45,9 @@ func (e *Engine) alarmAnalysisKnowledge(ctx context.Context, alarm model.Alarm) 
 	if e.KB == nil {
 		return nil, nil, errors.New("知识库未配置，无法按告警研判智能体检索")
 	}
-	question := strings.Join([]string{alarm.AlarmType, alarm.DeviceType, "处置 SOP 维修"}, " ")
+	// The question names what is observed, such as "温度 85℃ 持续上升", so the
+	// search finds fault and threshold guidance, not only generic procedures.
+	question := ports.BoundKnowledgeQuery(strings.Join(append([]string{alarm.AlarmType, alarm.DeviceType}, append(symptoms, "处置 SOP 维修")...), " "))
 	hits, err := SearchWorkflowKnowledge(ctx, e.KB, alarm.TenantID, question, binding)
 	if err != nil {
 		return nil, nil, fmt.Errorf("检索告警研判知识失败：%w", err)

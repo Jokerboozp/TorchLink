@@ -5,7 +5,7 @@
 package aiprompt
 
 const (
-	AlarmAnalysisVersion    = "harness-alarm-analysis-v1"
+	AlarmAnalysisVersion    = "alarm-analysis-v2"
 	AlarmFallbackVersion    = "fallback-v2"
 	HealthInspectionVersion = "health-inspection-v1"
 	OpsReportVersion        = "ops-report-v1"

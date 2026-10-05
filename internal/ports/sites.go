@@ -21,3 +21,9 @@ type SiteStore interface {
 type AlarmLocator interface {
 	AlarmLocation(ctx context.Context, tenant, deviceID, componentID string) *model.AlarmLocation
 }
+
+// NearbyDeviceLocator lists the devices placed near a location (same floor,
+// or same building without a floor), excluding one device.
+type NearbyDeviceLocator interface {
+	DevicesNear(ctx context.Context, tenant string, loc model.AlarmLocation, exclude string) []string
+}

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/sites"
 	"log/slog"
 	"mime/multipart"
 	"net"
@@ -1409,5 +1410,43 @@ func TestDynamicAgentChangesAreStoredForReconciliation(t *testing.T) {
 	requestJSON(t, server.Client(), http.MethodDelete, server.URL+"/api/v1/ai/workflows/night-shift", token, nil, http.StatusOK)
 	if stored, _ := repo.ListAIWorkflowManifests(context.Background()); len(stored) != 1 || !stored[0].Deleted {
 		t.Fatalf("partial delete not kept as a tombstone: %+v", stored)
+	}
+}
+
+// Alarm analysis lists nearby alarms only for devices the requester may see.
+func TestAlarmAnalysisNearbyAlarmsFollowDeviceScope(t *testing.T) {
+	ctx := context.Background()
+	base := memory.NewRepository()
+	repo := ScopedRepository(base)
+	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime(), Locator: sites.New(repo)}
+	workflows := &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { return testAnalysisAnswer, nil }}
+	engine.AIWorkflows, engine.HarnessTokens = workflows, aitest.Tokens()
+	for _, id := range []string{"mine", "visible", "hidden"} {
+		_ = base.SaveManagedDevice(ctx, model.ManagedDevice{ID: id, TenantID: "t1", ProductID: "p", AccessKey: "ak-" + id})
+	}
+	state := model.SiteState{Units: []model.SiteUnit{{SiteRecord: model.SiteRecord{ID: "u"}}}, Buildings: []model.SiteBuilding{{SiteRecord: model.SiteRecord{ID: "b"}, UnitID: "u"}}, Floors: []model.SiteFloor{{SiteRecord: model.SiteRecord{ID: "f"}, BuildingID: "b"}}}
+	for _, id := range []string{"mine", "visible", "hidden"} {
+		state.Points = append(state.Points, model.SitePoint{SiteRecord: model.SiteRecord{ID: "p-" + id}, UnitID: "u", BuildingID: "b", FloorID: "f", DeviceID: id})
+	}
+	if saved, err := base.SaveSiteState(ctx, "t1", model.SiteState{}, state); err != nil || !saved {
+		t.Fatal(saved, err)
+	}
+	now := time.Now().UnixMilli()
+	for _, a := range []model.Alarm{
+		{ID: "alarm-mine", TenantID: "t1", RuleID: "r1", DeviceID: "mine", AlarmType: "SMOKE_DETECTED", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: now, Location: &model.AlarmLocation{UnitID: "u", BuildingID: "b", FloorID: "f", PointID: "p-mine"}},
+		{ID: "alarm-visible", TenantID: "t1", RuleID: "r2", DeviceID: "visible", AlarmType: "SMOKE_DETECTED", Status: "ACTIVE", LastTriggeredAt: now - 1000},
+		{ID: "alarm-hidden", TenantID: "t1", RuleID: "r3", DeviceID: "hidden", AlarmType: "SMOKE_DETECTED", Status: "ACTIVE", LastTriggeredAt: now - 1000},
+	} {
+		if _, _, err := base.UpsertAlarm(ctx, a); err != nil {
+			t.Fatal(err)
+		}
+	}
+	scoped := context.WithValue(aitest.Context(ctx), deviceScopeKey{}, deviceScope{Tenant: "t1", IDs: map[string]bool{"mine": true, "visible": true}})
+	if _, err := engine.AnalyzeAlarm(scoped, "t1", "alarm-mine", false); err != nil {
+		t.Fatal(err)
+	}
+	question := workflows.Last().Question
+	if !strings.Contains(question, "alarm-visible") || strings.Contains(question, "alarm-hidden") || strings.Contains(question, `"hidden"`) {
+		t.Fatalf("nearby alarms ignore the device scope: %s", question)
 	}
 }

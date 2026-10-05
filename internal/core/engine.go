@@ -1212,32 +1212,7 @@ func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wit
 	if err != nil {
 		return model.AIAnalysis{}, err
 	}
-	history := []map[string]any{}
-	var product *model.Product
-	if device, deviceErr := e.Repo.GetManagedDevice(ctx, alarm.TenantID, alarm.DeviceID); deviceErr == nil {
-		history = append(history, map[string]any{"contextType": "deviceMetadata", "device": device})
-		if p, productErr := e.Repo.GetProduct(ctx, alarm.TenantID, device.ProductID); productErr == nil {
-			product = &p
-		}
-	}
-	ruleFields := []string{}
-	if alarm.RuleID != "" {
-		if rule, ok := e.ruleByID(ctx, alarm.TenantID, alarm.RuleID); ok {
-			for _, condition := range rule.Conditions {
-				ruleFields = append(ruleFields, condition.Field)
-			}
-		}
-	}
-	history = append(history, e.alarmPropertyHistory(ctx, alarm, product, ruleFields)...) // 每个属性只查询一次最近 24 小时并压缩为摘要。
-	if similar, similarErr := e.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: alarm.TenantID, DeviceID: alarm.DeviceID, Limit: 20}); similarErr == nil {
-		filtered := []model.Alarm{}
-		for _, item := range similar {
-			if item.ID != alarm.ID && item.AlarmType == alarm.AlarmType {
-				filtered = append(filtered, item)
-			}
-		}
-		history = append(history, map[string]any{"contextType": "similarAlarms", "items": filtered})
-	}
+	analysisContext := e.buildAlarmContext(ctx, alarm)
 	knowledge := []string{}
 	scope := model.AIAnalysisScopeNone
 	var documents []string
@@ -1254,11 +1229,11 @@ func (e *Engine) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wit
 			return model.AIAnalysis{}, errors.New("当前运行身份无知识库访问权限")
 		}
 		scope = model.AlarmAnalysisWorkflowID
-		knowledge, documents, err = e.alarmAnalysisKnowledge(ctx, alarm)
+		knowledge, documents, err = e.alarmAnalysisKnowledge(ctx, alarm, analysisContext.symptoms)
 	}
 	var analysis model.AIAnalysis
 	if err == nil {
-		analysis, err = e.runAlarmAnalysisWorkflow(ctx, alarm, history, knowledge, withKnowledge)
+		analysis, err = e.runAlarmAnalysisWorkflow(ctx, alarm, analysisContext.payload(), knowledge, withKnowledge)
 	}
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) && e.Metrics != nil {
