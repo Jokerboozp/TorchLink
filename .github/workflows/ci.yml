@@ -140,5 +140,27 @@ jobs:
             foreach ($e in $errors) { $failed++; Write-Host "::error file=$($file.FullName),line=$($e.Extent.StartLineNumber)::$($e.Message)" }
           }
           if ($failed) { exit 1 }
+      - name: Web 与备份镜像以非 root 启动
+        run: |
+          docker build -q -t torchlink-web-check iot_front
+          docker run -d --name web-check -p 18080:8080 -e IOT_API_UPSTREAM=127.0.0.1:9 -e IOT_VIDEO_UPSTREAM=127.0.0.1:9 torchlink-web-check
+          for i in $(seq 1 30); do curl -fsS -o /dev/null http://127.0.0.1:18080/ && break; sleep 1; done
+          curl -fsS http://127.0.0.1:18080/ | grep -q 'id="app"'
+          test "$(docker exec web-check id -u)" = 101
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:18080/health/ready)" = 404
+          docker rm -f web-check
+          # A staging volume from an earlier release belongs to root.
+          docker build -q -t torchlink-backup-check -f deploy/backup/Dockerfile .
+          docker volume create backup-check
+          docker run --rm -v backup-check:/d alpine:3.22 sh -c 'mkdir -p /d/old && chown -R 0:0 /d'
+          docker run -d --name backup-check -v backup-check:/app/data/backups -e IOT_BACKUP_DIR=/app/data/backups torchlink-backup-check
+          sleep 3
+          test "$(docker run --rm -v backup-check:/d alpine:3.22 stat -c %u /d/old)" = 65532
+          if [ "$(docker inspect -f '{{.State.Running}}' backup-check)" = true ]; then
+            docker top backup-check -o uid,cmd | grep backup-service | grep -q '^65532 '
+          fi
+          docker rm -f backup-check
       - name: 告警规则校验
-        run: docker run --rm --entrypoint promtool -v "$PWD/ops/prometheus:/r:ro" prom/prometheus:v3.5.0 check rules /r/alerts.yml
+        run: |
+          docker run --rm --entrypoint promtool -v "$PWD/ops/prometheus:/r:ro" prom/prometheus:v3.5.0 check rules /r/alerts.yml
+          docker run --rm --entrypoint promtool -v "$PWD/ops/prometheus:/r:ro" prom/prometheus:v3.5.0 check config --syntax-only /r/prometheus.yml

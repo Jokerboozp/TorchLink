@@ -384,6 +384,8 @@ cp -R "$project_root/docs" "$bundle_root/"
 mkdir -p "$bundle_root/iot_front/public"
 cp "$project_root/iot_front/public/torchlink-logo.png" "$bundle_root/iot_front/public/"
 cp -R "$project_root/deploy" "$bundle_root/"
+# compose.yaml 直接引用 ops/ 下的 Prometheus 与 Grafana 配置。
+cp -R "$project_root/ops" "$bundle_root/"
 # 视频与容量测试模块启停脚本及其依赖的配置工具（在目标机上开启 / 关闭）。
 for lib_name in deployment.sh deployment.ps1 env-comments.sh env-comments.tsv; do
   cp "$script_dir/lib/$lib_name" "$bundle_root/scripts/lib/"

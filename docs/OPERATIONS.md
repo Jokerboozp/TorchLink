@@ -77,5 +77,9 @@
 | `RetentionFailures` | 历史数据清理失败 | Jobs 日志中 `retention purge failed` 的表与原因；不处理会使磁盘持续增长 |
 | `PartitionMaintenanceFailures` | 未能提前创建月分区 | Jobs 日志中 `create upcoming partitions`；数据会进入 `_default` 分区，仍可读写，修复后若默认分区已有该月数据需人工迁出再建分区 |
 | `ScrapeTargetDown`、`HostDiskAlmostFull` | 监控目标不可达、磁盘将满 | 检查对应容器；磁盘不足时先确认保留任务正常，再扩容或缩短保留期 |
+| `CoreComponentDown` | Redpanda、EMQX 或备份服务不可抓取 | `docker compose ps` 与对应服务日志；Redpanda 不可用时设备消息停在 MQTT 持久队列，恢复后继续 |
+| `RedpandaUnderReplicated` | 集群中有分区副本不足 | 检查 Redpanda 节点与磁盘，`rpk cluster health`；恢复前避免再停其他节点 |
+| `HostMemoryHigh`、`HostLoadHigh` | 主机内存不足 10% 或负载长期超过核数两倍 | 查看各容器内存与 CPU（`docker stats`），按需调整 `IOT_*_MEMORY` 上限或扩容 |
+| `HTTPServerErrorRatio`、`HTTPLatencyHigh` | 接口 5xx 超过 5% 或 95 分位耗时超过 2 秒 | 运维中心“炬联平台运行”面板的接口分组按路由查看；在 Loki 中按请求编号检索 `request failed` |
 
 处理完成后在运维中心确认告警恢复；临时静默须写明原因和到期时间。

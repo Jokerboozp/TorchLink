@@ -375,6 +375,8 @@ try {
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "iot_front/public") | Out-Null
     Copy-Item -LiteralPath (Join-Path $projectRoot "iot_front/public/torchlink-logo.png") -Destination (Join-Path $bundleRoot "iot_front/public")
     Copy-Item -LiteralPath (Join-Path $projectRoot "deploy") -Destination $bundleRoot -Recurse
+    # compose.yaml 直接引用 ops/ 下的 Prometheus 与 Grafana 配置。
+    Copy-Item -LiteralPath (Join-Path $projectRoot "ops") -Destination $bundleRoot -Recurse
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts") | Out-Null
     New-Item -ItemType Directory -Force -Path (Join-Path $bundleRoot "scripts/lib") | Out-Null
     Copy-Item -LiteralPath (Join-Path $scriptDir "lib/docker-bootstrap.sh") -Destination (Join-Path $bundleRoot "scripts/lib")

@@ -10,7 +10,10 @@ key=/etc/torchlink/tls/tls.key
 printf 'listen 8080;\n' > "$dir/listen.conf"
 : > "$dir/redirect.conf"
 printf 'map "$scheme:$uri" $torchlink_redirect {\n    default 0;\n}\nmap $https $torchlink_hsts {\n    default "";\n}\n' > "$dir/maps.conf"
-if [ -s "$cert" ] && [ -s "$key" ]; then
+if [ -s "$cert" ] && [ -s "$key" ] && [ ! -r "$key" ]; then
+  # The web server runs as a non-root user and cannot read a 0600 key.
+  echo "torchlink: $key is not readable by uid $(id -u); serving HTTP only (chmod 0644 the key or use scripts/generate-tls-cert)" >&2
+elif [ -s "$cert" ] && [ -s "$key" ]; then
   cat >> "$dir/listen.conf" <<CONF
 listen 8443 ssl;
 ssl_certificate $cert;

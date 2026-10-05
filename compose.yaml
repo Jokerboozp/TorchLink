@@ -23,6 +23,7 @@ services:
     ulimits:
       nofile: {soft: 1048576, hard: 1048576}
     image: ${IOT_PLATFORM_API_IMAGE:-iot-platform-api:local}
+    mem_limit: ${IOT_PLATFORM_API_MEMORY:-4g}
     build:
       context: .
       dockerfile: Dockerfile
@@ -213,6 +214,7 @@ services:
   platform-web:
     <<: *service-defaults
     image: ${IOT_PLATFORM_WEB_IMAGE:-iot-platform-web:local}
+    mem_limit: ${IOT_PLATFORM_WEB_MEMORY:-256m}
     build:
       context: ./iot_front
       dockerfile: Dockerfile
@@ -228,6 +230,7 @@ services:
   deepseek-harness:
     <<: *service-defaults
     image: ${IOT_DEEPSEEK_HARNESS_IMAGE:-iot-deepseek-harness:local}
+    mem_limit: ${IOT_HARNESS_MEMORY:-2g}
     build:
       context: .
       dockerfile: deploy/deepseek-harness/Dockerfile
@@ -266,6 +269,7 @@ services:
   embedding:
     <<: *service-defaults
     image: ${IOT_LOCAL_AI_IMAGE:-iot-local-ai:local}
+    mem_limit: ${IOT_EMBEDDING_MEMORY:-2g}
     build:
       context: ./deploy/local-ai
       args:
@@ -286,6 +290,7 @@ services:
   reranker:
     <<: *service-defaults
     image: ${IOT_LOCAL_AI_IMAGE:-iot-local-ai:local}
+    mem_limit: ${IOT_RERANKER_MEMORY:-2g}
     build:
       context: ./deploy/local-ai
       args:
@@ -300,6 +305,7 @@ services:
   postgres:
     <<: *service-defaults
     image: ${IOT_POSTGRES_IMAGE:-iot-platform-postgres:17-pgvector-0.8.1}
+    mem_limit: ${IOT_POSTGRES_MEMORY:-4g}
     build:
       context: ./deploy/postgres
       args:
@@ -366,6 +372,7 @@ services:
   redis:
     <<: *service-defaults
     image: redis:7.4-alpine
+    mem_limit: ${IOT_REDIS_MEMORY:-2g}
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-admin123}", "--user", "${SERVICE_ADMIN_USER:-admin}", "on", ">${SERVICE_ADMIN_PASSWORD:-admin123}", "~*", "&*", "+@all"]
     volumes: ["redis-data:/data"]
     healthcheck:
@@ -379,6 +386,7 @@ services:
   rustfs:
     <<: *service-defaults
     image: ${IOT_RUSTFS_IMAGE:-rustfs/rustfs:1.0.1}
+    mem_limit: ${IOT_RUSTFS_MEMORY:-2g}
     environment:
       RUSTFS_ACCESS_KEY: ${MINIO_ROOT_USER:-admin}
       RUSTFS_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-admin123}
@@ -397,6 +405,7 @@ services:
   rustfs-dr:
     <<: *service-defaults
     image: ${IOT_RUSTFS_IMAGE:-rustfs/rustfs:1.0.1}
+    mem_limit: ${IOT_RUSTFS_DR_MEMORY:-1g}
     environment:
       RUSTFS_ACCESS_KEY: ${MINIO_DR_ROOT_USER:-admin}
       RUSTFS_SECRET_KEY: ${MINIO_DR_ROOT_PASSWORD:-admin123}
@@ -411,6 +420,7 @@ services:
   redpanda:
     <<: *service-defaults
     image: redpandadata/redpanda:v25.2.11
+    mem_limit: ${IOT_REDPANDA_MEMORY:-2g}
     ports:
       - "${KAFKA_BIND_ADDRESS:-127.0.0.1}:${KAFKA_PORT:-19092}:19092"
     command: ["redpanda", "start", "--overprovisioned", "--smp", "1", "--memory", "1G", "--reserve-memory", "0M", "--node-id", "0", "--check=false", "--kafka-addr", "internal://0.0.0.0:9092,external://0.0.0.0:19092", "--advertise-kafka-addr", "internal://redpanda:9092,external://${IOT_KAFKA_ADVERTISED_HOST:-127.0.0.1}:${KAFKA_PORT:-19092}", "--set", "redpanda.enable_sasl=true", "--set", "redpanda.admin_api_require_auth=true", "--set", 'redpanda.superusers=["${IOT_KAFKA_ADMIN_USERNAME:-admin}"]']
@@ -452,6 +462,7 @@ services:
     <<: *service-defaults
     profiles: [clickhouse]
     image: clickhouse/clickhouse-server:25.7-alpine
+    mem_limit: ${IOT_CLICKHOUSE_MEMORY:-4g}
     environment:
       CLICKHOUSE_DB: iot
       CLICKHOUSE_USER: iot
@@ -471,6 +482,7 @@ services:
     ulimits:
       nofile: {soft: 1048576, hard: 1048576}
     image: emqx/emqx:5.8.8
+    mem_limit: ${IOT_EMQX_MEMORY:-2g}
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
@@ -554,6 +566,7 @@ services:
     profiles: [ops]
     <<: *service-defaults
     image: prom/prometheus:v3.5.0
+    mem_limit: ${IOT_PROMETHEUS_MEMORY:-2g}
     # 抓取平台 /metrics 的令牌只放在环境变量里，启动时写入数据卷内的私有文件。
     entrypoint: ["/bin/sh", "-c", "umask 077 && printf '%s' \"$$IOT_METRICS_TOKEN\" > /prometheus/.metrics-token && exec /bin/prometheus \"$$@\"", "prometheus"]
     environment:
@@ -572,6 +585,7 @@ services:
     profiles: [ops]
     <<: *service-defaults
     image: grafana/grafana:12.1.0
+    mem_limit: ${IOT_GRAFANA_MEMORY:-512m}
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin123}
@@ -590,6 +604,7 @@ services:
     profiles: [ops]
     <<: *service-defaults
     image: grafana/loki:3.5.3
+    mem_limit: ${IOT_LOKI_MEMORY:-1g}
     command: ["-config.file=/etc/loki/local-config.yaml"]
     configs:
       - {source: loki-main, target: /etc/loki/local-config.yaml}
@@ -601,6 +616,7 @@ services:
     profiles: [ops]
     <<: *service-defaults
     image: prom/alertmanager:v0.34.1
+    mem_limit: ${IOT_ALERTMANAGER_MEMORY:-256m}
     command: ["--config.file=/etc/alertmanager/ops/alertmanager.yml", "--storage.path=/alertmanager", "--cluster.listen-address="]
     volumes: ["alertmanager-config:/etc/alertmanager/ops:ro", "alertmanager-data:/alertmanager"]
     depends_on:
@@ -617,6 +633,7 @@ services:
     profiles: [ops]
     <<: *service-defaults
     image: grafana/alloy:v1.20.0
+    mem_limit: ${IOT_ALLOY_MEMORY:-512m}
     command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "--storage.path=/var/lib/alloy/data", "/etc/alloy/config.alloy"]
     configs:
       - {source: alloy-main, target: /etc/alloy/config.alloy}
@@ -628,6 +645,7 @@ services:
     profiles: [ops]
     <<: *service-defaults
     image: prom/node-exporter:v1.12.1
+    mem_limit: ${IOT_NODE_EXPORTER_MEMORY:-128m}
     command: ["--path.rootfs=/host"]
     pid: host
     # 不使用 rslave 传播，兼容根挂载非 shared 的主机；容器启动后新增的挂载点不会被发现。
@@ -637,20 +655,10 @@ services:
     <<: *service-defaults
     restart: unless-stopped
     image: ${IOT_BACKUP_IMAGE:-iot-platform-backup:local}
+    mem_limit: ${IOT_BACKUP_MEMORY:-2g}
     build:
       context: .
-      dockerfile_inline: |
-        FROM golang:1.26-alpine AS build
-        WORKDIR /src
-        COPY go.mod go.sum ./
-        RUN go mod download
-        COPY . .
-        RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/backup-service ./cmd/backup-service
-        FROM alpine:3.22
-                # pg_dump / pg_restore must be at least the server major version (PostgreSQL 17).
-        RUN apk add --no-cache ca-certificates tzdata postgresql17-client
-        COPY --from=build /out/backup-service /usr/local/bin/backup-service
-        ENTRYPOINT ["backup-service"]
+      dockerfile: deploy/backup/Dockerfile
     environment:
       IOT_BACKUP_HTTP_ADDR: :8090
       IOT_BACKUP_DIR: /app/data/backups
@@ -700,6 +708,7 @@ services:
     <<: *service-defaults
     profiles: [capacity]
     image: ${IOT_PLATFORM_API_IMAGE:-iot-platform-api:local}
+    mem_limit: ${IOT_CAPACITY_MEMORY:-2g}
     entrypoint: ["/app/capacity-test"]
     command: ["serve", "--self", "--listen", ":7080", "--results", "/app/data/capacity-results"]
     environment:
@@ -751,174 +760,11 @@ services:
 
 configs:
   prometheus-main:
-    content: |
-      global:
-        scrape_interval: 15s
-        evaluation_interval: 15s
-      rule_files:
-        - /etc/prometheus/alerts.yml
-        - /etc/prometheus/rules/*.yml
-      alerting:
-        alertmanagers:
-          - static_configs:
-              - targets: ["alertmanager:9093"]
-      scrape_configs:
-        - job_name: iot-platform
-          metrics_path: /metrics
-          authorization:
-            credentials_file: /prometheus/.metrics-token
-          static_configs:
-            - targets: ["platform-api:8080"]
-        - job_name: redpanda
-          metrics_path: /public_metrics
-          static_configs:
-            - targets: ["redpanda:9644"]
-        - job_name: backup-service
-          metrics_path: /metrics
-          static_configs:
-            - targets: ["backup-service:8090"]
-        - job_name: emqx
-          metrics_path: /api/v5/prometheus/stats
-          static_configs:
-            - targets: ["emqx:18083"]
-        - job_name: prometheus
-          static_configs:
-            - targets: ["localhost:9090"]
-        - job_name: node
-          static_configs:
-            - targets: ["node-exporter:9100"]
-        - job_name: loki
-          static_configs:
-            - targets: ["loki:3100"]
-        - job_name: alertmanager
-          static_configs:
-            - targets: ["alertmanager:9093"]
-        - job_name: grafana
-          static_configs:
-            - targets: ["grafana:3000"]
-        - job_name: alloy
-          static_configs:
-            - targets: ["alloy:12345"]
+    file: ./ops/prometheus/prometheus.yml
   prometheus-alerts:
-    content: |
-      groups:
-        - name: iot-platform
-          rules:
-            - alert: IotPlatformDown
-              expr: up{job="iot-platform"} == 0
-              for: 1m
-              labels: {severity: critical}
-              annotations: {summary: "IoT 平台不可用"}
-            - alert: RawArchiveFailures
-              expr: increase(raw_archive_failed_total[5m]) > 0
-              for: 1m
-              labels: {severity: critical}
-              annotations: {summary: "原始报文归档失败"}
-            - alert: MQTTSubscriptionLost
-              expr: (mqtt_subscription_count == 0) and (mqtt_ingress_enabled == 1)
-              for: 1m
-              labels: {severity: critical}
-              annotations: {summary: "MQTT 平台接入订阅已中断"}
-            - alert: MQTTBrokerObservationMissing
-              expr: (mqtt_broker_observation_ok == 0) and (mqtt_ingress_enabled == 1)
-              for: 5m
-              labels: {severity: warning}
-              annotations: {summary: "MQTT Broker 管理观测不可用，无法判断消息丢弃"}
-            - alert: MQTTDeliveryLoss
-              expr: (delta(mqtt_broker_dropped[5m]) > 0) or (delta(mqtt_inbox_rejected[5m]) > 0) or (mqtt_inbox_corrupt > 0)
-              for: 0m
-              labels: {severity: critical}
-              annotations: {summary: "MQTT 消息出现丢弃、拒收或持久队列损坏"}
-            - alert: MQTTInboxBacklog
-              expr: mqtt_inbox_pending > 10000
-              for: 2m
-              labels: {severity: warning}
-              annotations: {summary: "MQTT 持久队列积压超过一万条"}
-            - alert: ProtocolListenerFull
-              expr: delta(protocol_listener_rejected_total[5m]) > 0
-              for: 0m
-              labels: {severity: critical}
-              annotations: {summary: "TCP/UDP 接入监听已满，新设备连接被拒绝，请调大 IOT_PROTOCOL_LISTENER_MAX_SESSIONS 或拆分接入网关"}
-            - alert: ParseFailureSpike
-              expr: increase(parse_failed_total[5m]) > 100
-              for: 2m
-              labels: {severity: warning}
-              annotations: {summary: "解析失败量升高"}
-            - alert: AIAnalysisFailures
-              expr: increase(ai_analysis_failed_total[15m]) > 10
-              for: 5m
-              labels: {severity: warning}
-              annotations: {summary: "AI 分析失败量升高"}
-            - alert: DeadLetterPublished
-              expr: increase(dlq_published_total[5m]) > 0
-              for: 0m
-              labels: {severity: critical}
-              annotations: {summary: "设备消息处理失败并转入死信队列，需核对原因后回放"}
-            - alert: ConsumerBlockedByOutage
-              expr: max({__name__=~"consumer_blocked_seconds_.+"}) > 60
-              for: 0m
-              labels: {severity: critical}
-              annotations: {summary: "依赖故障导致设备消息暂停处理超过 1 分钟，恢复后自动继续"}
-            - alert: KafkaConsumerLagHigh
-              expr: kafka_lag > 10000
-              for: 5m
-              labels: {severity: warning}
-              annotations: {summary: "平台消息消费积压超过一万条"}
-            - alert: AlarmNotificationFailures
-              expr: increase(notification_failed_total[15m]) > 0
-              for: 0m
-              labels: {severity: critical}
-              annotations: {summary: "火警通知多次重试后仍发送失败，请检查通知渠道"}
-            - alert: AlarmEventDeliveryFailures
-              expr: increase(event_publish_failed_total[15m]) > 0
-              for: 0m
-              labels: {severity: warning}
-              annotations: {summary: "告警事件未能推送到消息总线或实时通道，页面实时提醒可能遗漏"}
-            - alert: AuditWriteFailures
-              expr: increase(audit_write_failed_total[15m]) > 0
-              for: 0m
-              labels: {severity: warning}
-              annotations: {summary: "审计记录写入失败，相关操作缺少审计"}
-            - alert: RetentionFailures
-              expr: increase(retention_failed_total[1d]) > 0
-              for: 0m
-              labels: {severity: warning}
-              annotations: {summary: "历史数据清理失败，磁盘占用会持续增长"}
-            - alert: PartitionMaintenanceFailures
-              expr: increase(partition_maintenance_failed_total[1d]) > 0
-              for: 0m
-              labels: {severity: warning}
-              annotations: {summary: "未能提前创建数据表月分区，新数据将进入默认分区"}
-            - alert: BackupFailures
-              expr: increase(backup_failed_total[30m]) > 0
-              for: 1m
-              labels: {severity: critical}
-              annotations: {summary: "备份或恢复演练失败"}
-        - name: infrastructure
-          rules:
-            - alert: ScrapeTargetDown
-              expr: up == 0
-              for: 2m
-              labels: {severity: warning}
-              annotations: {summary: "采集目标 {{ $$labels.job }} / {{ $$labels.instance }} 不可用"}
-            - alert: HostDiskAlmostFull
-              expr: 100 * (1 - node_filesystem_avail_bytes{job="node",mountpoint="/",fstype!~"tmpfs|overlay|squashfs"} / node_filesystem_size_bytes{job="node",mountpoint="/",fstype!~"tmpfs|overlay|squashfs"}) > 90
-              for: 10m
-              labels: {severity: critical}
-              annotations: {summary: "主机根分区使用率超过 90%"}
+    file: ./ops/prometheus/alerts.yml
   grafana-datasources:
-    content: |
-      apiVersion: 1
-      datasources:
-        - name: Prometheus
-          type: prometheus
-          access: proxy
-          url: http://prometheus:9090
-          isDefault: true
-        - name: Loki
-          type: loki
-          access: proxy
-          url: http://loki:3100
+    file: ./ops/grafana/provisioning/datasources/datasources.yml
   loki-main:
     content: |
       auth_enabled: false

@@ -420,6 +420,10 @@ docker compose -p iot-platform-local --env-file .env.local -f compose.local.yaml
 
 单机在线与离线部署的长驻容器使用 json-file 日志并轮转，默认每个容器 `IOT_CONTAINER_LOG_MAX_SIZE=50m` × `IOT_CONTAINER_LOG_MAX_FILE=5`，在环境文件中修改后重新部署生效；更早的标准输出以 Loki 保留为准。
 
+**内存上限**：单机在线与离线部署为每个长驻容器设置内存上限，避免单个服务耗尽主机内存；默认值偏宽松，可在环境文件中按服务覆盖后重新部署：`IOT_PLATFORM_API_MEMORY`（4g）、`IOT_POSTGRES_MEMORY`（4g）、`IOT_CLICKHOUSE_MEMORY`（4g）、`IOT_REDIS_MEMORY`、`IOT_REDPANDA_MEMORY`、`IOT_EMQX_MEMORY`、`IOT_RUSTFS_MEMORY`、`IOT_HARNESS_MEMORY`、`IOT_EMBEDDING_MEMORY`、`IOT_RERANKER_MEMORY`、`IOT_PROMETHEUS_MEMORY`、`IOT_BACKUP_MEMORY`、`IOT_CAPACITY_MEMORY`（均为 2g）、`IOT_RUSTFS_DR_MEMORY`、`IOT_LOKI_MEMORY`（1g）、`IOT_GRAFANA_MEMORY`、`IOT_ALLOY_MEMORY`（512m）、`IOT_PLATFORM_WEB_MEMORY`、`IOT_ALERTMANAGER_MEMORY`（256m）、`IOT_NODE_EXPORTER_MEMORY`（128m）。超过上限的容器会被重启，`docker stats` 可查看实际用量。CPU 不设默认上限（Docker 拒绝超过主机核数的值），协议运行器与媒体服务保留原有的 CPU 限制。集群节点按清单规划独占资源，不渲染这些上限。
+
+**运行用户与基础镜像**：平台 API、协议运行器以 distroless `nonroot` 运行；Web 使用 `nginx-unprivileged`（uid 101），挂载的 `tls.key` 须对其可读（`scripts/generate-tls-cert` 生成的证书已是 0644），不可读时日志提示并只提供 HTTP；备份服务启动时把暂存卷交给 uid 65532 后降权运行，旧版本创建的数据卷会自动修正属主。各 Dockerfile 的基础镜像以“标签@摘要”固定，升级基础镜像时同时更新摘要；Compose 中直接运行的第三方镜像保留版本标签，离线包按标签导出与导入。
+
 源码备份服务的日志在 VS Code 的 `Backup Service` 调试终端；临时容器版则在上述命令前加 `--profile backup`，例如 `docker compose -p iot-platform-local --env-file .env.local -f compose.local.yaml --profile backup logs -f backup-service`。
 
 在线部署：

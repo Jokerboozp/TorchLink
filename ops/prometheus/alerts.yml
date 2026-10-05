@@ -1,4 +1,4 @@
-# 与 compose.yaml 中的内联配置保持一致，供其他部署方式参考。
+# 单机部署（compose.yaml）直接使用此文件，集群渲染通过 rules.go 嵌入同一份规则。
 groups:
   - name: iot-platform
     rules:
@@ -87,6 +87,16 @@ groups:
         for: 0m
         labels: {severity: warning}
         annotations: {summary: "未能提前创建数据表月分区，新数据将进入默认分区"}
+      - alert: HTTPServerErrorRatio
+        expr: (sum by (job, instance) (rate(http_request_duration_seconds_count{code=~"5.."}[5m])) / sum by (job, instance) (rate(http_request_duration_seconds_count[5m])) > 0.05) and (sum by (job, instance) (rate(http_request_duration_seconds_count[5m])) > 0.1)
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "接口 5xx 错误超过 5%（{{ $labels.instance }}），按请求编号在日志中查看原因"}
+      - alert: HTTPLatencyHigh
+        expr: histogram_quantile(0.95, sum by (job, instance, le) (rate(http_request_duration_seconds_bucket[5m]))) > 2
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "接口 95 分位耗时超过 2 秒（{{ $labels.instance }}）"}
       - alert: BackupFailures
         expr: increase(backup_failed_total[30m]) > 0
         for: 1m
@@ -104,3 +114,23 @@ groups:
         for: 10m
         labels: {severity: critical}
         annotations: {summary: "主机根分区使用率超过 90%"}
+      - alert: HostMemoryHigh
+        expr: 100 * (1 - node_memory_MemAvailable_bytes{job="node"} / node_memory_MemTotal_bytes{job="node"}) > 90
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "主机可用内存不足 10%（{{ $labels.instance }}），容器可能被系统终止"}
+      - alert: HostLoadHigh
+        expr: node_load5{job="node"} / on (instance) count by (instance) (node_cpu_seconds_total{job="node",mode="idle"}) > 2
+        for: 15m
+        labels: {severity: warning}
+        annotations: {summary: "主机 5 分钟负载超过 CPU 核数的 2 倍（{{ $labels.instance }}）"}
+      - alert: CoreComponentDown
+        expr: up{job=~"redpanda|emqx|backup-service"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "核心组件 {{ $labels.job }} 不可抓取（{{ $labels.instance }}），设备接入、消息或备份可能中断"}
+      - alert: RedpandaUnderReplicated
+        expr: sum by (instance) (redpanda_kafka_under_replicated_replicas) > 0
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: "Redpanda 存在副本不足的分区（{{ $labels.instance }}），节点故障时可能丢失消息"}

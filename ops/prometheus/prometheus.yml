@@ -1,4 +1,4 @@
-# 与 compose.yaml 中的内联配置保持一致，供其他部署方式参考。
+# 单机在线与离线部署（compose.yaml）直接使用此文件。
 global:
   scrape_interval: 15s
   evaluation_interval: 15s
