@@ -118,6 +118,7 @@ func (s *Server) cameraMappingRoutes() {
 // productRoutes registers device templates.
 func (s *Server) productRoutes() {
 	s.router.GET("/api/v1/products", s.authorize("viewer"), s.endpoint(s.products))
+	s.router.GET("/api/v1/products/protocol-binding-check", s.authorize("viewer"), s.endpoint(s.productBindingCheck))
 	s.router.POST("/api/v1/products", s.authorize("operator"), s.endpoint(s.saveProduct))
 	s.router.PUT("/api/v1/products/:id", s.authorize("operator"), s.endpoint(s.saveProduct, "id"))
 }

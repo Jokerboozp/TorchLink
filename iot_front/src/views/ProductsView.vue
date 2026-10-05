@@ -30,6 +30,13 @@ const productTotal = ref(0)
 
 let loadVersion = 0
 let catalogVersion = 0
+const unbound = ref([])
+// Templates without a usable protocol only accept the platform's standard
+// messages; other payloads are recorded as parse failures.
+async function loadUnbound() {
+  try { unbound.value = (await api('/api/v1/products/protocol-binding-check')).items || [] }
+  catch { unbound.value = [] }
+}
 async function load({ catalog = true } = {}) {
   const version = ++loadVersion
   const currentCatalog = catalog ? ++catalogVersion : 0
@@ -43,6 +50,7 @@ async function load({ catalog = true } = {}) {
     if (version !== loadVersion) return
     products.value = p.items || []
     productTotal.value = Number(p.total ?? p.count ?? products.value.length)
+    loadUnbound()
   } catch (error) {
     if (version === loadVersion) notifyError(error)
   } finally {
@@ -98,6 +106,7 @@ function rowActions(row) {
     </template>
   </FilterBar>
 
+  <ui-alert v-if="unbound.length" type="warning" :closable="false" show-icon :title="`${unbound.length} 个设备模板未绑定可用协议`" :description="`${unbound.slice(0, 5).map(item => `${item.name || item.id}（${item.reason}）`).join('、')}${unbound.length > 5 ? ' 等' : ''}。这些模板只能接收平台标准格式报文，其他报文会记为解析失败；请在模板准备中绑定已发布的协议版本。`" />
   <ui-alert v-if="draftsError" :title="draftsError" type="warning" :closable="false"/><ui-button v-if="draftsError" size="small" @click="loadDrafts(draftsPage)">重试读取模板草稿</ui-button>
   <section v-if="preparationDrafts.length || draftsTotal>20" class="template-drafts"><strong>继续准备设备模板</strong><ui-button v-for="draft in preparationDrafts" :key="draft.id" size="small" :disabled="draftsLoading" @click="resumePreparation(draft)">{{ preparationDraftName(draft) }}</ui-button><ui-pagination v-if="draftsTotal>20" :current-page="draftsPage" :page-size="20" :total="draftsTotal" layout="prev,pager,next" @update:current-page="loadDrafts"/></section>
   <DataTableCard :title="`设备模板 · ${productTotal} 个`" :page="productPage" :page-size="productPageSize" :total="productTotal" @update:page="changePage" @update:page-size="changePageSize">

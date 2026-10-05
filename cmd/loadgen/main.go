@@ -137,7 +137,7 @@ func main() {
 	devices := flag.Int("devices", 10000, "device cardinality")
 	workers := flag.Int("workers", 64, "concurrent workers")
 	tenant := flag.String("tenant", "tenant_001", "tenant ID")
-	product := flag.String("product", "fire_smoke_json", "product ID")
+	product := flag.String("product", "fire_smoke_json", "product ID; the template must be bound to a published protocol release that parses JSON (for example custom_json_parser), since only standard messages parse without a binding")
 	reportPath := flag.String("report", "", "optional JSON report path")
 	maxErrorRate := flag.Float64("max-error-rate", 0.001, "acceptance error-rate ceiling")
 	maxP95 := flag.Float64("max-p95-ms", 500, "acceptance P95 latency ceiling")

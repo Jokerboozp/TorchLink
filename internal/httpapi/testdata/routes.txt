@@ -193,6 +193,7 @@ GET /api/v1/ops/silences
 GET /api/v1/ops/status
 GET /api/v1/products
 GET /api/v1/products/:id/preparation
+GET /api/v1/products/protocol-binding-check
 GET /api/v1/protocol-packages
 GET /api/v1/raw-messages
 GET /api/v1/raw-messages/:id

@@ -249,6 +249,17 @@ func (s *Server) products(w http.ResponseWriter, r *http.Request) {
 	}
 	writeList(w, 200, items, total, pagination, nil)
 }
+// productBindingCheck lists templates without a usable protocol; their raw
+// messages fail to parse unless they use the platform's standard format.
+func (s *Server) productBindingCheck(w http.ResponseWriter, r *http.Request) {
+	items, err := s.engine.UnboundProducts(r.Context(), claims(r).TenantID)
+	if err != nil {
+		problem(w, 500, "检查设备模板协议绑定失败")
+		return
+	}
+	write(w, 200, map[string]any{"items": items})
+}
+
 func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	var v model.Product
 	if decode(w, r, &v) != nil {

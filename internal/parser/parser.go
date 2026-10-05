@@ -33,11 +33,21 @@ func NewRegistry(parsers ...Parser) *Registry { return &Registry{parsers: parser
 // NewPlatformRegistry admits new protocols through configurable formats or Go
 // artifacts. Older named parsers remain callable only by an explicit binding
 // or historical replay, so existing devices can migrate without losing history.
+// NewPlatformRegistry registers every platform parser. Only the platform's
+// standard message format is matched automatically; every other parser runs
+// only when a published protocol release or the template's protocol package
+// names it, so a template without a protocol binding is reported as a parse
+// failure instead of being guessed from its payload format.
 func NewPlatformRegistry(root string) *Registry {
-	r := NewRegistry(StandardParser{}, ConfigurableJSONParser{}, ConfigurableHexParser{}, ExternalParser{Root: root}, JSONParser{})
-	r.parsers = append(r.parsers, PollResponseParser{}, GB26875Parser{}, ModbusTCPParser{}, ModbusRTUParser{}, ModbusCoilParser{}, JavaScriptParser{}, FireSmokeHexParser{}, ModbusParser{})
+	r := NewRegistry(StandardParser{})
+	r.parsers = append(r.parsers, ConfigurableJSONParser{}, ConfigurableHexParser{}, ExternalParser{Root: root}, JSONParser{}, PollResponseParser{}, GB26875Parser{}, ModbusTCPParser{}, ModbusRTUParser{}, ModbusCoilParser{}, JavaScriptParser{}, FireSmokeHexParser{}, ModbusParser{})
 	return r
 }
+
+// ErrNoProtocolBinding means no parser applies to a raw message: its template
+// has no published protocol release or package and the payload is not in the
+// platform's standard format.
+var ErrNoProtocolBinding = errors.New("设备模板未绑定可用的协议版本，且报文不是平台标准格式；请在设备模板中绑定已发布的协议")
 
 func ManagedParserTypes() []string {
 	return []string{"custom_json_parser", "configurable_json_parser", "configurable_hex_parser", GoProtocolParserName}
@@ -93,7 +103,7 @@ func (r *Registry) Parse(raw model.RawMessage) (*model.StandardMessage, error) {
 			return m, nil
 		}
 	}
-	return nil, fmt.Errorf("no parser matched product=%s protocol=%s format=%s", raw.ProductID, raw.Protocol, raw.PayloadFormat)
+	return nil, fmt.Errorf("%w（product=%s protocol=%s format=%s）", ErrNoProtocolBinding, raw.ProductID, raw.Protocol, raw.PayloadFormat)
 }
 
 type JSONParser struct{}
