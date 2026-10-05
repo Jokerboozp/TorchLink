@@ -66,50 +66,30 @@
     },
     {
       "name": "IoT Platform API (Run)",
-      "type": "go",
+      "type": "node-terminal",
       "request": "launch",
-      "mode": "debug",
-      "noDebug": true,
-      "buildFlags": "-gcflags=all=",
-      "program": "${workspaceFolder}/cmd/iot-platform",
+      "command": "go run ./cmd/iot-platform --env-file .env.local",
       "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
       "presentation": {
         "hidden": true
-      },
-      "args": [
-        "--env-file",
-        "${workspaceFolder}/.env.local"
-      ]
+      }
     },
     {
       "name": "Backup Service (Run)",
-      "type": "go",
+      "type": "node-terminal",
       "request": "launch",
-      "mode": "debug",
-      "noDebug": true,
-      "buildFlags": "-gcflags=all=",
-      "program": "${workspaceFolder}/cmd/backup-service",
+      "command": "go run ./cmd/backup-service --env-file .env.local",
       "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
       "presentation": {
         "hidden": true
-      },
-      "args": [
-        "--env-file",
-        "${workspaceFolder}/.env.local"
-      ]
+      }
     },
     {
       "name": "GB26875 Gateway (Run)",
-      "type": "go",
+      "type": "node-terminal",
       "request": "launch",
-      "mode": "debug",
-      "noDebug": true,
-      "buildFlags": "-gcflags=all=",
-      "program": "${workspaceFolder}/cmd/gb26875-gateway",
+      "command": "go run ./cmd/gb26875-gateway",
       "cwd": "${workspaceFolder}",
-      "console": "integratedTerminal",
       "presentation": {
         "hidden": true
       },
