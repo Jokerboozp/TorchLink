@@ -2,7 +2,9 @@
 import { can } from '../permissions'
 import { aiProviderOptions as providerOptions, capabilityName } from '../presentation'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { api, apiStream, session } from '../api'
+import { api, apiStream, formatTime, session } from '../api'
+import { copyText } from '../ops/opsApi'
+import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { useAIConversation } from '../aiConversation'
 import { reconcileRuleDraftMessages } from '../ruleDraftStatus'
 import HarnessTraceDrawer from '../components/HarnessTraceDrawer.vue'
@@ -15,6 +17,8 @@ const emit = defineEmits(['navigate'])
 
 let scrollFrame = 0
 let scrollQueued = false
+// 用户向上翻看历史时不再自动滚到底部；回到底部或发送新问题后恢复跟随。
+let followOutput = true
 
 // 对话和运行状态保存在页面之外：切换到其他菜单时回答继续生成，返回后接着显示。
 const conversation = useAIConversation(
@@ -102,11 +106,16 @@ function scheduleScroll() {
   nextTick(() => {
     if (!scrollQueued) return
     scrollFrame = requestAnimationFrame(() => {
-      if (log.value) log.value.scrollTop = log.value.scrollHeight
+      if (log.value && followOutput) log.value.scrollTop = log.value.scrollHeight
       scrollFrame = 0
       scrollQueued = false
     })
   })
+}
+
+function trackScroll() {
+  const el = log.value
+  if (el) followOutput = el.scrollHeight - el.scrollTop - el.clientHeight < 48
 }
 
 function providerLabel(provider) {
@@ -182,6 +191,7 @@ function send(textValue) {
   const text = (textValue || question.value).trim()
   if (!text || sending.value) return
   question.value = ''
+  followOutput = true
   return conversation.send(text, {
     workflowName: workflowName(selectedWorkflow.value),
     model: runConfig.model || selectedWorkflow.value?.defaultModel || selectedWorkflow.value?.model || ''
@@ -200,10 +210,30 @@ function usageTokens(usage) {
 function retry(message) {
   if (!sending.value) send(message.prompt)
 }
-function clearConversation() {
+async function clearConversation() {
+  if (messages.value.some(message => message.id !== 'welcome')) {
+    try {
+      await UiMessageBox.confirm('清空后当前智能体的对话记录与运行轨迹都会删除。', '清空对话', {
+        type: 'warning',
+        confirmButtonText: '清空',
+        cancelButtonText: '取消'
+      })
+    } catch {
+      return
+    }
+  }
   conversation.clear()
   selectedRunKey.value = ''
   traceVisible.value = false
+}
+async function copyMessage(message) {
+  if (await copyText(message.text)) UiMessage.success('回答已复制')
+  else UiMessage.warning('浏览器不允许复制，请手动选择文本')
+}
+// 只为最后一条已结束的回答提供“重新生成”，失败的回答在错误区重试。
+function canRegenerate(message) {
+  const last = messages.value[messages.value.length - 1]
+  return message === last && message.role === 'assistant' && message.prompt && ['succeeded', 'canceled'].includes(message.status)
 }
 function openTrace(value) {
   selectedRunKey.value = value?.runKey || value?.id || ''
@@ -320,7 +350,7 @@ onBeforeUnmount(() => {
           </button>
         </div>
       </div>
-      <div ref="log" class="chat-log" aria-live="polite">
+      <div ref="log" class="chat-log" aria-live="polite" @scroll.passive="trackScroll">
         <div v-for="message in messages" :key="message.id" class="message-row" :class="message.role">
           <span class="message-avatar">{{ message.role === 'assistant' ? '智能' : '我' }}</span>
           <div class="message-content">
@@ -365,12 +395,27 @@ onBeforeUnmount(() => {
                 >
               </div>
             </div>
-            <div v-if="message.role === 'assistant' && message.runKey" class="message-meta">
-              <span v-if="message.status === 'streaming'">运行中</span
-              ><span v-else>{{ message.status === 'succeeded' ? '已完成' : message.status === 'canceled' ? '已停止' : '运行失败' }}</span
-              ><span v-if="message.durationMs != null">{{ message.durationMs }} 毫秒</span
-              ><span v-if="usageTokens(message.usage) != null">{{ usageTokens(message.usage) }} 词元</span
-              ><ui-button plain size="small" @click="openTrace(message)">查看轨迹</ui-button>
+            <div v-if="message.createdAt || message.runKey" class="message-meta">
+              <time v-if="message.createdAt">{{ formatTime(message.createdAt) }}</time>
+              <template v-if="message.role === 'assistant' && message.runKey"
+                ><span v-if="message.status === 'streaming'">运行中</span
+                ><span v-else>{{ message.status === 'succeeded' ? '已完成' : message.status === 'canceled' ? '已停止' : '运行失败' }}</span
+                ><span v-if="message.durationMs != null">{{ message.durationMs }} 毫秒</span
+                ><span v-if="usageTokens(message.usage) != null">{{ usageTokens(message.usage) }} 词元</span></template
+              >
+              <template v-if="message.role === 'assistant'"
+                ><ui-button v-if="message.text && message.status !== 'streaming'" plain size="small" @click="copyMessage(message)"
+                  >复制</ui-button
+                ><ui-button
+                  v-if="canRegenerate(message)"
+                  v-permission="'POST /api/v1/ai/chat/stream'"
+                  plain
+                  size="small"
+                  :disabled="sending"
+                  @click="retry(message)"
+                  >重新生成</ui-button
+                ><ui-button v-if="message.runKey" plain size="small" @click="openTrace(message)">查看轨迹</ui-button></template
+              >
             </div>
           </div>
         </div>
@@ -383,7 +428,7 @@ onBeforeUnmount(() => {
           maxlength="4000"
           resize="none"
           placeholder="询问设备、告警、趋势或处置知识；Enter 发送，Shift+Enter 换行"
-          :disabled="sending || !workflowItems.length"
+          :disabled="!workflowItems.length"
           @keydown.enter.exact.prevent="send()"
         /><ui-button v-if="sending" type="danger" plain @click="stop">停止</ui-button
         ><ui-button

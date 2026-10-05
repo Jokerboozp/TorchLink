@@ -280,8 +280,18 @@ function createAIConversation({ identity, storage, stream }) {
   async function send(text, { workflowName = '', model = '' } = {}) {
     if (!text || sending.value || disposed) return
     if (!conversationId.value) conversationId.value = makeId('conversation')
-    messages.value.push({ id: makeId('message'), role: 'user', status: 'succeeded', text, tools: [] })
-    messages.value.push({ id: makeId('message'), role: 'assistant', status: 'streaming', text: '', prompt: text, tools: [], error: null })
+    const createdAt = Date.now()
+    messages.value.push({ id: makeId('message'), role: 'user', status: 'succeeded', text, tools: [], createdAt })
+    messages.value.push({
+      id: makeId('message'),
+      role: 'assistant',
+      status: 'streaming',
+      text: '',
+      prompt: text,
+      tools: [],
+      error: null,
+      createdAt
+    })
     const assistant = messages.value[messages.value.length - 1]
     runs.value.unshift({
       id: makeId('run'),
