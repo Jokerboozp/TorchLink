@@ -551,11 +551,14 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 			if inv.Postgres.Synchronous {
 				sync = "true"
 			}
+			// Members advertise the node address: outside Kubernetes Spilo
+			// resolves the host name, which Ubuntu maps to 127.0.1.1, and
+			// replicas could never reach the leader.
 			// Spilo's bg_mon monitor listens on 0.0.0.0:8080 by default, which
 			// would take the web port of a node that also runs the web; it
 			// listens on loopback port 8009 instead (local parameters apply
 			// on every start).
-			spilo := fmt.Sprintf("bootstrap:\n  dcs:\n    synchronous_mode: %s\n    postgresql:\n      parameters:\n        max_connections: %d\n        wal_level: replica\npostgresql:\n  parameters:\n    bg_mon.listen_address: 127.0.0.1\n    bg_mon.port: %d\n", sync, inv.Postgres.MaxConnections, BgMonPort)
+			spilo := fmt.Sprintf("bootstrap:\n  dcs:\n    synchronous_mode: %s\n    postgresql:\n      parameters:\n        max_connections: %d\n        wal_level: replica\npostgresql:\n  connect_address: %[3]s:5432\n  parameters:\n    bg_mon.listen_address: 127.0.0.1\n    bg_mon.port: %[4]d\nrestapi:\n  connect_address: %[3]s:8008\n", sync, inv.Postgres.MaxConnections, ip, BgMonPort)
 			add(kind, "postgres", service(inv.Images.Postgres, map[string]any{"environment": map[string]string{"SCOPE": inv.Name + "-pg", "PGVERSION": "17", "POD_IP": ip, "ETCD3_HOSTS": strings.Join(etcdHosts, ","), "PGUSER_SUPERUSER": "postgres", "PGPASSWORD_SUPERUSER": "${POSTGRES_SUPERUSER_PASSWORD}", "PGUSER_STANDBY": "standby", "PGPASSWORD_STANDBY": "${POSTGRES_REPLICATION_PASSWORD}", "SPILO_PROVIDER": "local", "ALLOW_NOSSL": "true", "PGROOT": "/home/postgres/pgdata/pgroot", "SPILO_CONFIGURATION": spilo}, "volumes": []string{"postgres-data:/home/postgres/pgdata"}}), "postgres-data")
 			env["POSTGRES_SUPERUSER_PASSWORD"], env["POSTGRES_REPLICATION_PASSWORD"] = r.s.PostgresSuperuserPassword, r.s.PostgresReplicationPassword
 			if node == inv.Postgres.Nodes[0] {

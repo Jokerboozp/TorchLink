@@ -308,6 +308,7 @@ func (s *Server) uploadFloorPlan(w http.ResponseWriter, r *http.Request) {
 	c := claims(r)
 	id := r.PathValue("id")
 	if _, err = s.engine.Archive.PutObject(r.Context(), sitePlanBucket, floorPlanKey(c.TenantID, id, plan), bytes.NewReader(data), int64(len(data)), plan.ContentType); err != nil {
+		s.log.Error("store floor plan failed", "floorId", id, "error", err)
 		problem(w, 502, "平面图保存失败，请检查对象存储")
 		return
 	}

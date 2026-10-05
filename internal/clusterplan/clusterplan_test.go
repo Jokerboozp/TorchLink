@@ -1013,6 +1013,8 @@ func TestHighAvailabilityPlacementsRender(t *testing.T) {
 		"IOT_VIDEO_MEDIA_SERVER_ID: iot-cluster-media-2",
 		// Spilo's monitor stays off the web port.
 		"bg_mon.port: 8009",
+		// Patroni members advertise the node address, not 127.0.1.1.
+		"connect_address: 10.0.0.13:5432", "connect_address: 10.0.0.13:8008",
 	} {
 		if !strings.Contains(n3, want) {
 			t.Fatalf("n3 compose lacks %q:\n%s", want, n3)
