@@ -9,7 +9,8 @@ import { transportLabel, statusLabel } from '../presentation'
 import { computed, onMounted, ref, watch } from 'vue'
 import { label, parsers } from '../labels'
 import { UiMessage } from '../ui/feedback.js'
-import { api, download, formatTime, notifyError, pretty } from '../api'
+import { api, download, formatTime, isAbort, notifyError, pretty } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
 import { RefreshCw, Upload, Wand2 } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
@@ -92,21 +93,16 @@ function assistantNavigate(page) {
   emit('navigate', page)
 }
 const releaseCount = computed(() => protocols.value.reduce((total, item) => total + (item.releases?.length || 0), 0))
-let loadVersion = 0
+const loader = useListLoader(loading)
 const loadError = ref('')
 
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   try {
-    const catalog = await api('/api/v2/protocols')
-    if (version !== loadVersion) return
+    const catalog = await loader.run(signal => api('/api/v2/protocols', { signal }))
     protocols.value = catalog.items || []
     loadError.value = ''
   } catch (error) {
-    if (version === loadVersion) loadError.value = error?.message || '协议读取失败'
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(error)) loadError.value = error?.message || '协议读取失败'
   }
 }
 

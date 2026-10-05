@@ -6,7 +6,8 @@ import { BellOff, LineChart, RefreshCw } from '@lucide/vue'
 import { can } from '../permissions'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { formatDuration, relativeTime } from '../ops/format.js'
-import { latest, opsErrorText, opsGet, opsSend, takeNavigation } from '../ops/opsApi.js'
+import { isAbort, latest, opsErrorText, opsGet, opsSend, takeNavigation } from '../ops/opsApi.js'
+import { useListLoader } from '../composables/useListLoader'
 import { refreshOptions, resolveRange } from '../ops/timeRange.js'
 import { clampAlertPage, pageAlertGroups, prepareAlertGroups, sortAlerts, summarizeAlerts } from '../ops/alerts.js'
 import StatusDot from '../components/layout/StatusDot.vue'
@@ -39,7 +40,7 @@ const receiver = ref('')
 const alertsLoading = ref(false)
 const alertsError = ref('')
 const autoRefresh = ref(30e3)
-const alertRunner = latest()
+const alertRunner = useListLoader(alertsLoading)
 let alertTimer = null
 let filterTimer = null
 const alertStats = shallowRef(summarizeAlerts([]))
@@ -50,12 +51,9 @@ const alertTotal = computed(() =>
 )
 const visibleAlerts = computed(() => alerts.value.slice((alertPage.value - 1) * alertPageSize.value, alertPage.value * alertPageSize.value))
 const visibleGroups = computed(() => pageAlertGroups(groups.value, alertPage.value, alertPageSize.value))
-let alertRequest = 0
 
 async function loadAlerts() {
-  const request = ++alertRequest
   const byGroup = grouped.value
-  alertsLoading.value = true
   const params = {
     matchers: filters.value.filter(m => m.name),
     silenced: showSilenced.value,
@@ -64,7 +62,6 @@ async function loadAlerts() {
   }
   try {
     const data = await alertRunner.run(signal => opsGet(byGroup ? '/api/v1/ops/alerts/groups' : '/api/v1/ops/alerts', params, signal))
-    if (request !== alertRequest) return
     if (byGroup) {
       groups.value = prepareAlertGroups(data.items || [])
       alerts.value = []
@@ -79,9 +76,7 @@ async function loadAlerts() {
     alertPage.value = clampAlertPage(alertPage.value, alertTotal.value, alertPageSize.value)
     alertsError.value = ''
   } catch (e) {
-    if (request === alertRequest && e?.name !== 'AbortError') alertsError.value = opsErrorText(e)
-  } finally {
-    if (request === alertRequest) alertsLoading.value = false
+    if (!isAbort(e)) alertsError.value = opsErrorText(e)
   }
 }
 function resetAlerts() {
@@ -89,9 +84,7 @@ function resetAlerts() {
   filterTimer = null
   alertPage.value = 1
   // Immediately cancel stale filters, including the debounce interval.
-  alertRequest++
   alertRunner.cancel()
-  alertsLoading.value = false
   alerts.value = []
   groups.value = []
 }
@@ -263,9 +256,7 @@ watch(tab, value => {
   else {
     clearTimeout(filterTimer)
     filterTimer = null
-    alertRequest++
     alertRunner.cancel()
-    alertsLoading.value = false
   }
 })
 onMounted(() => {

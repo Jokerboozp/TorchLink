@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, apiAll, formatTime, notifyError } from '../api'
+import { api, apiAll, formatTime, isAbort, notifyError } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
 import {
   businessStatuses,
@@ -38,24 +39,21 @@ const onboarding = ref(false),
   recordsError = ref(''),
   recordsPage = ref(1),
   recordsTotal = ref(0)
-let recordsVersion = 0
+const recordsLoader = useListLoader(recordsLoading)
 async function showRecords(kind = 'drafts', page = 1) {
-  const version = ++recordsVersion
   recordKind.value = kind
   recordsPage.value = page
   records.value = []
   recordsOpen.value = true
-  recordsLoading.value = true
   recordsError.value = ''
   try {
-    const result = await api(`/api/v1/onboarding/${kind}?limit=20&offset=${(page - 1) * 20}${kind === 'drafts' ? '&purpose=device' : ''}`)
-    if (version !== recordsVersion) return
+    const result = await recordsLoader.run(signal =>
+      api(`/api/v1/onboarding/${kind}?limit=20&offset=${(page - 1) * 20}${kind === 'drafts' ? '&purpose=device' : ''}`, { signal })
+    )
     recordsTotal.value = result.total || 0
     records.value = (result.items || []).filter(row => kind !== 'drafts' || !String(recordBody(row).step || '').startsWith('preparation:'))
   } catch (error) {
-    if (version === recordsVersion) recordsError.value = error.message
-  } finally {
-    if (version === recordsVersion) recordsLoading.value = false
+    if (!isAbort(error)) recordsError.value = error.message
   }
 }
 function recordBody(record) {
@@ -130,22 +128,21 @@ function registryQuery() {
   return query.toString()
 }
 
-let loadVersion = 0,
-  searchTimer = 0
+let searchTimer = 0
+const loader = useListLoader(loading)
 async function load() {
-  const version = ++loadVersion
   const pending = pendingTab.value
-  loading.value = true
   updatesAvailable.value = false
   try {
-    const [productData, list, pendingData] = await Promise.all([
-      apiAll('/api/v1/products'),
-      pending
-        ? api(`/api/v1/devices?unregistered=true&page=${unregisteredPage.value}&pageSize=${unregisteredPageSize.value}`)
-        : api(`/api/v1/device-registry?${registryQuery()}`),
-      pending ? null : api('/api/v1/devices?unregistered=true&page=1&pageSize=1')
-    ])
-    if (version !== loadVersion) return
+    const [productData, list, pendingData] = await loader.run(signal =>
+      Promise.all([
+        apiAll('/api/v1/products', { signal }),
+        pending
+          ? api(`/api/v1/devices?unregistered=true&page=${unregisteredPage.value}&pageSize=${unregisteredPageSize.value}`, { signal })
+          : api(`/api/v1/device-registry?${registryQuery()}`, { signal }),
+        pending ? null : api('/api/v1/devices?unregistered=true&page=1&pageSize=1', { signal })
+      ])
+    )
     products.value = productData.items || []
     listError.value = ''
     if (pending) {
@@ -157,12 +154,9 @@ async function load() {
       pendingCount.value = Number(pendingData?.total ?? pendingData?.count ?? 0)
     }
   } catch (error) {
-    if (version === loadVersion) {
-      listError.value = error?.message || '读取设备失败'
-      notifyError(error)
-    }
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (isAbort(error)) return
+    listError.value = error?.message || '读取设备失败'
+    notifyError(error)
   }
 }
 function changeFilter() {

@@ -3,7 +3,8 @@
 defineEmits(['navigate'])
 import { onMounted, reactive, ref, watch } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, apiAll, notifyError, parseJSON, pretty } from '../api'
+import { api, apiAll, isAbort, notifyError, parseJSON, pretty } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
 import { alarmLevels, alarmType, alarmTypes, label, tagType } from '../labels'
 import { Plus, RefreshCw, Wand2 } from '@lucide/vue'
@@ -85,21 +86,20 @@ const form = reactive(blank())
 const fieldKinds = { property: '属性', event: '事件', eventField: '事件字段' }
 const productFields = ref([])
 const fieldPick = ref('')
-let fieldsVersion = 0
+const fieldsLoader = useListLoader()
 // The selected product's thing-model fields help write conditions; the
 // conditions themselves stay editable JSON.
 watch(
   () => [dialog.value, form.productId],
   async ([visible, productId]) => {
-    const version = ++fieldsVersion
     productFields.value = []
     fieldPick.value = ''
-    if (!visible || !productId) return
+    if (!visible || !productId) return fieldsLoader.cancel()
     try {
-      const result = await api(`/api/v1/rules/fields?productId=${encodeURIComponent(productId)}`)
-      if (version === fieldsVersion) productFields.value = result.items || []
-    } catch {
-      if (version === fieldsVersion) productFields.value = []
+      const result = await fieldsLoader.run(signal => api(`/api/v1/rules/fields?productId=${encodeURIComponent(productId)}`, { signal }))
+      productFields.value = result.items || []
+    } catch (error) {
+      if (!isAbort(error)) productFields.value = []
     }
   }
 )
@@ -140,25 +140,19 @@ function insertField(key) {
   form.conditions = pretty([...conditions, condition])
 }
 
-let loadVersion = 0
+const loader = useListLoader(loading)
 const loadError = ref('')
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   try {
-    const [rulesData, productData] = await Promise.all([
-      api(`/api/v1/rules?page=${page.value}&pageSize=${pageSize.value}`),
-      apiAll('/api/v1/products')
-    ])
-    if (version !== loadVersion) return
+    const [rulesData, productData] = await loader.run(signal =>
+      Promise.all([api(`/api/v1/rules?page=${page.value}&pageSize=${pageSize.value}`, { signal }), apiAll('/api/v1/products', { signal })])
+    )
     rules.value = rulesData.items || []
     total.value = Number(rulesData.total ?? rulesData.count ?? rules.value.length)
     products.value = productData.items || []
     loadError.value = ''
   } catch (error) {
-    if (version === loadVersion) loadError.value = error?.message || '告警规则读取失败'
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(error)) loadError.value = error?.message || '告警规则读取失败'
   }
 }
 

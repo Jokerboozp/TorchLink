@@ -3,7 +3,8 @@
 // 密码只写不读：留空保留已保存的密码，勾选“清除”才删除。
 import { computed, reactive, ref, watch } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, formatTime, notifyError } from '../api'
+import { api, formatTime, isAbort, notifyError } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { liveState, testStatusText, testStatusTone } from '../liveVideo'
 import StatusDot from './layout/StatusDot.vue'
 
@@ -49,7 +50,7 @@ const testResult = ref(null)
 const lastTest = ref(null)
 const profiles = ref([])
 const onvifError = ref('')
-let openVersion = 0
+const configLoader = useListLoader(loading)
 
 const brands = computed(() => liveState.status?.brands || [])
 const brand = computed(() => brands.value.find(item => item.id === form.brandTemplate))
@@ -94,7 +95,6 @@ watch(
   () => [props.modelValue, props.camera?.cameraId],
   async ([open]) => {
     if (!open || !props.camera?.cameraId) return
-    const version = ++openVersion
     applyingConfig = true
     Object.assign(form, blank())
     applyingConfig = false
@@ -103,10 +103,10 @@ watch(
     profiles.value = []
     onvifError.value = ''
     hasPassword.value = false
-    loading.value = true
     try {
-      const cfg = await api(`/api/v1/integrations/video/cameras/${encodeURIComponent(props.camera.cameraId)}/live`)
-      if (version !== openVersion) return
+      const cfg = await configLoader.run(signal =>
+        api(`/api/v1/integrations/video/cameras/${encodeURIComponent(props.camera.cameraId)}/live`, { signal })
+      )
       const configured = Boolean(cfg.updatedAt)
       applyingConfig = true
       Object.assign(form, blank(), Object.fromEntries(Object.entries(cfg).filter(([key]) => key in form)), {
@@ -122,12 +122,9 @@ watch(
       lastTest.value = cfg.lastTest || null
       if (form.accessMode === 'GB28181') loadGBDevices()
     } catch (error) {
-      if (version === openVersion) {
-        notifyError(error)
-        visible.value = false
-      }
-    } finally {
-      if (version === openVersion) loading.value = false
+      if (isAbort(error)) return
+      notifyError(error)
+      visible.value = false
     }
   },
   { immediate: true }

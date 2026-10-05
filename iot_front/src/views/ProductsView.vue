@@ -4,7 +4,8 @@ const emit = defineEmits(['navigate'])
 import ProductPreparation from '../components/ProductPreparation.vue'
 import { transportLabel, formatLabel } from '../presentation'
 import { onMounted, ref } from 'vue'
-import { api, apiAll } from '../api'
+import { api, apiAll, isAbort } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
 import { categories, label } from '../labels'
 import { can } from '../permissions'
@@ -24,16 +25,15 @@ const preparationOpen = ref(false),
   draftsTotal = ref(0),
   draftsError = ref(''),
   draftsLoading = ref(false)
-let draftsVersion = 0
+const draftsLoader = useListLoader(draftsLoading)
 async function loadDrafts(page = 1) {
   if (!can('PUT /api/v1/products/:id')) return
-  const version = ++draftsVersion
   draftsPage.value = page
-  draftsLoading.value = true
   draftsError.value = ''
   try {
-    const result = await api(`/api/v1/onboarding/drafts?purpose=preparation&limit=20&offset=${(page - 1) * 20}`)
-    if (version !== draftsVersion) return
+    const result = await draftsLoader.run(signal =>
+      api(`/api/v1/onboarding/drafts?purpose=preparation&limit=20&offset=${(page - 1) * 20}`, { signal })
+    )
     preparationDrafts.value = (result.items || []).filter(
       row =>
         String((typeof row.body === 'string' ? JSON.parse(row.body) : row.body)?.step || '').startsWith('preparation:') &&
@@ -41,9 +41,7 @@ async function loadDrafts(page = 1) {
     )
     draftsTotal.value = result.total || 0
   } catch (cause) {
-    if (version === draftsVersion) draftsError.value = cause.message
-  } finally {
-    if (version === draftsVersion) draftsLoading.value = false
+    if (!isAbort(cause)) draftsError.value = cause.message
   }
 }
 function resumePreparation(row) {

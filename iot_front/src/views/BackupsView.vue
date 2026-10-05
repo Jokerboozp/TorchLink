@@ -4,7 +4,8 @@ import { can } from '../permissions'
 defineEmits(['navigate'])
 import { computed, onMounted, reactive, ref } from 'vue'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
-import { api, download, notifyError, pretty } from '../api'
+import { api, download, isAbort, notifyError, pretty } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
 import { backupStatuses, backupTypes, backupComponents, label } from '../labels'
 import { RefreshCw } from '@lucide/vue'
@@ -29,7 +30,7 @@ const manifestPageSize = ref(20)
 const manifestTotal = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
-let loadVersion = 0
+const loader = useListLoader(loading)
 const loadError = ref('')
 
 const isAdmin = computed(() =>
@@ -74,25 +75,20 @@ function idPath(value) {
 }
 
 async function load(resetPage = false) {
-  const version = ++loadVersion
   if (resetPage) page.value = 1
-  loading.value = true
   try {
     const query = new URLSearchParams({ page: String(page.value), pageSize: String(pageSize.value) })
     if (filters.type) query.set('type', filters.type)
     if (filters.status) query.set('status', filters.status)
-    const data = await api(`/api/v1/backups?${query.toString()}`)
-    if (version !== loadVersion) return
+    const data = await loader.run(signal => api(`/api/v1/backups?${query.toString()}`, { signal }))
     serviceMissing.value = false
     loadError.value = ''
     records.value = data.items || []
     total.value = Number(data.total ?? data.count ?? records.value.length)
   } catch (error) {
-    if (version !== loadVersion) return
+    if (isAbort(error)) return
     serviceMissing.value = error?.status === 503 && /not configured/i.test(error.originalMessage || '')
     loadError.value = serviceMissing.value ? '' : error?.message || '备份记录读取失败'
-  } finally {
-    if (version === loadVersion) loading.value = false
   }
 }
 

@@ -1,8 +1,9 @@
 <script setup>
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, toRef } from 'vue'
 import { NDatePicker } from 'naive-ui'
 import { ChevronLeft, ChevronRight, Plus, RefreshCw } from '@lucide/vue'
-import { api, notifyError, session } from '../api'
+import { api, isAbort, notifyError, session } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { can } from '../permissions'
 import { confirmDelete } from '../deleteAction'
 import { UiMessage } from '../ui/feedback.js'
@@ -41,12 +42,12 @@ const pageSize = reactive({ assignments: 20, shifts: 20, swaps: 20 })
 const total = reactive({ assignments: 0, shifts: 0, swaps: 0 })
 const loading = reactive({ assignments: false, shifts: false, swaps: false })
 const errors = reactive({ assignments: '', shifts: '', swaps: '' })
-const versions = { assignments: 0, shifts: 0, swaps: 0 }
-let optionsVersion = 0,
-  calendarVersion = 0
 const calendarRows = ref([]),
   calendarLoading = ref(false),
   calendarError = ref('')
+const listLoaders = Object.fromEntries(Object.keys(loading).map(kind => [kind, useListLoader(toRef(loading, kind))]))
+const optionsLoader = useListLoader(optionsLoading)
+const calendarLoader = useListLoader(calendarLoading)
 const calendarTotal = ref(0),
   calendarNextPage = ref(1),
   calendarComplete = ref(false)
@@ -101,17 +102,12 @@ const timeLabel = value => new Date(value).toLocaleTimeString('zh-CN', { hour12:
 const errorText = error => error?.message || '加载失败，请重试'
 
 async function loadOptions() {
-  const version = ++optionsVersion
-  optionsLoading.value = true
   optionsError.value = ''
   try {
-    const data = await api('/api/v1/fire-safety/options')
-    if (version !== optionsVersion) return
+    const data = await optionsLoader.run(signal => api('/api/v1/fire-safety/options', { signal }))
     for (const key of ['stations', 'personnel', 'shifts']) options[key] = data[key] || []
   } catch (error) {
-    if (version === optionsVersion) optionsError.value = errorText(error)
-  } finally {
-    if (version === optionsVersion) optionsLoading.value = false
+    if (!isAbort(error)) optionsError.value = errorText(error)
   }
 }
 
@@ -127,12 +123,9 @@ function listQuery(kind) {
   return query
 }
 async function loadList(kind) {
-  const version = ++versions[kind]
-  loading[kind] = true
   errors[kind] = ''
   try {
-    const data = await api(`/api/v1/duty/${kind}?${listQuery(kind)}`)
-    if (version !== versions[kind]) return
+    const data = await listLoaders[kind].run(signal => api(`/api/v1/duty/${kind}?${listQuery(kind)}`, { signal }))
     const rows = data.items || []
     const count = Number(data.total ?? rows.length)
     if (page[kind] > 1 && !rows.length && count < (page[kind] - 1) * pageSize[kind] + 1) {
@@ -142,9 +135,7 @@ async function loadList(kind) {
     ;({ assignments, shifts, swaps })[kind].value = rows
     total[kind] = count
   } catch (error) {
-    if (version === versions[kind]) errors[kind] = errorText(error)
-  } finally {
-    if (version === versions[kind]) loading[kind] = false
+    if (!isAbort(error)) errors[kind] = errorText(error)
   }
 }
 
@@ -152,7 +143,6 @@ async function loadList(kind) {
 // later days. Large months load in batches and remain explicitly incomplete.
 async function loadCalendar({ append = false } = {}) {
   if (append && calendarLoading.value) return
-  const version = ++calendarVersion
   const [fromAt, toAt] = calendarRange.value
   const stationId = filters.stationId,
     keyword = filters.q.trim()
@@ -163,32 +153,32 @@ async function loadCalendar({ append = false } = {}) {
     calendarTotal.value = 0
     calendarComplete.value = false
   }
-  calendarLoading.value = true
   calendarError.value = ''
   try {
-    for (let batch = 0; batch < 10; batch++) {
-      const query = new URLSearchParams({ page: String(nextPage), pageSize: '100', fromAt: String(fromAt), toAt: String(toAt) })
-      if (stationId) query.set('stationId', stationId)
-      if (keyword) query.set('q', keyword)
-      const data = await api(`/api/v1/duty/assignments?${query}`)
-      if (version !== calendarVersion) return
-      const rows = data.items || []
-      collected.push(...rows)
-      calendarRows.value = [...new Map(collected.map(row => [row.id, row])).values()]
-      calendarTotal.value = Number(data.total ?? calendarRows.value.length)
-      nextPage++
-      calendarNextPage.value = nextPage
-      calendarComplete.value = calendarRows.value.length >= calendarTotal.value
-      if (calendarComplete.value) break
-      if (!rows.length) {
-        calendarError.value = '排班数据在加载期间发生变化，请刷新日历重新核对。'
-        break
+    await calendarLoader.run(async signal => {
+      for (let batch = 0; batch < 10; batch++) {
+        const query = new URLSearchParams({ page: String(nextPage), pageSize: '100', fromAt: String(fromAt), toAt: String(toAt) })
+        if (stationId) query.set('stationId', stationId)
+        if (keyword) query.set('q', keyword)
+        const data = await api(`/api/v1/duty/assignments?${query}`, { signal })
+        // A newer calendar query replaced this one.
+        if (signal.aborted) return
+        const rows = data.items || []
+        collected.push(...rows)
+        calendarRows.value = [...new Map(collected.map(row => [row.id, row])).values()]
+        calendarTotal.value = Number(data.total ?? calendarRows.value.length)
+        nextPage++
+        calendarNextPage.value = nextPage
+        calendarComplete.value = calendarRows.value.length >= calendarTotal.value
+        if (calendarComplete.value) break
+        if (!rows.length) {
+          calendarError.value = '排班数据在加载期间发生变化，请刷新日历重新核对。'
+          break
+        }
       }
-    }
+    })
   } catch (error) {
-    if (version === calendarVersion) calendarError.value = errorText(error)
-  } finally {
-    if (version === calendarVersion) calendarLoading.value = false
+    if (!isAbort(error)) calendarError.value = errorText(error)
   }
 }
 function changeTab(value) {

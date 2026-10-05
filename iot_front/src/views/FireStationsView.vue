@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Plus, RefreshCw } from '@lucide/vue'
-import { api } from '../api'
+import { api, isAbort } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
 import { UiMessage } from '../ui/feedback.js'
 import { errorMessage } from '../presentation'
@@ -82,9 +83,9 @@ const blank = kind =>
     }
   })[kind]
 
-let loadVersion = 0,
-  optionVersion = 0,
-  statVersion = 0
+const loader = useListLoader(loading),
+  optionsLoader = useListLoader(),
+  statisticsLoader = useListLoader(statisticsLoading)
 function rangeQuery() {
   const result = {}
   if (range.from) result.fromAt = inputTimestamp(`${range.from}T00:00`, '开始日期')
@@ -97,58 +98,48 @@ function rangeQuery() {
   return result
 }
 async function load() {
-  const version = ++loadVersion,
-    current = tab.value
+  const current = tab.value
   if (!tabs[current]) {
-    loading.value = false
+    loader.cancel()
     return
   }
-  loading.value = true
   loadError.value = ''
   try {
-    const query = fireQuery(
-      { ...filters, ...(current === 'dispatches' ? rangeQuery() : {}) },
-      { page: page.value, pageSize: pageSize.value }
-    )
-    const result = await api(`/api/v1/${tabs[current].path}?${query}`)
-    if (version !== loadVersion) return
+    const result = await loader.run(signal => {
+      const query = fireQuery(
+        { ...filters, ...(current === 'dispatches' ? rangeQuery() : {}) },
+        { page: page.value, pageSize: pageSize.value }
+      )
+      return api(`/api/v1/${tabs[current].path}?${query}`, { signal })
+    })
     rows.value = result.items || []
     total.value = Number(result.total || 0)
   } catch (error) {
-    if (version === loadVersion) {
-      rows.value = []
-      total.value = 0
-      loadError.value = errorMessage(error)
-    }
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (isAbort(error)) return
+    rows.value = []
+    total.value = 0
+    loadError.value = errorMessage(error)
   }
 }
 async function loadOptions() {
-  const version = ++optionVersion
   optionsError.value = ''
   try {
-    const result = await api('/api/v1/fire-safety/options')
-    if (version === optionVersion)
-      Object.assign(options, { stations: result.stations || [], personnel: result.personnel || [], equipment: result.equipment || [] })
+    const result = await optionsLoader.run(signal => api('/api/v1/fire-safety/options', { signal }))
+    Object.assign(options, { stations: result.stations || [], personnel: result.personnel || [], equipment: result.equipment || [] })
   } catch (error) {
-    if (version === optionVersion) optionsError.value = errorMessage(error)
+    if (!isAbort(error)) optionsError.value = errorMessage(error)
   }
 }
 async function loadStatistics() {
-  const version = ++statVersion
-  statisticsLoading.value = true
   statisticsError.value = ''
   try {
-    const result = await api(`/api/v1/fire-stations/statistics?${fireQuery({ stationId: filters.stationId, ...rangeQuery() })}`)
-    if (version === statVersion) statistics.value = result
+    statistics.value = await statisticsLoader.run(signal =>
+      api(`/api/v1/fire-stations/statistics?${fireQuery({ stationId: filters.stationId, ...rangeQuery() })}`, { signal })
+    )
   } catch (error) {
-    if (version === statVersion) {
-      statistics.value = null
-      statisticsError.value = errorMessage(error)
-    }
-  } finally {
-    if (version === statVersion) statisticsLoading.value = false
+    if (isAbort(error)) return
+    statistics.value = null
+    statisticsError.value = errorMessage(error)
   }
 }
 async function refresh() {

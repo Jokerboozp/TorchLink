@@ -4,7 +4,8 @@ defineEmits(['navigate'])
 import { transportLabel, formatLabel } from '../presentation'
 import { computed, onMounted, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, download, formatTime, notifyError, pretty } from '../api'
+import { api, download, formatTime, isAbort, notifyError, pretty } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { messageTypeLabel, messageTypes } from '../labels'
 import { Download, RefreshCw, Search, SlidersHorizontal } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
@@ -43,11 +44,9 @@ const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
 const selectedIds = computed(() => selection.value.map(item => item.messageId))
-let loadVersion = 0
+const loader = useListLoader(loading)
 
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   loadError.value = ''
   selection.value = []
   try {
@@ -59,20 +58,16 @@ async function load() {
       params.set('start', String(appliedFilters.value.range[0]))
       params.set('end', String(appliedFilters.value.range[1]))
     }
-    const data = await api(`/api/v1/raw-messages?${params.toString()}`)
-    if (version !== loadVersion) return
+    const data = await loader.run(signal => api(`/api/v1/raw-messages?${params.toString()}`, { signal }))
     items.value = data.items || []
     total.value = Number(data.total ?? data.count ?? items.value.length)
     selection.value = []
   } catch (error) {
-    if (version === loadVersion) {
-      items.value = []
-      total.value = 0
-      loadError.value = error?.message || '原始报文查询失败'
-      notifyError(error)
-    }
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (isAbort(error)) return
+    items.value = []
+    total.value = 0
+    loadError.value = error?.message || '原始报文查询失败'
+    notifyError(error)
   }
 }
 

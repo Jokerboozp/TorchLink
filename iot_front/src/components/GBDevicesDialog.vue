@@ -4,7 +4,8 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { RefreshCw, Plus } from '@lucide/vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, formatTime, notifyError } from '../api'
+import { api, formatTime, isAbort, notifyError } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { liveState } from '../liveVideo'
 import StatusDot from './layout/StatusDot.vue'
 import RowActions from './layout/RowActions.vue'
@@ -25,17 +26,13 @@ const editingDevice = computed(() => devices.value.find(item => item.deviceId ==
 const sip = computed(() => liveState.status?.gb28181 || null)
 const devicePath = id => `/api/v1/integrations/video/gb28181/devices/${encodeURIComponent(id)}`
 
-let loadVersion = 0
+const loader = useListLoader(loading)
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   try {
-    const data = await api('/api/v1/integrations/video/gb28181/devices')
-    if (version === loadVersion) devices.value = data.items || []
+    const data = await loader.run(signal => api('/api/v1/integrations/video/gb28181/devices', { signal }))
+    devices.value = data.items || []
   } catch (error) {
-    if (version === loadVersion) notifyError(error)
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(error)) notifyError(error)
   }
 }
 watch(

@@ -2,7 +2,8 @@
 import { computed, reactive, ref } from 'vue'
 import { Copy } from '@lucide/vue'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
-import { api, formatTime, notifyError } from '../api'
+import { api, formatTime, isAbort, notifyError } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
 import DataTableCard from './layout/DataTableCard.vue'
 import RowActions from './layout/RowActions.vue'
@@ -31,20 +32,15 @@ const keyStatus = key =>
       ? { tone: 'warning', label: '已过期' }
       : { tone: 'success', label: '启用' }
 const baseUrl = computed(() => `${window.location.origin}/api/open/v1`)
-let loadVersion = 0
+const loader = useListLoader(loading)
 
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   try {
-    const data = await api('/api/v1/access/api-keys')
-    if (version !== loadVersion) return
+    const data = await loader.run(signal => api('/api/v1/access/api-keys', { signal }))
     keys.value = data.items || []
     capabilities.value = data.capabilities || []
   } catch (e) {
-    if (version === loadVersion) notifyError(e)
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(e)) notifyError(e)
   }
 }
 function edit(key) {

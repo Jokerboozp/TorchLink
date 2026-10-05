@@ -2,7 +2,8 @@
 // 智能体管理：内置智能体只读查看；自定义智能体用表单新建、编辑、启停和删除。
 // 字段上限与工具白名单以服务端校验为准，白名单由管理接口返回。
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { api } from '../api'
+import { api, isAbort } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
 import { can } from '../permissions'
 import { toolName } from '../presentation'
@@ -20,7 +21,7 @@ const loading = ref(false)
 const loadError = ref('')
 const allowedTools = ref([])
 const builtinIds = ref([])
-let loadVersion = 0
+const loader = useListLoader(loading)
 
 const blank = () => ({
   schemaVersion: 1,
@@ -55,20 +56,15 @@ function isBuiltin(item) {
 }
 
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   try {
-    const result = await api(`/api/v1/ai/workflows/admin?page=${page.value}&pageSize=${pageSize.value}`)
-    if (version !== loadVersion) return
+    const result = await loader.run(signal => api(`/api/v1/ai/workflows/admin?page=${page.value}&pageSize=${pageSize.value}`, { signal }))
     items.value = Array.isArray(result?.items) ? result.items : []
     total.value = Number(result?.total ?? items.value.length)
     allowedTools.value = Array.isArray(result?.allowedTools) ? result.allowedTools : []
     builtinIds.value = Array.isArray(result?.builtinIds) ? result.builtinIds : []
     loadError.value = ''
   } catch (error) {
-    if (version === loadVersion) loadError.value = error?.message || '智能体清单读取失败'
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(error)) loadError.value = error?.message || '智能体清单读取失败'
   }
 }
 

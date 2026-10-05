@@ -4,7 +4,8 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { FileText, Upload } from '@lucide/vue'
 import { UiMessage } from '../ui/feedback.js'
 
-import { api, formatTime, notifyError } from '../api'
+import { api, formatTime, isAbort, notifyError } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import RowActions from '../components/layout/RowActions.vue'
 import KnowledgeIndexStatus from '../components/KnowledgeIndexStatus.vue'
 import { confirmDelete } from '../deleteAction'
@@ -36,7 +37,7 @@ const agentError = ref('')
 const bindingLoading = ref(false)
 const bindingSaving = ref(false)
 const bindingError = ref('')
-let bindingRequestId = 0
+const bindingLoader = useListLoader(bindingLoading)
 let loadVersion = 0
 const loadedBindingWorkflowId = ref('')
 const bindingWorkflowId = ref('')
@@ -145,12 +146,12 @@ async function load(silent = false) {
 async function loadBinding() {
   if (!bindingWorkflowId.value) return
   const workflow = bindingWorkflowId.value
-  const requestId = ++bindingRequestId
-  bindingLoading.value = true
   bindingError.value = ''
   try {
-    const value = await api(`/api/v1/ai/workflows/${encodeURIComponent(workflow)}/knowledge-binding`)
-    if (requestId !== bindingRequestId || bindingWorkflowId.value !== workflow) return
+    const value = await bindingLoader.run(signal =>
+      api(`/api/v1/ai/workflows/${encodeURIComponent(workflow)}/knowledge-binding`, { signal })
+    )
+    if (bindingWorkflowId.value !== workflow) return
     knowledgeBinding.value = {
       retrievalMode: value.retrievalMode || 'always',
       topK: Number(value.topK) || 5,
@@ -159,9 +160,7 @@ async function loadBinding() {
     }
     loadedBindingWorkflowId.value = workflow
   } catch (error) {
-    if (requestId === bindingRequestId) bindingError.value = error.message || '知识库策略读取失败'
-  } finally {
-    if (requestId === bindingRequestId) bindingLoading.value = false
+    if (!isAbort(error)) bindingError.value = error.message || '知识库策略读取失败'
   }
 }
 

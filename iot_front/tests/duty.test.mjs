@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import vm from 'node:vm'
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, toRef } from 'vue'
 import { setupScript } from './helpers/vue.mjs'
 import * as fireSafety from '../src/fireSafety.js'
 
@@ -13,6 +13,7 @@ function component(api, exports, overrides = {}) {
     computed,
     reactive,
     ref,
+    toRef,
     api,
     URLSearchParams,
     session: { user: 'operator' },

@@ -3,7 +3,8 @@
 defineEmits(['navigate'])
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, download, formatTime, notifyError, pretty } from '../api'
+import { api, download, formatTime, isAbort, notifyError, pretty } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
 import { canAcknowledgeAlarm, canCloseAlarm } from '../alarmActions'
 import { alarmNavigation, alarmQuery } from '../alarmNavigation'
@@ -45,8 +46,9 @@ const pageSize = ref(20)
 const total = ref(0)
 let analysisPollTimer = 0
 let analysisViewToken = 0
-let mediaRefreshVersion = 0
-let loadVersion = 0
+const mediaRefresh = useListLoader()
+const loader = useListLoader(loading)
+const statisticsLoader = useListLoader()
 const loadError = ref('')
 
 const progressPercent = computed(() => Math.max(0, Math.min(100, Number(analysisProgress.value?.progress || 0))))
@@ -55,21 +57,16 @@ const progressStatus = computed(() =>
 )
 
 async function load(resetPage = false) {
-  const version = ++loadVersion
   if (resetPage) page.value = 1
-  loading.value = true
   try {
     const q = alarmQuery(filters, page.value, pageSize.value)
-    const d = await api('/api/v1/alarms?' + q)
-    if (version !== loadVersion) return
+    const d = await loader.run(signal => api('/api/v1/alarms?' + q, { signal }))
     items.value = d.items || []
     total.value = Number(d.total ?? d.count ?? items.value.length)
     loadError.value = ''
-    void loadStatistics(version)
+    void loadStatistics()
   } catch (e) {
-    if (version === loadVersion) loadError.value = e?.message || '告警读取失败'
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(e)) loadError.value = e?.message || '告警读取失败'
   }
 }
 
@@ -91,12 +88,11 @@ function reportQuery() {
   for (const key of ['status', 'level', 'deviceId']) if (filters[key]) q.set(key, filters[key])
   return q.toString()
 }
-async function loadStatistics(version) {
+async function loadStatistics() {
   try {
-    const s = await api('/api/v1/alarms/statistics/disposition?' + reportQuery())
-    if (version === loadVersion) statistics.value = s
-  } catch {
-    if (version === loadVersion) statistics.value = null
+    statistics.value = await statisticsLoader.run(signal => api('/api/v1/alarms/statistics/disposition?' + reportQuery(), { signal }))
+  } catch (error) {
+    if (!isAbort(error)) statistics.value = null
   }
 }
 const formatDuration = ms => {
@@ -235,17 +231,10 @@ async function show(id) {
 async function refreshMediaDetail() {
   const alarmId = detail.value?.alarmId,
     viewToken = analysisViewToken
-  const refreshVersion = ++mediaRefreshVersion
-  if (!alarmId || !detailVisible.value) return
+  if (!alarmId || !detailVisible.value) return mediaRefresh.cancel()
   try {
-    const loaded = await api(`/api/v1/alarms/${encodeURIComponent(alarmId)}`)
-    if (
-      refreshVersion === mediaRefreshVersion &&
-      viewToken === analysisViewToken &&
-      detailVisible.value &&
-      detail.value?.alarmId === alarmId
-    )
-      detail.value = loaded
+    const loaded = await mediaRefresh.run(signal => api(`/api/v1/alarms/${encodeURIComponent(alarmId)}`, { signal }))
+    if (viewToken === analysisViewToken && detailVisible.value && detail.value?.alarmId === alarmId) detail.value = loaded
   } catch {
     /* Attachment polling retains the last known detail; explicit reads report errors. */
   }

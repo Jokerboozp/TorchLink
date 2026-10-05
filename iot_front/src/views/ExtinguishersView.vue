@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { Plus, RefreshCw } from '@lucide/vue'
-import { api, notifyError, session } from '../api'
+import { api, isAbort, notifyError, session } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
 import { UiMessage } from '../ui/feedback.js'
 import { errorMessage } from '../presentation'
@@ -83,9 +84,9 @@ const stationName = id => options.stations.find(item => item.id === id)?.name ||
 const personName = id => options.personnel.find(item => item.id === id)?.name || '已移除人员'
 const assetName = id => options.extinguishers.find(item => item.id === id)?.code || '已移除灭火器'
 const typeName = value => extinguisherTypes.find(item => item.value === value)?.label || value
-let loadVersion = 0,
-  optionVersion = 0,
-  statVersion = 0
+const loader = useListLoader(loading),
+  optionsLoader = useListLoader(),
+  statisticsLoader = useListLoader()
 function query() {
   return {
     q: filters.q,
@@ -95,54 +96,48 @@ function query() {
   }
 }
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   loadError.value = ''
   try {
-    const result = await api(
-      `/api/v1/${tab.value === 'assets' ? 'extinguishers' : 'extinguisher-inspections'}?${fireQuery(query(), { page: page.value, pageSize: pageSize.value })}`
+    const result = await loader.run(signal =>
+      api(
+        `/api/v1/${tab.value === 'assets' ? 'extinguishers' : 'extinguisher-inspections'}?${fireQuery(query(), { page: page.value, pageSize: pageSize.value })}`,
+        { signal }
+      )
     )
-    if (version !== loadVersion) return
     rows.value = result.items || []
     total.value = Number(result.total || 0)
   } catch (error) {
-    if (version === loadVersion) {
-      rows.value = []
-      total.value = 0
-      loadError.value = errorMessage(error)
-    }
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (isAbort(error)) return
+    rows.value = []
+    total.value = 0
+    loadError.value = errorMessage(error)
   }
 }
 async function loadOptions() {
-  const version = ++optionVersion
   optionsError.value = ''
   try {
-    const result = await api('/api/v1/fire-safety/options')
-    if (version === optionVersion)
-      Object.assign(options, {
-        stations: result.stations || [],
-        personnel: result.personnel || [],
-        extinguishers: result.extinguishers || [],
-        inspectionChecks: result.inspectionChecks || []
-      })
+    const result = await optionsLoader.run(signal => api('/api/v1/fire-safety/options', { signal }))
+    Object.assign(options, {
+      stations: result.stations || [],
+      personnel: result.personnel || [],
+      extinguishers: result.extinguishers || [],
+      inspectionChecks: result.inspectionChecks || []
+    })
   } catch (error) {
-    if (version === optionVersion) optionsError.value = errorMessage(error)
+    if (!isAbort(error)) optionsError.value = errorMessage(error)
   }
 }
 async function loadStatistics() {
-  const version = ++statVersion
   statisticsError.value = ''
   const filtersForStatistics = tab.value === 'assets' ? query() : { stationId: filters.stationId, remindDays: filters.remindDays }
   try {
-    const result = await api(`/api/v1/extinguishers/statistics?${fireQuery(filtersForStatistics)}`)
-    if (version === statVersion) statistics.value = result
+    statistics.value = await statisticsLoader.run(signal =>
+      api(`/api/v1/extinguishers/statistics?${fireQuery(filtersForStatistics)}`, { signal })
+    )
   } catch (error) {
-    if (version === statVersion) {
-      statistics.value = null
-      statisticsError.value = errorMessage(error)
-    }
+    if (isAbort(error)) return
+    statistics.value = null
+    statisticsError.value = errorMessage(error)
   }
 }
 async function refresh() {
@@ -340,25 +335,23 @@ const batchDialog = ref(false),
   batchError = ref(''),
   batchResult = ref(null)
 const batchAssignees = computed(() => options.personnel.filter(item => item.stationId === batchForm.stationId && item.enabled))
-let batchVersion = 0
+const batchLoader = useListLoader(batchLoading)
 async function loadBatchAssets() {
-  const version = ++batchVersion
   batchAssets.value = []
   batchSelected.value = []
   batchError.value = ''
-  if (!batchForm.stationId) return
-  batchLoading.value = true
+  if (!batchForm.stationId) return batchLoader.cancel()
   try {
-    const result = await api(
-      `/api/v1/extinguishers?${fireQuery({ stationId: batchForm.stationId, due: batchForm.due, remindDays: filters.remindDays }, { page: 1, pageSize: 100 })}`
+    const result = await batchLoader.run(signal =>
+      api(
+        `/api/v1/extinguishers?${fireQuery({ stationId: batchForm.stationId, due: batchForm.due, remindDays: filters.remindDays }, { page: 1, pageSize: 100 })}`,
+        { signal }
+      )
     )
-    if (version !== batchVersion) return
     batchAssets.value = (result.items || []).filter(item => item.status !== 'retired' && !item.openInspection)
     batchSelected.value = batchAssets.value.map(item => item.id)
   } catch (error) {
-    if (version === batchVersion) batchError.value = errorMessage(error)
-  } finally {
-    if (version === batchVersion) batchLoading.value = false
+    if (!isAbort(error)) batchError.value = errorMessage(error)
   }
 }
 function openBatch() {

@@ -3,7 +3,9 @@
 defineEmits(['navigate'])
 import { computed, onMounted, reactive, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, notifyError } from '../api'
+import { api, isAbort, notifyError } from '../api'
+import { useListLoader } from '../composables/useListLoader'
+import { useDeviceSearch } from '../composables/useDeviceSearch'
 import { Plus, RadioTower, RefreshCw } from '@lucide/vue'
 import CameraLiveConfig from '../components/CameraLiveConfig.vue'
 import GBDevicesDialog from '../components/GBDevicesDialog.vue'
@@ -16,8 +18,7 @@ import StatusDot from '../components/layout/StatusDot.vue'
 import { confirmDelete } from '../deleteAction'
 
 const cameras = ref([])
-const devices = ref([])
-const devicesLoading = ref(false)
+const { devices, loading: devicesLoading, search: searchDevices, onSearch: onDeviceSearch } = useDeviceSearch(() => camera.deviceId)
 const loading = ref(false)
 const dialogVisible = ref(false)
 const editing = ref('')
@@ -37,7 +38,7 @@ const blank = () => ({
   enabled: true
 })
 const camera = reactive(blank())
-let loadVersion = 0
+const loader = useListLoader(loading)
 const loadError = ref('')
 const liveConfigVisible = ref(false)
 const liveConfigCamera = ref(null)
@@ -73,47 +74,19 @@ async function toggleModule(enabled) {
 }
 
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   try {
-    const data = await api(`/api/v1/integrations/video/cameras?page=${page.value}&pageSize=${pageSize.value}`)
-    if (version !== loadVersion) return
+    const data = await loader.run(signal =>
+      api(`/api/v1/integrations/video/cameras?page=${page.value}&pageSize=${pageSize.value}`, { signal })
+    )
     cameras.value = data.items || []
     total.value = Number(data.total ?? data.count ?? cameras.value.length)
     loadError.value = ''
   } catch (error) {
-    if (version === loadVersion) loadError.value = error?.message || '摄像头读取失败'
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(error)) loadError.value = error?.message || '摄像头读取失败'
   }
 }
 
 // 关联设备按关键字向服务端检索，不预先加载全部设备：设备量大时整表拉取会让页面长时间停在加载中。
-let deviceSearchVersion = 0
-let deviceSearchTimer = 0
-async function searchDevices(keyword = '') {
-  const version = ++deviceSearchVersion
-  devicesLoading.value = true
-  try {
-    const query = new URLSearchParams({ page: '1', pageSize: '50' })
-    if (keyword.trim()) query.set('q', keyword.trim())
-    const data = await api(`/api/v1/device-registry?${query}`)
-    if (version !== deviceSearchVersion) return
-    const found = (data.items || []).map(item => item.device || item).filter(item => item.id)
-    // 已选设备不在检索结果中时仍保留选项，避免只显示编号或被清空。
-    if (camera.deviceId && !found.some(item => item.id === camera.deviceId)) found.unshift({ id: camera.deviceId, name: camera.deviceId })
-    devices.value = found
-  } catch (error) {
-    if (version === deviceSearchVersion) notifyError(error)
-  } finally {
-    if (version === deviceSearchVersion) devicesLoading.value = false
-  }
-}
-function onDeviceSearch(keyword) {
-  clearTimeout(deviceSearchTimer)
-  deviceSearchTimer = setTimeout(() => searchDevices(keyword), 300)
-}
-
 function open(value) {
   Object.assign(camera, blank(), value ? { ...value, deviceId: value.deviceId || value.relatedDeviceIds?.[0] || '' } : {})
   editing.value = value?.cameraId || ''
