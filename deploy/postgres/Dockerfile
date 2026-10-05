@@ -7,7 +7,7 @@ ARG ALPINE_MIRROR=https://dl-cdn.alpinelinux.org/alpine
 RUN sed -i "s#https\?://dl-cdn.alpinelinux.org/alpine#${ALPINE_MIRROR%/}#" /etc/apk/repositories \
     && apk add --no-cache build-base clang19 llvm19-dev curl
 WORKDIR /tmp
-RUN curl -fSL --retry 3 -o pgvector.tar.gz https://codeload.github.com/pgvector/pgvector/tar.gz/refs/tags/v0.8.1 \
+RUN curl -fSL --retry 3 --retry-all-errors -o pgvector.tar.gz https://codeload.github.com/pgvector/pgvector/tar.gz/refs/tags/v0.8.1 \
     && echo 'a9094dfb85ccdde3cbb295f1086d4c71a20db1d26bf1d6c39f07a7d164033eb4  pgvector.tar.gz' | sha256sum -c - \
     && tar -xzf pgvector.tar.gz \
     && cd pgvector-0.8.1 \
