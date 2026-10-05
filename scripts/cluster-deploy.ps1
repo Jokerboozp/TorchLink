@@ -132,12 +132,20 @@ foreach ($stageName in @("coordination", "data", "init", "support", "workers", "
         Invoke-Ssh $s.Address "cd '$RemoteDir' && timeout $HealthTimeout sh -c 'until ! docker compose -p $name ps --format `"{{.Health}}`" | grep -q -E `"starting|unhealthy`"; do sleep 3; done'"
     }
 }
+# Processes need a while after their containers start (schema checks,
+# cluster DDL), so each is polled until the shared deadline.
 $failed = $false
+$deadline = (Get-Date).AddSeconds($HealthTimeout)
 foreach ($line in $plan) {
     $f = $line -split ' '
     if ($f[0] -ne 'health' -or -not (Test-Node $f[1])) { continue }
     if ($DryRun) { Write-Output "DRY-RUN GET $($f[2])"; continue }
-    try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 -Uri $f[2] | Out-Null } catch { Write-Warning "not ready: $($f[1]) $($f[2])"; $failed = $true }
+    while ($true) {
+        try { Invoke-WebRequest -UseBasicParsing -TimeoutSec 5 -Uri $f[2] | Out-Null; break } catch {
+            if ((Get-Date) -ge $deadline) { Write-Warning "not ready: $($f[1]) $($f[2])"; $failed = $true; break }
+            Start-Sleep -Seconds 5
+        }
+    }
 }
 if ($failed) { throw "some platform processes are not ready; see docker compose logs on those nodes" }
 Write-Output "cluster $name deployed; run a quick capacity check before opening traffic (docs/DEPLOYMENT.md)"

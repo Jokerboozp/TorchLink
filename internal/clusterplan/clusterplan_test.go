@@ -1011,6 +1011,8 @@ func TestHighAvailabilityPlacementsRender(t *testing.T) {
 		"RUSTFS_VOLUMES: http://rustfs{1...4}:9002/data", "- rustfs1:10.0.0.11", "- rustfs4:10.0.0.14", "rustfs-data:/data",
 		"--cluster.peer=10.0.0.14:9094", "--cluster.advertise-address=10.0.0.13:9094",
 		"IOT_VIDEO_MEDIA_SERVER_ID: iot-cluster-media-2",
+		// Spilo's monitor stays off the web port.
+		"bg_mon.port: 8009",
 	} {
 		if !strings.Contains(n3, want) {
 			t.Fatalf("n3 compose lacks %q:\n%s", want, n3)

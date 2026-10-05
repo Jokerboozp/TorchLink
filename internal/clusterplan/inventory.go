@@ -158,7 +158,7 @@ type PlatformSpec struct {
 // Fixed host ports (host networking). Validation rejects two services that
 // need the same port on one node.
 var Ports = map[string][]int{
-	"etcd": {2379, 2380}, "postgres": {5432, 8008}, "redpanda": {9092, 33145, 9644, 18081, 18082},
+	"etcd": {2379, 2380}, "postgres": {5432, 8008, BgMonPort}, "redpanda": {9092, 33145, 9644, 18081, 18082},
 	"emqx": {1883, 8083, 8084, 8883, 18083, 4370, 5370}, "clickhouse": {8123, 9000, 9009}, "keeper": {9181, 9234},
 	"redis": {6379}, "sentinel": {26379}, "rustfs": {9002, 9003}, "harness": {8091},
 	"video":  {80, 8000},
@@ -166,6 +166,9 @@ var Ports = map[string][]int{
 	"api": {8081, 5060, LocalEmbeddingPort, LocalRerankPort}, "gateway": {8082, 26875}, "parser": {8101}, "processor": {8102}, "jobs": {8104},
 	"lb": {LBAPIPort, LBGatewayPort, LBObjectStoragePort, LBVideoPort, LBPrometheusPort, LBAlertmanagerPort}, "capacity": {7080},
 }
+
+// BgMonPort is Spilo's bg_mon monitor port (loopback only).
+const BgMonPort = 8009
 
 // Local load balancer ports (bound to 127.0.0.1 on every node).
 const (

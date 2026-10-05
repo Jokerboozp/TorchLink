@@ -158,16 +158,24 @@ done
 
 # 2. Every platform process must be ready (its own dependencies only).
 if selected_stage edge || selected_stage workers || [ "$stage_filter" = all ]; then
-  failed=0
+  # Processes need a while after their containers start (schema checks,
+  # cluster DDL), so each is polled until the shared deadline.
+  failed=0 deadline=$(( $(date +%s) + health_timeout ))
   while read -r kind node url; do
     [ "$kind" = health ] || continue
     selected_node "$node" || continue
     if [ "$dry_run" = 1 ]; then
       printf 'DRY-RUN curl -fsS %s\n' "$url"
-    elif ! curl -fsS --max-time 5 "$url" >/dev/null; then
-      echo "not ready: $node $url" >&2
-      failed=1
+      continue
     fi
+    until curl -fsS --max-time 5 "$url" >/dev/null 2>&1; do
+      if [ "$(date +%s)" -ge "$deadline" ]; then
+        echo "not ready: $node $url" >&2
+        failed=1
+        break
+      fi
+      sleep 5
+    done
   done < "$rendered/deploy-plan.txt"
   [ "$failed" = 0 ] || { echo "some platform processes are not ready; see docker compose logs on those nodes" >&2; exit 1; }
 fi
