@@ -1135,10 +1135,14 @@ try {
     '账户菜单被横向 flex 样式破坏'
   ) /* 菜单须按列表纵向排布。 */
   const logoutLayout = await evaluate(
-    "(() => {const label=[...document.querySelectorAll('.ui-dropdown-label')].find(item=>item.getClientRects().length&&item.innerText.includes('退出登录')),icon=label.querySelector('svg').getBoundingClientRect(),text=label.getBoundingClientRect();return {width:text.width,height:text.height,iconHeight:icon.height,display:getComputedStyle(label).display}})()"
-  ) /* 读取退出菜单布局。 */
+    "(() => {const label=[...document.querySelectorAll('.ui-dropdown-label')].find(item=>item.getClientRects().length&&item.innerText.includes('退出登录')),icon=label.querySelector('svg').getBoundingClientRect(),node=[...label.childNodes].find(n=>n.nodeType===3&&n.textContent.includes('退出登录')),range=document.createRange();range.selectNodeContents(node);const lines=range.getClientRects(),text=range.getBoundingClientRect();return {lines:lines.length,iconRight:icon.right,textLeft:text.left,iconMid:icon.top+icon.height/2,textTop:text.top,textBottom:text.bottom,display:getComputedStyle(label).display}})()"
+  ) /* 读取退出菜单布局：图标与文字的实际位置，不依赖字体宽度。 */
   assert.ok(
-    logoutLayout.width > 60 && logoutLayout.iconHeight <= logoutLayout.height && logoutLayout.display === 'inline-flex',
+    logoutLayout.lines === 1 &&
+      logoutLayout.iconRight <= logoutLayout.textLeft + 1 &&
+      logoutLayout.iconMid >= logoutLayout.textTop &&
+      logoutLayout.iconMid <= logoutLayout.textBottom &&
+      logoutLayout.display === 'inline-flex',
     `退出登录图标与文字未排在同一行：${JSON.stringify(logoutLayout)}`
   ) /* 菜单项完整显示。 */
   await evaluate(
