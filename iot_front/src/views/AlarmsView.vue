@@ -1,4 +1,5 @@
 <script setup>
+import { takeNavigation } from '../routing'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
@@ -311,8 +312,7 @@ const realtime = event => {
   }, 300)
 }
 onMounted(async () => {
-  const navigation = alarmNavigation(sessionStorage.getItem('iot:navigation-detail'))
-  sessionStorage.removeItem('iot:navigation-detail')
+  const navigation = alarmNavigation(takeNavigation())
   filters.deviceId = navigation.deviceId
   window.addEventListener('iot:realtime', realtime)
   await load()

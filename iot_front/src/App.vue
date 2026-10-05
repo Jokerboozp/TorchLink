@@ -46,7 +46,7 @@ import { liveUsable, loadLiveStatus, resetLiveState } from './liveVideo'
 import { resetAIConversation } from './aiConversation'
 import { api, notifyError, session } from './api'
 import { pageGuide } from './pageGuide'
-import { parsePath, pathFor } from './routing'
+import { NAVIGATION_KEY, parsePath, pathFor } from './routing'
 import { can, permissionState, refreshPermissions, resetPermissions } from './permissions'
 import { isDark, setThemeMode, themeMode } from './theme/mode.js'
 import { startRealtime, stopRealtime } from './realtime'
@@ -308,10 +308,10 @@ function openPage(name, detail, { history = true, force = false } = {}) {
     if (path !== window.location.pathname + window.location.search) window.history.pushState(null, '', path)
   }
   if (active.value === name && !detail && !force) return
-  sessionStorage.removeItem('iot:navigation-detail')
+  sessionStorage.removeItem(NAVIGATION_KEY)
   active.value = name
   pageKey.value++
-  if (detail) sessionStorage.setItem('iot:navigation-detail', JSON.stringify(detail))
+  if (detail) sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify(detail))
   contentArea.value?.scrollTo({ top: 0 })
 }
 

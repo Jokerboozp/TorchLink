@@ -1,4 +1,5 @@
 <script setup>
+import { takeNavigation } from '../routing'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
 import { onMounted, reactive, ref, watch } from 'vue'
@@ -278,17 +279,8 @@ function actionText(item) {
 
 onMounted(async () => {
   await load()
-  const raw = sessionStorage.getItem('iot:navigation-detail')
-  if (!raw) return
-  try {
-    const detail = JSON.parse(raw)
-    if (detail.ruleDraft) {
-      sessionStorage.removeItem('iot:navigation-detail')
-      open({ ...detail.ruleDraft, ...(detail.persisted ? {} : { id: '' }), enabled: false })
-    }
-  } catch {
-    // ignore invalid navigation detail
-  }
+  const detail = takeNavigation()
+  if (detail.ruleDraft) open({ ...detail.ruleDraft, ...(detail.persisted ? {} : { id: '' }), enabled: false })
 })
 function rowActions(row) {
   return [

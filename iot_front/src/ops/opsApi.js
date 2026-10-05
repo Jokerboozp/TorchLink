@@ -56,29 +56,3 @@ export async function exportLogs(body) {
 export function downloadJSON(data, filename) {
   saveBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), filename)
 }
-
-export async function copyText(text) {
-  try {
-    await navigator.clipboard.writeText(text)
-    return true
-  } catch {
-    const area = document.createElement('textarea')
-    area.value = text
-    document.body.appendChild(area)
-    area.select()
-    const ok = document.execCommand('copy')
-    area.remove()
-    return ok
-  }
-}
-
-// 跨页面跳转携带的查询条件，沿用平台 iot:navigation-detail 约定。
-export function takeNavigation() {
-  try {
-    const detail = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || 'null')
-    sessionStorage.removeItem('iot:navigation-detail')
-    return detail && typeof detail === 'object' ? detail : null
-  } catch {
-    return null
-  }
-}

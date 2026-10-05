@@ -1,9 +1,11 @@
 export function alarmNavigation(raw) {
-  let value
-  try {
-    value = JSON.parse(raw)
-  } catch {
-    /* 无效导航按普通列表处理 */
+  let value = raw
+  if (typeof raw === 'string') {
+    try {
+      value = JSON.parse(raw)
+    } catch {
+      /* 无效导航按普通列表处理 */
+    }
   }
   return {
     deviceId: typeof value?.deviceId === 'string' ? value.deviceId.trim() : '',

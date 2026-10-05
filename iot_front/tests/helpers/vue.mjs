@@ -2,12 +2,25 @@ import { readFileSync } from 'node:fs'
 
 // Shared request helpers a component imports are defined in its context unless
 // the test supplies its own double.
-const shared = ['../../src/latest.js', '../../src/composables/useListLoader.js', '../../src/composables/useDeviceSearch.js'].map(file =>
+const shared = [
+  '../../src/latest.js',
+  '../../src/composables/useListLoader.js',
+  '../../src/composables/useDeviceSearch.js',
+  '../../src/clipboard.js',
+  '../../src/routing.js'
+].map(file =>
   readFileSync(new URL(file, import.meta.url), 'utf8')
     .replace(/^import\s[^'"]*['"][^'"]+['"];?$/gm, '')
-    .replace(/^export (?=function|const)/gm, '')
+    .replace(/^export (?=async function|function|const)/gm, '')
 )
-const helpers = { latest: shared[0], isAbort: shared[0], useListLoader: shared.slice(0, 2).join('\n'), useDeviceSearch: shared.join('\n') }
+const helpers = {
+  latest: shared[0],
+  isAbort: shared[0],
+  useListLoader: shared.slice(0, 2).join('\n'),
+  useDeviceSearch: shared.slice(0, 3).join('\n'),
+  copyText: shared[3],
+  takeNavigation: shared[4]
+}
 
 // vm contexts have no AbortController unless a test provides one.
 const abortController = `var AbortController = typeof AbortController !== 'undefined' ? AbortController : class {

@@ -1,4 +1,5 @@
 <script setup>
+import { takeNavigation } from '../routing'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
 import { transportLabel, formatLabel } from '../presentation'
@@ -147,17 +148,10 @@ async function downloadBatch() {
 }
 
 onMounted(async () => {
-  let navigation = {}
-  try {
-    const raw = sessionStorage.getItem('iot:navigation-detail')
-    if (raw) {
-      navigation = JSON.parse(raw)
-      filters.value.deviceId = navigation.deviceId || ''
-      appliedFilters.value = { ...filters.value }
-      sessionStorage.removeItem('iot:navigation-detail')
-    }
-  } catch {
-    // Ignore malformed navigation state.
+  const navigation = takeNavigation()
+  if (navigation.deviceId) {
+    filters.value.deviceId = navigation.deviceId
+    appliedFilters.value = { ...filters.value }
   }
   await load()
   // 告警弹窗传 messageId，接入与设备页传 rawMessageId，二者都指原始报文编号。

@@ -1,4 +1,5 @@
 <script setup>
+import { takeNavigation } from '../routing'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
 import { computed, onMounted, reactive, ref } from 'vue'
@@ -124,20 +125,13 @@ async function save() {
 }
 
 function consumeNavigationAction() {
-  const raw = sessionStorage.getItem('iot:navigation-detail')
-  if (!raw) return
-  sessionStorage.removeItem('iot:navigation-detail')
-  try {
-    const detail = JSON.parse(raw)
-    if (!detail.cameraId) return
-    const target = cameras.value.find(item => item.cameraId === detail.cameraId)
-    if (!target) return UiMessage.warning(`当前列表未找到摄像头 ${detail.cameraId}`)
-    highlightedCameraId.value = target.cameraId
-    if (detail.play && liveUsable() && target.live?.enabled) return openPlayer(target)
-    UiMessage.info(`已定位摄像头：${target.cameraName || target.cameraId}`)
-  } catch {
-    /* ignore invalid navigation detail */
-  }
+  const detail = takeNavigation()
+  if (!detail.cameraId) return
+  const target = cameras.value.find(item => item.cameraId === detail.cameraId)
+  if (!target) return UiMessage.warning(`当前列表未找到摄像头 ${detail.cameraId}`)
+  highlightedCameraId.value = target.cameraId
+  if (detail.play && liveUsable() && target.live?.enabled) return openPlayer(target)
+  UiMessage.info(`已定位摄像头：${target.cameraName || target.cameraId}`)
 }
 
 function rowClassName({ row }) {

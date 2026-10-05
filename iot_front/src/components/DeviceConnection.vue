@@ -1,4 +1,5 @@
 <script setup>
+import { useMediaQuery } from '../composables/useMediaQuery'
 import { createClientId } from '../clientId'
 import CommandValueInput from './CommandValueInput.vue'
 import LinkedCameras from './LinkedCameras.vue'
@@ -84,12 +85,7 @@ const lists = reactive(
     ['history', 'events', 'commands', 'children'].map(key => [key, { items: [], total: 0, page: 1, loading: false, error: '' }])
   )
 )
-const media = window.matchMedia('(max-width: 640px)')
-const narrow = ref(media.matches)
-const resize = event => {
-  narrow.value = event.matches
-}
-media.addEventListener('change', resize)
+const narrow = useMediaQuery('(max-width: 640px)')
 const columns = computed(() => (narrow.value ? 1 : 2))
 const canEdit = computed(() => ['admin', 'operator'].includes(session.role))
 const isParent = computed(
@@ -297,7 +293,6 @@ watch(
 onBeforeUnmount(() => {
   generation++
   controller.abort()
-  media.removeEventListener('change', resize)
   credential.value = null
 })
 </script>

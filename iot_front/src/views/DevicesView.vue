@@ -1,4 +1,5 @@
 <script setup>
+import { takeNavigation } from '../routing'
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { api, apiAll, formatTime, isAbort, notifyError } from '../api'
@@ -24,6 +25,7 @@ import StatusDot from '../components/layout/StatusDot.vue'
 import DeviceConnection from '../components/DeviceConnection.vue'
 import DeviceOnboarding from '../components/DeviceOnboarding.vue'
 import DeviceBatchOnboarding from '../components/DeviceBatchOnboarding.vue'
+import { copyText } from '../clipboard'
 
 const emit = defineEmits(['navigate'])
 const connectionDevice = ref('')
@@ -253,12 +255,9 @@ function showCredential(value) {
   credentialDialog.value = true
 }
 async function copyCredential() {
-  try {
-    await navigator.clipboard.writeText(`X-Device-Key: ${credential.value.accessKey}\nX-Device-Secret: ${credential.value.secret}`)
+  if (await copyText(`X-Device-Key: ${credential.value.accessKey}\nX-Device-Secret: ${credential.value.secret}`))
     UiMessage.success('凭证已复制')
-  } catch {
-    UiMessage.warning('浏览器不允许复制，请手动选择文本')
-  }
+  else UiMessage.warning('浏览器不允许复制，请手动选择文本')
 }
 function hasReported(row) {
   return Number(row.runtimeState?.lastSeenAt || 0) > 0
@@ -335,13 +334,7 @@ function realtime(event) {
   if (!row && !pending && !pendingTab.value && filters.runtime && state.businessStatus === filters.runtime) updatesAvailable.value = true
 }
 onMounted(() => {
-  let detail
-  try {
-    detail = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}')
-  } catch {
-    detail = {}
-  }
-  sessionStorage.removeItem('iot:navigation-detail')
+  const detail = takeNavigation()
   if (detail.onboarding) {
     onboarding.value = true
     onboardingProductId.value = detail.productId || ''

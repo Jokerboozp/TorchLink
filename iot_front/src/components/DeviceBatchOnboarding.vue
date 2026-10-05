@@ -4,6 +4,7 @@ import { api, apiAll, session } from '../api'
 import { createClientId } from '../clientId'
 import { parseDeviceRows } from '../onboardingPlan'
 import { UiMessage } from '../ui/feedback'
+import { copyText } from '../clipboard'
 const props = defineProps({ batchId: { type: String, default: '' } })
 const emit = defineEmits(['close', 'detail'])
 const products = ref([]),
@@ -220,12 +221,8 @@ function exportSecrets() {
   UiMessage.success('已发起下载并清除页面中的密钥，请确认文件已保存')
 }
 async function copySecrets() {
-  try {
-    await navigator.clipboard.writeText(JSON.stringify(secrets.value.items, null, 2))
-    UiMessage.success('凭据已复制，请妥善保存')
-  } catch {
-    UiMessage.warning('复制失败，请手动复制')
-  }
+  if (await copyText(JSON.stringify(secrets.value.items, null, 2))) UiMessage.success('凭据已复制，请妥善保存')
+  else UiMessage.warning('复制失败，请手动复制')
 }
 watch(page, () => {
   if (batch.value) refresh()

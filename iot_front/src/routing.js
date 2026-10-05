@@ -41,3 +41,21 @@ export function parsePath(pathname, pages, search = '') {
   for (const key of linkKeys) if (linkValue(query.get(key))) detail[key] = query.get(key)
   return { page, detail: Object.keys(detail).length ? detail : null }
 }
+
+// 跨页跳转携带的导航细节只经会话存储传递一次：读取后立即清除。没有或格式
+// 错误时返回空对象。
+export const NAVIGATION_KEY = 'iot:navigation-detail'
+export function takeNavigation() {
+  let detail = null
+  try {
+    detail = JSON.parse(sessionStorage.getItem(NAVIGATION_KEY) || 'null')
+  } catch {
+    // 损坏的导航细节按无处理。
+  }
+  try {
+    sessionStorage.removeItem(NAVIGATION_KEY)
+  } catch {
+    // 存储不可用时没有需要清除的内容。
+  }
+  return detail && typeof detail === 'object' ? detail : {}
+}

@@ -3,7 +3,7 @@
 // 业务运行可能要等待 Harness 空位，关闭弹窗会取消请求。
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { api } from '../api'
-import { copyText } from '../ops/opsApi'
+import { copyText } from '../clipboard'
 import { UiMessage } from '../ui/feedback.js'
 import MarkdownContent from './MarkdownContent.vue'
 

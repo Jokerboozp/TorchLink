@@ -8,6 +8,7 @@ import { confirmDelete } from '../deleteAction'
 import DataTableCard from './layout/DataTableCard.vue'
 import RowActions from './layout/RowActions.vue'
 import StatusDot from './layout/StatusDot.vue'
+import { copyText } from '../clipboard'
 
 // 开放接口密钥绑定平台用户：外部系统按该用户的功能和设备范围访问，能力项只能进一步收窄。
 const props = defineProps({ users: { type: Array, default: () => [] } })
@@ -116,12 +117,8 @@ async function rotate(key) {
   }
 }
 async function copy(text, message) {
-  try {
-    await navigator.clipboard.writeText(text)
-    UiMessage.success(message)
-  } catch {
-    UiMessage.warning('复制失败，请手动选择文本复制')
-  }
+  if (await copyText(text)) UiMessage.success(message)
+  else UiMessage.warning('复制失败，请手动选择文本复制')
 }
 function closeIssued() {
   issuedKey.value = ''

@@ -22,6 +22,7 @@ import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
+import { copyText } from '../clipboard'
 defineEmits(['navigate'])
 
 // 三个视图：接入配置（来源及其接口）、编号对应、运行记录（接收记录 / 拉取任务）。
@@ -488,12 +489,8 @@ function rowActions(row) {
   return actions
 }
 async function copy(value) {
-  try {
-    await navigator.clipboard.writeText(value)
-    UiMessage.success('已复制')
-  } catch {
-    UiMessage.warning('自动复制失败，请选中文本复制')
-  }
+  if (await copyText(value)) UiMessage.success('已复制')
+  else UiMessage.warning('自动复制失败，请选中文本复制')
 }
 onMounted(() => {
   view.value = visibleTabs.value[0]?.[0] || 'config'

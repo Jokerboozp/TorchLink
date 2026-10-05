@@ -1,4 +1,5 @@
 <script setup>
+import { takeNavigation } from '../routing'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 const emit = defineEmits(['navigate'])
 import AccessPointsPanel from '../components/AccessPointsPanel.vue'
@@ -159,13 +160,7 @@ function statusType(value) {
 
 onMounted(async () => {
   if (props.section === 'profiles') return
-  let context = {}
-  try {
-    context = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}')
-  } catch {
-    context = {}
-  }
-  sessionStorage.removeItem('iot:navigation-detail')
+  const context = takeNavigation()
   await load()
   if (context.protocolId && context.version) {
     const item = protocols.value.find(row => row.definition.id === context.protocolId),

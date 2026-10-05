@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api, apiAll, formatTime, isAbort, session } from '../api'
 import { useListLoader } from '../composables/useListLoader'
+import { copyText } from '../clipboard'
 import { createClientId } from '../clientId'
 import { statusLabel, transportLabel } from '../presentation'
 import { UiMessage } from '../ui/feedback.js'
@@ -336,12 +337,8 @@ function realtime(event) {
 }
 
 async function copy(text, message = '已复制') {
-  try {
-    await navigator.clipboard.writeText(text)
-    UiMessage.success(message)
-  } catch {
-    UiMessage.warning('浏览器不允许复制，请手动选择文本')
-  }
+  if (await copyText(text)) UiMessage.success(message)
+  else UiMessage.warning('浏览器不允许复制，请手动选择文本')
 }
 function copyAll() {
   copy(configurationText(draft.result, accessInfo.value, credential.value), '接入信息已复制')
