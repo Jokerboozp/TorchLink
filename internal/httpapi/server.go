@@ -1154,6 +1154,10 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		problem(w, 400, "property is required")
 		return
 	}
+	if !validPropertyName(property) {
+		problem(w, 422, "property name is invalid")
+		return
+	}
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.PropertyHistoryPage(r.Context(), claims(r).TenantID, r.PathValue("deviceId"), property, i64(q.Get("start")), i64(q.Get("end")), pagination.PageSize, pagination.Offset)
 	if err != nil {
@@ -1161,6 +1165,20 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeList(w, 200, items, total, pagination, nil)
+}
+
+// validPropertyName bounds the free-form property name used by history
+// queries: non-identifier names reach the storage layer as string literals.
+func validPropertyName(name string) bool {
+	if len(name) > 256 {
+		return false
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f {
+			return false
+		}
+	}
+	return true
 }
 func (s *Server) stateEvent(w http.ResponseWriter, r *http.Request) {
 	var v model.DeviceState

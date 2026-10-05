@@ -449,3 +449,34 @@ func TestSchemaStatementsSkipExistingObjects(t *testing.T) {
 		}
 	}
 }
+
+// Non-identifier property names reach ClickHouse as string literals; quotes
+// and backslashes in them must not close the literal.
+func TestPropertyHistoryEscapesPropertyLiteral(t *testing.T) {
+	var queries []string
+	server := newClickHouseTestServer(t, func(query string, w http.ResponseWriter) bool {
+		queries = append(queries, query)
+		return false
+	})
+	defer server.Close()
+	repo, err := New(context.Background(), server.URL, memory.NewRepository())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err = repo.PropertyHistoryPage(context.Background(), "tenant-test", `dev\'ice`, `x\' OR 1=1 --`, 1, 2, 20, 0); err != nil {
+		t.Fatal(err)
+	}
+	var seen bool
+	for _, query := range queries {
+		if !strings.Contains(query, "JSONHas(properties_text") {
+			continue
+		}
+		seen = true
+		if !strings.Contains(query, `device_id='dev\\\'ice'`) || !strings.Contains(query, `JSONHas(properties_text, 'x\\\' OR 1=1 --')`) {
+			t.Fatalf("literal not escaped: %s", query)
+		}
+	}
+	if !seen {
+		t.Fatalf("text property history query was not issued: %v", queries)
+	}
+}

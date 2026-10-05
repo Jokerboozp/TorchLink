@@ -216,6 +216,27 @@ func TestMemoryPropertyHistoryPaginationKeepsLatestPageChronological(t *testing.
 	}
 }
 
+func TestPropertyHistoryRejectsControlCharactersInPropertyName(t *testing.T) {
+	repo := memory.NewRepository()
+	if err := repo.SaveManagedDevice(context.Background(), model.ManagedDevice{ID: "device_001", TenantID: "tenant-a", ProductID: "product_001"}); err != nil {
+		t.Fatal(err)
+	}
+	api := New(config.Config{JWTSecret: "audit-only-secret-at-least-32-characters"}, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	token, err := api.auth.Issue("audit", "tenant-a", "viewer", nil, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for query, want := range map[string]int{"property=temp-c": http.StatusOK, "property=x%09y": http.StatusUnprocessableEntity, "property=" + strings.Repeat("a", 257): http.StatusUnprocessableEntity} {
+		r := httptest.NewRequest(http.MethodGet, "/api/v1/devices/device_001/properties/history?"+query, nil)
+		r.Header.Set("Authorization", "Bearer "+token)
+		w := httptest.NewRecorder()
+		api.Handler().ServeHTTP(w, r)
+		if w.Code != want {
+			t.Fatalf("%s: status=%d want %d", query, w.Code, want)
+		}
+	}
+}
+
 func TestOversizedPaginationThroughHTTP(t *testing.T) {
 	repo := memory.NewRepository()
 	if err := repo.SaveProduct(context.Background(), model.Product{ID: "first-product", TenantID: "tenant-a"}); err != nil {
