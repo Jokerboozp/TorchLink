@@ -14,10 +14,14 @@ import StatusDot from '../components/layout/StatusDot.vue'
 import TimeRangeBar from '../components/ops/TimeRangeBar.vue'
 import TimeSeriesChart from '../components/ops/TimeSeriesChart.vue'
 import DeadLetterPanel from '../components/ops/DeadLetterPanel.vue'
+import { usePageState } from '../composables/usePageState.js'
 
 const emit = defineEmits(['navigate'])
 const range = ref({ from: 'now-3h', to: 'now' })
 const refresh = ref(60e3)
+// 时间范围与自动刷新周期随地址栏和会话保留；须在读取趋势缓存前恢复，缓存按时间范围匹配。
+usePageState('opsOverview', { range, refresh })
+const deadLetters = ref(null)
 
 const componentList = [
   { id: 'prometheus', name: 'Prometheus' },
@@ -139,6 +143,12 @@ function load() {
   })
 }
 
+// 手动刷新与自动刷新同时刷新死信列表；首次进入时死信区自行加载。
+function refreshAll() {
+  deadLetters.value?.reload()
+  load()
+}
+
 const kpisByGroup = computed(() =>
   groups.map(group => ({
     ...group,
@@ -194,7 +204,7 @@ onBeforeUnmount(() => {
   <div class="ops-page">
     <div class="ops-toolbar">
       <span class="ops-toolbar__meta">{{ toolbarText }}</span>
-      <TimeRangeBar v-model:range="range" v-model:refresh="refresh" :loading="loading" @refresh="load" />
+      <TimeRangeBar v-model:range="range" v-model:refresh="refresh" :loading="loading" @refresh="refreshAll" />
     </div>
     <ui-alert v-if="notConfigured" type="error" :title="notConfigured" :closable="false" show-icon />
 
@@ -259,7 +269,7 @@ onBeforeUnmount(() => {
       </div>
     </section>
 
-    <DeadLetterPanel v-if="can('GET /api/v1/ops/overview/dead-letters')" />
+    <DeadLetterPanel v-if="can('GET /api/v1/ops/overview/dead-letters')" ref="deadLetters" />
 
     <section class="kpi-section" aria-label="趋势">
       <div class="section-heading">

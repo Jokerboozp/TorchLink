@@ -113,7 +113,7 @@ onBeforeUnmount(() => {
 <template>
   <section v-if="media.length" class="alarm-media" aria-label="告警截图与视频片段">
     <header>
-      <strong>告警附件</strong
+      <strong>设备截图与录像</strong
       ><ui-button
         v-if="media.some(item => !item.stored)"
         v-permission="retryPermission"

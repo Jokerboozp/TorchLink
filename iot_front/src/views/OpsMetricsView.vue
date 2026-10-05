@@ -8,6 +8,7 @@ import { formatValue, labelString, relativeTime } from '../ops/format.js'
 import { metricResultToChart } from '../ops/frames.js'
 import { latest, opsErrorText, opsGet, opsSend, takeNavigation } from '../ops/opsApi.js'
 import { resolveRange } from '../ops/timeRange.js'
+import { usePageState } from '../composables/usePageState.js'
 import StatusDot from '../components/layout/StatusDot.vue'
 import MatcherEditor from '../components/ops/MatcherEditor.vue'
 import QueryLibrary from '../components/ops/QueryLibrary.vue'
@@ -33,8 +34,13 @@ const validation = ref(null)
 const libraryVisible = ref(false)
 const saveVisible = ref(false)
 const saveForm = ref({ name: '', description: '' })
+const saving = ref(false)
 const runner = latest()
+// 只有最近一次查询能更新结果、错误和运行状态；被新查询替换的旧请求静默结束。
+let runSeq = 0
 let validateTimer = null
+// 查询语句、查询类型、步长、单位、时间范围与自动刷新随地址栏和会话保留，刷新页面或切换菜单后恢复。
+const { restored } = usePageState('opsMetrics', { tab, range, refresh, query, instant, step, unit })
 
 const chart = computed(() => (result.value && !instant.value ? metricResultToChart(result.value) : { times: [], series: [] }))
 const rows = computed(() =>
@@ -50,10 +56,11 @@ const rows = computed(() =>
 async function run() {
   if (!query.value.trim()) return
   const { from, to } = resolveRange(range.value)
+  const seq = ++runSeq
   running.value = true
   queryError.value = ''
   try {
-    result.value = await runner.run(signal =>
+    const data = await runner.run(signal =>
       opsSend(
         'POST',
         '/api/v1/ops/metrics/query',
@@ -61,15 +68,14 @@ async function run() {
         signal
       )
     )
+    if (seq === runSeq) result.value = data
   } catch (e) {
-    if (e?.name === 'AbortError') {
-      queryError.value = e.message === 'stale' ? '' : '查询已取消'
-      return
-    }
+    // 被新查询替换或已由“取消”处理的请求不再改动页面；取消提示由 cancel() 写入。
+    if (seq !== runSeq || e?.name === 'AbortError') return
     queryError.value = opsErrorText(e)
     result.value = null
   } finally {
-    running.value = false
+    if (seq === runSeq) running.value = false
   }
 }
 function stepMs() {
@@ -77,6 +83,7 @@ function stepMs() {
   return m ? Number(m[1]) * { s: 1e3, m: 60e3, h: 3600e3 }[m[2]] : 0
 }
 function cancel() {
+  runSeq++
   runner.cancel()
   running.value = false
   queryError.value = '查询已取消'
@@ -100,6 +107,8 @@ function useQuery(body) {
   run()
 }
 async function saveQuery() {
+  if (saving.value) return
+  saving.value = true
   try {
     await opsSend('POST', '/api/v1/ops/preferences/saved-queries', {
       name: saveForm.value.name,
@@ -111,6 +120,8 @@ async function saveQuery() {
     saveVisible.value = false
   } catch (e) {
     UiMessage.error(opsErrorText(e))
+  } finally {
+    saving.value = false
   }
 }
 function zoom({ from, to }) {
@@ -132,6 +143,7 @@ const exploreError = ref('')
 const exploring = ref(false)
 const catalogRunner = latest()
 const exploreRunner = latest()
+let exploreSeq = 0
 let searchTimer = null
 const fnOptions = [
   { value: 'raw', label: '原始值' },
@@ -174,10 +186,11 @@ const loadLabelValues = async label => (await opsGet('/api/v1/ops/metrics/label-
 async function runExplore() {
   if (!selected.value) return
   const { from, to } = resolveRange(range.value)
+  const seq = ++exploreSeq
   exploring.value = true
   exploreError.value = ''
   try {
-    explore.value = await exploreRunner.run(signal =>
+    const data = await exploreRunner.run(signal =>
       opsGet(
         '/api/v1/ops/metrics/explore',
         {
@@ -193,13 +206,14 @@ async function runExplore() {
         signal
       )
     )
+    if (seq === exploreSeq) explore.value = data
   } catch (e) {
-    if (e?.name !== 'AbortError') {
+    if (seq === exploreSeq && e?.name !== 'AbortError') {
       exploreError.value = opsErrorText(e)
       explore.value = null
     }
   } finally {
-    exploring.value = false
+    if (seq === exploreSeq) exploring.value = false
   }
 }
 function openInQuery() {
@@ -252,7 +266,11 @@ onMounted(() => {
     } else {
       tab.value = 'explore'
     }
+  } else if (restored && tab.value === 'query' && canQuery.value && query.value.trim()) {
+    // 刷新页面或切回本页时按恢复的条件重新执行，避免只剩语句没有结果。
+    run()
   }
+  if (!canQuery.value && tab.value === 'query') tab.value = 'explore'
   if (tab.value === 'explore') loadCatalog()
   if (tab.value === 'targets') loadTargets()
 })
@@ -475,7 +493,7 @@ onBeforeUnmount(() => {
       </div>
       <template #footer
         ><ui-button @click="saveVisible = false">取消</ui-button
-        ><ui-button type="primary" :disabled="!saveForm.name.trim()" @click="saveQuery">保存</ui-button></template
+        ><ui-button type="primary" :loading="saving" :disabled="!saveForm.name.trim()" @click="saveQuery">保存</ui-button></template
       >
     </ui-dialog>
   </div>

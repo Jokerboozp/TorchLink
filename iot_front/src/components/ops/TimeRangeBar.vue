@@ -9,7 +9,9 @@ const props = defineProps({
   refresh: { type: Number, default: 0 },
   loading: { type: Boolean, default: false },
   showRefresh: { type: Boolean, default: true },
-  maxHours: { type: Number, default: 0 }
+  maxHours: { type: Number, default: 0 },
+  // 暂停自动刷新但保留所选周期，例如实时追踪中或已加载更早的历史时。
+  paused: { type: Boolean, default: false }
 })
 const emit = defineEmits(['update:range', 'update:refresh', 'refresh'])
 const customVisible = ref(false)
@@ -30,12 +32,12 @@ let timer = null
 function schedule() {
   clearInterval(timer)
   timer = null
-  if (props.refresh > 0)
+  if (props.refresh > 0 && !props.paused)
     timer = setInterval(() => {
       if (!document.hidden) emit('refresh')
     }, props.refresh)
 }
-watch(() => props.refresh, schedule, { immediate: true })
+watch(() => [props.refresh, props.paused], schedule, { immediate: true })
 onBeforeUnmount(() => clearInterval(timer))
 function applyCustom() {
   const [from, to] = custom.value || []

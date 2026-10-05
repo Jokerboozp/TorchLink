@@ -2,7 +2,7 @@
 import { can } from '../permissions'
 import { aiProviderOptions as providerOptions, capabilityName } from '../presentation'
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { api, apiStream, formatTime, session } from '../api'
+import { apiAll, apiStream, formatTime, session } from '../api'
 import { copyText } from '../ops/opsApi'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { useAIConversation } from '../aiConversation'
@@ -40,7 +40,7 @@ async function refreshRuleDraftStatuses() {
   if (!can('menu:rules')) return
   if (!messages.value.some(message => message?.ruleDraftPersisted === true && message?.ruleDraft?.id)) return
   try {
-    const response = await api('/api/v1/rules?page=1&pageSize=100')
+    const response = await apiAll('/api/v1/rules')
     reconcileRuleDraftMessages(messages.value, response?.items || [])
     conversation.persist()
   } catch {
@@ -129,10 +129,7 @@ async function loadRuntime() {
   runtimeError.value = ''
   workflowError.value = ''
   try {
-    const [providerResult, workflowResult] = await Promise.allSettled([
-      api('/api/v1/ai/providers?page=1&pageSize=100'),
-      api('/api/v1/ai/workflows?page=1&pageSize=100')
-    ])
+    const [providerResult, workflowResult] = await Promise.allSettled([apiAll('/api/v1/ai/providers'), apiAll('/api/v1/ai/workflows')])
     // A delete/create/update can start a newer refresh while this request is
     // still in flight. Never let the older response put a removed Agent back
     // into the workbench dropdown.

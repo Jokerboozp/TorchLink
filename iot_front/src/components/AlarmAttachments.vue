@@ -65,7 +65,7 @@ function remove(att) {
   <ui-card shadow="never" class="top-gap">
     <template #header>
       <div class="card-header">
-        <strong>附件</strong>
+        <strong>现场附件</strong>
         <template v-if="editable && attachments.length < 10">
           <input ref="input" type="file" accept="image/png,image/jpeg,application/pdf,video/mp4" hidden @change="upload" />
           <ui-button v-permission="'POST /api/v1/alarms/:id/attachments'" text size="small" :loading="uploading" @click="input?.click()"

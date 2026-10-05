@@ -1,5 +1,5 @@
 <script setup>
-import { computed, defineAsyncComponent, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Activity,
   Bell,
@@ -44,42 +44,54 @@ import LivePlayerDialog from './components/LivePlayerDialog.vue'
 import PasswordChangeDialog from './components/PasswordChangeDialog.vue'
 import { liveUsable, loadLiveStatus, resetLiveState } from './liveVideo'
 import { resetAIConversation } from './aiConversation'
+import { clearAIHistory } from './aiHistory'
 import { api, notifyError, session } from './api'
 import { pageGuide } from './pageGuide'
-import { parsePath, pathFor } from './routing'
+import { parsePath, pathFor, withPageState } from './routing'
+import { confirmDiscard, hasUnsaved } from './composables/unsavedGuard.js'
+import PageLoadState from './components/layout/PageLoadState.vue'
 import { can, permissionState, refreshPermissions, resetPermissions } from './permissions'
 import { isDark, setThemeMode, themeMode } from './theme/mode.js'
-import { startRealtime, stopRealtime } from './realtime'
+import { realtimeStatus, retryRealtime, startRealtime, stopRealtime } from './realtime'
 import { useMediaQuery } from './composables/useMediaQuery'
 
-const DashboardView = defineAsyncComponent(() => import('./views/DashboardView.vue'))
-const SitesView = defineAsyncComponent(() => import('./views/SitesView.vue'))
-const DevicesView = defineAsyncComponent(() => import('./views/DevicesView.vue'))
-const ProductsView = defineAsyncComponent(() => import('./views/ProductsView.vue'))
-const ProtocolsView = defineAsyncComponent(() => import('./views/ProtocolsView.vue'))
-const TestDeviceView = defineAsyncComponent(() => import('./views/TestDeviceView.vue'))
-const CameraMappingsView = defineAsyncComponent(() => import('./views/CameraMappingsView.vue'))
-const ExternalDataView = defineAsyncComponent(() => import('./views/ExternalDataView.vue'))
-const MessageTopicsView = defineAsyncComponent(() => import('./views/MessageTopicsView.vue'))
-const AlarmsView = defineAsyncComponent(() => import('./views/AlarmsView.vue'))
-const HealthInspectionView = defineAsyncComponent(() => import('./views/HealthInspectionView.vue'))
-const RawView = defineAsyncComponent(() => import('./views/RawView.vue'))
-const RulesView = defineAsyncComponent(() => import('./views/RulesView.vue'))
-const NotificationsView = defineAsyncComponent(() => import('./views/NotificationsView.vue'))
-const KnowledgeView = defineAsyncComponent(() => import('./views/KnowledgeView.vue'))
-const AiView = defineAsyncComponent(() => import('./views/AiView.vue'))
-const AiProvidersView = defineAsyncComponent(() => import('./views/AiProvidersView.vue'))
-const BackupsView = defineAsyncComponent(() => import('./views/BackupsView.vue'))
-const AccessView = defineAsyncComponent(() => import('./views/AccessView.vue'))
-const DutyView = defineAsyncComponent(() => import('./views/DutyView.vue'))
-const ExtinguishersView = defineAsyncComponent(() => import('./views/ExtinguishersView.vue'))
-const FireStationsView = defineAsyncComponent(() => import('./views/FireStationsView.vue'))
-const OpsOverviewView = defineAsyncComponent(() => import('./views/OpsOverviewView.vue'))
-const OpsMetricsView = defineAsyncComponent(() => import('./views/OpsMetricsView.vue'))
-const OpsLogsView = defineAsyncComponent(() => import('./views/OpsLogsView.vue'))
-const OpsDashboardsView = defineAsyncComponent(() => import('./views/OpsDashboardsView.vue'))
-const OpsAlertsView = defineAsyncComponent(() => import('./views/OpsAlertsView.vue'))
-const OpsCapacityView = defineAsyncComponent(() => import('./views/OpsCapacityView.vue'))
+// 页面按需加载：慢网络显示加载提示，加载失败（如升级后旧文件已不存在）提示刷新。
+const lazyView = loader =>
+  defineAsyncComponent({
+    loader,
+    loadingComponent: PageLoadState,
+    errorComponent: { render: () => h(PageLoadState, { failed: true }) },
+    delay: 200,
+    timeout: 30000
+  })
+const DashboardView = lazyView(() => import('./views/DashboardView.vue'))
+const SitesView = lazyView(() => import('./views/SitesView.vue'))
+const DevicesView = lazyView(() => import('./views/DevicesView.vue'))
+const ProductsView = lazyView(() => import('./views/ProductsView.vue'))
+const ProtocolsView = lazyView(() => import('./views/ProtocolsView.vue'))
+const TestDeviceView = lazyView(() => import('./views/TestDeviceView.vue'))
+const CameraMappingsView = lazyView(() => import('./views/CameraMappingsView.vue'))
+const ExternalDataView = lazyView(() => import('./views/ExternalDataView.vue'))
+const MessageTopicsView = lazyView(() => import('./views/MessageTopicsView.vue'))
+const AlarmsView = lazyView(() => import('./views/AlarmsView.vue'))
+const HealthInspectionView = lazyView(() => import('./views/HealthInspectionView.vue'))
+const RawView = lazyView(() => import('./views/RawView.vue'))
+const RulesView = lazyView(() => import('./views/RulesView.vue'))
+const NotificationsView = lazyView(() => import('./views/NotificationsView.vue'))
+const KnowledgeView = lazyView(() => import('./views/KnowledgeView.vue'))
+const AiView = lazyView(() => import('./views/AiView.vue'))
+const AiProvidersView = lazyView(() => import('./views/AiProvidersView.vue'))
+const BackupsView = lazyView(() => import('./views/BackupsView.vue'))
+const AccessView = lazyView(() => import('./views/AccessView.vue'))
+const DutyView = lazyView(() => import('./views/DutyView.vue'))
+const ExtinguishersView = lazyView(() => import('./views/ExtinguishersView.vue'))
+const FireStationsView = lazyView(() => import('./views/FireStationsView.vue'))
+const OpsOverviewView = lazyView(() => import('./views/OpsOverviewView.vue'))
+const OpsMetricsView = lazyView(() => import('./views/OpsMetricsView.vue'))
+const OpsLogsView = lazyView(() => import('./views/OpsLogsView.vue'))
+const OpsDashboardsView = lazyView(() => import('./views/OpsDashboardsView.vue'))
+const OpsAlertsView = lazyView(() => import('./views/OpsAlertsView.vue'))
+const OpsCapacityView = lazyView(() => import('./views/OpsCapacityView.vue'))
 
 const authenticated = ref(Boolean(session.token))
 const active = ref('dashboard')
@@ -107,7 +119,15 @@ const contentArea = ref(null)
 const pageKey = ref(0)
 const loginLoading = ref(false)
 const globalAlertPopup = ref(null)
-const loginForm = ref({ tenantId: 'tenant_001', username: 'admin', password: '' })
+// 登录表单只记住本浏览器上次使用的租户，不预填账户名。
+const lastTenant = () => {
+  try {
+    return localStorage.getItem('iot:last-tenant') || ''
+  } catch {
+    return ''
+  }
+}
+const loginForm = ref({ tenantId: lastTenant(), username: '', password: '' })
 const identity = ref({ tenant: session.tenant, user: session.user, role: session.role })
 // 平台版本只用于排查与反馈问题，来自 /api/v1/auth/me。
 const platformVersion = ref('')
@@ -184,7 +204,16 @@ watch(
     if (!authenticated.value || value === old) return
     // 智能助手的回答可在其他页面后台生成；授权变化后停止旧授权下的运行。
     resetAIConversation()
-    if (!can('menu:' + active.value)) active.value = firstAllowedPage()
+    if (!can('menu:' + active.value)) {
+      active.value = firstAllowedPage()
+      pageKey.value++
+      return
+    }
+    // 仍可访问当前页面且有未保存修改时不重载页面，避免丢失填写内容；服务端仍按新权限校验每个请求。
+    if (hasUnsaved()) {
+      UiMessage.info('账户权限已更新，保存当前修改后重新打开页面即可按新权限显示')
+      return
+    }
     pageKey.value++
   }
 )
@@ -213,14 +242,33 @@ async function syncIdentity() {
 let routeApplied = false
 function applyRoute(replace) {
   routeApplied = true
-  const { page, detail } = parsePath(window.location.pathname, pages, window.location.search)
+  const parsed = parsePath(window.location.pathname, pages, window.location.search)
+  const { page } = parsed
+  // 地址中已有页面状态（s. 参数）说明页面已接收过跳转带入的条件，刷新时以页面状态为准，只保留告警详情。
+  const pageStateSaved = [...new URLSearchParams(window.location.search).keys()].some(key => key.startsWith('s.'))
+  const detail = pageStateSaved ? (parsed.detail?.alarmId ? { alarmId: parsed.detail.alarmId } : null) : parsed.detail
   if (page && can('menu:' + page)) openPage(page, detail, { history: false, force: true })
   else active.value = firstAllowedPage()
   if (replace || !page || !can('menu:' + page))
-    window.history.replaceState(null, '', pathFor(active.value, page === active.value ? detail : null))
+    window.history.replaceState(
+      null,
+      '',
+      page === active.value ? withPageState(pathFor(active.value, detail), window.location.search) : pathFor(active.value, null)
+    )
 }
-function onPopState() {
-  if (authenticated.value) applyRoute(false)
+// 前进后退离开有未保存修改的页面时先确认；取消则把地址恢复到当前页面。
+let lastLocation = ''
+async function onPopState() {
+  if (!authenticated.value) return
+  // 前进后退总会重新打开页面（同一页面换了详情或筛选也一样），有未保存修改时都先确认。
+  if (hasUnsaved()) {
+    const back = lastLocation
+    if (!(await confirmDiscard())) {
+      if (back) window.history.pushState(null, '', back)
+      return
+    }
+  }
+  applyRoute(false)
 }
 
 // 管理员设置或重置密码后，首次登录只拿到改密凭据，修改成功后才建立会话。
@@ -228,6 +276,11 @@ const passwordDialog = ref(false)
 const passwordChange = ref({ required: false, token: '', current: '' })
 function startSession(data, username) {
   session.save(data, username)
+  try {
+    if (data.tenantId) localStorage.setItem('iot:last-tenant', data.tenantId)
+  } catch {
+    /* 无法保存时下次手动填写租户。 */
+  }
   identity.value = { tenant: data.tenantId || '', user: username, role: data.role || '' }
   platformVersion.value = data.platformVersion || ''
   authenticated.value = true
@@ -276,6 +329,13 @@ function logout() {
   livePlayerVisible.value = false
   resetLiveState()
   resetAIConversation()
+  // 对话记录含设备与告警问答，退出后不留在本浏览器。
+  try {
+    // 用本页的身份：其他标签页退出时共享的会话键已被清空。
+    clearAIHistory(localStorage, { tenant: identity.value.tenant || session.tenant, user: identity.value.user || session.user })
+  } catch {
+    /* 存储不可用时没有可清理的记录。 */
+  }
   session.clear()
   resetPermissions()
   identity.value = { tenant: '', user: '', role: '' }
@@ -303,7 +363,8 @@ function openPage(name, detail, { history = true, force = false } = {}) {
   }
   if (!pages[name] || !can('menu:' + name)) return
   navOpen.value = false
-  if (history) {
+  // 已在当前页面且没有新的定位条件时不再新增历史记录。
+  if (history && !(active.value === name && !detail && !force)) {
     const path = pathFor(name, detail)
     if (path !== window.location.pathname + window.location.search) window.history.pushState(null, '', path)
   }
@@ -313,6 +374,21 @@ function openPage(name, detail, { history = true, force = false } = {}) {
   pageKey.value++
   if (detail) sessionStorage.setItem('iot:navigation-detail', JSON.stringify(detail))
   contentArea.value?.scrollTo({ top: 0 })
+}
+watch(
+  active,
+  () => {
+    if (typeof window !== 'undefined') lastLocation = window.location.pathname + window.location.search
+  },
+  { flush: 'post' }
+)
+
+// 用户主动切换页面（菜单、页面内跳转、告警弹窗）：离开有未保存修改的页面前先确认。
+// options.onDone 在确实切换后调用（例如全局告警弹窗据此关闭对应提示）。
+async function navigate(name, detail, options) {
+  if ((name !== active.value || detail) && !(await confirmDiscard())) return
+  openPage(name, detail)
+  options?.onDone?.()
 }
 
 function toggleNavigation() {
@@ -378,6 +454,11 @@ function handleUIAction(payload) {
       'backups'
     ])
     if (action.type === 'OPEN_PAGE' && allowedPages.has(action.page)) {
+      // 自动跳转不能打断正在填写的表单：有未保存修改时只提示，由用户自行打开。
+      if (action.page !== active.value && hasUnsaved()) {
+        UiMessage.warning(`规则联动请求打开「${pages[action.page]?.title || action.page}」，当前有未保存的修改，未自动跳转`)
+        return
+      }
       openPage(action.page)
       UiMessage.warning('规则联动：已打开相关业务页面')
     }
@@ -393,13 +474,51 @@ function connect() {
   })
 }
 
+// 并发请求可能同时返回 401，只在第一次退出并提示一次。
 function unauthorized() {
+  if (!authenticated.value) return
   logout()
   UiMessage.error('登录已过期，请重新登录')
 }
 
+// 其他标签页登录了另一身份或已退出时，本页同步，避免用新令牌显示旧身份。
+function onStorage(event) {
+  if (!['iot_token', 'iot_tenant', 'iot_user'].includes(event.key)) return
+  if (!authenticated.value) {
+    if (session.token) window.location.reload()
+    return
+  }
+  if (!session.token) {
+    logout()
+    UiMessage.info('已在其他标签页退出登录')
+    return
+  }
+  if (session.tenant !== identity.value.tenant || session.user !== identity.value.user) window.location.reload()
+}
+
+// 浏览器标签标题显示当前页面，多个标签页和历史记录可以区分。
+watch(
+  () => (authenticated.value ? current.value.title : ''),
+  title => {
+    if (typeof document !== 'undefined') document.title = title ? `${title} · 炬联 TorchLink` : '炬联 TorchLink · 消防物联网管理平台'
+  },
+  { immediate: true }
+)
+
+// 实时通道连续失败或已停止时在顶栏提示，避免误以为看到的是实时告警。
+const realtimeNotice = computed(() => {
+  if (!authenticated.value) return ''
+  if (realtimeStatus.state === 'stopped') return '实时告警已停止，请刷新页面'
+  if (realtimeStatus.state === 'retrying' && realtimeStatus.failures >= 2) {
+    const last = realtimeStatus.lastOk ? new Date(realtimeStatus.lastOk).toLocaleTimeString('zh-CN', { hour12: false }) : ''
+    return last ? `实时数据中断，最近更新 ${last}，正在重试` : '实时数据连接失败，正在重试'
+  }
+  return ''
+})
+
 onMounted(async () => {
   window.addEventListener('iot:unauthorized', unauthorized)
+  window.addEventListener('storage', onStorage)
   window.addEventListener('popstate', onPopState)
   window.addEventListener('focus', syncOnFocus)
   window.addEventListener('keydown', closeNavigationOnEscape)
@@ -409,6 +528,7 @@ onMounted(async () => {
 
 onBeforeUnmount(() => {
   window.removeEventListener('iot:unauthorized', unauthorized)
+  window.removeEventListener('storage', onStorage)
   window.removeEventListener('popstate', onPopState)
   window.removeEventListener('focus', syncOnFocus)
   window.removeEventListener('keydown', closeNavigationOnEscape)
@@ -452,7 +572,14 @@ onBeforeUnmount(() => {
           <div class="login-fields">
             <div class="login-field">
               <label for="tenant-id">租户</label>
-              <ui-input id="tenant-id" v-model="loginForm.tenantId" size="large" autocomplete="organization" />
+              <ui-input
+                id="tenant-id"
+                v-model="loginForm.tenantId"
+                size="large"
+                autocomplete="organization"
+                placeholder="请输入租户编号"
+                required
+              />
             </div>
             <div class="login-field">
               <label for="username">用户名</label>
@@ -502,7 +629,7 @@ onBeforeUnmount(() => {
               :aria-label="pages[name].title"
               :title="collapsed && !narrow ? pages[name].title : undefined"
               :aria-current="active === name ? 'page' : undefined"
-              @click="openPage(name)"
+              @click="navigate(name)"
             >
               <component :is="pages[name].icon" />
               <span>{{ pages[name].title }}</span>
@@ -531,6 +658,17 @@ onBeforeUnmount(() => {
             </nav>
           </div>
           <div class="app-topbar__actions">
+            <button
+              v-if="realtimeNotice"
+              class="topbar-button realtime-notice"
+              type="button"
+              role="status"
+              :title="`${realtimeNotice}，点击立即重试`"
+              :aria-label="`${realtimeNotice}，点击立即重试`"
+              @click="retryRealtime"
+            >
+              <span class="realtime-notice__dot" aria-hidden="true" /><span>{{ realtimeNotice }}</span>
+            </button>
             <button v-if="can('menu:alarms')" class="topbar-button" type="button" aria-label="告警提醒设置" @click="openAlertSettings">
               <Settings2 /><span>告警提醒</span>
             </button>
@@ -570,13 +708,13 @@ onBeforeUnmount(() => {
             v-if="permissionState.ready && current.component"
             :key="`${active}-${pageKey}`"
             v-bind="current.props || {}"
-            @navigate="openPage"
+            @navigate="navigate"
           />
           <ui-empty v-else-if="permissionState.ready" description="尚未分配菜单权限，请联系管理员" />
         </main>
       </div>
     </div>
-    <GlobalAlertPopup v-if="authenticated && permissionState.ready && can('menu:alarms')" ref="globalAlertPopup" @navigate="openPage" />
+    <GlobalAlertPopup v-if="authenticated && permissionState.ready && can('menu:alarms')" ref="globalAlertPopup" @navigate="navigate" />
     <LivePlayerDialog v-if="authenticated" v-model="livePlayerVisible" :camera="livePlayerCamera" />
     <PasswordChangeDialog
       v-model="passwordDialog"

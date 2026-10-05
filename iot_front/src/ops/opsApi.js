@@ -1,5 +1,5 @@
 // 运维中心接口封装：所有请求都走平台 API，浏览器不接触组件地址与凭据。
-import { api, apiResponse, isAbort, latest, saveBlob } from '../api'
+import { ApiError, api, apiResponse, isAbort, latest, saveBlob } from '../api'
 import { consumeSSE } from '../sse'
 
 export { isAbort, latest }
@@ -51,6 +51,38 @@ export async function exportLogs(body) {
     lines: Number(response.headers.get('X-Export-Lines') || 0),
     truncated: response.headers.get('X-Export-Truncated') === 'true'
   }
+}
+
+// downloadWithProgress 带登录凭据读取文件，按已接收字节回调 onProgress(loaded, total)；
+// total 来自 Content-Length，服务端未提供时为 0。全部接收后交给浏览器保存。
+export async function downloadWithProgress(path, filename, onProgress = () => {}, signal) {
+  const response = await apiResponse(path, { signal })
+  const total = Number(response.headers.get('Content-Length') || 0)
+  let blob
+  if (response.body?.getReader) {
+    const reader = response.body.getReader()
+    const chunks = []
+    let loaded = 0
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        chunks.push(value)
+        loaded += value.length
+        onProgress(loaded, total)
+      }
+    } catch (error) {
+      if (isAbort(error)) throw error
+      // 传输中断时浏览器给出英文错误，统一换成中文说明。
+      throw new ApiError('下载中断，请检查网络后重试', { code: 'DOWNLOAD_INTERRUPTED', retryable: true })
+    }
+    blob = new Blob(chunks, { type: response.headers.get('Content-Type') || 'application/octet-stream' })
+  } else {
+    blob = await response.blob()
+    onProgress(blob.size, total)
+  }
+  saveBlob(blob, filename)
+  return { size: blob.size }
 }
 
 export function downloadJSON(data, filename) {

@@ -3,7 +3,8 @@ import { can } from '../permissions'
 import { aiProviderOptions as providerOptions } from '../presentation'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api } from '../api'
+import { api, apiAll } from '../api'
+import { useUnsavedGuard } from '../composables/unsavedGuard.js'
 import AiWorkflowRuns from '../components/AiWorkflowRuns.vue'
 import AiRunHistory from '../components/AiRunHistory.vue'
 import EmbeddingConfig from '../components/EmbeddingConfig.vue'
@@ -81,14 +82,21 @@ function capabilityLabel(value) {
   return capabilityLabels[value] || '扩展能力'
 }
 
-function syncProviderForm(value) {
+// 记录最近一次从服务端同步到表单的内容；用户改过表单后，“刷新状态”只更新上方生效配置，不覆盖正在编辑的内容。
+const syncedFingerprint = ref('')
+const providerDirty = computed(() => syncedFingerprint.value !== '' && candidateFingerprint.value !== syncedFingerprint.value)
+useUnsavedGuard(() => isAdmin.value && providerDirty.value)
+
+function syncProviderForm(value, force = false) {
   const config = value?.config
   if (!config) return
+  if (!force && providerDirty.value) return
   if (providerOptions.some(item => item.id === config.provider)) providerForm.provider = config.provider
   providerForm.baseUrl = config.baseUrl || providerForm.baseUrl
   providerForm.model = config.model || providerForm.model
   providerForm.maxTokens = config.maxTokens || 2048
   providerForm.apiKey = ''
+  syncedFingerprint.value = candidateFingerprint.value
 }
 
 function providerChanged(provider) {
@@ -106,7 +114,7 @@ async function loadRuntime() {
   loading.value = true
   loadError.value = ''
   try {
-    const value = await api('/api/v1/ai/providers?page=1&pageSize=100')
+    const value = await apiAll('/api/v1/ai/providers')
     if (version !== loadVersion) return
     runtime.value = value
     syncProviderForm(value)
@@ -170,7 +178,7 @@ async function applyProviderConfig() {
   providerError.value = ''
   try {
     const result = await api('/api/v1/ai/providers/config', { method: 'PUT', body: JSON.stringify(candidate.body) })
-    syncProviderForm({ config: result })
+    syncProviderForm({ config: result }, true)
     await loadRuntime()
     testResult.value = null
     UiMessage.success(`已应用${providerLabel(candidate.body.provider)}，配置已保存`)
@@ -280,10 +288,16 @@ onMounted(loadRuntime)
                 </section>
                 <div class="provider-actions">
                   <span :class="{ ready: testResult?.success }">{{
-                    testResult?.success ? '测试通过，点击保存后生效' : '可直接保存，连接测试为可选操作'
+                    testResult?.success
+                      ? '测试通过，点击保存后生效'
+                      : providerDirty
+                        ? '表单有未保存的修改，刷新状态不会覆盖'
+                        : '可直接保存，连接测试为可选操作'
                   }}</span>
                   <div>
-                    <ui-button v-permission="'POST /api/v1/ai/providers/test'" plain :loading="testing" @click="testProviderConfig"
+                    <ui-button v-if="providerDirty && runtime.config" text :disabled="busy" @click="syncProviderForm(runtime, true)"
+                      >放弃修改</ui-button
+                    ><ui-button v-permission="'POST /api/v1/ai/providers/test'" plain :loading="testing" @click="testProviderConfig"
                       >测试配置</ui-button
                     ><ui-button
                       v-permission="'PUT /api/v1/ai/providers/config'"

@@ -60,17 +60,22 @@ function headersFor(options, accept = '') {
   return headers
 }
 
+// 返回是否按登录过期处理（登录接口本身的 401 是账户或密码错误，不算过期）。
 function dispatchUnauthorized(path, status) {
-  if (status === 401 && path !== '/api/v1/auth/login' && typeof window !== 'undefined') window.dispatchEvent(new Event('iot:unauthorized'))
+  if (status !== 401 || path === '/api/v1/auth/login') return false
+  if (typeof window !== 'undefined') window.dispatchEvent(new Event('iot:unauthorized'))
+  return true
 }
 
 async function responseError(path, response) {
   const data = await response.json().catch(() => ({}))
-  dispatchUnauthorized(path, response.status)
-  return new ApiError(errorMessage({ message: data.detail || data.message || '', status: response.status }), {
+  const sessionExpired = dispatchUnauthorized(path, response.status)
+  const error = new ApiError(errorMessage({ message: data.detail || data.message || '', status: response.status }), {
     ...data,
     status: response.status
   })
+  error.sessionExpired = sessionExpired
+  return error
 }
 
 // 读取请求默认 60 秒超时，避免列表因挂起的连接一直处于加载中；写操作可能
@@ -89,7 +94,9 @@ async function send(path, init) {
     return await fetch(path, init)
   } catch (error) {
     if (error?.name === 'TimeoutError') throw new ApiError('请求超时，请稍后重试', { code: 'REQUEST_TIMEOUT', retryable: true })
-    throw error
+    if (error?.name === 'AbortError') throw error
+    // 浏览器的网络错误为英文（Failed to fetch 等），统一换成中文，页面直接展示 message 也不会出现英文。
+    throw new ApiError('无法连接服务，请检查网络后重试', { code: 'NETWORK_ERROR', retryable: true })
   }
 }
 
@@ -197,6 +204,8 @@ export async function download(path, filename, options = {}) {
 }
 
 export function notifyError(error) {
+  // 登录过期由外壳统一提示一次并返回登录页，页面不再各自重复提示。
+  if (error?.sessionExpired) return
   UiMessage.error(errorMessage(error))
 }
 export const formatTime = value => (value ? new Date(Number(value)).toLocaleString('zh-CN', { hour12: false }) : '—')

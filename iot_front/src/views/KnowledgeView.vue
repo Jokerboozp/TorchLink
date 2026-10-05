@@ -4,7 +4,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { FileText, Upload } from '@lucide/vue'
 import { UiMessage } from '../ui/feedback.js'
 
-import { api, formatTime, notifyError } from '../api'
+import { ApiError, api, apiAll, formatTime, notifyError, session } from '../api'
+import { errorMessage } from '../presentation'
+import { useUnsavedGuard } from '../composables/unsavedGuard.js'
 import RowActions from '../components/layout/RowActions.vue'
 import KnowledgeIndexStatus from '../components/KnowledgeIndexStatus.vue'
 import { confirmDelete } from '../deleteAction'
@@ -82,8 +84,8 @@ function categoryLabel(value) {
 function formatBytes(value) {
   const size = Number(value || 0)
   if (size < 1024) return `${size} 字节`
-  if (size < 1024 ** 2) return `${(size / 1024).toFixed(1)} 千字节`
-  return `${(size / 1024 ** 2).toFixed(1)} 兆字节`
+  if (size < 1024 ** 2) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / 1024 ** 2).toFixed(1)} MB`
 }
 
 function isIndexing(document) {
@@ -98,7 +100,7 @@ async function load(silent = false) {
   try {
     const [documentResult, agentResult] = await Promise.allSettled([
       api(`/api/v1/knowledge/documents?page=${page.value}&pageSize=${pageSize.value}`),
-      silent ? Promise.resolve({ items: agents.value }) : api('/api/v1/ai/workflows?purpose=knowledge&page=1&pageSize=100')
+      silent ? Promise.resolve({ items: agents.value }) : apiAll('/api/v1/ai/workflows?purpose=knowledge')
     ])
     if (version !== loadVersion) return
     if (documentResult.status === 'fulfilled') {
@@ -225,7 +227,7 @@ function chooseFile(file) {
   if (Number(file.size || file.raw?.size || 0) > 32 * 1024 * 1024) {
     selectedFile.value = null
     uploadRef.value?.clearFiles()
-    UiMessage.error('知识库文件不能超过 32 兆字节')
+    UiMessage.error('知识库文件不能超过 32 MB')
     return
   }
   selectedFile.value = file.raw || null
@@ -260,17 +262,67 @@ async function showDocument(document, silent = false) {
   }
 }
 
+function parseUploadResponse(text) {
+  try {
+    return text ? JSON.parse(text) : {}
+  } catch {
+    return {}
+  }
+}
+// 上传使用 XMLHttpRequest 读取真实的已发送字节；认证头和错误信息与 api.js 保持一致。
+function uploadWithProgress(path, body, onProgress) {
+  const xhr = new XMLHttpRequest()
+  const promise = new Promise((resolve, reject) => {
+    xhr.open('POST', path)
+    if (session.token) xhr.setRequestHeader('Authorization', `Bearer ${session.token}`)
+    xhr.upload.onprogress = event => {
+      if (event.lengthComputable) onProgress(event.loaded, event.total)
+    }
+    xhr.onload = () => {
+      const data = parseUploadResponse(xhr.responseText)
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(data)
+      if (xhr.status === 401) window.dispatchEvent(new Event('iot:unauthorized'))
+      reject(
+        new ApiError(errorMessage({ message: data.detail || data.message || '', status: xhr.status }), { ...data, status: xhr.status })
+      )
+    }
+    xhr.onerror = () => reject(new ApiError('无法连接服务，请检查网络后重试', { code: 'NETWORK_ERROR', retryable: true }))
+    xhr.onabort = () => reject(Object.assign(new Error('上传已取消'), { name: 'AbortError' }))
+    xhr.send(body)
+  })
+  return { promise, abort: () => xhr.abort() }
+}
+
+// 上传进度只反映浏览器已发送的字节；发送完成后等待服务器保存原件，不估算后续进度。
+const uploadProgress = ref(null)
+const uploadPercent = computed(() => {
+  const value = uploadProgress.value
+  return value?.total ? Math.min(100, Math.floor((value.loaded / value.total) * 100)) : 0
+})
+const uploadSent = computed(() => Boolean(uploadProgress.value?.total) && uploadProgress.value.loaded >= uploadProgress.value.total)
+let uploadTask = null
+useUnsavedGuard(() => uploading.value)
+
 async function upload() {
   if (!workflowId.value) return UiMessage.warning('请选择要关联的智能体')
   if (!selectedFile.value) return UiMessage.warning('请先选择知识库文件')
+  if (uploading.value) return
   uploading.value = true
+  uploadProgress.value = { loaded: 0, total: Number(selectedFile.value.size || 0) }
+  let task = null
   try {
     const form = new FormData()
     form.append('file', selectedFile.value)
     form.append('workflowId', workflowId.value)
     if (category.value.trim()) form.append('category', category.value.trim())
     if (tags.value.length) form.append('tags', tags.value.join(','))
-    const created = await api('/api/v1/knowledge/documents', { method: 'POST', body: form })
+    task = uploadWithProgress('/api/v1/knowledge/documents', form, (loaded, total) => {
+      if (uploadTask === task) uploadProgress.value = { loaded, total }
+    })
+    uploadTask = task
+    const created = await task.promise
+    // 用户已取消或离开页面时，迟到的结果不再关闭弹窗或切换标签。
+    if (disposed || uploadTask !== task) return
     UiMessage.success(`文档已上传并绑定到 ${agentLabel(created.workflowId)}，索引将在后台建立`)
     selectedFile.value = null
     category.value = 'manual'
@@ -280,10 +332,30 @@ async function upload() {
     activeTab.value = 'documents'
     await load()
   } catch (error) {
-    notifyError(error)
+    if (!disposed && error?.name !== 'AbortError' && (!task || uploadTask === task)) notifyError(error)
   } finally {
-    uploading.value = false
+    if (!task || uploadTask === task) {
+      uploadTask = null
+      uploading.value = false
+      uploadProgress.value = null
+    }
   }
+}
+
+function cancelUpload() {
+  const task = uploadTask
+  if (task) {
+    const sent = uploadSent.value
+    uploadTask = null
+    task.abort()
+    uploading.value = false
+    uploadProgress.value = null
+    if (sent) {
+      UiMessage.warning('文件已发送完毕，服务器可能已接收；请在文档列表中确认，必要时删除')
+      load()
+    } else UiMessage.info('已取消上传')
+  }
+  uploadDialog.value = false
 }
 
 // Failed documents, and documents waiting for an automatic retry, can be retried now.
@@ -342,6 +414,8 @@ function scheduleRebuildRefresh() {
 onMounted(load)
 onBeforeUnmount(() => {
   disposed = true
+  uploadTask?.abort()
+  uploadTask = null
   ++loadVersion
   ++detailVersion
   clearTimeout(rebuildTimer)
@@ -636,11 +710,18 @@ function removeDocument(row) {
       </ui-tab-pane>
     </ui-tabs>
 
-    <ui-dialog v-model="uploadDialog" title="上传知识文档并绑定智能体" width="min(680px, 94vw)" class="knowledge-upload-dialog">
+    <ui-dialog
+      v-model="uploadDialog"
+      title="上传知识文档并绑定智能体"
+      width="min(680px, 94vw)"
+      class="knowledge-upload-dialog"
+      :close-on-press-escape="!uploading"
+      :show-close="!uploading"
+    >
       <section class="knowledge-upload-section">
         <div class="knowledge-upload-step">
           <span>1</span>
-          <div><strong>选择文档</strong><small>每次上传一个文件，最大 32 兆字节；上传后在后台建立索引</small></div>
+          <div><strong>选择文档</strong><small>每次上传一个文件，最大 32 MB；上传后在后台建立索引</small></div>
         </div>
         <ui-upload
           ref="uploadRef"
@@ -692,8 +773,16 @@ function removeDocument(row) {
           </div>
         </ui-form>
       </section>
+      <div v-if="uploading && uploadProgress" class="knowledge-upload-progress" role="status">
+        <ui-progress :percentage="uploadPercent" :stroke-width="6" :show-text="false" />
+        <small>{{
+          uploadSent
+            ? `已发送 ${formatBytes(uploadProgress.total)}，等待服务器保存原件…`
+            : `已发送 ${formatBytes(uploadProgress.loaded)} / ${formatBytes(uploadProgress.total)}（${uploadPercent}%）`
+        }}</small>
+      </div>
       <template #footer
-        ><ui-button @click="uploadDialog = false">取消</ui-button
+        ><ui-button @click="cancelUpload">{{ uploading ? '取消上传' : '取消' }}</ui-button
         ><ui-button
           v-permission="'POST /api/v1/knowledge/documents'"
           type="primary"
@@ -1069,6 +1158,13 @@ function removeDocument(row) {
   margin-right: auto;
   color: var(--text-muted);
   font-size: 12px;
+}
+.knowledge-upload-progress {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-3);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
 }
 .knowledge-upload-section {
   min-width: 0;

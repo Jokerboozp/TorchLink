@@ -102,6 +102,7 @@ function realtime(api, options = {}) {
     return { changed: true, etag: tag, data }
   }
   const context = vm.createContext({
+    reactive: value => value,
     api,
     apiIfChanged,
     session: { role: options.role || 'operator', tenant: 'tenant' },
@@ -125,7 +126,7 @@ function realtime(api, options = {}) {
     Map,
     JSON
   })
-  vm.runInContext(source + '\nglobalThis.subject={startRealtime,stopRealtime}', context)
+  vm.runInContext(source + '\nglobalThis.subject={startRealtime,stopRealtime,realtimeStatus}', context)
   return {
     ...context.subject,
     timers,
@@ -167,9 +168,13 @@ test('事件轮询失败时逐次退避，恢复后回到常规间隔', async ()
   await settle()
   await r.timers.shift()()
   assert.deepEqual(r.delays, [6000, 12000])
+  // 外壳据此提示“实时数据中断”，恢复后提示消失。
+  assert.equal(r.realtimeStatus.state, 'retrying')
+  assert.equal(r.realtimeStatus.failures, 2)
   failing = false
   await r.timers.shift()()
   assert.equal(r.delays.at(-1), 3000)
+  assert.equal(r.realtimeStatus.state, 'ok')
 })
 test('退出登录后迟到的消息响应不能进入另一个用户的页面', async () => {
   let resolve

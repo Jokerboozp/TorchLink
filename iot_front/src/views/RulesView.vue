@@ -11,6 +11,9 @@ import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
+import { errorMessage } from '../presentation'
+import { usePageState } from '../composables/usePageState.js'
+import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
 
 const rules = ref([])
 const products = ref([])
@@ -26,6 +29,8 @@ const draftError = ref('')
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
+// 页码与每页条数在刷新或切换菜单后恢复。
+usePageState('rules', { page, pageSize })
 const fieldDescriptions = [
   { field: 'name', meaning: '规则名称，只用于识别和审计。', example: '高温烟雾复合告警' },
   {
@@ -82,6 +87,11 @@ const blank = () => ({
   enabled: true
 })
 const form = reactive(blank())
+// 编辑弹窗关闭前检查未保存的修改；只读查看不会产生修改。
+const formGuard = trackDialogForm(dialog, () => form)
+async function closeEditor() {
+  if (await confirmClose(formGuard.dirty())) dialog.value = false
+}
 const fieldKinds = { property: '属性', event: '事件', eventField: '事件字段' }
 const productFields = ref([])
 const fieldPick = ref('')
@@ -156,7 +166,7 @@ async function load() {
     products.value = productData.items || []
     loadError.value = ''
   } catch (error) {
-    if (version === loadVersion) loadError.value = error?.message || '告警规则读取失败'
+    if (version === loadVersion) loadError.value = error?.status === 401 ? '' : errorMessage(error) || '告警规则读取失败'
   } finally {
     if (version === loadVersion) loading.value = false
   }
@@ -410,10 +420,11 @@ function rowActions(row) {
   </ui-dialog>
 
   <ui-dialog
-    v-model="dialog"
+    :model-value="dialog"
     :title="readonly ? `规则详情 · ${form.name}` : form.id ? `编辑规则 · ${form.name}` : '手动添加规则'"
     width="min(760px, 94vw)"
     destroy-on-close
+    @update:model-value="value => value || closeEditor()"
   >
     <ui-form :model="form" label-position="top" :disabled="readonly">
       <section class="rule-editor-section">
@@ -524,7 +535,7 @@ function rowActions(row) {
     </ui-form>
     <template #footer
       ><ui-button v-permission="'PUT /api/v1/rules/:id'" v-if="readonly" type="primary" @click="startEdit">编辑</ui-button
-      ><ui-button @click="dialog = false">关闭</ui-button
+      ><ui-button @click="closeEditor">{{ readonly ? '关闭' : '取消' }}</ui-button
       ><ui-button v-permission="['POST /api/v1/rules', 'PUT /api/v1/rules/:id']" v-if="!readonly" type="primary" @click="save"
         >保存规则</ui-button
       ></template

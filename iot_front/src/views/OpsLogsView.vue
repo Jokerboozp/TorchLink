@@ -17,6 +17,7 @@ import QueryLibrary from '../components/ops/QueryLibrary.vue'
 import RuleGroupsPanel from '../components/ops/RuleGroupsPanel.vue'
 import TimeRangeBar from '../components/ops/TimeRangeBar.vue'
 import TimeSeriesChart from '../components/ops/TimeSeriesChart.vue'
+import { usePageState } from '../composables/usePageState.js'
 
 const PAGE = 200
 const TAIL_KEEP = 1000
@@ -33,6 +34,10 @@ const levelOptions = ['error', 'warn', 'info', 'debug', 'fatal', 'unknown']
 function emptyFilter() {
   return { services: [], levels: [], labels: [], keyword: '', regex: false, exclude: '' }
 }
+// 查询方式、筛选条件、LogQL、时间范围与自动刷新随地址栏和会话保留，刷新页面或切换菜单后恢复。
+usePageState('opsLogs', { tab, mode, range, refresh, filter, logql })
+if (!canRaw.value && mode.value === 'logql') mode.value = 'filter'
+filter.value = { ...emptyFilter(), ...filter.value }
 
 // 候选项
 const labelNames = ref([])
@@ -71,6 +76,16 @@ const wrap = ref(true)
 const runner = latest()
 const moreRunner = latest()
 const volumeRunner = latest()
+// 只有最近一次查询能更新结果、错误和加载状态；被新查询、取消或实时追踪替换的旧请求静默结束。
+let runSeq = 0
+// 已加载更早的日志时暂停自动刷新，避免整页替换丢掉已翻阅的历史；手动查询或刷新后恢复。
+const olderLoaded = ref(false)
+function abortRun() {
+  runSeq++
+  runner.cancel()
+  volumeRunner.cancel()
+  loading.value = false
+}
 const wideRange = computed(() => rangeDuration(range.value) > 24 * 3600e3)
 const cleanFilter = () => ({ ...filter.value, labels: filter.value.labels.filter(m => m.name) })
 const entryKey = e => `${e.ts}\u0000${e.line}\u0000${JSON.stringify(e.labels)}`
@@ -83,6 +98,8 @@ async function run() {
   searched.value =
     mode.value === 'logql' ? { mode: 'logql', query: logql.value.trim(), from, to } : { mode: 'filter', filter: cleanFilter(), from, to }
   appliedHighlight()
+  const seq = ++runSeq
+  olderLoaded.value = false
   loading.value = true
   error.value = ''
   if (searched.value.mode === 'filter') loadVolume()
@@ -94,6 +111,7 @@ async function run() {
         return opsSend('POST', '/api/v1/ops/logs/query', { query: searched.value.query, start, end, limit: PAGE, maxPoints: 600 }, signal)
       return opsGet('/api/v1/ops/logs/search', { filter: searched.value.filter, start, end, limit: PAGE }, signal)
     })
+    if (seq !== runSeq) return
     result.value = data
     if (data.resultType === 'streams') {
       entries.value = data.entries || []
@@ -103,16 +121,14 @@ async function run() {
       metric.value = data
     }
   } catch (e) {
-    if (isAbort(e)) {
-      if (e.message !== 'stale') error.value = '查询已取消'
-      return
-    }
+    // 取消提示由 cancel() 写入；被替换的旧请求不改动页面。
+    if (seq !== runSeq || isAbort(e)) return
     error.value = opsErrorText(e)
     result.value = null
     entries.value = []
     metric.value = null
   } finally {
-    loading.value = false
+    if (seq === runSeq) loading.value = false
   }
 }
 
@@ -130,6 +146,7 @@ async function loadMore() {
     const seen = new Set(entries.value.map(entryKey))
     entries.value = [...entries.value, ...(data.entries || []).filter(e => !seen.has(entryKey(e)))]
     result.value = { ...data, entries: undefined }
+    olderLoaded.value = true
   } catch (e) {
     if (!isAbort(e)) UiMessage.error(opsErrorText(e))
   } finally {
@@ -163,9 +180,7 @@ async function loadVolume() {
 }
 
 function cancel() {
-  runner.cancel()
-  volumeRunner.cancel()
-  loading.value = false
+  abortRun()
   error.value = '查询已取消'
 }
 function zoom({ from, to }) {
@@ -255,10 +270,10 @@ function onTail(event) {
 }
 async function startTail() {
   if (mode.value === 'logql' && !logql.value.trim()) return
-  runner.cancel()
-  volumeRunner.cancel()
+  abortRun()
   moreRunner.cancel()
   stopTail()
+  olderLoaded.value = false
   const controller = new AbortController()
   tailController = controller
   entries.value = []
@@ -346,8 +361,11 @@ async function doExport(format) {
 const libraryVisible = ref(false)
 const saveVisible = ref(false)
 const saveForm = ref({ name: '', description: '' })
+const saving = ref(false)
 async function saveQuery() {
+  if (saving.value) return
   const body = mode.value === 'logql' ? { language: 'logql', query: logql.value } : { language: 'logfilter', filter: cleanFilter() }
+  saving.value = true
   try {
     await opsSend('POST', '/api/v1/ops/preferences/saved-queries', {
       name: saveForm.value.name,
@@ -358,6 +376,8 @@ async function saveQuery() {
     saveVisible.value = false
   } catch (e) {
     UiMessage.error(opsErrorText(e))
+  } finally {
+    saving.value = false
   }
 }
 function useQuery(body) {
@@ -392,7 +412,10 @@ onMounted(() => {
   const nav = takeNavigation()
   if (nav?.range) range.value = nav.range
   if (nav?.tab) tab.value = nav.tab
-  if (nav?.filter) filter.value = { ...emptyFilter(), ...nav.filter, services: (nav.filter.services || []).filter(Boolean) }
+  if (nav?.filter) {
+    filter.value = { ...emptyFilter(), ...nav.filter, services: (nav.filter.services || []).filter(Boolean) }
+    mode.value = 'filter'
+  }
   if (nav?.query && canRaw.value) {
     logql.value = nav.query
     mode.value = 'logql'
@@ -424,9 +447,11 @@ onBeforeUnmount(() => {
               :loading="loading"
               :max-hours="24 * 7"
               :show-refresh="!tailing"
+              :paused="tailing || olderLoaded"
               @refresh="run"
             />
           </div>
+          <p v-if="olderLoaded && refresh && !tailing" class="muted">已加载更早的日志，自动刷新已暂停；点击刷新或重新查询后恢复。</p>
 
           <div v-if="mode === 'filter'" class="log-filter">
             <ui-select v-model="filter.services" multiple filterable clearable collapse-tags placeholder="全部服务" aria-label="服务"
@@ -598,7 +623,7 @@ onBeforeUnmount(() => {
       </div>
       <template #footer
         ><ui-button @click="saveVisible = false">取消</ui-button
-        ><ui-button type="primary" :disabled="!saveForm.name.trim()" @click="saveQuery">保存</ui-button></template
+        ><ui-button type="primary" :loading="saving" :disabled="!saveForm.name.trim()" @click="saveQuery">保存</ui-button></template
       >
     </ui-dialog>
   </div>

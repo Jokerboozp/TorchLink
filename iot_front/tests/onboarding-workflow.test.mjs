@@ -181,6 +181,17 @@ test('模板候选保存保留现有属性和命令定义', async () => {
 test('设备草稿与批量记录切换时先清除旧行，迟到的草稿响应不能成为批量入口', async () => {
   const pending = []
   const context = vm.createContext({
+    usePageState: () => ({ restored: false }),
+    trackDialogForm: () => ({ dirty: () => false }),
+    confirmClose: async () => true,
+    toRef: (object, key) => ({
+      get value() {
+        return object[key]
+      },
+      set value(value) {
+        object[key] = value
+      }
+    }),
     computed,
     reactive,
     ref,
@@ -222,8 +233,10 @@ test('切换低频与事件验收使用单报文且不检查间隔，避免周�
   assert.equal(c.candidate.verificationRules.minMessages, 1)
   assert.equal(c.candidate.verificationRules.maxGapSeconds, 0)
 })
-function batchContext(api) {
+function batchContext(api, confirm = async () => 'confirm') {
   let dispose
+  const guards = [],
+    emitted = []
   const session = { token: 'identity-one' },
     context = vm.createContext({
       computed,
@@ -235,21 +248,63 @@ function batchContext(api) {
       createClientId: () => 'batch-id',
       parseDeviceRows,
       defineProps: () => ({ batchId: 'batch-id' }),
-      defineEmits: () => () => {},
+      defineEmits:
+        () =>
+        (...args) =>
+          emitted.push(args),
       onMounted() {},
       onBeforeUnmount(fn) {
         dispose = fn
       },
       setInterval,
       clearInterval,
-      UiMessage: { success() {} }
+      navigator: { clipboard: { writeText: async () => {} } },
+      useUnsavedGuard: check => guards.push(check),
+      UiMessage: { success() {}, warning() {} },
+      UiMessageBox: { confirm }
     })
   const c = vm.runInContext(
-    setupScript(new URL('../src/components/DeviceBatchOnboarding.vue', import.meta.url)) + '\n;({claim,secrets,refresh,batch})',
+    setupScript(new URL('../src/components/DeviceBatchOnboarding.vue', import.meta.url)) +
+      '\n;({claim,secrets,refresh,batch,leave,copySecrets,clearSecrets})',
     context
   )
-  return { ...c, dispose, session }
+  return { ...c, dispose, session, emitted, unsaved: () => guards.some(check => check()) }
 }
+test('批量密钥未复制或下载前离开须确认，确认放弃后才清除并离开', async () => {
+  let answer = 'cancel'
+  const c = batchContext(
+    async path => (path.endsWith('/credentials') ? { items: [{ index: 0, deviceId: 'd1', credential: { secret: 's' } }] } : { id: 'b' }),
+    async () => {
+      if (answer === 'cancel') throw new Error('cancel')
+      return 'confirm'
+    }
+  )
+  await c.claim()
+  assert.equal(c.unsaved(), true, '领取后未保存的密钥须登记到全站离开检查')
+  await c.leave('close')
+  assert.deepEqual(c.emitted, [], '取消确认时不能离开')
+  assert.ok(c.secrets.value)
+  await c.clearSecrets()
+  assert.ok(c.secrets.value, '取消确认时不能清除密钥')
+  answer = 'confirm'
+  await c.leave('detail', 'd1')
+  assert.deepEqual(c.emitted, [['detail', 'd1']])
+  assert.equal(c.secrets.value, null)
+  assert.equal(c.unsaved(), false)
+})
+test('复制批量密钥视为已保存，离开不再拦截', async () => {
+  const c = batchContext(
+    async path => (path.endsWith('/credentials') ? { items: [{ index: 0, deviceId: 'd1', credential: { secret: 's' } }] } : { id: 'b' }),
+    async () => {
+      throw new Error('should not ask')
+    }
+  )
+  await c.claim()
+  await c.copySecrets()
+  assert.equal(c.unsaved(), false)
+  await c.leave('close')
+  assert.deepEqual(c.emitted, [['close']])
+})
 test('批量密钥领取的迟到响应不能在离开或身份改变后恢复秘密', async () => {
   for (const changeIdentity of [false, true]) {
     let resolve

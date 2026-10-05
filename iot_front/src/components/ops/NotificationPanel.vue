@@ -9,6 +9,7 @@ import { opsErrorText, opsGet, opsSend } from '../../ops/opsApi.js'
 import { relativeTime } from '../../ops/format.js'
 import RouteNode from './RouteNode.vue'
 import SecretField from './SecretField.vue'
+import { useUnsavedGuard } from '../../composables/unsavedGuard.js'
 
 defineProps({ labels: { type: Array, default: () => [] } })
 const config = ref(null)
@@ -22,6 +23,8 @@ const canSave = computed(() => config.value?.writable && can('PUT /api/v1/ops/no
 const canTest = computed(() => can('POST /api/v1/ops/notifications/receivers/:name/test'))
 const receiverNames = computed(() => (draft.value?.receivers || []).map(r => r.name).filter(Boolean))
 const dirty = computed(() => draft.value && JSON.stringify(toApi(draft.value)) !== JSON.stringify(toApi(fromApi(config.value))))
+// 通知配置未保存时，切换菜单、刷新或关闭页面前提示。
+useUnsavedGuard(() => Boolean(dirty.value))
 const toOp = m => (m.isEqual ? (m.isRegex ? '=~' : '=') : m.isRegex ? '!~' : '!=')
 const fromOp = m => ({ name: m.name, value: m.value, isRegex: m.op.endsWith('~'), isEqual: !m.op.startsWith('!') })
 

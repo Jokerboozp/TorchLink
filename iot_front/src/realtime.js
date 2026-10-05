@@ -1,3 +1,4 @@
+import { reactive } from 'vue'
 import { api, apiIfChanged, session } from './api'
 import { permissionState, refreshPermissions, applyAccessVersion } from './permissions'
 
@@ -12,6 +13,14 @@ let brokerTimer
 let generation = 0
 let wakePoll = null
 
+// 实时通道状态供外壳显示：connecting 首次连接中，ok 正常，retrying 连续失败正在退避重试，stopped 已停止。
+export const realtimeStatus = reactive({ state: 'idle', failures: 0, lastOk: 0 })
+
+// 立即重试一次，不等退避间隔。
+export function retryRealtime() {
+  wakePoll?.()
+}
+
 const pageHidden = () => Boolean(globalThis.document?.hidden)
 function onVisibility() {
   if (!pageHidden()) wakePoll?.()
@@ -25,6 +34,7 @@ export function stopRealtime() {
   wakePoll = null
   client?.end(true)
   client = undefined
+  Object.assign(realtimeStatus, { state: 'idle', failures: 0, lastOk: 0 })
 }
 
 export async function startRealtime(onMessage) {
@@ -74,6 +84,7 @@ export async function startRealtime(onMessage) {
     void poll()
   }
   globalThis.document?.addEventListener?.('visibilitychange', onVisibility)
+  realtimeStatus.state = 'connecting'
   const poll = async () => {
     polling = true
     try {
@@ -84,6 +95,7 @@ export async function startRealtime(onMessage) {
       const result = await apiIfChanged(path, etag)
       if (run !== generation) return
       failures = 0
+      Object.assign(realtimeStatus, { state: 'ok', failures: 0, lastOk: Date.now() })
       if (!result.changed) {
         // Changes outside the bounded window still require occasional list invalidation.
         if (overflow && polls % 10 === 0) onMessage?.(`/iot/snapshot/refresh/${session.tenant}`, '{}')
@@ -137,9 +149,11 @@ export async function startRealtime(onMessage) {
       }
       if (error.status === 401) {
         polling = false
+        realtimeStatus.state = 'stopped'
         return
       }
       failures++
+      Object.assign(realtimeStatus, { state: 'retrying', failures })
     }
     polling = false
     schedule()

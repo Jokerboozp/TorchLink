@@ -140,9 +140,12 @@ test('source upload validates before explicit publication and never binds a temp
   const context = vm.createContext({
     ref,
     reactive,
+    computed,
     api,
     FormData,
     AbortController,
+    setInterval,
+    clearInterval,
     defineProps: () => props,
     defineEmits:
       () =>
@@ -212,6 +215,99 @@ test('opening simulation creates no resource and preparation requires an explici
   await c.prepare()
   assert.equal(calls.length, 1)
   assert.equal(calls[0].path, '/api/v1/test-devices/provision')
+})
+
+function testDevice(api, storage = {}) {
+  const delays = []
+  const context = vm.createContext({
+    ref,
+    computed,
+    reactive,
+    defineProps: () => ({}),
+    defineEmits: () => () => {},
+    onMounted() {},
+    api,
+    can: () => true,
+    session: { tenant: 't', user: 'u' },
+    localStorage: {
+      getItem: () => null,
+      setItem() {
+        if (storage.fail) throw new Error('QuotaExceededError')
+      },
+      removeItem() {
+        if (storage.fail) throw new Error('SecurityError')
+      }
+    },
+    setTimeout: (fn, ms) => {
+      delays.push(ms)
+      fn()
+      return 0
+    },
+    statusLabel: String,
+    messageTypeLabel: String,
+    pretty: JSON.stringify,
+    parseJSON: JSON.parse,
+    UiMessage: { success() {}, warning() {} },
+    notifyError() {}
+  })
+  const c = vm.runInContext(
+    setupScript(new URL('../src/views/TestDeviceView.vue', import.meta.url)) +
+      '\n;({device,templates,sending,history,result,sendTemplate})',
+    context
+  )
+  c.device.value = { id: 'test-device' }
+  c.templates.alarm = JSON.stringify({ messageId: '<unique>', payload: { temperature: 90 } })
+  return { ...c, delays }
+}
+
+test('simulation shows a failed parse as failure and only counts alarms raised after this send', async () => {
+  const c = testDevice(async path => {
+    if (path.includes('/debug')) return { archive: { messageId: 'raw-1', receivedAt: 5000 } }
+    if (path.startsWith('/api/v1/raw-messages/')) return { parseStatus: 'FAILED', parseError: 'bad frame' }
+    return {
+      items: [
+        { alarmId: 'old', deviceId: 'test-device', status: 'ACTIVE', firstTriggeredAt: 1000, lastTriggeredAt: 1000 },
+        { alarmId: 'new', deviceId: 'test-device', status: 'ACTIVE', firstTriggeredAt: 5000, lastTriggeredAt: 5001 }
+      ]
+    }
+  })
+  await c.sendTemplate('alarm')
+  assert.equal(c.history.value[0].state, 'failed')
+  assert.equal(c.result.value.state, 'failed')
+  assert.deepEqual(
+    c.result.value.alarms.map(item => item.alarmId),
+    ['new']
+  )
+  assert.equal(c.sending.value, '')
+})
+
+test('simulation keeps confirming a pending raw message with bounded backoff, then reports it as unconfirmed', async () => {
+  let reads = 0
+  const c = testDevice(async path => {
+    if (path.includes('/debug')) return { archive: { messageId: 'raw-2', receivedAt: 5000 } }
+    if (path.startsWith('/api/v1/raw-messages/')) {
+      reads += 1
+      return { parseStatus: 'UNPARSED' }
+    }
+    return { items: [] }
+  })
+  await c.sendTemplate('alarm')
+  assert.ok(reads > 4, '待解析时须继续确认，而不是几百毫秒后放弃')
+  assert.ok(c.delays.reduce((sum, ms) => sum + ms, 0) <= 12000, '确认等待须有上限')
+  assert.equal(c.history.value[0].state, 'unconfirmed')
+  assert.equal(c.result.value.state, 'unconfirmed')
+})
+
+test('simulation send resets the sending state when local template storage fails', async () => {
+  const c = testDevice(
+    async () => {
+      throw new Error('network down')
+    },
+    { fail: true }
+  )
+  await c.sendTemplate('alarm')
+  assert.equal(c.sending.value, '')
+  assert.equal(c.result.value.error, 'network down')
 })
 
 test('template preview pins the bound protocol version and invalidates a pending preview', async () => {
@@ -900,8 +996,9 @@ test('device-side configuration never includes a secret that is no longer shown'
   ])
 })
 
-function protocolDetails(permissions = ['POST /api/v2/protocols/:id/releases/:version/preview']) {
-  const allowed = ref(permissions)
+function protocolDetails(permissions = ['POST /api/v2/protocols/:id/releases/:version/preview'], confirmClose = async () => true) {
+  const allowed = ref(permissions),
+    guards = []
   const context = vm.createContext({
     computed,
     ref,
@@ -909,15 +1006,38 @@ function protocolDetails(permissions = ['POST /api/v2/protocols/:id/releases/:ve
     defineProps: () => ({ section: 'protocols' }),
     defineEmits: () => () => {},
     onMounted() {},
+    useUnsavedGuard: check => guards.push(check),
+    confirmClose,
     can: permission => allowed.value.includes(permission)
   })
   const c = vm.runInContext(
     setupScript(new URL('../src/views/ProtocolsView.vue', import.meta.url)) +
-      '\n;({viewRelease,selectedRelease,selectedProtocol,previewOpen,previewContext,canTestMapping,canPreviewRelease,canPublishRelease,canDownloadSource,hasReleaseActions})',
+      '\n;({viewRelease,selectedRelease,selectedProtocol,previewOpen,previewContext,canTestMapping,canPreviewRelease,canPublishRelease,canDownloadSource,hasReleaseActions,openAssistant,closeAssistant,assistantOpen,assistantState})',
     context
   )
-  return { ...c, allowed }
+  return { ...c, allowed, unsaved: () => guards.some(check => check()) }
 }
+test('protocol generation dialog asks before discarding a running or unsaved draft', async () => {
+  const asked = []
+  let answer = false
+  const c = protocolDetails(undefined, async (dirty, message) => {
+    asked.push({ dirty, message })
+    return !dirty || answer
+  })
+  c.openAssistant()
+  await c.closeAssistant()
+  assert.equal(c.assistantOpen.value, false, '没有内容时直接关闭')
+  c.openAssistant()
+  c.assistantState.value = { working: true, dirty: true }
+  assert.equal(c.unsaved(), true)
+  await c.closeAssistant()
+  assert.equal(c.assistantOpen.value, true, '取消确认时保留正在生成的弹窗')
+  assert.match(asked.at(-1).message, /中止/)
+  answer = true
+  await c.closeAssistant()
+  assert.equal(c.assistantOpen.value, false)
+  assert.equal(c.unsaved(), false)
+})
 test('standard and Go release details expose the same permitted read-only preview action', () => {
   const c = protocolDetails()
   for (const parserType of ['iot_standard_parser', 'go_protocol_parser']) {

@@ -6,6 +6,17 @@ export function sortAlerts(alerts = []) {
     .map(({ alert }) => alert)
 }
 
+// notificationState 把 Alertmanager 的告警状态转为“通知状态”显示：静默与抑制分别说明，
+// 未识别的状态显示“未知”而不是原始英文。
+export function notificationState(alert = {}) {
+  if (alert.state === 'active') return { tone: 'danger', text: '通知中' }
+  if (alert.silencedBy?.length) return { tone: 'neutral', text: '已静默' }
+  if (alert.inhibitedBy?.length) return { tone: 'neutral', text: '已抑制' }
+  if (alert.state === 'suppressed') return { tone: 'neutral', text: '已静默或抑制' }
+  if (alert.state === 'unprocessed') return { tone: 'info', text: '等待处理' }
+  return { tone: 'neutral', text: '未知' }
+}
+
 export function summarizeAlerts(alerts = []) {
   const summary = { total: 0, active: 0, suppressed: 0, critical: 0 }
   const receivers = new Set()

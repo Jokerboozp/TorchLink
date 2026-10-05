@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import vm from 'node:vm'
-import { computed, reactive, ref, watch } from 'vue'
+import { computed, reactive, ref, toRef, watch } from 'vue'
+import { clientPagination } from '../src/listPagination.js'
 import { setupScript } from './helpers/vue.mjs'
 import { filterMessageTopics, topicDirectionLabel, topicStatus, validateSharedTopic } from '../src/messageTopics.js'
 import * as topicHelpers from '../src/messageTopics.js'
@@ -52,6 +53,12 @@ function page(api, permissions = ['*']) {
   const session = { token: 'token-a', tenant: 'tenant-a', user: 'operator-a' }
   const can = permission => permissionState.items.includes('*') || permissionState.items.includes(permission)
   const context = vm.createContext({
+    // 页面状态恢复与未保存检查由各自测试覆盖，此处替换为无副作用实现。
+    usePageState: () => ({ restored: false }),
+    trackDialogForm: () => ({ dirty: () => false }),
+    confirmClose: async () => true,
+    toRef,
+    clientPagination,
     computed,
     reactive,
     ref,

@@ -41,3 +41,14 @@ export function parsePath(pathname, pages, search = '') {
   for (const key of linkKeys) if (linkValue(query.get(key))) detail[key] = query.get(key)
   return { page, detail: Object.keys(detail).length ? detail : null }
 }
+
+// withPageState 把当前地址中的页面状态参数（s. 前缀，见 composables/usePageState.js）带到新地址，
+// 用于刷新或深链接时改写地址而不丢失筛选条件。
+export function withPageState(path, search = '') {
+  const kept = [...new URLSearchParams(search)].filter(([key]) => key.startsWith('s.'))
+  if (!kept.length) return path
+  const [base, query = ''] = path.split('?')
+  const params = new URLSearchParams(query)
+  for (const [key, value] of kept) params.set(key, value)
+  return `${base}?${params.toString()}`
+}
