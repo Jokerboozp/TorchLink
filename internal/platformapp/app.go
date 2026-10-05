@@ -126,6 +126,7 @@ func Run(forcedRole string) {
 	videoStore, _ := repo.(ports.VideoStore)
 	knowledgeStore, _ := repo.(ports.KnowledgeReindexStore)
 	aiRunStore, _ := repo.(ports.AIRunStore)
+	conversationStore, _ := repo.(ports.AIConversationStore)
 	// Captured before the ClickHouse and Redis decorators, which embed only
 	// ports.Repository and hide the dynamic Agent store.
 	manifestStore, _ := repo.(ports.AIWorkflowManifestStore)
@@ -148,6 +149,7 @@ func Run(forcedRole string) {
 		videoStore = r
 		knowledgeStore = r
 		aiRunStore = r
+		conversationStore = r
 		manifestStore = r
 		signalStore, telemetryStats = r, r
 		if store, ok := any(r).(ports.AIProviderConfigStore); ok {
@@ -319,6 +321,7 @@ func Run(forcedRole string) {
 	parsers := parser.NewPlatformRegistry(cfg.DataDir)
 	engine := core.New(httpapi.ScopedRepository(repo), archivePort, bus, realtime, parsers, log)
 	engine.AIRuns = aiRunStore
+	engine.AIConversations = conversationStore
 	engine.DeviceSignals, engine.TelemetryStats = signalStore, telemetryStats
 	engine.SignalOptions = core.DeviceSignalOptions{Window: cfg.DeviceSignalWindow, RaiseAlarms: cfg.DeviceSignalAlarm}
 	engine.SetIdentity(cfg.InstanceID)

@@ -181,6 +181,36 @@ test('AI conversations are isolated by workflow and legacy history stays readabl
   assert.equal(loadAIHistory(storage, session, Date.now(), 'workflow-c'), null)
 })
 
+test('opening a saved AI conversation restores its turns and keeps failed answers retryable', t => {
+  t.after(resetAIConversation)
+  const conversation = useAIConversation(
+    { tenant: 'tenant-a', user: 'alice' },
+    { storage: memoryStorage(), stream: manualAIStream().stream }
+  )
+  conversation.openConversation('saved-1', [
+    { seq: 1, role: 'user', text: '一号楼告警', status: 'SUCCEEDED' },
+    { seq: 2, role: 'assistant', text: '共 2 条', status: 'SUCCEEDED' },
+    { seq: 3, role: 'user', text: '继续分析', status: 'TIMEOUT' },
+    { seq: 4, role: 'assistant', text: '', status: 'TIMEOUT' }
+  ])
+  const messages = conversation.messages.value
+  assert.equal(conversation.conversationId.value, 'saved-1')
+  assert.deepEqual(
+    messages.map(item => [item.role, item.status]),
+    [
+      ['user', 'succeeded'],
+      ['assistant', 'succeeded'],
+      ['user', 'failed'],
+      ['assistant', 'failed']
+    ]
+  )
+  assert.equal(messages[1].prompt, '一号楼告警')
+  assert.equal(messages[3].prompt, '继续分析')
+  assert.ok(messages[3].error)
+  conversation.openConversation('saved-2', [])
+  assert.equal(conversation.messages.value[0].id, 'welcome')
+})
+
 function memoryStorage() {
   const values = new Map()
   return { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: key => values.delete(key) }

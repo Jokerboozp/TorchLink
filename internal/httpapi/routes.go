@@ -48,6 +48,7 @@ var routeModules = []routeModule{
 	(*Server).backupRoutes,
 	(*Server).aiRoutes,
 	(*Server).knowledgeRoutes,
+	(*Server).conversationRoutes,
 	(*Server).mcpRoutes,
 }
 

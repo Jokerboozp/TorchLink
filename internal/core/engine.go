@@ -45,6 +45,8 @@ type Engine struct {
 	AIWorkflows   ports.AIWorkflowRuntime
 	// AIRuns, when set, keeps the record of every finished AI run.
 	AIRuns ports.AIRunStore
+	// AIConversations, when set, keeps assistant conversations per user.
+	AIConversations ports.AIConversationStore
 	// DeviceSignals and TelemetryStats, when set, keep and compute device
 	// health signals (see ComputeDeviceSignalsOnce).
 	DeviceSignals  ports.DeviceSignalStore

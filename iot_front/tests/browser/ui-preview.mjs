@@ -138,6 +138,20 @@ const server = http.createServer(async (req, res) => {
       data = list([
         { id: 'assistant', name: '运维助手', description: '查询设备和告警，检索处置知识', enabled: true, capabilities: ['chat'] }
       ])
+    else if (u.pathname === '/api/v1/ai/conversations')
+      data = list([
+        { id: 'conv-1', workflowId: 'assistant', title: '一号楼烟感告警原因', messageCount: 2, createdAt: now, updatedAt: now },
+        { id: 'conv-2', workflowId: 'assistant', title: '本周离线设备汇总', messageCount: 4, createdAt: now, updatedAt: now }
+      ])
+    else if (u.pathname.startsWith('/api/v1/ai/conversations/'))
+      data = {
+        id: u.pathname.split('/').pop(),
+        title: '一号楼烟感告警原因',
+        messages: [
+          { seq: 1, role: 'user', text: '一号楼烟感为什么告警？', status: 'SUCCEEDED', createdAt: now },
+          { seq: 2, role: 'assistant', text: '3 楼烟感浓度超过阈值，建议现场确认。', status: 'SUCCEEDED', createdAt: now }
+        ]
+      }
     else if (u.pathname.endsWith('/knowledge-binding'))
       data = { retrievalMode: 'always', topK: 5, minScore: 0.25, noMatchPolicy: 'allow-model' }
     else if (u.pathname === '/api/v1/ai/health-inspection/progress') data = { status: 'idle' }

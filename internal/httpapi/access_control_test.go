@@ -292,6 +292,8 @@ func TestDeviceScopeHTTPIsolation(t *testing.T) {
 	req("POST", "/api/v1/mqtt/load-token", token, nil, 403)
 	req("GET", "/api/v1/backups", token, nil, 403)
 	req("POST", "/api/v1/ai/chat", token, map[string]string{"question": "列出所有设备"}, 403)
+	// Conversations follow the assistant permission, not the menu alone.
+	req("GET", "/api/v1/ai/conversations?workflowId=ops-assistant", token, nil, 403)
 	// Even a broad dashboard/alarms grant cannot replace device access.
 	u["permissions"] = []string{"menu:alarms", "menu:dashboard"}
 	u["deviceScope"] = "all"

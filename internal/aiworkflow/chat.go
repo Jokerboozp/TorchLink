@@ -133,7 +133,47 @@ func (e *Service) RunChat(ctx context.Context, req ChatRequest, emit func(ports.
 		result.RunID = runID
 	}
 	e.RecordAIRun(AIRunMeta{TenantID: tenantID, Actor: identity.Username, WorkflowID: workflowID, PromptVersion: aiprompt.ChatVersion, Model: strings.TrimSpace(req.Model), InputBytes: len(prompt), StartedAt: started}, result, err)
+	e.saveChatTurn(ctx, identity, req, question, started, result, err)
 	return result, err
+}
+
+// saveChatTurn stores the question and the (possibly partial) answer in the
+// user's conversation. Storing never fails the turn the user already saw.
+func (e *Service) saveChatTurn(ctx context.Context, identity ports.AIRunIdentity, req ChatRequest, question string, started time.Time, result ports.AIWorkflowResult, runErr error) {
+	conversationID := strings.TrimSpace(req.ConversationID)
+	if e.engine.AIConversations == nil || !validConversationID(conversationID) {
+		return
+	}
+	now := time.Now().UnixMilli()
+	answer := result.Answer
+	if runErr != nil && strings.TrimSpace(answer) == "" {
+		answer = "运行未能完成。"
+	}
+	conversation := model.AIConversation{ID: conversationID, TenantID: strings.TrimSpace(req.TenantID), Actor: identity.Username, WorkflowID: strings.TrimSpace(req.WorkflowID),
+		Title: truncateRunes(question, 40), AccessVersion: identity.AccessVersion, UpdatedAt: now}
+	messages := []model.AIConversationMessage{
+		{Role: "user", Text: question, Status: model.AIRunSucceeded, CreatedAt: started.UnixMilli()},
+		{Role: "assistant", Text: truncateRunes(answer, 64<<10), RunID: result.RunID, Status: AIRunStatus(runErr), CreatedAt: now},
+	}
+	// The browser may stop the request; the turn is still saved.
+	saveCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := e.engine.AIConversations.AppendAIConversationTurn(saveCtx, conversation, messages); err != nil && e.engine.Log != nil {
+		e.engine.Log.Warn("save assistant conversation", "conversation", conversationID, "error", err)
+	}
+}
+
+// validConversationID accepts the browser's generated conversation ids.
+func validConversationID(id string) bool {
+	if id == "" || len(id) > 128 {
+		return false
+	}
+	for _, r := range id {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || strings.ContainsRune("-_.:", r)) {
+			return false
+		}
+	}
+	return true
 }
 
 // prefetchChatKnowledge appends the Agent's bound evidence to prompt and tells

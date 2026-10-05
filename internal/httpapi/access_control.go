@@ -217,7 +217,7 @@ func (s *Server) permissionCatalog() []permissionItem {
 		menu := routeMenu(r.Path)
 		// The add-device wizard is covered by the ordinary add-device permission.
 		// Open API routes authenticate API keys and reuse console permissions.
-		if menu == "" || videoSessionRoute(r.Path) || strings.HasPrefix(r.Path, "/api/open/") || strings.Contains(r.Path, "/device-ingest") || strings.HasPrefix(r.Path, "/api/v1/onboarding") || r.Path == "/api/v1/integrations/video/alarm" {
+		if menu == "" || videoSessionRoute(r.Path) || aiConversationRoute(r.Path) || strings.HasPrefix(r.Path, "/api/open/") || strings.Contains(r.Path, "/device-ingest") || strings.HasPrefix(r.Path, "/api/v1/onboarding") || r.Path == "/api/v1/integrations/video/alarm" {
 			continue
 		}
 		if r.Method == "GET" && !protectedRead(r.Path) {
@@ -305,6 +305,9 @@ func allowsRoute(p map[string]bool, method, path string) bool {
 	}
 	if capacityCleanupRoute(path) {
 		return p[capacityCleanupPermission] && p["menu:opsCapacity"]
+	}
+	if aiConversationRoute(path) {
+		return chatAllowed(p)
 	}
 	if path == "/api/v1/auth/me" {
 		return true

@@ -1623,3 +1623,49 @@ func TestChatRunStatesMissingKnowledgeEvidence(t *testing.T) {
 		t.Fatalf("chat prompt does not state missing evidence: %q", question)
 	}
 }
+
+// Chat turns are saved to the signed-in user's conversation; other users and
+// tenants never see them, and the owner can delete them.
+func TestChatConversationsBelongToTheUser(t *testing.T) {
+	repo := memory.NewRepository()
+	archive, err := local.NewArchive(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine.AIWorkflows = &captureWorkflowRuntime{}
+	engine.AIConversations = repo
+	cfg := config.Load()
+	cfg.JWTSecret = "test-secret-at-least-32-characters"
+	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	server := httptest.NewServer(api.Handler())
+	defer server.Close()
+	token := func(user, tenant string) string {
+		t.Helper()
+		v, err := api.auth.IssueWithVersion(user, tenant, "admin", api.adminSessionVersion(), time.Hour)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return v
+	}
+	alice := token("admin", "tenant-a")
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/chat", alice, map[string]any{"question": "今天有哪些告警需要处理", "workflowId": "ops-assistant", "conversationId": "conversation_1"}, http.StatusOK)
+	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/chat", alice, map[string]any{"question": "第二个问题", "workflowId": "ops-assistant", "conversationId": "conversation_1"}, http.StatusOK)
+	list := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/conversations?workflowId=ops-assistant", alice, nil, http.StatusOK)
+	items := list["items"].([]any)
+	if len(items) != 1 || items[0].(map[string]any)["title"] != "今天有哪些告警需要处理" || items[0].(map[string]any)["messageCount"] != float64(4) {
+		t.Fatalf("conversation list %#v", list)
+	}
+	detail := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/conversations/conversation_1", alice, nil, http.StatusOK)
+	if messages := detail["messages"].([]any); len(messages) != 4 || messages[2].(map[string]any)["text"] != "第二个问题" || messages[3].(map[string]any)["role"] != "assistant" {
+		t.Fatalf("conversation messages %#v", detail)
+	}
+	other := token("admin", "tenant-b")
+	if items := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/conversations?workflowId=ops-assistant", other, nil, http.StatusOK)["items"].([]any); len(items) != 0 {
+		t.Fatalf("conversation leaked across tenants: %#v", items)
+	}
+	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/conversations/conversation_1", other, nil, http.StatusNotFound)
+	requestJSON(t, server.Client(), http.MethodDelete, server.URL+"/api/v1/ai/conversations/conversation_1", other, nil, http.StatusNotFound)
+	requestJSON(t, server.Client(), http.MethodDelete, server.URL+"/api/v1/ai/conversations/conversation_1", alice, nil, http.StatusOK)
+	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/conversations/conversation_1", alice, nil, http.StatusNotFound)
+}

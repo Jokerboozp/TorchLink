@@ -4,7 +4,7 @@ import { aiProviderOptions as providerOptions, capabilityName } from '../present
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { api, apiStream, formatTime, session } from '../api'
 import { copyText } from '../ops/opsApi'
-import { UiMessage, UiMessageBox } from '../ui/feedback.js'
+import { UiMessage } from '../ui/feedback.js'
 import { useAIConversation } from '../aiConversation'
 import { reconcileRuleDraftMessages } from '../ruleDraftStatus'
 import HarnessTraceDrawer from '../components/HarnessTraceDrawer.vue'
@@ -12,20 +12,26 @@ import OpsReportDialog from '../components/OpsReportDialog.vue'
 import AgentManager from '../components/AgentManager.vue'
 import MarkdownContent from '../components/MarkdownContent.vue'
 import ToolCallCard from '../components/ToolCallCard.vue'
+import ConversationList from '../components/ai/ConversationList.vue'
 
 const emit = defineEmits(['navigate'])
 
 let scrollFrame = 0
 let scrollQueued = false
 // 用户向上翻看历史时不再自动滚到底部；回到底部或发送新问题后恢复跟随。
-let followOutput = true
+const followOutput = ref(true)
 
 // 对话和运行状态保存在页面之外：切换到其他菜单时回答继续生成，返回后接着显示。
 const conversation = useAIConversation(
   { tenant: session.tenant, user: session.user, accessVersion: session.accessVersion },
   { storage: localStorage, stream: apiStream }
 )
-const { messages, runs, selectedWorkflowId, sending } = conversation
+const { messages, runs, conversationId, selectedWorkflowId, sending } = conversation
+// 每轮结束后刷新历史对话列表。
+const conversationsVersion = ref(0)
+watch(sending, value => {
+  if (!value) conversationsVersion.value++
+})
 const stopConversationUpdates = conversation.onUpdate(scheduleScroll)
 
 const question = ref('')
@@ -106,7 +112,7 @@ function scheduleScroll() {
   nextTick(() => {
     if (!scrollQueued) return
     scrollFrame = requestAnimationFrame(() => {
-      if (log.value && followOutput) log.value.scrollTop = log.value.scrollHeight
+      if (log.value && followOutput.value) log.value.scrollTop = log.value.scrollHeight
       scrollFrame = 0
       scrollQueued = false
     })
@@ -115,7 +121,7 @@ function scheduleScroll() {
 
 function trackScroll() {
   const el = log.value
-  if (el) followOutput = el.scrollHeight - el.scrollTop - el.clientHeight < 48
+  if (el) followOutput.value = el.scrollHeight - el.scrollTop - el.clientHeight < 48
 }
 
 function providerLabel(provider) {
@@ -191,7 +197,7 @@ function send(textValue) {
   const text = (textValue || question.value).trim()
   if (!text || sending.value) return
   question.value = ''
-  followOutput = true
+  followOutput.value = true
   return conversation.send(text, {
     workflowName: workflowName(selectedWorkflow.value),
     model: runConfig.model || selectedWorkflow.value?.defaultModel || selectedWorkflow.value?.model || ''
@@ -210,21 +216,30 @@ function usageTokens(usage) {
 function retry(message) {
   if (!sending.value) send(message.prompt)
 }
-async function clearConversation() {
-  if (messages.value.some(message => message.id !== 'welcome')) {
-    try {
-      await UiMessageBox.confirm('清空后当前智能体的对话记录与运行轨迹都会删除。', '清空对话', {
-        type: 'warning',
-        confirmButtonText: '清空',
-        cancelButtonText: '取消'
-      })
-    } catch {
-      return
-    }
-  }
+// 新对话不删除已保存的历史，之前的对话可在左侧列表中打开。
+function newConversation() {
   conversation.clear()
   selectedRunKey.value = ''
   traceVisible.value = false
+}
+async function openConversation(id) {
+  try {
+    const result = await api(`/api/v1/ai/conversations/${encodeURIComponent(id)}`)
+    conversation.openConversation(id, Array.isArray(result?.messages) ? result.messages : [])
+    selectedRunKey.value = ''
+    traceVisible.value = false
+    followOutput.value = true
+    scheduleScroll()
+  } catch (error) {
+    UiMessage.error(error?.message || '历史对话读取失败')
+  }
+}
+function conversationDeleted(id) {
+  if (id === conversationId.value) newConversation()
+}
+function backToBottom() {
+  followOutput.value = true
+  scheduleScroll()
 }
 async function copyMessage(message) {
   if (await copyText(message.text)) UiMessage.success('回答已复制')
@@ -308,11 +323,20 @@ onBeforeUnmount(() => {
 
   <AgentManager v-if="view === 'agents'" @changed="agentsChanged" />
   <div v-else class="ai-workbench">
+    <ConversationList
+      :workflow-id="selectedWorkflowId"
+      :active-id="conversationId"
+      :disabled="sending"
+      :refresh-key="conversationsVersion"
+      @open="openConversation"
+      @new="newConversation"
+      @deleted="conversationDeleted"
+    />
     <ui-card shadow="never" class="surface-card chat-card ai-chat-card">
       <template #header>
         <div class="card-header chat-header">
           <div class="chat-workflow">
-            <div class="chat-workflow-label"><strong>智能体</strong><small>每个智能体单独保存对话</small></div>
+            <div class="chat-workflow-label"><strong>智能体</strong><small>对话自动保存，可在历史列表中找回</small></div>
             <ui-select
               v-model="selectedWorkflowId"
               class="chat-workflow-select"
@@ -323,8 +347,7 @@ onBeforeUnmount(() => {
             /></ui-select>
           </div>
           <div class="chat-header-actions">
-            <ui-button plain size="small" :disabled="!runs.length" @click="openTrace(runs[0])">运行轨迹</ui-button
-            ><ui-button plain type="warning" size="small" :disabled="sending" @click="clearConversation">清空对话</ui-button>
+            <ui-button plain size="small" :disabled="!runs.length" @click="openTrace(runs[0])">运行轨迹</ui-button>
           </div>
         </div>
       </template>
@@ -417,6 +440,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
       </div>
+      <ui-button v-if="!followOutput" class="chat-back-bottom" size="small" @click="backToBottom">回到底部</ui-button>
       <div class="chat-compose">
         <ui-input
           v-model="question"
@@ -884,7 +908,27 @@ onBeforeUnmount(() => {
 }
 
 .ai-workbench {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(200px, 250px) minmax(0, 1fr);
+}
+.ai-chat-card :deep(.n-card-content) {
+  position: relative;
+}
+.chat-back-bottom {
+  position: absolute;
+  right: 24px;
+  bottom: 96px;
+  z-index: 1;
+  box-shadow: var(--shadow-sm);
+}
+@media (max-width: 900px) {
+  .ai-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: max-content minmax(520px, 1fr);
+    overflow: auto;
+  }
+  .ai-workbench > .conversation-list {
+    max-height: 168px;
+  }
 }
 .ai-chat-card {
   min-width: 0;
