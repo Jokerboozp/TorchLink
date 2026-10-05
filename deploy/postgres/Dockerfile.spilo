@@ -1,5 +1,5 @@
 # Preserve Patroni/Spilo and its PG17 replication/data layout for clusters.
-FROM ghcr.io/zalando/spilo-17:4.0-p2 AS vector-build
+FROM ghcr.io/zalando/spilo-17:4.0-p2@sha256:23861da069941ff5345e6a97455e60a63fc2f16c97857da8f85560370726cbe7 AS vector-build
 USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential curl ca-certificates postgresql-server-dev-17 \
@@ -12,7 +12,7 @@ RUN curl -fSL --retry 3 -o pgvector.tar.gz https://codeload.github.com/pgvector/
     && make PG_CONFIG=/usr/lib/postgresql/17/bin/pg_config OPTFLAGS='' \
     && make PG_CONFIG=/usr/lib/postgresql/17/bin/pg_config install DESTDIR=/out
 
-FROM ghcr.io/zalando/spilo-17:4.0-p2
+FROM ghcr.io/zalando/spilo-17:4.0-p2@sha256:23861da069941ff5345e6a97455e60a63fc2f16c97857da8f85560370726cbe7
 COPY --from=vector-build /out/ /
 LABEL org.opencontainers.image.title="TorchLink PostgreSQL HA with pgvector" \
       org.opencontainers.image.version="17-pgvector-0.8.1" \

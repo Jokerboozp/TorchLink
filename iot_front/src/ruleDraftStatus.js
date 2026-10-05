@@ -16,3 +16,14 @@ export function reconcileRuleDraftMessages(messages, rules) {
   }
   return updated
 }
+
+// 对话中规则草稿卡片的状态标签与操作：已启用或已删除的规则不再进入编辑。
+export function ruleDraftView(message) {
+  const state = message?.ruleDraftState
+  const persisted = Boolean(message?.ruleDraftPersisted)
+  if (state === 'enabled') return { label: '已启用', type: 'success', action: '规则已启用', disabled: true }
+  if (state === 'missing') return { label: '已删除', type: 'info', action: '规则已删除', disabled: true }
+  return persisted
+    ? { label: '已保存草稿', type: 'warning', action: '查看并启用规则', disabled: false }
+    : { label: '待人工确认', type: 'warning', action: '检查并保存规则', disabled: false }
+}

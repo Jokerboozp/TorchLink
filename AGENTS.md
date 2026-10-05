@@ -62,7 +62,7 @@
 - Go 版本以 `go.mod` 为准；Node 要求和可用脚本以 `iot_front/package.json` 为准。沿用项目依赖与锁文件，非必要不升级或更换包管理器。
 - 本地、在线、离线是三套独立配置：本地为 `compose.local.yaml` / `.env.local`；在线为 `compose.yaml` / `.env.online`；离线为生成包中的 Compose 配置 / `.env.offline`。
 - 首次准备、构建和部署可能启动容器或下载依赖，只在任务需要时运行；单纯修改代码或文档不必重启整套服务。
-- 首次环境准备使用 `scripts/setup-local.sh` / `.ps1`；源码 API 为 `go run ./cmd/iot-platform --env-file .env.local`，前端在 `iot_front` 执行 `npm run dev`，备份服务为 `go run ./cmd/backup-service --env-file .env.local`。虚拟机依赖、参数和 IDE 设置统一见 `docs/DEPLOYMENT.md#本地运行`。
+- 首次环境准备使用 `scripts/setup-local.sh` / `.ps1`；源码 API 为 `go run ./cmd/iot-platform --env-file .env.local`，前端在 `iot_front` 执行 `npm run dev`，备份服务为 `go run ./cmd/backup-service --env-file .env.local`。虚拟机依赖、参数和 IDE 设置统一见 `docs/DEPLOY_LOCAL.md#本地运行`。
 - Windows 遇到 npm 执行策略问题时使用 `npm.cmd`。前端日常入口为 `http://localhost:5173`；Vite 默认代理 API 到 `http://localhost:8081`，可用 `VITE_API_PROXY_TARGET` 覆盖，具体见 `iot_front/vite.config.js`。
 - 进程环境变量优先于环境文件；排查配置时注意 IDE 遗留变量。不给用户复制硬编码凭据到 IDE 的配置方案。
 - 宿主机连接依赖须使用宿主机可达地址及已发布端口；Compose 服务名供容器内部使用。Linux 虚拟机依赖 / Windows 源码模式通过准备脚本的 `--dependency-host` 和 `--api-host` 指定地址，不固定某台机器的 IP。
@@ -158,6 +158,6 @@
 
 ## 11. 仓库内参考文档
 
-完整目录统一维护在 [README 文档入口](README.md#文档入口)。日常使用 [部署与本地调试](docs/DEPLOYMENT.md)、[开发与测试](docs/DEVELOPMENT.md)；业务契约按该目录进入设备、协议、权限、AI、运维或视频专题。
+完整目录统一维护在 [README 文档入口](README.md#文档入口)。日常使用 [部署总览](docs/DEPLOYMENT.md)、[开发与测试](docs/DEVELOPMENT.md)；业务契约按该目录进入设备、协议、权限、AI、运维或视频专题。
 
 文档缺失或不一致时，按当前需求与源码推进并修正文档；不得退回要求个人知识库存在才能继续的工作方式。

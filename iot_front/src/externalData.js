@@ -155,13 +155,18 @@ export function fieldsFromForm(fields = []) {
     return out
   })
 }
+// 校验错误带上字段名，编辑器把提示显示在对应输入框下方。
+export function fieldError(field, message) {
+  return Object.assign(new Error(message), { field })
+}
 function validateRequestInterval(value) {
   if (value != null && value !== 0 && (value < 100 || value > 3600000))
-    throw new Error('请求最小间隔为 100 至 3600000 毫秒；填 0 使用默认 1000 毫秒')
+    throw fieldError('requestIntervalMillis', '请求最小间隔为 100 至 3600000 毫秒；填 0 使用默认 1000 毫秒')
 }
 export function validateSource(value) {
   validateRequestInterval(value.requestIntervalMillis)
-  if (!value.name.trim() || !value.username.trim()) throw new Error('请填写来源名称和执行用户')
+  if (!value.name.trim()) throw fieldError('name', '请填写来源名称')
+  if (!value.username.trim()) throw fieldError('username', '请填写执行用户')
   return {
     ...value,
     name: value.name.trim(),
@@ -170,10 +175,11 @@ export function validateSource(value) {
   }
 }
 export function validateEndpoint(value) {
-  if (!value.sourceId || !value.name.trim()) throw new Error('请选择数据来源并填写接口名称')
-  if (value.mode === 'pull' && !/^https?:\/\//i.test(value.url)) throw new Error('请填写完整的 HTTP 或 HTTPS 请求地址')
+  if (!value.sourceId) throw fieldError('sourceId', '请选择数据来源')
+  if (!value.name.trim()) throw fieldError('name', '请填写接口名称')
+  if (value.mode === 'pull' && !/^https?:\/\//i.test(value.url)) throw fieldError('url', '请填写完整的 HTTP 或 HTTPS 请求地址')
   if (value.mode === 'pull' && value.intervalSeconds > 0 && value.intervalSeconds < 10)
-    throw new Error('自动拉取间隔不能小于 10 秒，填 0 可仅手动拉取')
+    throw fieldError('intervalSeconds', '自动拉取间隔不能小于 10 秒，填 0 可仅手动拉取')
   if (!value.mapping.fields.length) throw new Error('至少配置一条字段规则')
   if (new Set(value.mapping.fields.map(field => field.target)).size !== value.mapping.fields.length) throw new Error('目标字段不能重复')
   return value

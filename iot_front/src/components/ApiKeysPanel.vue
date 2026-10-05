@@ -2,11 +2,13 @@
 import { computed, reactive, ref } from 'vue'
 import { Copy } from '@lucide/vue'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
-import { api, formatTime, notifyError } from '../api'
+import { api, formatTime, isAbort, notifyError } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
 import DataTableCard from './layout/DataTableCard.vue'
 import RowActions from './layout/RowActions.vue'
 import StatusDot from './layout/StatusDot.vue'
+import { copyText } from '../clipboard'
 
 // 开放接口密钥绑定平台用户：外部系统按该用户的功能和设备范围访问，能力项只能进一步收窄。
 const props = defineProps({ users: { type: Array, default: () => [] } })
@@ -31,20 +33,15 @@ const keyStatus = key =>
       ? { tone: 'warning', label: '已过期' }
       : { tone: 'success', label: '启用' }
 const baseUrl = computed(() => `${window.location.origin}/api/open/v1`)
-let loadVersion = 0
+const loader = useListLoader(loading)
 
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   try {
-    const data = await api('/api/v1/access/api-keys')
-    if (version !== loadVersion) return
+    const data = await loader.run(signal => api('/api/v1/access/api-keys', { signal }))
     keys.value = data.items || []
     capabilities.value = data.capabilities || []
   } catch (e) {
-    if (version === loadVersion) notifyError(e)
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(e)) notifyError(e)
   }
 }
 function edit(key) {
@@ -120,12 +117,8 @@ async function rotate(key) {
   }
 }
 async function copy(text, message) {
-  try {
-    await navigator.clipboard.writeText(text)
-    UiMessage.success(message)
-  } catch {
-    UiMessage.warning('复制失败，请手动选择文本复制')
-  }
+  if (await copyText(text)) UiMessage.success(message)
+  else UiMessage.warning('复制失败，请手动选择文本复制')
 }
 function closeIssued() {
   issuedKey.value = ''

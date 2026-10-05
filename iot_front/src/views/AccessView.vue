@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
-import { api, notifyError, session } from '../api'
+import { api, isAbort, notifyError, session } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import DeviceScopePicker from '../components/DeviceScopePicker.vue'
 import { userAccessPayload } from '../userAccess'
 import { roleDeviceScope } from '../permissionPresets'
@@ -76,7 +77,7 @@ function refresh() {
   void load()
   if (tab.value === 'apiKeys') void apiKeys.value?.load()
 }
-let loadVersion = 0
+const loader = useListLoader(loading)
 const canViewDevices = computed(
   () =>
     user.permissions.includes('menu:devices') ||
@@ -85,37 +86,32 @@ const canViewDevices = computed(
 const deviceSelectionPending = computed(
   () => (dialog.value === 'role' ? role.deviceScope : user.deviceScope) === 'selected' && (devicesLoading.value || !!devicesError.value)
 )
-let deviceLoadVersion = 0
+const deviceLoader = useListLoader(devicesLoading)
 async function loadDevices() {
-  const version = ++deviceLoadVersion
-  devicesLoading.value = true
   devicesError.value = ''
   try {
-    const data = await api('/api/v1/access/device-options')
-    if (version === deviceLoadVersion) {
-      deviceOptions.value = data.items || []
-      unitOptions.value = data.units || []
-    }
-  } catch {
-    if (version === deviceLoadVersion) devicesError.value = '设备列表加载失败，请重新加载后再保存。'
-  } finally {
-    if (version === deviceLoadVersion) devicesLoading.value = false
+    const data = await deviceLoader.run(signal => api('/api/v1/access/device-options', { signal }))
+    deviceOptions.value = data.items || []
+    unitOptions.value = data.units || []
+  } catch (error) {
+    if (!isAbort(error)) devicesError.value = '设备列表加载失败，请重新加载后再保存。'
   }
 }
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   try {
-    const [u, r, p] = await Promise.all([api('/api/v1/access/users'), api('/api/v1/access/roles'), api('/api/v1/access/permissions')])
-    if (version !== loadVersion) return
+    const [u, r, p] = await loader.run(signal =>
+      Promise.all([
+        api('/api/v1/access/users', { signal }),
+        api('/api/v1/access/roles', { signal }),
+        api('/api/v1/access/permissions', { signal })
+      ])
+    )
     tenantId.value = u.tenantId
     users.value = u.items || []
     roles.value = r.items || []
     catalog.value = p.items || []
   } catch (e) {
-    if (version === loadVersion) notifyError(e)
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(e)) notifyError(e)
   }
 }
 function editUser(value) {

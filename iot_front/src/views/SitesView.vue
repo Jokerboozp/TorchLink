@@ -3,7 +3,9 @@
 // 告警生成时记录位置快照；按单位授权的用户可见该单位下已标注的设备。
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, toRef, watch } from 'vue'
 import { Plus, RefreshCw, Upload, Download, MapPin } from '@lucide/vue'
-import { api, apiBlob, download, notifyError } from '../api'
+import { api, apiBlob, download, isAbort, notifyError } from '../api'
+import { useListLoader } from '../composables/useListLoader'
+import { useDeviceSearch } from '../composables/useDeviceSearch'
 import { confirmDelete } from '../deleteAction'
 import { UiMessage } from '../ui/feedback.js'
 import { errorMessage } from '../presentation'
@@ -51,14 +53,11 @@ const { paged: shownPoints, total: pointTotal } = clientPagination(visiblePoints
 const floorPoints = computed(() => (floor.value ? data.points.filter(point => point.floorId === floor.value.id) : []))
 const placedOnPlan = computed(() => floorPoints.value.filter(point => point.x != null && point.y != null))
 
-let loadVersion = 0
+const loader = useListLoader(loading)
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   loadError.value = ''
   try {
-    const result = await api('/api/v1/sites')
-    if (version !== loadVersion) return
+    const result = await loader.run(signal => api('/api/v1/sites', { signal }))
     Object.assign(data, {
       units: result.units || [],
       buildings: result.buildings || [],
@@ -68,9 +67,7 @@ async function load() {
     if (selected.kind && !data[`${selected.kind}s`]?.some(item => item.id === selected.id)) Object.assign(selected, { kind: '', id: '' })
     if (!selected.kind && data.units.length) Object.assign(selected, { kind: 'unit', id: data.units[0].id })
   } catch (error) {
-    if (version === loadVersion) loadError.value = errorMessage(error)
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(error)) loadError.value = errorMessage(error)
   }
 }
 function select(kind, id) {
@@ -156,31 +153,8 @@ function remove(kind, row) {
 }
 
 // 设备检索
-const devices = ref([]),
-  devicesLoading = ref(false)
-let deviceSearchVersion = 0,
-  deviceSearchTimer = 0
-async function searchDevices(keyword = '') {
-  const version = ++deviceSearchVersion
-  devicesLoading.value = true
-  try {
-    const query = new URLSearchParams({ page: '1', pageSize: '50' })
-    if (keyword.trim()) query.set('q', keyword.trim())
-    const result = await api(`/api/v1/device-registry?${query}`)
-    if (version !== deviceSearchVersion) return
-    const found = (result.items || []).map(item => item.device || item).filter(item => item.id)
-    if (form.deviceId && !found.some(item => item.id === form.deviceId)) found.unshift({ id: form.deviceId, name: form.deviceId })
-    devices.value = found
-  } catch (error) {
-    if (version === deviceSearchVersion) notifyError(error)
-  } finally {
-    if (version === deviceSearchVersion) devicesLoading.value = false
-  }
-}
-function onDeviceSearch(keyword) {
-  clearTimeout(deviceSearchTimer)
-  deviceSearchTimer = setTimeout(() => searchDevices(keyword), 300)
-}
+const deviceSearch = useDeviceSearch(() => form.deviceId)
+const { devices, loading: devicesLoading, search: searchDevices, onSearch: onDeviceSearch } = deviceSearch
 
 // 平面图
 const planUrl = ref(''),
@@ -188,24 +162,20 @@ const planUrl = ref(''),
   planError = ref(''),
   uploading = ref(false),
   planInput = ref(null)
-let planVersion = 0
+const planLoader = useListLoader(planLoading)
 function releasePlan() {
   if (planUrl.value) URL.revokeObjectURL(planUrl.value)
   planUrl.value = ''
 }
 async function loadPlan() {
-  const version = ++planVersion
   releasePlan()
   planError.value = ''
-  if (!floor.value?.plan) return
-  planLoading.value = true
+  if (!floor.value?.plan) return planLoader.cancel()
   try {
-    const blob = await apiBlob(`/api/v1/sites/floors/${encodeURIComponent(floor.value.id)}/plan`)
-    if (version === planVersion) planUrl.value = URL.createObjectURL(blob)
+    const blob = await planLoader.run(signal => apiBlob(`/api/v1/sites/floors/${encodeURIComponent(floor.value.id)}/plan`, { signal }))
+    planUrl.value = URL.createObjectURL(blob)
   } catch (error) {
-    if (version === planVersion) planError.value = errorMessage(error)
-  } finally {
-    if (version === planVersion) planLoading.value = false
+    if (!isAbort(error)) planError.value = errorMessage(error)
   }
 }
 watch(() => `${floor.value?.id || ''}:${floor.value?.plan?.sha256 || ''}`, loadPlan)
@@ -346,9 +316,9 @@ const locationText = point =>
 
 onMounted(load)
 onBeforeUnmount(() => {
-  planVersion++
+  planLoader.cancel()
   releasePlan()
-  clearTimeout(deviceSearchTimer)
+  deviceSearch.dispose()
 })
 </script>
 

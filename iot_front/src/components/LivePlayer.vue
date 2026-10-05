@@ -3,7 +3,7 @@
 // 播放会话由服务端签发并按心跳续期；关闭、切换或卸载时立即释放。
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Maximize, RefreshCw, Volume2, VolumeX } from '@lucide/vue'
-import { ApiError, api, session } from '../api'
+import { ApiError, api, apiResponse } from '../api'
 import { errorMessage } from '../presentation'
 import { browserCaps, supportsWebRTC } from '../liveVideo'
 import StatusDot from './layout/StatusDot.vue'
@@ -53,10 +53,6 @@ const phaseTone = computed(
 const protocolText = computed(() => ({ webrtc: 'WebRTC', hls: 'HLS' })[protocol.value] || '')
 const profileText = computed(() => (grant.value?.profile && grant.value.profile !== 'direct' ? grant.value.profileName : '原始码流'))
 
-function authHeaders(extra = {}) {
-  return { ...(session.token ? { Authorization: `Bearer ${session.token}` } : {}), ...extra }
-}
-
 function teardownMedia() {
   window.clearInterval(heartbeatTimer)
   heartbeatTimer = 0
@@ -94,9 +90,7 @@ function teardownMedia() {
 function releaseSession(id = sessionId) {
   if (!id) return
   if (id === sessionId) sessionId = ''
-  fetch(`/api/v1/video/play-sessions/${encodeURIComponent(id)}`, { method: 'DELETE', keepalive: true, headers: authHeaders() }).catch(
-    () => {}
-  )
+  api(`/api/v1/video/play-sessions/${encodeURIComponent(id)}`, { method: 'DELETE', keepalive: true }).catch(() => {})
 }
 
 function fail(text) {
@@ -172,15 +166,12 @@ async function playWebRTC(gen) {
     })
   })
   if (gen !== generation) return
-  const response = await fetch(grant.value.whepUrl, {
+  // 与其他接口相同的登录凭据与错误处理；401 会统一回到登录页。
+  const response = await apiResponse(grant.value.whepUrl, {
     method: 'POST',
-    headers: authHeaders({ 'Content-Type': 'application/sdp' }),
+    headers: { 'Content-Type': 'application/sdp' },
     body: peer.localDescription.sdp
   })
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}))
-    throw new ApiError(data.detail || 'WebRTC 协商失败', { ...data, status: response.status })
-  }
   const answer = await response.text()
   if (gen !== generation) return
   await peer.setRemoteDescription({ type: 'answer', sdp: answer })

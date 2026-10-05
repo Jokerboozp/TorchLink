@@ -3,7 +3,8 @@ import { can } from '../permissions'
 import { aiProviderOptions as providerOptions } from '../presentation'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, apiAll } from '../api'
+import { api, apiAll, isAbort } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { useUnsavedGuard } from '../composables/unsavedGuard.js'
 import AiWorkflowRuns from '../components/AiWorkflowRuns.vue'
 import AiRunHistory from '../components/AiRunHistory.vue'
@@ -33,7 +34,7 @@ const providerForm = reactive({
   apiKey: '',
   maxTokens: 2048
 })
-let loadVersion = 0
+const loader = useListLoader(loading)
 
 const capabilityLabels = {
   chat: '对话',
@@ -110,18 +111,13 @@ function providerChanged(provider) {
 }
 
 async function loadRuntime() {
-  const version = ++loadVersion
-  loading.value = true
   loadError.value = ''
   try {
-    const value = await apiAll('/api/v1/ai/providers')
-    if (version !== loadVersion) return
+    const value = await loader.run(signal => apiAll('/api/v1/ai/providers', { signal }))
     runtime.value = value
     syncProviderForm(value)
   } catch (error) {
-    if (version === loadVersion) loadError.value = error.message || '模型服务状态读取失败'
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(error)) loadError.value = error.message || '模型服务状态读取失败'
   }
 }
 

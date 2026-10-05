@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { api } from '../api'
+import { api, isAbort } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { can } from '../permissions'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 
@@ -26,8 +27,7 @@ const canSave = computed(() => can('PUT /api/v1/ai/embedding-config'))
 const canTest = computed(() => can('POST /api/v1/ai/embedding-test'))
 const busy = computed(() => loading.value || saving.value || testing.value)
 const fingerprint = computed(() => JSON.stringify(candidateFields()))
-let loadVersion = 0
-let loadController
+const loader = useListLoader(loading)
 
 function candidateFields() {
   return {
@@ -107,18 +107,11 @@ function sync(value) {
 
 async function load() {
   if (!canRead.value) return
-  const version = ++loadVersion
-  loadController?.abort()
-  loadController = new AbortController()
-  loading.value = true
   loadError.value = ''
   try {
-    const value = await api('/api/v1/ai/embedding-config', { signal: loadController.signal })
-    if (version === loadVersion) sync(value)
+    sync(await loader.run(signal => api('/api/v1/ai/embedding-config', { signal })))
   } catch (cause) {
-    if (version === loadVersion && cause?.name !== 'AbortError') loadError.value = cause.message || 'Embedding 配置读取失败'
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(cause)) loadError.value = cause.message || 'Embedding 配置读取失败'
   }
 }
 
@@ -189,10 +182,7 @@ watch(fingerprint, () => {
   if (result.value && result.value.fingerprint !== fingerprint.value) result.value = null
 })
 onMounted(load)
-onBeforeUnmount(() => {
-  ++loadVersion
-  loadController?.abort()
-})
+onBeforeUnmount(loader.cancel)
 </script>
 
 <template>

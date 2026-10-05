@@ -369,6 +369,31 @@ export const UiDateTime = defineComponent({
   }
 })
 
+export const UiMonth = defineComponent({
+  /* 月份选择，值为 yyyy-MM 字符串。 */
+  name: 'UiMonth',
+  inheritAttrs: false,
+  props: { modelValue: String, clearable: Boolean, disabled: Boolean, placeholder: String },
+  emits: ['update:modelValue', 'change'],
+  setup(props, { attrs, emit }) {
+    return () =>
+      h(NDatePicker, {
+        ...attrs,
+        class: ['ui-month', attrs.class],
+        type: 'month',
+        valueFormat: 'yyyy-MM',
+        formattedValue: props.modelValue || null,
+        clearable: props.clearable,
+        disabled: props.disabled,
+        placeholder: props.placeholder,
+        'onUpdate:formattedValue': value => {
+          emit('update:modelValue', value || '')
+          emit('change', value || '')
+        }
+      })
+  }
+})
+
 export const UiDropdownMenu = defineComponent({
   name: 'UiDropdownMenu',
   setup() {

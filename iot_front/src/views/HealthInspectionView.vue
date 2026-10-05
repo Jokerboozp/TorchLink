@@ -3,7 +3,8 @@
 defineEmits(['navigate'])
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, download, formatTime, notifyError, session } from '../api'
+import { api, download, formatTime, isAbort, notifyError, session } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { businessStatuses, inspectionSeverities, label, tagType } from '../labels'
 import MarkdownContent from '../components/MarkdownContent.vue'
 import { loadHealthInspection, saveHealthInspection } from '../healthInspectionState'
@@ -16,7 +17,7 @@ const downloading = ref(false)
 const page = ref(1)
 const pageSize = 50
 const pageLoading = ref(false)
-let pageGeneration = 0
+const pageLoader = useListLoader(pageLoading)
 const error = ref('')
 const progressPercentage = computed(() => Math.max(0, Math.min(100, Number(progress.value?.progress || 0))))
 const progressStatus = computed(() =>
@@ -119,21 +120,19 @@ async function run() {
 async function loadReportPage(nextPage = page.value) {
   const id = report.value?.reportId || progress.value?.jobId
   if (!id) return
-  const generation = ++pageGeneration
   const view = viewToken
-  pageLoading.value = true
   try {
-    const value = await api(
-      `/api/v1/ai/health-inspection/reports/${encodeURIComponent(id)}?limit=${pageSize}&offset=${(nextPage - 1) * pageSize}`
+    const value = await pageLoader.run(signal =>
+      api(`/api/v1/ai/health-inspection/reports/${encodeURIComponent(id)}?limit=${pageSize}&offset=${(nextPage - 1) * pageSize}`, {
+        signal
+      })
     )
-    if (generation !== pageGeneration || view !== viewToken) return
+    if (view !== viewToken) return
     page.value = nextPage
     report.value = value
     saveHealthInspection(inspectionStorage, session, { ...value, items: [] })
   } catch (exception) {
-    if (generation === pageGeneration && view === viewToken) notifyError(exception)
-  } finally {
-    if (generation === pageGeneration) pageLoading.value = false
+    if (!isAbort(exception) && view === viewToken) notifyError(exception)
   }
 }
 

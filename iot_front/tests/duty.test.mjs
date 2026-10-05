@@ -22,6 +22,7 @@ function component(api, exports, overrides = {}) {
     computed,
     reactive,
     ref,
+    toRef,
     api,
     URLSearchParams,
     session: { user: 'operator' },

@@ -1,6 +1,8 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { api, apiAll, formatTime, session } from '../api'
+import { api, apiAll, formatTime, isAbort, session } from '../api'
+import { useListLoader } from '../composables/useListLoader'
+import { copyText } from '../clipboard'
 import { createClientId } from '../clientId'
 import { statusLabel, transportLabel } from '../presentation'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
@@ -223,25 +225,18 @@ async function load() {
   }
 }
 
-let preflightVersion = 0
+const preflightLoader = useListLoader(checking)
 async function runPreflight() {
-  const version = ++preflightVersion
   preflight.value = null
   preflightError.value = ''
-  if (!draft.productId) {
-    checking.value = false
-    return
-  }
-  checking.value = true
+  if (!draft.productId) return preflightLoader.cancel()
   try {
-    const result = await api(`/api/v1/onboarding/preflight?${preflightQuery(draft)}`)
-    if (version !== preflightVersion || !activeIdentity()) return
+    const result = await preflightLoader.run(signal => api(`/api/v1/onboarding/preflight?${preflightQuery(draft)}`, { signal }))
+    if (!activeIdentity()) return
     preflight.value = result
     prepareConnection(result.plan)
   } catch (cause) {
-    if (version === preflightVersion) preflightError.value = cause.message || '接入预检失败'
-  } finally {
-    if (version === preflightVersion) checking.value = false
+    if (!isAbort(cause)) preflightError.value = cause.message || '接入预检失败'
   }
 }
 function prepareConnection(p) {
@@ -317,24 +312,22 @@ async function submit() {
   }
 }
 
-let statusVersion = 0
+const statusLoader = useListLoader(refreshing)
 async function refreshStatus() {
   const id = draft.result?.device?.id
   if (!id) return
-  const version = ++statusVersion
-  refreshing.value = true
   try {
-    const data = await api(
-      `/api/v1/device-registry/${encodeURIComponent(id)}/connection?since=${encodeURIComponent(draft.checkSince || Date.now())}`
+    const data = await statusLoader.run(signal =>
+      api(`/api/v1/device-registry/${encodeURIComponent(id)}/connection?since=${encodeURIComponent(draft.checkSince || Date.now())}`, {
+        signal
+      })
     )
-    if (version !== statusVersion || !activeIdentity()) return
+    if (!activeIdentity()) return
     status.value = data
     statusError.value = ''
     statusAt.value = Date.now()
   } catch (cause) {
-    if (version === statusVersion) statusError.value = cause.message || '读取接入状态失败'
-  } finally {
-    if (version === statusVersion) refreshing.value = false
+    if (!isAbort(cause)) statusError.value = cause.message || '读取接入状态失败'
   }
 }
 let timer = 0,
@@ -361,12 +354,8 @@ function realtime(event) {
 }
 
 async function copy(text, message = '已复制') {
-  try {
-    await navigator.clipboard.writeText(text)
-    UiMessage.success(message)
-  } catch {
-    UiMessage.warning('浏览器不允许复制，请手动选择文本')
-  }
+  if (await copyText(text)) UiMessage.success(message)
+  else UiMessage.warning('浏览器不允许复制，请手动选择文本')
 }
 function copyAll() {
   copy(configurationText(draft.result, accessInfo.value, credential.value), '接入信息已复制')
@@ -484,8 +473,8 @@ onMounted(async () => {
 })
 onBeforeUnmount(() => {
   disposed = true
-  preflightVersion++
-  statusVersion++
+  preflightLoader.cancel()
+  statusLoader.cancel()
   credential.value = null
   clearTimeout(draftTimer)
   stopPolling()

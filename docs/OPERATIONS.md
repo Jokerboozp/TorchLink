@@ -1,6 +1,6 @@
 # 运维手册
 
-面向单机在线 / 离线部署的值守人员：部署组合怎么选、升级与回滚、故障切换和恢复，以及平台告警出现后的处理步骤。命令在仓库根目录（离线为解包目录）执行；配置项含义见 [部署与本地调试](DEPLOYMENT.md)。
+面向单机在线 / 离线部署的值守人员：部署组合怎么选、升级与回滚、故障切换和恢复，以及平台告警出现后的处理步骤。命令在仓库根目录（离线为解包目录）执行；配置项含义见 [部署总览](DEPLOYMENT.md)。
 
 ## 部署组合
 
@@ -13,7 +13,7 @@
 | 容量测试（正式部署默认关闭） | capacity | `--capacity on` 开启，见 [容量测试模块](DEPLOYMENT.md#容量测试模块) |
 | 恢复演练 | rustfs-dr | 仅供隔离恢复验证使用，不是异地副本；异地副本配置 `IOT_BACKUP_OFFSITE_*` |
 
-**最小生产组合**：核心组件 + `--video off --capacity off`（设备少、上报频率低时可再加 `--clickhouse off`）；监控组件建议保留。单机组合不具备高可用，边界见 [高可用边界](DEPLOYMENT.md#高可用边界)。
+**最小生产组合**：核心组件 + `--video off --capacity off`（设备少、上报频率低时可再加 `--clickhouse off`）；监控组件建议保留。单机组合不具备高可用，边界见 [高可用边界](DEPLOY_CLUSTER.md#高可用边界)。
 
 上线前确认：
 
@@ -42,7 +42,7 @@
 2. 启动后用最近的整库备份恢复数据库，再用 `FULL` 与 `DEVICE_DAILY` 备份补回设备消息、知识库原件和 Harness 会话。
 3. 设备与对接方改连新地址（DNS 或负载均衡切换），检查 MQTT、TCP 设备重新上线。
 
-需要自动切换时使用 [集群部署](DEPLOYMENT.md#集群部署)；集群切换须在目标环境演练，仓库只验证渲染与编排。
+需要自动切换时使用 [集群部署](DEPLOY_CLUSTER.md#集群部署)；集群切换须在目标环境演练，仓库只验证渲染与编排。
 
 ## 恢复
 
@@ -77,5 +77,9 @@
 | `RetentionFailures` | 历史数据清理失败 | Jobs 日志中 `retention purge failed` 的表与原因；不处理会使磁盘持续增长 |
 | `PartitionMaintenanceFailures` | 未能提前创建月分区 | Jobs 日志中 `create upcoming partitions`；数据会进入 `_default` 分区，仍可读写，修复后若默认分区已有该月数据需人工迁出再建分区 |
 | `ScrapeTargetDown`、`HostDiskAlmostFull` | 监控目标不可达、磁盘将满 | 检查对应容器；磁盘不足时先确认保留任务正常，再扩容或缩短保留期 |
+| `CoreComponentDown` | Redpanda、EMQX 或备份服务不可抓取 | `docker compose ps` 与对应服务日志；Redpanda 不可用时设备消息停在 MQTT 持久队列，恢复后继续 |
+| `RedpandaUnderReplicated` | 集群中有分区副本不足 | 检查 Redpanda 节点与磁盘，`rpk cluster health`；恢复前避免再停其他节点 |
+| `HostMemoryHigh`、`HostLoadHigh` | 主机内存不足 10% 或负载长期超过核数两倍 | 查看各容器内存与 CPU（`docker stats`），按需调整 `IOT_*_MEMORY` 上限或扩容 |
+| `HTTPServerErrorRatio`、`HTTPLatencyHigh` | 接口 5xx 超过 5% 或 95 分位耗时超过 2 秒 | 运维中心“炬联平台运行”面板的接口分组按路由查看；在 Loki 中按请求编号检索 `request failed` |
 
 处理完成后在运维中心确认告警恢复；临时静默须写明原因和到期时间。

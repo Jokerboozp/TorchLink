@@ -1,4 +1,4 @@
-FROM golang:1.26-alpine AS build
+FROM golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
@@ -12,7 +12,7 @@ ARG IOT_REVISION=
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X iot-platform/internal/version.Version=${IOT_VERSION} -X iot-platform/internal/version.Revision=${IOT_REVISION}" -o /out/ ./cmd/iot-platform ./cmd/iot-access-gateway ./cmd/cluster-render ./cmd/cluster-init ./cmd/clickhouse-migrate ./cmd/cluster-ssh ./cmd/capacity-test
 RUN mkdir -p /runtime-data /runtime-run && chmod 0750 /runtime-data && chmod 0700 /runtime-run
 
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 WORKDIR /app
 # Source uploads are compiled locally with CGO disabled and vendored dependencies.
 COPY --from=build /usr/local/go /usr/local/go

@@ -95,6 +95,13 @@ test('AI answers render safe Markdown in chat and health inspection', async () =
   const unsafeHtml = markdown.renderMarkdown('<script>alert(1)</script>')
   assert.match(unsafeHtml, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/)
   assert.doesNotMatch(unsafeHtml, /<script>/)
+  // Only http(s) and mailto links become anchors; quotes cannot leave the href.
+  for (const source of ['[x](javascript:alert(1))', '[x](data:text/html,<b>)', '| a |\n| --- |\n| [y](javascript:1) |'])
+    assert.doesNotMatch(markdown.renderMarkdown(source), /<a /)
+  assert.doesNotMatch(markdown.renderMarkdown('[a](https://x.com/"onmouseover="alert(1))'), /href="[^"]*"onmouseover/)
+  assert.doesNotMatch(markdown.renderMarkdown('<img src=x onerror=alert(1)>'), /<img/)
+  // Text cannot forge the internal placeholders to duplicate another link.
+  assert.equal(markdown.renderMarkdown('a \u00000\u0000 b [l](https://e.com)').match(/<a /g).length, 1)
 })
 
 test('health inspection report survives menu-driven view recreation and stays tenant scoped', async () => {

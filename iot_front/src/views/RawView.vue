@@ -1,10 +1,12 @@
 <script setup>
+import { takeNavigation } from '../routing'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
 import { errorMessage, transportLabel, formatLabel } from '../presentation'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, apiAll, download, formatTime, notifyError, pretty } from '../api'
+import { api, apiAll, download, formatTime, isAbort, notifyError, pretty } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { can, permissionState } from '../permissions'
 import { messageTypeLabel, messageTypes } from '../labels'
 import { usePageState } from '../composables/usePageState.js'
@@ -46,6 +48,7 @@ const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
 const selectedIds = computed(() => selection.value.map(item => item.messageId))
+const loader = useListLoader(loading)
 // 已应用的筛选、页码和每页条数在刷新或切换菜单后恢复；输入框同步为已应用的条件。
 usePageState('raw', { filters: appliedFilters, page, pageSize })
 filters.value = { ...emptyFilters(), ...appliedFilters.value, range: appliedFilters.value.range ? [...appliedFilters.value.range] : null }
@@ -97,10 +100,7 @@ watch(
 // 有设备资料读取权限时按名称或编号选择设备；否则输入完整设备编号。
 const canPickDevice = computed(() => can('GET /api/v1/device-registry'))
 
-let loadVersion = 0
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   loadError.value = ''
   selection.value = []
   try {
@@ -112,21 +112,17 @@ async function load() {
       params.set('start', String(appliedFilters.value.range[0]))
       params.set('end', String(appliedFilters.value.range[1]))
     }
-    const data = await api(`/api/v1/raw-messages?${params.toString()}`)
-    if (version !== loadVersion) return
+    const data = await loader.run(signal => api(`/api/v1/raw-messages?${params.toString()}`, { signal }))
     items.value = data.items || []
     total.value = Number(data.total ?? data.count ?? items.value.length)
     selection.value = []
     void resolveNames(items.value)
   } catch (error) {
     // 失败只在表格上方显示一处可重试的错误，不再同时弹出提示和空表文案。
-    if (version === loadVersion) {
-      items.value = []
-      total.value = 0
-      loadError.value = error?.status === 401 ? '' : errorMessage(error) || '原始报文查询失败'
-    }
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (isAbort(error)) return
+    items.value = []
+    total.value = 0
+    loadError.value = error?.status === 401 ? '' : errorMessage(error) || '原始报文查询失败'
   }
 }
 
@@ -227,19 +223,12 @@ async function downloadBatch() {
 }
 
 onMounted(async () => {
-  let navigation = {}
-  try {
-    const raw = sessionStorage.getItem('iot:navigation-detail')
-    if (raw) {
-      // 从设备、告警等页面跳转来时以跳转条件为准，不沿用上次保存的筛选与页码。
-      navigation = JSON.parse(raw)
-      filters.value = { ...emptyFilters(), deviceId: navigation.deviceId || '' }
-      appliedFilters.value = { ...filters.value }
-      page.value = 1
-      sessionStorage.removeItem('iot:navigation-detail')
-    }
-  } catch {
-    // Ignore malformed navigation state.
+  const navigation = takeNavigation()
+  // 从设备、告警等页面跳转来时以跳转条件为准，不沿用上次保存的筛选与页码。
+  if (Object.keys(navigation).length) {
+    filters.value = { ...emptyFilters(), deviceId: typeof navigation.deviceId === 'string' ? navigation.deviceId : '' }
+    appliedFilters.value = { ...filters.value }
+    page.value = 1
   }
   await load()
   // 告警弹窗传 messageId，接入与设备页传 rawMessageId，二者都指原始报文编号。

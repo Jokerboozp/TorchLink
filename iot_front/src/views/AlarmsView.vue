@@ -1,9 +1,11 @@
 <script setup>
+import { takeNavigation } from '../routing'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
 import { computed, onBeforeUnmount, onMounted, reactive, ref, toRef } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, download, formatTime, notifyError, pretty } from '../api'
+import { api, download, formatTime, isAbort, notifyError, pretty } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { usePageState } from '../composables/usePageState.js'
 import { confirmClose } from '../composables/unsavedGuard.js'
 import DeviceFilterSelect from '../components/DeviceFilterSelect.vue'
@@ -48,8 +50,9 @@ const pageSize = ref(20)
 const total = ref(0)
 let analysisPollTimer = 0
 let analysisViewToken = 0
-let mediaRefreshVersion = 0
-let loadVersion = 0
+const mediaRefresh = useListLoader()
+const loader = useListLoader(loading)
+const statisticsLoader = useListLoader()
 const loadError = ref('')
 const opening = ref('')
 const dispositionPanel = ref(null)
@@ -70,26 +73,22 @@ const progressStatus = computed(() =>
 )
 
 async function load(resetPage = false) {
-  const version = ++loadVersion
   if (resetPage) page.value = 1
-  loading.value = true
   try {
     const q = alarmQuery(filters, page.value, pageSize.value)
-    const d = await api('/api/v1/alarms?' + q)
-    if (version !== loadVersion) return
+    const d = await loader.run(signal => api('/api/v1/alarms?' + q, { signal }))
     items.value = d.items || []
     total.value = Number(d.total ?? d.count ?? items.value.length)
     loadError.value = ''
-    void loadStatistics(version)
+    void loadStatistics()
   } catch (e) {
-    if (version === loadVersion) loadError.value = e?.message || '告警读取失败'
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(e)) loadError.value = e?.message || '告警读取失败'
   }
 }
 
 // 近 30 天核实统计，与列表使用同一组筛选条件。
 const statistics = ref(null)
+const statisticsError = ref(false)
 const exporting = ref(false)
 const reporting = ref(false)
 // 月报默认上一个月（北京时间）。
@@ -106,12 +105,14 @@ function reportQuery() {
   for (const key of ['status', 'level', 'deviceId']) if (filters[key]) q.set(key, filters[key])
   return q.toString()
 }
-async function loadStatistics(version) {
+async function loadStatistics() {
   try {
-    const s = await api('/api/v1/alarms/statistics/disposition?' + reportQuery())
-    if (version === loadVersion) statistics.value = s
-  } catch {
-    if (version === loadVersion) statistics.value = null
+    statistics.value = await statisticsLoader.run(signal => api('/api/v1/alarms/statistics/disposition?' + reportQuery(), { signal }))
+    statisticsError.value = false
+  } catch (error) {
+    if (isAbort(error)) return
+    statistics.value = null
+    statisticsError.value = true
   }
 }
 const formatDuration = ms => {
@@ -267,17 +268,10 @@ async function openDetail(id) {
 async function refreshMediaDetail() {
   const alarmId = detail.value?.alarmId,
     viewToken = analysisViewToken
-  const refreshVersion = ++mediaRefreshVersion
-  if (!alarmId || !detailVisible.value) return
+  if (!alarmId || !detailVisible.value) return mediaRefresh.cancel()
   try {
-    const loaded = await api(`/api/v1/alarms/${encodeURIComponent(alarmId)}`)
-    if (
-      refreshVersion === mediaRefreshVersion &&
-      viewToken === analysisViewToken &&
-      detailVisible.value &&
-      detail.value?.alarmId === alarmId
-    )
-      detail.value = loaded
+    const loaded = await mediaRefresh.run(signal => api(`/api/v1/alarms/${encodeURIComponent(alarmId)}`, { signal }))
+    if (viewToken === analysisViewToken && detailVisible.value && detail.value?.alarmId === alarmId) detail.value = loaded
   } catch {
     /* Attachment polling retains the last known detail; explicit reads report errors. */
   }
@@ -366,8 +360,7 @@ const realtime = event => {
   }, 300)
 }
 onMounted(async () => {
-  const navigation = alarmNavigation(sessionStorage.getItem('iot:navigation-detail'))
-  sessionStorage.removeItem('iot:navigation-detail')
+  const navigation = alarmNavigation(takeNavigation())
   // 从设备等页面带入的设备优先于上次保存的筛选。
   if (navigation.deviceId) {
     filters.deviceId = navigation.deviceId
@@ -431,7 +424,7 @@ function rowActions(row) {
     <ui-button v-if="filtered" text @click="resetFilters">重置筛选</ui-button>
     <template #actions
       ><span v-permission="'GET /api/v1/alarms/reports/monthly'" class="monthly-report"
-        ><input v-model="reportMonth" type="month" aria-label="月报月份" /><ui-button
+        ><ui-month v-model="reportMonth" aria-label="月报月份" placeholder="选择月份" /><ui-button
           :loading="reporting"
           :disabled="!reportMonth"
           @click="downloadMonthly"
@@ -462,6 +455,9 @@ function rowActions(row) {
         >误报最多：{{ statistics.topFalseAlarmDevices[0].deviceName || statistics.topFalseAlarmDevices[0].deviceId }}</small
       >
     </div>
+  </div>
+  <div v-else-if="statisticsError" class="alarm-stats alarm-stats-error" role="alert">
+    <span>近 30 天核实统计读取失败</span><ui-button size="small" plain @click="loadStatistics">重试</ui-button>
   </div>
 
   <DataTableCard
@@ -699,19 +695,24 @@ function rowActions(row) {
   gap: var(--space-2);
   align-items: center;
 }
-.monthly-report input {
-  height: 32px;
-  padding: 0 var(--space-2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  color: var(--text-strong);
+.monthly-report .ui-month {
+  width: 132px;
 }
 .alarm-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
   gap: var(--space-3);
   margin-bottom: var(--space-3);
+}
+.alarm-stats-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  color: var(--danger-text, var(--danger));
+  background: var(--surface);
+  border: 1px solid var(--danger-border);
+  border-radius: var(--radius-lg);
 }
 .alarm-stats > div {
   display: grid;

@@ -22,6 +22,7 @@ import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
+import { copyText } from '../clipboard'
 import { usePageState } from '../composables/usePageState.js'
 defineEmits(['navigate'])
 
@@ -491,12 +492,8 @@ function rowActions(row) {
   return actions
 }
 async function copy(value) {
-  try {
-    await navigator.clipboard.writeText(value)
-    UiMessage.success('已复制')
-  } catch {
-    UiMessage.warning('自动复制失败，请选中文本复制')
-  }
+  if (await copyText(value)) UiMessage.success('已复制')
+  else UiMessage.warning('自动复制失败，请选中文本复制')
 }
 onMounted(() => {
   // 恢复的视图仍有权限时保留，否则回到第一个可用视图。

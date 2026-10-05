@@ -138,7 +138,7 @@ X-Device-Secret: <设备 Secret>
 
 成功返回 202、`messageId`、`created` 和 `status:ACCEPTED`，表示原始接收链路接受请求，异步解析和规则结果须继续查询。标准凭据不能通过旧 RawMessage 接口自选租户、Parser 或协议。
 
-同一租户、产品、设备、kind 和消息 ID 的重试须保持正文逐字节一致；HTTP/MQTT 重传使用同一原文 ID。不同正文返回 `409 MESSAGE_CONFLICT`，新的读数使用新 ID。每台设备上报限流为每秒 20 次；配置 Redis 时多副本共享额度，未配置时按进程计算（见 [跨实例一致性](DEPLOYMENT.md#按设备业务流与跨实例一致性)）。凭据校验时数据库暂不可用返回 `503 UNAVAILABLE` 与 `Retry-After`，设备稍后重试即可，不应视为凭据失效。平台解析与存储积压超过 `IOT_INGEST_MAX_BACKLOG`（默认 50000）时暂停接收新原文，HTTP 返回 `429 BACKPRESSURE` 与 `Retry-After`，积压降到 80% 以下恢复。
+同一租户、产品、设备、kind 和消息 ID 的重试须保持正文逐字节一致；HTTP/MQTT 重传使用同一原文 ID。不同正文返回 `409 MESSAGE_CONFLICT`，新的读数使用新 ID。每台设备上报限流为每秒 20 次；配置 Redis 时多副本共享额度，未配置时按进程计算（见 [跨实例一致性](DEPLOY_CLUSTER.md#按设备业务流与跨实例一致性)）。凭据校验时数据库暂不可用返回 `503 UNAVAILABLE` 与 `Retry-After`，设备稍后重试即可，不应视为凭据失效。平台解析与存储积压超过 `IOT_INGEST_MAX_BACKLOG`（默认 50000）时暂停接收新原文，HTTP 返回 `429 BACKPRESSURE` 与 `Retry-After`，积压降到 80% 以下恢复。
 
 ### MQTT 上报
 

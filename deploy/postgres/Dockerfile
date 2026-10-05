@@ -1,4 +1,4 @@
-FROM postgres:17-alpine3.22 AS vector-build
+FROM postgres:17-alpine3.22@sha256:b02d9b5bcf608c2719da32cdabee274a33841202487fd5dc9b065b63f886753f AS vector-build
 # Keep PostgreSQL's existing major version and on-disk layout. Build portable
 # code for amd64/arm64 rather than binding the extension to the build CPU.
 # Override ALPINE_MIRROR (IOT_ALPINE_MIRROR) where dl-cdn.alpinelinux.org is
@@ -14,7 +14,7 @@ RUN curl -fSL --retry 3 -o pgvector.tar.gz https://codeload.github.com/pgvector/
     && make OPTFLAGS='' \
     && make install DESTDIR=/out
 
-FROM postgres:17-alpine3.22
+FROM postgres:17-alpine3.22@sha256:b02d9b5bcf608c2719da32cdabee274a33841202487fd5dc9b065b63f886753f
 COPY --from=vector-build /out/ /
 LABEL org.opencontainers.image.title="TorchLink PostgreSQL with pgvector" \
       org.opencontainers.image.version="17-pgvector-0.8.1" \

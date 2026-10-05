@@ -1,0 +1,30 @@
+炬联 TorchLink 专有软件许可
+
+版权所有 © 2026 炬联 TorchLink 项目权利人。保留所有权利。
+
+本仓库中的源代码、文档、配置、镜像构建文件及其衍生物（以下统称“本软件”）均为
+专有软件。除非事先取得权利人的书面授权，任何个人或组织不得：
+
+1. 使用、复制、修改、合并、发布、分发、再许可或出售本软件的全部或任何部分；
+2. 基于本软件提供托管、运营或其他对外服务；
+3. 移除或修改本软件中的版权、许可及其他权利声明。
+
+本仓库中由第三方提供的组件（包括 Go 与 npm 依赖、上游 Harness 源码及容器基础
+镜像）按其各自许可证授权，不受本许可约束，也不因本许可获得额外权利。
+
+本软件按“现状”提供，不附带任何明示或默示的保证。在适用法律允许的最大范围内，
+权利人不对因使用或无法使用本软件造成的任何损失承担责任。
+
+如需授权，请通过本仓库托管平台联系权利人。
+
+----------------------------------------------------------------------
+
+TorchLink Proprietary License
+
+Copyright (c) 2026 the TorchLink rights holder. All rights reserved.
+
+This software and its documentation, configuration and build files are
+proprietary. No part may be used, copied, modified, published, distributed,
+sublicensed, sold or offered as a service without prior written permission from
+the rights holder. Third-party components remain under their own licenses.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.

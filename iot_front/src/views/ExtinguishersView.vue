@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onMounted, reactive, ref, toRef, watch } from 'vue'
 import { Plus, RefreshCw } from '@lucide/vue'
-import { api, notifyError, session } from '../api'
+import { api, isAbort, notifyError, session } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
 import { UiMessage } from '../ui/feedback.js'
 import { errorMessage } from '../presentation'
@@ -13,7 +14,8 @@ import {
   inputTimestamp,
   inspectionPayload,
   canReviewInspection,
-  fireQuery
+  fireQuery,
+  requiredFieldErrors
 } from '../fireSafetyManagement'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
@@ -110,9 +112,9 @@ const stationName = id => options.stations.find(item => item.id === id)?.name ||
 const personName = id => options.personnel.find(item => item.id === id)?.name || '已移除人员'
 const assetName = id => options.extinguishers.find(item => item.id === id)?.code || '已移除灭火器'
 const typeName = value => extinguisherTypes.find(item => item.value === value)?.label || value
-let loadVersion = 0,
-  optionVersion = 0,
-  statVersion = 0
+const loader = useListLoader(loading),
+  optionsLoader = useListLoader(),
+  statisticsLoader = useListLoader()
 function query() {
   return {
     q: filters.q,
@@ -122,54 +124,48 @@ function query() {
   }
 }
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   loadError.value = ''
   try {
-    const result = await api(
-      `/api/v1/${tab.value === 'assets' ? 'extinguishers' : 'extinguisher-inspections'}?${fireQuery(query(), { page: page.value, pageSize: pageSize.value })}`
+    const result = await loader.run(signal =>
+      api(
+        `/api/v1/${tab.value === 'assets' ? 'extinguishers' : 'extinguisher-inspections'}?${fireQuery(query(), { page: page.value, pageSize: pageSize.value })}`,
+        { signal }
+      )
     )
-    if (version !== loadVersion) return
     rows.value = result.items || []
     total.value = Number(result.total || 0)
   } catch (error) {
-    if (version === loadVersion) {
-      rows.value = []
-      total.value = 0
-      loadError.value = errorMessage(error)
-    }
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (isAbort(error)) return
+    rows.value = []
+    total.value = 0
+    loadError.value = errorMessage(error)
   }
 }
 async function loadOptions() {
-  const version = ++optionVersion
   optionsError.value = ''
   try {
-    const result = await api('/api/v1/fire-safety/options')
-    if (version === optionVersion)
-      Object.assign(options, {
-        stations: result.stations || [],
-        personnel: result.personnel || [],
-        extinguishers: result.extinguishers || [],
-        inspectionChecks: result.inspectionChecks || []
-      })
+    const result = await optionsLoader.run(signal => api('/api/v1/fire-safety/options', { signal }))
+    Object.assign(options, {
+      stations: result.stations || [],
+      personnel: result.personnel || [],
+      extinguishers: result.extinguishers || [],
+      inspectionChecks: result.inspectionChecks || []
+    })
   } catch (error) {
-    if (version === optionVersion) optionsError.value = errorMessage(error)
+    if (!isAbort(error)) optionsError.value = errorMessage(error)
   }
 }
 async function loadStatistics() {
-  const version = ++statVersion
   statisticsError.value = ''
   const filtersForStatistics = tab.value === 'assets' ? query() : { stationId: filters.stationId, remindDays: filters.remindDays }
   try {
-    const result = await api(`/api/v1/extinguishers/statistics?${fireQuery(filtersForStatistics)}`)
-    if (version === statVersion) statistics.value = result
+    statistics.value = await statisticsLoader.run(signal =>
+      api(`/api/v1/extinguishers/statistics?${fireQuery(filtersForStatistics)}`, { signal })
+    )
   } catch (error) {
-    if (version === statVersion) {
-      statistics.value = null
-      statisticsError.value = errorMessage(error)
-    }
+    if (isAbort(error)) return
+    statistics.value = null
+    statisticsError.value = errorMessage(error)
   }
 }
 async function refresh() {
@@ -200,16 +196,21 @@ function openAsset(row) {
   for (const key of Object.keys(form)) delete form[key]
   Object.assign(form, blank(), row ? JSON.parse(JSON.stringify(row)) : {})
   saveError.value = ''
+  fieldErrors.value = {}
   dialog.value = true
   loadOptions()
 }
+// 必填项逐项标在对应字段下方。
+const fieldErrors = ref({})
 async function saveAsset() {
   if (saving.value || !can(form.id ? 'PUT /api/v1/extinguishers/:id' : 'POST /api/v1/extinguishers')) return
   saving.value = true
   saveError.value = ''
   try {
-    if (!form.code.trim() || !form.stationId || !form.location.trim()) throw new Error('请填写灭火器编号、放置位置并选择所属消防站')
-    if (!Number.isInteger(form.inspectionCycleDays) || form.inspectionCycleDays < 1) throw new Error('巡检周期须为正整数天数')
+    fieldErrors.value = requiredFieldErrors('extinguishers', form)
+    if (!Number.isInteger(form.inspectionCycleDays) || form.inspectionCycleDays < 1)
+      fieldErrors.value.inspectionCycleDays = '巡检周期须为正整数天数'
+    if (Object.keys(fieldErrors.value).length) return
     await api(`/api/v1/extinguishers${form.id ? `/${encodeURIComponent(form.id)}` : ''}`, {
       method: form.id ? 'PUT' : 'POST',
       body: JSON.stringify(managementPayload('extinguishers', form))
@@ -370,25 +371,23 @@ const batchDialog = ref(false),
 const batchGuard = trackDialogForm(batchDialog, () => [batchForm.assigneeId, batchForm.dueAtInput, batchForm.notes])
 const closeBatch = () => closeGuarded(batchGuard, batchSaving.value, () => (batchDialog.value = false))
 const batchAssignees = computed(() => options.personnel.filter(item => item.stationId === batchForm.stationId && item.enabled))
-let batchVersion = 0
+const batchLoader = useListLoader(batchLoading)
 async function loadBatchAssets() {
-  const version = ++batchVersion
   batchAssets.value = []
   batchSelected.value = []
   batchError.value = ''
-  if (!batchForm.stationId) return
-  batchLoading.value = true
+  if (!batchForm.stationId) return batchLoader.cancel()
   try {
-    const result = await api(
-      `/api/v1/extinguishers?${fireQuery({ stationId: batchForm.stationId, due: batchForm.due, remindDays: filters.remindDays }, { page: 1, pageSize: 100 })}`
+    const result = await batchLoader.run(signal =>
+      api(
+        `/api/v1/extinguishers?${fireQuery({ stationId: batchForm.stationId, due: batchForm.due, remindDays: filters.remindDays }, { page: 1, pageSize: 100 })}`,
+        { signal }
+      )
     )
-    if (version !== batchVersion) return
     batchAssets.value = (result.items || []).filter(item => item.status !== 'retired' && !item.openInspection)
     batchSelected.value = batchAssets.value.map(item => item.id)
   } catch (error) {
-    if (version === batchVersion) batchError.value = errorMessage(error)
-  } finally {
-    if (version === batchVersion) batchLoading.value = false
+    if (!isAbort(error)) batchError.value = errorMessage(error)
   }
 }
 function openBatch() {
@@ -675,8 +674,8 @@ onMounted(refresh)
         <section class="fire-section">
           <h3>资产与放置位置</h3>
           <div class="fire-form-grid">
-            <ui-form-item label="灭火器编号 *"><ui-input v-model="form.code" :disabled="saving" /></ui-form-item
-            ><ui-form-item label="所属消防站 *"
+            <ui-form-item label="灭火器编号 *" :error="fieldErrors.code"><ui-input v-model="form.code" :disabled="saving" /></ui-form-item
+            ><ui-form-item label="所属消防站 *" :error="fieldErrors.stationId"
               ><ui-select v-model="form.stationId" :disabled="saving" filterable
                 ><ui-option
                   v-for="item in options.stations"
@@ -684,7 +683,7 @@ onMounted(refresh)
                   :label="`${item.name}${!item.enabled ? '（已停用）' : ''}`"
                   :value="item.id"
                   :disabled="!item.enabled && item.id !== form.stationId" /></ui-select></ui-form-item
-            ><ui-form-item label="放置位置 *"
+            ><ui-form-item label="放置位置 *" :error="fieldErrors.location"
               ><ui-input v-model="form.location" :disabled="saving" placeholder="建筑、楼层或具体点位" /></ui-form-item
             ><ui-form-item label="灭火器类型"
               ><ui-select v-model="form.type" :disabled="saving"
@@ -711,7 +710,7 @@ onMounted(refresh)
               ><input v-model="form.serviceDueOn" type="date" class="fire-date" :disabled="saving" /></ui-form-item
             ><ui-form-item label="计划报废日期"
               ><input v-model="form.retireOn" type="date" class="fire-date" :disabled="saving" /></ui-form-item
-            ><ui-form-item label="巡检周期（天）"
+            ><ui-form-item label="巡检周期（天）" :error="fieldErrors.inspectionCycleDays"
               ><ui-input-number v-model="form.inspectionCycleDays" :disabled="saving" :min="1" :max="3650" :precision="0"
             /></ui-form-item>
           </div>

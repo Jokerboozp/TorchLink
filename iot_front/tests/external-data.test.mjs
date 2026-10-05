@@ -76,6 +76,8 @@ test('configuration validation retains revision and saved secret semantics and v
   assert.equal(source.auth.secret, '')
   assert.equal(source.auth.secretSet, true)
   assert.throws(() => external.timeWindow([20, 10]), /时间/)
+  assert.throws(() => external.validateSource({ ...external.blankSource('alice'), name: ' ' }), { field: 'name' })
+  assert.throws(() => external.validateEndpoint({ ...external.blankEndpoint(''), name: '拉取' }), { field: 'sourceId' })
   assert.deepEqual(external.timeWindow([10, 20]), { from: 10, to: 20 })
   assert.throws(
     () =>

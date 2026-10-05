@@ -148,4 +148,4 @@ foreach ($line in $plan) {
     }
 }
 if ($failed) { throw "some platform processes are not ready; see docker compose logs on those nodes" }
-Write-Output "cluster $name deployed; run a quick capacity check before opening traffic (docs/DEPLOYMENT.md)"
+Write-Output "cluster $name deployed; run a quick capacity check before opening traffic (docs/DEPLOY_CLUSTER.md)"

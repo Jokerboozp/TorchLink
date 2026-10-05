@@ -21,6 +21,7 @@ import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
+import { copyText } from '../clipboard'
 import { clientPagination } from '../listPagination'
 import { usePageState } from '../composables/usePageState.js'
 import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
@@ -247,12 +248,10 @@ function keyName(id) {
 }
 async function copyTopic(row) {
   const identity = identityKey()
-  try {
-    await navigator.clipboard.writeText(row.topic)
-    if (!disposed && identity === identityKey()) UiMessage.success('主题地址已复制')
-  } catch {
-    if (!disposed && identity === identityKey()) UiMessage.warning('复制失败，请选中文本复制')
-  }
+  const copied = await copyText(row.topic)
+  if (disposed || identity !== identityKey()) return
+  if (copied) UiMessage.success('主题地址已复制')
+  else UiMessage.warning('复制失败，请选中文本复制')
 }
 function rowActions(row) {
   return [

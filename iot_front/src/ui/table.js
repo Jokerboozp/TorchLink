@@ -56,10 +56,34 @@ export const UiTable = defineComponent({
     emptyText: String,
     maxHeight: [String, Number],
     size: String,
-    loading: Boolean
+    loading: Boolean,
+    // 窄屏时是否改为卡片排列。
+    cards: { type: Boolean, default: true }
   },
   emits: ['selection-change'],
   setup(props, { attrs, slots, emit }) {
+    function renderCards(columns) {
+      const rowKey = (row, index) =>
+        typeof props.rowKey === 'function' ? props.rowKey(row) : (row?.[props.rowKey || 'id'] ?? row?.messageId ?? index)
+      const body = props.data.length
+        ? props.data.map((row, index) => {
+            const extra = attrs.rowProps?.(row, index) || {}
+            const className = props.rowClassName?.({ row, rowIndex: index })
+            const fields = columns.filter(column => column.title)
+            const actions = columns.filter(column => !column.title)
+            return h('article', { ...extra, key: rowKey(row, index), class: ['ui-table-card', className, extra.class] }, [
+              h(
+                'dl',
+                fields.map(column =>
+                  h('div', { class: 'ui-table-card__field' }, [h('dt', column.title), h('dd', column.render(row, index))])
+                )
+              ),
+              ...actions.map(column => h('div', { class: 'ui-table-card__actions' }, column.render(row, index)))
+            ])
+          })
+        : [h(NEmpty, { description: props.loading ? '加载中' : props.emptyText || '暂无数据', size: 'small' })]
+      return h('div', { class: ['ui-table', 'ui-table-cards', attrs.class], 'aria-busy': props.loading ? 'true' : undefined }, body)
+    }
     return () => {
       const columns = collectColumns(slots.default?.()).map((node, index) => {
         const field = node.props || {}
@@ -86,6 +110,9 @@ export const UiTable = defineComponent({
         }
         return column
       })
+      // 窄屏把普通表格按卡片排列，每行显示“列名：值”，无列名的操作列放在卡片底部；
+      // 带勾选或展开列的表格仍横向滚动，保持原有交互。
+      if (narrow.value && props.cards && !columns.some(column => column.type)) return renderCards(columns)
       const scrollX = columns.reduce((total, column) => total + (column.width || column.minWidth || 140), 0)
       return h(
         NDataTable,

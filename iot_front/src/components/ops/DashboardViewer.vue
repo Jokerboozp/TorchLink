@@ -1,4 +1,5 @@
 <script setup>
+import { useMediaQuery } from '../../composables/useMediaQuery'
 // 仪表盘查看与编辑：变量、统一时间范围与刷新、按 24 列网格布局的原生面板。
 // 未修改时面板数据按已保存的仪表盘在服务端执行；编辑中的改动通过预览接口执行。
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
@@ -385,13 +386,7 @@ const fullPanel = ref(null)
 const supportVisible = ref(false)
 
 // 窄屏时面板按顺序单列排列，高度按原比例但不超过 360 像素。
-const narrowQuery = window.matchMedia('(max-width: 767px)')
-const narrow = ref(narrowQuery.matches)
-const onNarrow = event => {
-  narrow.value = event.matches
-}
-narrowQuery.addEventListener('change', onNarrow)
-onBeforeUnmount(() => narrowQuery.removeEventListener('change', onNarrow))
+const narrow = useMediaQuery('(max-width: 767px)')
 function gridStyle(panels) {
   const minY = panels.length ? Math.min(...panels.map(p => p.gridPos?.y || 0)) : 0
   const ordered = narrow.value

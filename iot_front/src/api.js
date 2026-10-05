@@ -114,26 +114,7 @@ export async function api(path, options = {}) {
 }
 
 // latest 为同一数据块只保留最新请求：发起新请求时取消旧请求，旧结果不会覆盖新结果。
-export function latest() {
-  let controller = null
-  let version = 0
-  return {
-    async run(task) {
-      controller?.abort()
-      controller = new AbortController()
-      const current = ++version
-      const result = await task(controller.signal)
-      if (current !== version) throw Object.assign(new Error('stale'), { name: 'AbortError' })
-      return result
-    },
-    cancel() {
-      controller?.abort()
-      version++
-    }
-  }
-}
-
-export const isAbort = error => error?.name === 'AbortError'
+export { isAbort, latest } from './latest.js'
 
 // 浏览器下载由接口返回的文件或本地生成的内容。
 export function saveBlob(blob, filename) {
@@ -155,7 +136,7 @@ export async function apiResponse(path, options = {}, accept = '') {
 // Protected attachments use the same session/error handling as JSON requests.
 // Callers own object URL lifetime and only request attachments after user action.
 export async function apiBlob(path, options = {}) {
-  const response = await fetch(path, { cache: 'no-store', ...options, headers: headersFor(options) })
+  const response = await send(path, { cache: 'no-store', ...options, headers: headersFor(options) })
   if (!response.ok) throw await responseError(path, response)
   return response.blob()
 }
@@ -179,9 +160,9 @@ export function apiAll(path, options = {}) {
 export async function apiStream(path, options = {}, onEvent = () => {}) {
   let response
   try {
-    response = await fetch(path, { ...options, headers: headersFor(options, 'text/event-stream') })
+    response = await send(path, { ...options, headers: headersFor(options, 'text/event-stream') })
   } catch (error) {
-    if (error?.name === 'AbortError') throw error
+    if (error?.name === 'AbortError' || error instanceof ApiError) throw error
     throw new ApiError('无法连接智能流服务，请检查网络后重试', { code: 'AI_STREAM_NETWORK_ERROR', retryable: true })
   }
   if (!response.ok) throw await responseError(path, response)
@@ -195,11 +176,8 @@ export async function apiStream(path, options = {}, onEvent = () => {}) {
 }
 
 export async function download(path, filename, options = {}) {
-  const headers = headersFor({ ...options, body: null })
-  const response = await fetch(path, { ...options, headers })
-  if (!response.ok) {
-    throw await responseError(path, response)
-  }
+  const response = await send(path, { cache: 'no-store', ...options, headers: headersFor({ ...options, body: null }) })
+  if (!response.ok) throw await responseError(path, response)
   saveBlob(await response.blob(), filename)
 }
 

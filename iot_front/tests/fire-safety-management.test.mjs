@@ -10,7 +10,8 @@ import {
   inspectionPayload,
   canReviewInspection,
   dispatchPayload,
-  fireQuery
+  fireQuery,
+  requiredFieldErrors
 } from '../src/fireSafetyManagement.js'
 
 // 页面状态恢复与未保存检查由各自测试覆盖，此处替换为无副作用实现。
@@ -153,9 +154,10 @@ function stationPage(api = async () => ({ items: [], total: 0 }), allowed = true
     localDateTimeInput,
     inputTimestamp,
     dispatchPayload,
-    fireQuery
+    fireQuery,
+    requiredFieldErrors
   })
-  vm.runInContext(source + '\nglobalThis.subject={open,form,dialog,tab,load,loadError,loading,save}', context)
+  vm.runInContext(source + '\nglobalThis.subject={open,form,dialog,tab,load,loadError,loading,save,fieldErrors}', context)
   return context.subject
 }
 
@@ -201,6 +203,21 @@ test('保存失败保留编辑内容和版本供用户核对', async () => {
   assert.equal(page.dialog.value, true)
 })
 
+test('缺少必填项时逐项提示且不提交', async () => {
+  const writes = [],
+    page = stationPage(async (path, options) => {
+      if (options?.method) writes.push(path)
+      return {}
+    })
+  page.open('equipment')
+  page.form.name = '空气呼吸器'
+  await page.save()
+  assert.deepEqual(writes, [])
+  assert.deepEqual(Object.keys(page.fieldErrors.value).sort(), ['category', 'stationId'])
+  page.open('equipment')
+  assert.equal(Object.keys(page.fieldErrors.value).length, 0)
+})
+
 test('没有编辑权限时不发起写入请求', async () => {
   const writes = [],
     page = stationPage(async (path, options) => {
@@ -228,6 +245,7 @@ test('巡检状态筛选不被错误用于灭火器资产统计', async () => {
       return {}
     },
     fireQuery,
+    requiredFieldErrors,
     extinguisherTypes: [],
     inspectionStates: []
   })

@@ -19,6 +19,24 @@ const editableFields = {
     'notes'
   ]
 }
+// 必填项逐字段提示：返回 { 字段: 提示 }，为空对象表示通过。
+const requiredFields = {
+  stations: { code: '请填写消防站编号', name: '请填写消防站名称' },
+  personnel: { stationId: '请选择所属消防站', name: '请填写姓名' },
+  equipment: { stationId: '请选择所属消防站', name: '请填写器材名称', category: '请填写器材类别', unit: '请填写数量单位' },
+  dispatches: {
+    stationId: '请选择所属消防站',
+    title: '请填写出勤标题',
+    location: '请填写出勤地点',
+    startedAtInput: '请选择出勤时间',
+    personnelIds: '请选择出勤人员'
+  },
+  extinguishers: { code: '请填写灭火器编号', stationId: '请选择所属消防站', location: '请填写放置位置' }
+}
+export function requiredFieldErrors(kind, form) {
+  const blank = value => (Array.isArray(value) ? !value.length : !String(value ?? '').trim())
+  return Object.fromEntries(Object.entries(requiredFields[kind] || {}).filter(([key]) => blank(form[key])))
+}
 export function managementPayload(kind, form) {
   const payload = Object.fromEntries(editableFields[kind].map(key => [key, form[key]]))
   if (form.id) payload.version = form.version

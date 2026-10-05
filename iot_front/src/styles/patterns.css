@@ -127,3 +127,64 @@
     padding: var(--space-3) var(--space-2);
   }
 }
+
+/* 窄屏表格卡片：每行一张卡片，列名在左、值在右，操作在底部。 */
+.ui-table-cards {
+  display: grid;
+  gap: var(--space-2);
+}
+.ui-table-card {
+  padding: var(--space-3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.ui-table-card dl {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+}
+.ui-table-card__field {
+  display: grid;
+  grid-template-columns: 6.5em minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: baseline;
+}
+.ui-table-card dt {
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+.ui-table-card dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.ui-table-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+
+/* 窄屏时按钮式单选组换行，不超出弹层与卡片。 */
+@media (max-width: 767px) {
+  .ui-radio-group.n-radio-group--button-group {
+    display: flex;
+    flex-wrap: wrap;
+    row-gap: var(--space-2);
+  }
+}
+@media (max-width: 767px) {
+  .ui-radio-group.segmented-choice-group.n-radio-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .segmented-choice-group .n-radio-button__label {
+    white-space: normal;
+    text-align: center;
+  }
+}

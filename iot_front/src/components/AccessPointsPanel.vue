@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue'
-import { api, apiAll, formatTime, notifyError } from '../api'
+import { api, apiAll, formatTime, isAbort, notifyError } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
 import { runtimeStatusTones, tone } from '../labels'
 import { statusLabel, transportLabel } from '../presentation'
@@ -52,26 +53,23 @@ const visibleProfiles = computed(() =>
 )
 const productName = id => products.value.find(item => item.id === id)?.name || id
 
-let loadVersion = 0
+const loader = useListLoader(loading)
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   try {
-    const [access, connectors, productData, catalog] = await Promise.all([
-      api('/api/v2/device-access-profiles'),
-      api('/api/v1/connectors'),
-      apiAll('/api/v1/products'),
-      api('/api/v2/protocols')
-    ])
-    if (version !== loadVersion) return
+    const [access, connectors, productData, catalog] = await loader.run(signal =>
+      Promise.all([
+        api('/api/v2/device-access-profiles', { signal }),
+        api('/api/v1/connectors', { signal }),
+        apiAll('/api/v1/products', { signal }),
+        api('/api/v2/protocols', { signal })
+      ])
+    )
     snapshots.value = Object.fromEntries((connectors.items || []).filter(item => item.profile).map(item => [item.profile.id, item]))
     profiles.value = (access.items || []).map(item => snapshot(item.id).profile || item)
     products.value = productData.items || []
     protocols.value = catalog.items || []
   } catch (error) {
-    if (version === loadVersion) notifyError(error)
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(error)) notifyError(error)
   }
 }
 

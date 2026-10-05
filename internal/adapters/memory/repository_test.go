@@ -323,3 +323,7 @@ func TestDeleteAlarmRemovesEveryAnalysisScope(t *testing.T) {
 		t.Fatalf("deleting alarm-1 removed another alarm's analysis: %v", err)
 	}
 }
+
+func TestDevicePagesAndPlaySessions(t *testing.T) {
+	repositorytest.DevicePagesAndPlaySessions(t, NewRepository())
+}

@@ -154,7 +154,7 @@ onBeforeUnmount(() => {
       <section v-for="item in kpis" :key="item.label" class="stat-card" :class="item.tone && `stat-${item.tone}`">
         <span>{{ item.label }}</span
         ><strong :title="data ? (item.value ?? 0).toLocaleString() : ''">{{ data ? compactCount(item.value) : '—' }}</strong>
-        <small v-if="!data">等待更新</small>
+        <small v-if="!data">{{ loadError ? '读取失败' : '等待更新' }}</small>
         <StatusDot v-else-if="item.tone" :tone="item.tone" :label="item.note" />
         <small v-else>{{ item.note }}</small>
       </section>

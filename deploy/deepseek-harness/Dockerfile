@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:24-bookworm-slim AS build
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS build
 
 ARG DSH_REVISION=fb2c4b9e698e30edb738bca4cf0618587db7d203
 WORKDIR /harness
@@ -41,7 +41,7 @@ RUN node --test /harness/examples/iot-ops-agent/gateway.test.mjs
 RUN node --input-type=module -e "await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-sdk-minimal/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-llm-pi-ai/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-system-prompt/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-agent-loop/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-tools/lib/index.js'); await import('/harness/runtime-node/node_modules/@deepseek-ai/dsh-mcp-client/lib/index.js')"
 RUN node /harness/examples/iot-ops-agent/runtime-smoke.mjs
 
-FROM node:24-bookworm-slim AS runtime
+FROM node:24-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS runtime
 
 ARG DSH_REVISION=fb2c4b9e698e30edb738bca4cf0618587db7d203
 LABEL org.opencontainers.image.title="IoT DeepSeek Harness sidecar" \

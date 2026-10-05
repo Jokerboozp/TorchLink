@@ -6,7 +6,7 @@ import { ref } from 'vue'
 import { ChevronRight, Copy, ListTree } from '@lucide/vue'
 import { UiMessage } from '../../ui/feedback.js'
 import { entryLevel, logLevelName, logLevelTone, nsToLocal, parseLogFields } from '../../ops/format.js'
-import { copyText } from '../../ops/opsApi.js'
+import { copyText } from '../../clipboard'
 
 const props = defineProps({
   entries: { type: Array, default: () => [] },

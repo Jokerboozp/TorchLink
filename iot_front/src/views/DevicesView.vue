@@ -1,7 +1,9 @@
 <script setup>
+import { takeNavigation } from '../routing'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, toRef } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, apiAll, formatTime, notifyError } from '../api'
+import { api, apiAll, formatTime, isAbort, notifyError } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { errorMessage } from '../presentation'
 import { usePageState } from '../composables/usePageState.js'
 import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
@@ -26,6 +28,7 @@ import StatusDot from '../components/layout/StatusDot.vue'
 import DeviceConnection from '../components/DeviceConnection.vue'
 import DeviceOnboarding from '../components/DeviceOnboarding.vue'
 import DeviceBatchOnboarding from '../components/DeviceBatchOnboarding.vue'
+import { copyText } from '../clipboard'
 
 const emit = defineEmits(['navigate'])
 const connectionDevice = ref('')
@@ -41,24 +44,21 @@ const onboarding = ref(false),
   recordsError = ref(''),
   recordsPage = ref(1),
   recordsTotal = ref(0)
-let recordsVersion = 0
+const recordsLoader = useListLoader(recordsLoading)
 async function showRecords(kind = 'drafts', page = 1) {
-  const version = ++recordsVersion
   recordKind.value = kind
   recordsPage.value = page
   records.value = []
   recordsOpen.value = true
-  recordsLoading.value = true
   recordsError.value = ''
   try {
-    const result = await api(`/api/v1/onboarding/${kind}?limit=20&offset=${(page - 1) * 20}${kind === 'drafts' ? '&purpose=device' : ''}`)
-    if (version !== recordsVersion) return
+    const result = await recordsLoader.run(signal =>
+      api(`/api/v1/onboarding/${kind}?limit=20&offset=${(page - 1) * 20}${kind === 'drafts' ? '&purpose=device' : ''}`, { signal })
+    )
     recordsTotal.value = result.total || 0
     records.value = (result.items || []).filter(row => kind !== 'drafts' || !String(recordBody(row).step || '').startsWith('preparation:'))
   } catch (error) {
-    if (version === recordsVersion) recordsError.value = error.message
-  } finally {
-    if (version === recordsVersion) recordsLoading.value = false
+    if (!isAbort(error)) recordsError.value = error.message
   }
 }
 function recordBody(record) {
@@ -144,22 +144,21 @@ function registryQuery() {
   return query.toString()
 }
 
-let loadVersion = 0,
-  searchTimer = 0
+let searchTimer = 0
+const loader = useListLoader(loading)
 async function load() {
-  const version = ++loadVersion
   const pending = pendingTab.value
-  loading.value = true
   updatesAvailable.value = false
   try {
-    const [productData, list, pendingData] = await Promise.all([
-      apiAll('/api/v1/products'),
-      pending
-        ? api(`/api/v1/devices?unregistered=true&page=${unregisteredPage.value}&pageSize=${unregisteredPageSize.value}`)
-        : api(`/api/v1/device-registry?${registryQuery()}`),
-      pending ? null : api('/api/v1/devices?unregistered=true&page=1&pageSize=1')
-    ])
-    if (version !== loadVersion) return
+    const [productData, list, pendingData] = await loader.run(signal =>
+      Promise.all([
+        apiAll('/api/v1/products', { signal }),
+        pending
+          ? api(`/api/v1/devices?unregistered=true&page=${unregisteredPage.value}&pageSize=${unregisteredPageSize.value}`, { signal })
+          : api(`/api/v1/device-registry?${registryQuery()}`, { signal }),
+        pending ? null : api('/api/v1/devices?unregistered=true&page=1&pageSize=1', { signal })
+      ])
+    )
     products.value = productData.items || []
     listError.value = ''
     if (pending) {
@@ -172,9 +171,7 @@ async function load() {
     }
   } catch (error) {
     // 失败只在列表上方显示一处可重试的错误。
-    if (version === loadVersion) listError.value = error?.status === 401 ? '' : errorMessage(error) || '读取设备失败'
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(error)) listError.value = error?.status === 401 ? '' : errorMessage(error) || '读取设备失败'
   }
 }
 function changeFilter() {
@@ -282,12 +279,9 @@ function showCredential(value) {
   credentialDialog.value = true
 }
 async function copyCredential() {
-  try {
-    await navigator.clipboard.writeText(`X-Device-Key: ${credential.value.accessKey}\nX-Device-Secret: ${credential.value.secret}`)
+  if (await copyText(`X-Device-Key: ${credential.value.accessKey}\nX-Device-Secret: ${credential.value.secret}`))
     UiMessage.success('凭证已复制')
-  } catch {
-    UiMessage.warning('浏览器不允许复制，请手动选择文本')
-  }
+  else UiMessage.warning('浏览器不允许复制，请手动选择文本')
 }
 function hasReported(row) {
   return Number(row.runtimeState?.lastSeenAt || 0) > 0
@@ -364,13 +358,7 @@ function realtime(event) {
   if (!row && !pending && !pendingTab.value && filters.runtime && state.businessStatus === filters.runtime) updatesAvailable.value = true
 }
 onMounted(() => {
-  let detail
-  try {
-    detail = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}')
-  } catch {
-    detail = {}
-  }
-  sessionStorage.removeItem('iot:navigation-detail')
+  const detail = takeNavigation()
   if (detail.onboarding) {
     onboarding.value = true
     onboardingProductId.value = detail.productId || ''

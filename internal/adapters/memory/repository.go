@@ -347,7 +347,10 @@ func (r *Repository) ListManagedDevices(_ context.Context, tenant string) ([]mod
 			out = append(out, cloneManaged(v))
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt > out[j].UpdatedAt })
+	// Same order as PostgreSQL: newest first, then by ID, so pages never overlap.
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].UpdatedAt > out[j].UpdatedAt || out[i].UpdatedAt == out[j].UpdatedAt && out[i].ID > out[j].ID
+	})
 	return out, nil
 }
 func (r *Repository) ListManagedDevicesPage(ctx context.Context, tenant string, limit, offset int) ([]model.ManagedDevice, int, error) {

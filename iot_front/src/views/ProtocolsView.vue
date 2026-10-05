@@ -1,4 +1,5 @@
 <script setup>
+import { takeNavigation } from '../routing'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 const emit = defineEmits(['navigate'])
 import AccessPointsPanel from '../components/AccessPointsPanel.vue'
@@ -9,7 +10,8 @@ import { transportLabel, statusLabel } from '../presentation'
 import { computed, onMounted, ref, watch } from 'vue'
 import { label, parsers } from '../labels'
 import { UiMessage } from '../ui/feedback.js'
-import { api, download, formatTime, notifyError, pretty } from '../api'
+import { api, download, formatTime, isAbort, notifyError, pretty } from '../api'
+import { useListLoader } from '../composables/useListLoader'
 import { confirmClose, useUnsavedGuard } from '../composables/unsavedGuard.js'
 import { confirmDelete } from '../deleteAction'
 import { RefreshCw, Upload, Wand2 } from '@lucide/vue'
@@ -119,21 +121,16 @@ const resultSummary = computed(() => {
   return rows
 })
 const releaseCount = computed(() => protocols.value.reduce((total, item) => total + (item.releases?.length || 0), 0))
-let loadVersion = 0
+const loader = useListLoader(loading)
 const loadError = ref('')
 
 async function load() {
-  const version = ++loadVersion
-  loading.value = true
   try {
-    const catalog = await api('/api/v2/protocols')
-    if (version !== loadVersion) return
+    const catalog = await loader.run(signal => api('/api/v2/protocols', { signal }))
     protocols.value = catalog.items || []
     loadError.value = ''
   } catch (error) {
-    if (version === loadVersion) loadError.value = error?.message || '协议读取失败'
-  } finally {
-    if (version === loadVersion) loading.value = false
+    if (!isAbort(error)) loadError.value = error?.message || '协议读取失败'
   }
 }
 
@@ -190,13 +187,7 @@ function statusType(value) {
 
 onMounted(async () => {
   if (props.section === 'profiles') return
-  let context = {}
-  try {
-    context = JSON.parse(sessionStorage.getItem('iot:navigation-detail') || '{}')
-  } catch {
-    context = {}
-  }
-  sessionStorage.removeItem('iot:navigation-detail')
+  const context = takeNavigation()
   await load()
   if (context.protocolId && context.version) {
     const item = protocols.value.find(row => row.definition.id === context.protocolId),

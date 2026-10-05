@@ -91,13 +91,14 @@ try {
       )
     }) /* 等待异步页面出现业务内容。 */
   }
+  // 登录页不预填租户与账户：夹具登录时三项都要填写。
+  const fixtureLogin =
+    "(() => { const fill = (selector, value) => { const input = document.querySelector(selector); input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })) }; fill('.login-form #tenant-id input, .login-form input#tenant-id', 'fixture'); fill('.login-form #username input, .login-form input#username', 'admin'); fill('.login-form input[type=password]', 'fixture'); document.querySelector('.login-form button[type=submit]').click() })()"
   const freshSession = async () => {
     /* 重新载入并登录：隔离前面页面累积的状态，避免无头浏览器长时间运行后卡住。 */
     await call('Page.navigate', { url: origin })
     await until(() => evaluate("Boolean(document.querySelector('.login-form input[type=password]'))"))
-    await evaluate(
-      "(() => { const input = document.querySelector('.login-form input[type=password]'); input.value = 'fixture'; input.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('.login-form button[type=submit]').click() })()"
-    )
+    await evaluate(fixtureLogin)
     await until(() => evaluate("document.querySelectorAll('.nav-item').length >= 15"))
   }
   await call('Page.enable') /* 开启导航与截图。 */
@@ -158,9 +159,7 @@ try {
   ) /* 登录按钮与主题变量都应采用品牌陶土色。 */
   const loginCapture = await call('Page.captureScreenshot', { format: 'png' }) /* 留存登录页视觉检查截图。 */
   await writeFile(join(tmpdir(), 'iot-brand-login.png'), Buffer.from(loginCapture.data, 'base64')) /* 保存登录页截图。 */
-  await evaluate(
-    "(() => { const input = document.querySelector('.login-form input[type=password]'); input.value = 'fixture'; input.dispatchEvent(new Event('input', { bubbles: true })); document.querySelector('.login-form button[type=submit]').click() })()"
-  ) /* 完成夹具登录。 */
+  await evaluate(fixtureLogin) /* 完成夹具登录。 */
   await until(() => evaluate("document.querySelectorAll('.nav-item').length >= 15")) /* 确认全部主菜单可见。 */
   const asideBrand = await evaluate(
     "(() => {const aside=document.querySelector('.app-sidebar'),menu=aside.querySelector('.nav-item:not(.is-active)'),logo=aside.querySelector('.app-sidebar__brand img');return {background:getComputedStyle(aside).backgroundColor,menu:getComputedStyle(menu).color,logo:logo?.naturalWidth||0}})()"
@@ -230,7 +229,7 @@ try {
     if (name === '智能助手')
       assert.ok(
         await evaluate(
-          "(() => {const workbench=document.querySelector('.ai-workbench'),chat=document.querySelector('.ai-chat-card'),label=document.querySelector('.chat-workflow-label'),select=document.querySelector('.chat-workflow-select'),actions=document.querySelector('.chat-header-actions'),prompts=document.querySelector('.quick-prompts'),promptLabel=document.querySelector('.quick-prompts-label'),firstPrompt=document.querySelector('.quick-prompts-list button'),log=document.querySelector('.chat-log');if(!workbench||!chat||!label||!select||!actions||!prompts||!promptLabel||!firstPrompt||!log)return false;const l=label.getBoundingClientRect(),s=select.getBoundingClientRect(),a=actions.getBoundingClientRect(),p=promptLabel.getBoundingClientRect(),b=firstPrompt.getBoundingClientRect(),q=prompts.getBoundingClientRect();return !document.querySelector('.control-card')&&chat.getBoundingClientRect().width>=workbench.getBoundingClientRect().width-2&&s.width>=220&&l.right+8<=s.left&&s.right+8<=a.left&&p.right+8<=b.left&&q.bottom<=log.getBoundingClientRect().top+2&&document.querySelector('.n-card-header').getBoundingClientRect().height<=85})()"
+          "(() => {const workbench=document.querySelector('.ai-workbench'),chat=document.querySelector('.ai-chat-card'),label=document.querySelector('.chat-workflow-label'),select=document.querySelector('.chat-workflow-select'),actions=document.querySelector('.chat-header-actions'),prompts=document.querySelector('.quick-prompts'),promptLabel=document.querySelector('.quick-prompts-label'),firstPrompt=document.querySelector('.quick-prompts-list button'),log=document.querySelector('.chat-log');if(!workbench||!chat||!label||!select||!actions||!prompts||!promptLabel||!firstPrompt||!log)return false;const l=label.getBoundingClientRect(),s=select.getBoundingClientRect(),a=actions.getBoundingClientRect(),p=promptLabel.getBoundingClientRect(),b=firstPrompt.getBoundingClientRect(),q=prompts.getBoundingClientRect();return !document.querySelector('.control-card')&&chat.getBoundingClientRect().right>=workbench.getBoundingClientRect().right-2&&chat.getBoundingClientRect().width>=workbench.getBoundingClientRect().width*0.6&&s.width>=220&&l.right+8<=s.left&&s.right+8<=a.left&&p.right+8<=b.left&&q.bottom<=log.getBoundingClientRect().top+2&&document.querySelector('.n-card-header').getBoundingClientRect().height<=85})()"
         ),
         '智能助手工具栏或快捷提问排列不清晰'
       )
@@ -395,6 +394,11 @@ try {
     await evaluate(
       "(() => {const overlay=[...document.querySelectorAll('.n-modal,.n-drawer')].find(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden'),close=[...overlay.querySelectorAll('.n-card__footer button')].find(button=>button.getClientRects().length&&['关闭','取消','关闭详情','关闭弹窗'].includes(button.innerText.trim())&&!button.disabled);(close||overlay.querySelector('.n-base-close'))?.click()})()"
     )
+    await delay(200)
+    // 检查中改过表单（如设备标签）时，关闭前会先确认放弃未保存的修改。
+    await evaluate(
+      "[...document.querySelectorAll('.n-dialog button')].find(button=>button.getClientRects().length&&button.innerText.trim()==='放弃修改')?.click()"
+    )
     await until(() =>
       evaluate(
         "![...document.querySelectorAll('.n-modal,.n-drawer')].some(item=>item.getClientRects().length&&getComputedStyle(item).visibility!=='hidden')"
@@ -444,7 +448,7 @@ try {
   await until(() => evaluate("Boolean(document.querySelector('.n-modal .user-editor'))"))
   assert.ok(
     await evaluate(
-      "(() => {const m=document.querySelector('.user-editor').closest('.n-modal'),grid=m.querySelector('.user-editor-grid'),items=[...grid.children],r=e=>e.getBoundingClientRect();return items.length===4 && r(items[0]).top===r(items[1]).top && r(items[2]).top===r(items[3]).top && !m.querySelector('.user-editor-permissions details').open && m.querySelector('.user-editor-switch [role=switch]')})()"
+      "(() => {const m=document.querySelector('.user-editor').closest('.n-modal'),grid=m.querySelector('.user-editor-grid'),items=[...grid.children],r=e=>e.getBoundingClientRect();return items.length>=4 && items.every((e,i)=>i%2===1||!items[i+1]||r(items[i+1]).top===r(e).top) && !m.querySelector('.user-editor-permissions details').open && m.querySelector('.user-editor-switch [role=switch]')})()"
     ),
     '添加用户账户信息分栏、状态或权限折叠区异常'
   )
@@ -476,7 +480,7 @@ try {
   await until(() => evaluate("Boolean(document.querySelector('.knowledge-upload-dialog'))"))
   assert.ok(
     await evaluate(
-      "(() => {const m=document.querySelector('.knowledge-upload-dialog'),sections=m.querySelectorAll('.knowledge-upload-section'),select=m.querySelector('.knowledge-upload-form .n-select'),tip=m.querySelector('.field-tip'),r=e=>e.getBoundingClientRect();return sections.length===2 && r(sections[1]).top>=r(sections[0]).bottom && r(tip).top>=r(select).bottom && r(tip).right<=r(m).right})()"
+      "(() => {const m=document.querySelector('.knowledge-upload-dialog'),sections=m.querySelectorAll('.knowledge-upload-section'),select=m.querySelector('.knowledge-upload-form .n-select'),tip=m.querySelector('.field-tip'),r=e=>e.getBoundingClientRect();return sections.length===2 && r(sections[1]).top>=r(sections[0]).bottom && (!tip || (r(tip).top>=r(select).bottom && r(tip).right<=r(m).right))})()"
     ),
     '知识上传步骤或字段说明出现重叠'
   )
@@ -713,6 +717,8 @@ try {
   await evaluate(
     "[...document.querySelectorAll('.n-data-table-tbody button')].find(button=>button.innerText.includes('查看详情')).click()"
   ) /* 打开告警详情。 */
+  await until(() => evaluate("Boolean(document.querySelector('.alarm-detail-dialog details.raw-detail'))"))
+  await evaluate("document.querySelector('.alarm-detail-dialog details.raw-detail').open = true") /* 原始数据默认折叠，展开后检查长报文。 */
   await until(() =>
     evaluate(
       "Boolean([...document.querySelectorAll('.n-modal')].find(modal=>modal.getClientRects().length && modal.innerText.includes('diagnosticLines')))"
@@ -903,6 +909,14 @@ try {
     evaluate(`document.querySelector('.n-modal [role=switch]').getAttribute('aria-checked') !== ${JSON.stringify(initialSwitch)}`)
   ) /* 确认状态反转。 */
   await evaluate("document.querySelector('.n-modal .n-base-close').click()") /* 离开未保存的设备表单。 */
+  await until(() =>
+    evaluate(
+      "Boolean([...document.querySelectorAll('.n-dialog button')].find(button=>button.getClientRects().length&&button.innerText.trim()==='放弃修改'))"
+    )
+  ) /* 有未保存修改时先确认放弃。 */
+  await evaluate(
+    "[...document.querySelectorAll('.n-dialog button')].find(button=>button.getClientRects().length&&button.innerText.trim()==='放弃修改').click()"
+  )
   await until(() =>
     evaluate("![...document.querySelectorAll('.n-modal')].some(modal => modal.getClientRects().length)")
   ) /* 确认弹窗关闭。 */
@@ -1135,10 +1149,14 @@ try {
     '账户菜单被横向 flex 样式破坏'
   ) /* 菜单须按列表纵向排布。 */
   const logoutLayout = await evaluate(
-    "(() => {const label=[...document.querySelectorAll('.ui-dropdown-label')].find(item=>item.getClientRects().length),icon=label.querySelector('svg').getBoundingClientRect(),text=label.getBoundingClientRect();return {width:text.width,height:text.height,iconHeight:icon.height,display:getComputedStyle(label).display}})()"
-  ) /* 读取退出菜单布局。 */
+    "(() => {const label=[...document.querySelectorAll('.ui-dropdown-label')].find(item=>item.getClientRects().length&&item.innerText.includes('退出登录')),icon=label.querySelector('svg').getBoundingClientRect(),node=[...label.childNodes].find(n=>n.nodeType===3&&n.textContent.includes('退出登录')),range=document.createRange();range.selectNodeContents(node);const lines=range.getClientRects(),text=range.getBoundingClientRect();return {lines:lines.length,iconRight:icon.right,textLeft:text.left,iconMid:icon.top+icon.height/2,textTop:text.top,textBottom:text.bottom,display:getComputedStyle(label).display}})()"
+  ) /* 读取退出菜单布局：图标与文字的实际位置，不依赖字体宽度。 */
   assert.ok(
-    logoutLayout.width > 60 && logoutLayout.iconHeight <= logoutLayout.height && logoutLayout.display === 'inline-flex',
+    logoutLayout.lines === 1 &&
+      logoutLayout.iconRight <= logoutLayout.textLeft + 1 &&
+      logoutLayout.iconMid >= logoutLayout.textTop &&
+      logoutLayout.iconMid <= logoutLayout.textBottom &&
+      logoutLayout.display === 'inline-flex',
     `退出登录图标与文字未排在同一行：${JSON.stringify(logoutLayout)}`
   ) /* 菜单项完整显示。 */
   await evaluate(
