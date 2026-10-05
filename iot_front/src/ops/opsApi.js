@@ -1,6 +1,8 @@
 // 运维中心接口封装：所有请求都走平台 API，浏览器不接触组件地址与凭据。
-import { api, ApiError, session } from '../api'
+import { api, apiResponse, isAbort, latest, saveBlob } from '../api'
 import { consumeSSE } from '../sse'
+
+export { isAbort, latest }
 
 function withQuery(path, params = {}) {
   const query = new URLSearchParams()
@@ -15,28 +17,6 @@ function withQuery(path, params = {}) {
 export const opsGet = (path, params, signal) => api(withQuery(path, params), { signal })
 export const opsSend = (method, path, body, signal) =>
   api(path, { method, body: body === undefined ? undefined : JSON.stringify(body), signal })
-
-export const isAbort = error => error?.name === 'AbortError'
-
-// latest 为同一数据块只保留最新请求：发起新请求时取消旧请求，旧结果不会覆盖新结果。
-export function latest() {
-  let controller = null
-  let version = 0
-  return {
-    async run(task) {
-      controller?.abort()
-      controller = new AbortController()
-      const current = ++version
-      const result = await task(controller.signal)
-      if (current !== version) throw Object.assign(new Error('stale'), { name: 'AbortError' })
-      return result
-    },
-    cancel() {
-      controller?.abort()
-      version++
-    }
-  }
-}
 
 // ops 错误码对应的中文说明；后端 detail 已是中文时直接显示。
 export function opsErrorText(error) {
@@ -56,39 +36,16 @@ export function opsErrorText(error) {
 
 // tailLogs 通过平台 SSE 接收实时日志，signal 取消时关闭连接。
 export async function tailLogs(params, onEvent, signal) {
-  const response = await fetch(withQuery('/api/v1/ops/logs/tail', params), {
-    headers: { Accept: 'text/event-stream', Authorization: `Bearer ${session.token}` },
-    signal,
-    cache: 'no-store'
-  })
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}))
-    if (response.status === 401) window.dispatchEvent(new Event('iot:unauthorized'))
-    throw new ApiError(data.detail || '实时日志连接失败', { ...data, status: response.status })
-  }
+  const response = await apiResponse(withQuery('/api/v1/ops/logs/tail', params), { signal }, 'text/event-stream')
   await consumeSSE(response.body, onEvent)
 }
 
 // exportLogs 下载有限量导出文件，并返回实际行数与是否截断。
 export async function exportLogs(body) {
-  const response = await fetch('/api/v1/ops/logs/export', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.token}` },
-    body: JSON.stringify(body)
-  })
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({}))
-    throw new ApiError(data.detail || '导出失败', { ...data, status: response.status })
-  }
+  const response = await apiResponse('/api/v1/ops/logs/export', { method: 'POST', body: JSON.stringify(body) })
   const disposition = response.headers.get('Content-Disposition') || ''
   const filename = disposition.match(/filename="([^"]+)"/)?.[1] || 'logs.jsonl'
-  const blob = await response.blob()
-  const url = URL.createObjectURL(blob)
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  saveBlob(await response.blob(), filename)
   return {
     filename,
     lines: Number(response.headers.get('X-Export-Lines') || 0),
@@ -97,12 +54,7 @@ export async function exportLogs(body) {
 }
 
 export function downloadJSON(data, filename) {
-  const url = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }))
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  saveBlob(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }), filename)
 }
 
 export async function copyText(text) {

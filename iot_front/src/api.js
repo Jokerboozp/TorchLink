@@ -73,16 +73,76 @@ async function responseError(path, response) {
   })
 }
 
+// 读取请求默认 60 秒超时，避免列表因挂起的连接一直处于加载中；写操作可能
+// 触发编译、报告等长任务，只有调用方传入 timeout 时才设上限。
+const DEFAULT_READ_TIMEOUT_MS = 60000
+
+function withTimeout(signal, timeout) {
+  if (!timeout || typeof AbortSignal?.timeout !== 'function') return signal
+  const limit = AbortSignal.timeout(timeout)
+  if (!signal) return limit
+  return typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, limit]) : signal
+}
+
+async function send(path, init) {
+  try {
+    return await fetch(path, init)
+  } catch (error) {
+    if (error?.name === 'TimeoutError') throw new ApiError('请求超时，请稍后重试', { code: 'REQUEST_TIMEOUT', retryable: true })
+    throw error
+  }
+}
+
 export async function api(path, options = {}) {
-  const headers = headersFor(options)
-  const request = { ...options, headers }
+  const { timeout, ...rest } = options
+  const read = String(rest.method || 'GET').toUpperCase() === 'GET'
+  const request = { ...rest, headers: headersFor(rest), signal: withTimeout(rest.signal, timeout ?? (read ? DEFAULT_READ_TIMEOUT_MS : 0)) }
   // API responses are tenant-scoped and frequently change while an operator
   // is managing devices, rules, or workflow plugins. Do not let the browser
   // reuse an older GET response after a mutation followed by a refresh.
-  if (request.cache == null && String(request.method || 'GET').toUpperCase() === 'GET') request.cache = 'no-store'
-  const response = await fetch(path, request)
+  if (request.cache == null && read) request.cache = 'no-store'
+  const response = await send(path, request)
   if (!response.ok) throw await responseError(path, response)
   return response.json().catch(() => ({}))
+}
+
+// latest 为同一数据块只保留最新请求：发起新请求时取消旧请求，旧结果不会覆盖新结果。
+export function latest() {
+  let controller = null
+  let version = 0
+  return {
+    async run(task) {
+      controller?.abort()
+      controller = new AbortController()
+      const current = ++version
+      const result = await task(controller.signal)
+      if (current !== version) throw Object.assign(new Error('stale'), { name: 'AbortError' })
+      return result
+    },
+    cancel() {
+      controller?.abort()
+      version++
+    }
+  }
+}
+
+export const isAbort = error => error?.name === 'AbortError'
+
+// 浏览器下载由接口返回的文件或本地生成的内容。
+export function saveBlob(blob, filename) {
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = filename
+  anchor.click()
+  setTimeout(() => URL.revokeObjectURL(url), 1000)
+}
+
+// 带登录凭据的原始请求：供 SSE 与需要读取响应头的下载使用，错误处理与 api() 一致。
+export async function apiResponse(path, options = {}, accept = '') {
+  const response = await send(path, { cache: 'no-store', ...options, headers: headersFor(options, accept) })
+  if (!response.ok) throw await responseError(path, response)
+  return response
 }
 
 // Protected attachments use the same session/error handling as JSON requests.
@@ -95,7 +155,11 @@ export async function apiBlob(path, options = {}) {
 
 // Conditional GET for polled views: an unchanged response is 304 without a body.
 export async function apiIfChanged(path, etag = '') {
-  const response = await fetch(path, { cache: 'no-store', headers: headersFor({ headers: etag ? { 'If-None-Match': etag } : {} }) })
+  const response = await send(path, {
+    cache: 'no-store',
+    headers: headersFor({ headers: etag ? { 'If-None-Match': etag } : {} }),
+    signal: withTimeout(undefined, 20000)
+  })
   if (response.status === 304) return { changed: false, etag }
   if (!response.ok) throw await responseError(path, response)
   return { changed: true, etag: response.headers.get('ETag') || '', data: await response.json().catch(() => ({})) }
@@ -129,12 +193,7 @@ export async function download(path, filename, options = {}) {
   if (!response.ok) {
     throw await responseError(path, response)
   }
-  const url = URL.createObjectURL(await response.blob())
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = filename
-  anchor.click()
-  setTimeout(() => URL.revokeObjectURL(url), 1000)
+  saveBlob(await response.blob(), filename)
 }
 
 export function notifyError(error) {

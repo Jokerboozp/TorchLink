@@ -122,9 +122,13 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
+      // vendor 块集中了组件库与框架（约 1 MB，gzip 约 270 kB），其余分块远小于此。
+      chunkSizeWarningLimit: 1100,
       rollupOptions: {
         output: {
           entryFileNames: 'app.js',
+          // 组件库与框架单独成块：业务代码更新后浏览器仍可复用缓存。
+          manualChunks: id => (/[\\/]node_modules[\\/]/.test(id) && !/[\\/](mqtt|hls\.js|uplot)[\\/]/.test(id) ? 'vendor' : undefined),
           chunkFileNames: 'assets/[name]-[hash].js',
           assetFileNames: 'assets/[name]-[hash][extname]'
         }

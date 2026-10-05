@@ -1,16 +1,28 @@
-import mqtt from 'mqtt'
 import { api, apiIfChanged, session } from './api'
 import { permissionState, refreshPermissions, applyAccessVersion } from './permissions'
+
+// 轮询间隔：页面可见 3 秒，后台 15 秒；连续失败按倍数退避，最长 60 秒。
+const POLL_MS = 3000
+const HIDDEN_POLL_MS = 15000
+const MAX_BACKOFF_MS = 60000
 
 let client
 let pollTimer
 let brokerTimer
 let generation = 0
+let wakePoll = null
+
+const pageHidden = () => Boolean(globalThis.document?.hidden)
+function onVisibility() {
+  if (!pageHidden()) wakePoll?.()
+}
 
 export function stopRealtime() {
   generation++
   clearTimeout(pollTimer)
   clearTimeout(brokerTimer)
+  globalThis.document?.removeEventListener?.('visibilitychange', onVisibility)
+  wakePoll = null
   client?.end(true)
   client = undefined
 }
@@ -48,7 +60,22 @@ export async function startRealtime(onMessage) {
   let polls = 0
   let overflow = false
   let deviceTotal
+  let failures = 0
+  let polling = false
+  const schedule = () => {
+    if (run !== generation) return
+    const base = pageHidden() ? HIDDEN_POLL_MS : POLL_MS
+    pollTimer = setTimeout(poll, failures ? Math.min(base * 2 ** failures, MAX_BACKOFF_MS) : base)
+  }
+  // 回到页面时立即刷新一次，不等后台的长间隔或失败退避。
+  wakePoll = () => {
+    if (polling || run !== generation) return
+    clearTimeout(pollTimer)
+    void poll()
+  }
+  globalThis.document?.addEventListener?.('visibilitychange', onVisibility)
   const poll = async () => {
+    polling = true
     try {
       // Deltas never list rows that left the snapshot; a periodic full
       // snapshot drops them so the comparison map stays bounded.
@@ -56,60 +83,66 @@ export async function startRealtime(onMessage) {
       const path = cursor ? `/api/v1/events?since=${encodeURIComponent(cursor)}` : '/api/v1/events'
       const result = await apiIfChanged(path, etag)
       if (run !== generation) return
+      failures = 0
       if (!result.changed) {
         // Changes outside the bounded window still require occasional list invalidation.
         if (overflow && polls % 10 === 0) onMessage?.(`/iot/snapshot/refresh/${session.tenant}`, '{}')
-        pollTimer = setTimeout(poll, 3000)
-        return
-      }
-      etag = result.etag
-      const data = result.data
-      cursor = data.cursor || ''
-      overflow = Boolean(data.truncated)
-      applyAccessVersion(data.accessVersion)
-      permissionState.items = data.permissions || []
-      // Count comes from the same scoped page query. Window rotation is not a
-      // new device, but population growth must still notify a large registry.
-      if (data.truncated && deviceTotal !== undefined && data.deviceTotal > deviceTotal) {
-        onMessage?.(`/iot/device/added/${session.tenant}`, JSON.stringify({ total: data.deviceTotal }))
-      }
-      deviceTotal = data.deviceTotal
-      const next = data.delta && previous ? new Map(previous) : new Map()
-      for (const [kind, values] of [
-        ['alarm', data.alarms],
-        ['state', data.devices]
-      ]) {
-        for (const value of values || []) {
-          const key = kind + ':' + (value.alarmId || value.deviceId)
-          const payload = JSON.stringify(value)
-          next.set(key, payload)
-          if (previous && previous.get(key) !== payload) {
-            const delivered = brokerDelivered.get(key)
-            // Only an untruncated snapshot proves that an absent row is new.
-            const added = kind === 'state' && !previous.has(key) && !data.truncated
-            if (added || delivered?.payload !== payload || delivered.expiresAt <= Date.now())
-              onMessage?.(`/iot/${kind === 'alarm' ? 'alarm/raised' : 'device/state'}/${session.tenant}`, payload, { added })
+      } else {
+        etag = result.etag
+        const data = result.data
+        cursor = data.cursor || ''
+        overflow = Boolean(data.truncated)
+        applyAccessVersion(data.accessVersion)
+        permissionState.items = data.permissions || []
+        // Count comes from the same scoped page query. Window rotation is not a
+        // new device, but population growth must still notify a large registry.
+        if (data.truncated && deviceTotal !== undefined && data.deviceTotal > deviceTotal) {
+          onMessage?.(`/iot/device/added/${session.tenant}`, JSON.stringify({ total: data.deviceTotal }))
+        }
+        deviceTotal = data.deviceTotal
+        const next = data.delta && previous ? new Map(previous) : new Map()
+        for (const [kind, values] of [
+          ['alarm', data.alarms],
+          ['state', data.devices]
+        ]) {
+          for (const value of values || []) {
+            const key = kind + ':' + (value.alarmId || value.deviceId)
+            const payload = JSON.stringify(value)
+            next.set(key, payload)
+            if (previous && previous.get(key) !== payload) {
+              const delivered = brokerDelivered.get(key)
+              // Only an untruncated snapshot proves that an absent row is new.
+              const added = kind === 'state' && !previous.has(key) && !data.truncated
+              if (added || delivered?.payload !== payload || delivered.expiresAt <= Date.now())
+                onMessage?.(`/iot/${kind === 'alarm' ? 'alarm/raised' : 'device/state'}/${session.tenant}`, payload, { added })
+            }
           }
         }
-      }
-      // The snapshot is a bounded notification window. Lists remain the source
-      // of truth; overflow invalidates them instead of inventing missing rows.
-      if (data.truncated && previous) onMessage?.(`/iot/snapshot/refresh/${session.tenant}`, '{}')
-      while (next.size > 1000) next.delete(next.keys().next().value)
-      previous = next
-      for (const [key, delivered] of brokerDelivered) {
-        if (delivered.expiresAt <= Date.now()) brokerDelivered.delete(key)
+        // The snapshot is a bounded notification window. Lists remain the source
+        // of truth; overflow invalidates them instead of inventing missing rows.
+        if (data.truncated && previous) onMessage?.(`/iot/snapshot/refresh/${session.tenant}`, '{}')
+        while (next.size > 1000) next.delete(next.keys().next().value)
+        previous = next
+        for (const [key, delivered] of brokerDelivered) {
+          if (delivered.expiresAt <= Date.now()) brokerDelivered.delete(key)
+        }
       }
     } catch (error) {
       if (run !== generation) return
       // Keep the last successful snapshot across transient network failures.
       if (error.status === 403) {
+        polling = false
         await refreshPermissions().catch(() => {})
         return
       }
-      if (error.status === 401) return
+      if (error.status === 401) {
+        polling = false
+        return
+      }
+      failures++
     }
-    if (run === generation) pollTimer = setTimeout(poll, 3000)
+    polling = false
+    schedule()
   }
   void poll()
   if (session.role !== 'admin') return
@@ -119,11 +152,14 @@ export async function startRealtime(onMessage) {
     try {
       const auth = await api('/api/v1/mqtt/token', { method: 'POST' })
       if (run !== generation) return
+      // MQTT 客户端只有管理员需要，按需加载，不进入首屏包。
+      const { default: mqttLib } = await import('mqtt')
+      if (run !== generation) return
       client?.end(true)
       // A client ID is only a connection identifier, not a credential.
       // randomUUID is unavailable on HTTP origins other than localhost.
       const id = globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
-      const connection = mqtt.connect(auth.websocketUrl, {
+      const connection = mqttLib.connect(auth.websocketUrl, {
         username: auth.username,
         password: auth.token,
         clientId: `iot-web-${id}`,

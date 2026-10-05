@@ -83,12 +83,14 @@ test('inherited device summary unions only assigned roles and handles unconfigur
 })
 
 function realtime(api, options = {}) {
-  const timers = [],
+  const delays = [],
+    timers = [],
     messages = [],
     permissionState = { items: [] }
   const source = fs
     .readFileSync(new URL('../src/realtime.js', import.meta.url), 'utf8')
     .replace(/^import\s[^'"]*['"][^'"]+['"];?$/gm, '')
+    .replace("import('mqtt')", 'Promise.resolve({ default: mqtt })')
     .replace(/export /g, '')
   // Mirrors the server ETag: an unchanged snapshot answers "not modified".
   const polls = { full: 0 }
@@ -114,8 +116,9 @@ function realtime(api, options = {}) {
       }
     },
     crypto: {},
-    setTimeout(fn) {
+    setTimeout(fn, ms) {
       timers.push(fn)
+      delays.push(ms)
       return timers.length
     },
     clearTimeout() {},
@@ -126,6 +129,7 @@ function realtime(api, options = {}) {
   return {
     ...context.subject,
     timers,
+    delays,
     messages,
     permissionState,
     polls,
@@ -152,6 +156,20 @@ test('受限用户按服务端范围接收新告警，不重播历史告警', as
   snapshot = { alarms: [], devices: [], permissions: [] }
   await r.timers.shift()()
   assert.equal(r.permissionState.items.length, 0)
+})
+test('事件轮询失败时逐次退避，恢复后回到常规间隔', async () => {
+  let failing = true
+  const r = realtime(async () => {
+    if (failing) throw Error('temporary network failure')
+    return { alarms: [], devices: [], permissions: [] }
+  })
+  await r.start()
+  await settle()
+  await r.timers.shift()()
+  assert.deepEqual(r.delays, [6000, 12000])
+  failing = false
+  await r.timers.shift()()
+  assert.equal(r.delays.at(-1), 3000)
 })
 test('退出登录后迟到的消息响应不能进入另一个用户的页面', async () => {
   let resolve

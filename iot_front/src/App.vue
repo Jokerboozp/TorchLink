@@ -186,8 +186,16 @@ watch(
   }
 )
 
+// 回到窗口时同步权限；实时轮询已在后台更新权限，30 秒内的重复焦点不再请求。
+let lastFocusSync = 0
+function syncOnFocus() {
+  if (Date.now() - lastFocusSync < 30000) return
+  void syncIdentity()
+}
+
 async function syncIdentity() {
   if (!authenticated.value) return
+  lastFocusSync = Date.now()
   try {
     await refreshPermissions()
     if (!routeApplied) applyRoute(true)
@@ -383,7 +391,7 @@ function unauthorized() {
 onMounted(async () => {
   window.addEventListener('iot:unauthorized', unauthorized)
   window.addEventListener('popstate', onPopState)
-  window.addEventListener('focus', syncIdentity)
+  window.addEventListener('focus', syncOnFocus)
   window.addEventListener('keydown', closeNavigationOnEscape)
   await syncIdentity()
   if (authenticated.value && can(['menu:devices', 'menu:alarms', 'menu:dashboard', 'menu:raw'])) connect()
@@ -392,7 +400,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('iot:unauthorized', unauthorized)
   window.removeEventListener('popstate', onPopState)
-  window.removeEventListener('focus', syncIdentity)
+  window.removeEventListener('focus', syncOnFocus)
   window.removeEventListener('keydown', closeNavigationOnEscape)
   stopRealtime()
 })
