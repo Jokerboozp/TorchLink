@@ -165,7 +165,9 @@ onMounted(async () => {
     // Ignore malformed navigation state.
   }
   await load()
-  if (navigation.messageId) await show(navigation.messageId)
+  // 告警弹窗传 messageId，接入与设备页传 rawMessageId，二者都指原始报文编号。
+  const messageId = navigation.messageId || navigation.rawMessageId
+  if (messageId) await show(messageId)
 })
 function rowActions(row) {
   return [

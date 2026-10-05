@@ -146,7 +146,8 @@ const server = http.createServer(async (req, res) => {
     return
   }
   try {
-    const pathname = u.pathname === '/' ? 'index.html' : u.pathname
+    // 与 nginx.conf 一致：无扩展名的页面地址回退到 index.html，支持刷新深链接。
+    const pathname = u.pathname === '/' || !extname(u.pathname) ? 'index.html' : u.pathname
     const content = await readFile(join(root, pathname))
     res.setHeader(
       'Content-Type',

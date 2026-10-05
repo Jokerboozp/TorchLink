@@ -210,11 +210,11 @@ async function syncIdentity() {
 let routeApplied = false
 function applyRoute(replace) {
   routeApplied = true
-  const { page, detail } = parsePath(window.location.pathname, pages)
+  const { page, detail } = parsePath(window.location.pathname, pages, window.location.search)
   if (page && can('menu:' + page)) openPage(page, detail, { history: false, force: true })
   else active.value = firstAllowedPage()
   if (replace || !page || !can('menu:' + page))
-    window.history.replaceState(null, '', pathFor(active.value, page === active.value ? detail : null) + window.location.search)
+    window.history.replaceState(null, '', pathFor(active.value, page === active.value ? detail : null))
 }
 function onPopState() {
   if (authenticated.value) applyRoute(false)
@@ -295,7 +295,7 @@ function openPage(name, detail, { history = true, force = false } = {}) {
   navOpen.value = false
   if (history) {
     const path = pathFor(name, detail)
-    if (path !== window.location.pathname) window.history.pushState(null, '', path)
+    if (path !== window.location.pathname + window.location.search) window.history.pushState(null, '', path)
   }
   if (active.value === name && !detail && !force) return
   sessionStorage.removeItem('iot:navigation-detail')
