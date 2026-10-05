@@ -30,7 +30,20 @@ type durableInbox struct {
 	mu        sync.Mutex
 	lastError error
 	pending   map[int]error
+	// maxPendingAge bounds how long one entry may keep failing at the head
+	// of its shard. After that it is quarantined (RetryRejected can replay
+	// it) so later messages on the shard, including fire alarms, keep flowing.
+	// Backpressure is expected and never quarantines.
+	maxPendingAge time.Duration
+	headFailures  map[int]headFailure
 }
+
+type headFailure struct {
+	messageID string
+	since     time.Time
+}
+
+const defaultInboxMaxPendingAge = 10 * time.Minute
 
 // Inbox sizing: shards are drained in parallel, so their number bounds how
 // many MQTT messages are ingested at once; the limits are split evenly.
@@ -69,7 +82,7 @@ func openInbox(root string, maxBytes int64, maxItems int) (*durableInbox, error)
 	if err != nil {
 		return nil, err
 	}
-	d := &durableInbox{pending: map[int]error{}, lock: lock}
+	d := &durableInbox{pending: map[int]error{}, lock: lock, maxPendingAge: defaultInboxMaxPendingAge, headFailures: map[int]headFailure{}}
 	for i := 0; i < inboxShards; i++ {
 		q, err := durablequeue.OpenQueue(filepath.Join(root, fmt.Sprint(i)), max(1, maxBytes/inboxShards), max(1, maxItems/inboxShards))
 		if err != nil {
@@ -196,6 +209,14 @@ func (d *durableInbox) start(c *Client) {
 				} else if permanent(err) {
 					c.logger().Warn("MQTT receive quarantined after rejection", "messageId", raw.MessageID, "error", err)
 					err = q.Reject(raw)
+				} else if d.stuck(index, raw.MessageID, err) {
+					c.logger().Error("MQTT receive quarantined after retrying too long", "messageId", raw.MessageID, "maxPendingAge", d.maxPendingAge.String(), "error", err)
+					err = q.Reject(raw)
+				}
+				if err == nil {
+					d.mu.Lock()
+					delete(d.headFailures, index)
+					d.mu.Unlock()
 				}
 				d.mu.Lock()
 				d.pending[index] = err
@@ -215,6 +236,24 @@ func (d *durableInbox) start(c *Client) {
 		}(index, queue)
 	}
 }
+
+// stuck records a retryable failure of the shard head and reports whether it
+// has kept failing for longer than maxPendingAge.
+func (d *durableInbox) stuck(index int, messageID string, err error) bool {
+	if errors.Is(err, model.ErrBackpressure) || d.maxPendingAge <= 0 {
+		return false
+	}
+	now := time.Now()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	head, ok := d.headFailures[index]
+	if !ok || head.messageID != messageID {
+		d.headFailures[index] = headFailure{messageID: messageID, since: now}
+		return false
+	}
+	return now.Sub(head.since) >= d.maxPendingAge
+}
+
 func (d *durableInbox) close() {
 	d.wg.Wait()
 	for _, q := range d.queues {

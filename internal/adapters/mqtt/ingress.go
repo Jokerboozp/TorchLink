@@ -24,7 +24,7 @@ func Reject(err error) error {
 }
 func permanent(err error) bool {
 	var r rejected
-	return errors.As(err, &r) || errors.Is(err, model.ErrRawConflict)
+	return errors.As(err, &r) || errors.Is(err, model.ErrRawConflict) || errors.Is(err, model.ErrPermanent)
 }
 func ingressID(topic string, payload []byte) string {
 	return fmt.Sprintf("mqtt_%x", sha256.Sum256(append([]byte(topic+"\x00"), payload...)))

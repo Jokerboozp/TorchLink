@@ -225,33 +225,47 @@ func (e *Engine) ensureGatewayChild(ctx context.Context, raw model.RawMessage) e
 	if raw.GatewayID == "" || raw.DeviceID == raw.GatewayID {
 		return nil
 	}
+	// Registration mismatches cannot be fixed by retrying the same message,
+	// so they are marked permanent: the MQTT inbox quarantines them and Kafka
+	// dead-letters them instead of blocking later messages behind them.
+	// Repository failures stay transient and are retried.
 	gateway, err := e.Repo.GetManagedDevice(ctx, raw.TenantID, raw.GatewayID)
+	if errors.Is(err, model.ErrNotFound) {
+		return model.Permanent(fmt.Errorf("gateway %s is not registered", raw.GatewayID))
+	}
 	if err != nil {
-		return fmt.Errorf("gateway %s is not registered", raw.GatewayID)
+		return fmt.Errorf("load gateway %s: %w", raw.GatewayID, err)
 	}
 	if gateway.DeviceRole != "GATEWAY" {
-		return fmt.Errorf("device %s is not configured as a gateway", gateway.ID)
+		return model.Permanent(fmt.Errorf("device %s is not configured as a gateway", gateway.ID))
 	}
 	if raw.ProductID == "" {
-		return fmt.Errorf("child productId is required")
+		return model.Permanent(fmt.Errorf("child productId is required"))
 	}
 	childProduct, err := e.Repo.GetProduct(ctx, raw.TenantID, raw.ProductID)
-	if err != nil || childProduct.Status != "ENABLED" {
-		return fmt.Errorf("child product is not enabled")
+	if err != nil && !errors.Is(err, model.ErrNotFound) {
+		return fmt.Errorf("load child product %s: %w", raw.ProductID, err)
 	}
-	if child, childErr := e.Repo.GetManagedDevice(ctx, raw.TenantID, raw.DeviceID); childErr == nil {
+	if err != nil || childProduct.Status != "ENABLED" {
+		return model.Permanent(fmt.Errorf("child product is not enabled"))
+	}
+	child, childErr := e.Repo.GetManagedDevice(ctx, raw.TenantID, raw.DeviceID)
+	if childErr == nil {
 		if child.DeviceRole != "CHILD" || child.GatewayID != gateway.ID {
-			return fmt.Errorf("device %s is already registered outside gateway %s", child.ID, gateway.ID)
+			return model.Permanent(fmt.Errorf("device %s is already registered outside gateway %s", child.ID, gateway.ID))
 		}
 		if child.ProductID != raw.ProductID {
-			return fmt.Errorf("child device product does not match its registration")
+			return model.Permanent(fmt.Errorf("child device product does not match its registration"))
 		}
 		return nil
+	}
+	if !errors.Is(childErr, model.ErrNotFound) {
+		return fmt.Errorf("load child device %s: %w", raw.DeviceID, childErr)
 	}
 	now := e.Clock.Now().UnixMilli()
 	secret := id("child_secret")
 	hash := sha256.Sum256([]byte(secret))
-	child := model.ManagedDevice{
+	child = model.ManagedDevice{
 		ID:                 raw.DeviceID,
 		TenantID:           raw.TenantID,
 		ProductID:          raw.ProductID,

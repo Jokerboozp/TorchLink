@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -680,4 +681,38 @@ func TestInboxDirectoryIsExclusiveToOneProcess(t *testing.T) {
 		t.Fatal("inbox not released on close", err)
 	}
 	again.close()
+}
+
+// A message that keeps failing with a retryable error is quarantined after
+// maxPendingAge so the rest of its shard is not blocked forever; a permanent
+// error is quarantined at once.
+func TestInboxQuarantinesStuckHeadAndKeepsShardFlowing(t *testing.T) {
+	d, err := openInbox(t.TempDir(), 8<<20, 8000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.maxPendingAge = 50 * time.Millisecond
+	c := inboxClient(t, d)
+	topic := "/iot/up/t/p/d/property"
+	var delivered sync.Map
+	c.routes["standard"] = func(_ context.Context, _ string, payload []byte) error {
+		switch string(payload) {
+		case `{"id":"stuck"}`:
+			return errors.New("transient failure that never clears")
+		case `{"id":"gone"}`:
+			return model.Permanent(errors.New("gateway g is not registered"))
+		}
+		delivered.Store(string(payload), true)
+		return nil
+	}
+	for _, body := range []string{`{"id":"stuck"}`, `{"id":"gone"}`, `{"id":"next"}`} {
+		if err = d.put(topic, []byte(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	d.start(c)
+	eventually(t, func() bool { _, ok := delivered.Load(`{"id":"next"}`); return ok })
+	if _, rejected, _ := c.InboxCounts(); rejected != 2 {
+		t.Fatalf("stuck and permanent entries should both be quarantined, rejected=%d", rejected)
+	}
 }

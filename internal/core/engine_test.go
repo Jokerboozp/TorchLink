@@ -186,6 +186,17 @@ func TestGatewayAutomaticallyRegistersChildDevice(t *testing.T) {
 	if child.DeviceRole != "CHILD" || child.GatewayID != "gateway_1" || !child.AutoRegistered || child.RegistrationSource != "GATEWAY_AUTO" || child.ProductID != "sensor_product" {
 		t.Fatalf("unexpected child registration %#v", child)
 	}
+	// Registration mismatches are permanent so durable inboxes quarantine
+	// them instead of retrying them at the head of their queue forever.
+	for name, bad := range map[string]model.RawMessage{
+		"unknown gateway":  {MessageID: "raw_bad_1", TenantID: "t1", ProductID: "sensor_product", DeviceID: "child_2", GatewayID: "gateway_missing", Protocol: "json", PayloadFormat: "json", Payload: json.RawMessage(`{}`)},
+		"not a gateway":    {MessageID: "raw_bad_2", TenantID: "t1", ProductID: "sensor_product", DeviceID: "child_3", GatewayID: "child_1", Protocol: "json", PayloadFormat: "json", Payload: json.RawMessage(`{}`)},
+		"disabled product": {MessageID: "raw_bad_3", TenantID: "t1", ProductID: "missing_product", DeviceID: "child_4", GatewayID: "gateway_1", Protocol: "json", PayloadFormat: "json", Payload: json.RawMessage(`{}`)},
+	} {
+		if _, _, ingestErr := e.IngestRaw(ctx, bad); !errors.Is(ingestErr, model.ErrPermanent) {
+			t.Fatalf("%s: expected a permanent error, got %v", name, ingestErr)
+		}
+	}
 }
 
 func TestStateChangeIsStoredAsStandardMessage(t *testing.T) {
