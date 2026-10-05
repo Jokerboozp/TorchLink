@@ -412,3 +412,40 @@ func TestClusterModeRefusesUnmigratedSingleNodeTables(t *testing.T) {
 		t.Fatal("invalid cluster name accepted")
 	}
 }
+
+// A process restart finds the schema in place and queues no DDL, while a
+// forced run (cluster-init) issues every statement.
+func TestSchemaStatementsSkipExistingObjects(t *testing.T) {
+	for _, force := range []bool{false, true} {
+		var mu sync.Mutex
+		var ddl []string
+		server := newClickHouseTestServer(t, func(query string, w http.ResponseWriter) bool {
+			switch {
+			case strings.Contains(query, "FROM system.databases"):
+				_, _ = w.Write([]byte(`{"total":"1"}` + "\n"))
+			case strings.Contains(query, "FROM system.tables WHERE database=currentDatabase()") && strings.Contains(query, "UNION ALL"):
+				for _, row := range []string{
+					`{"t":"iot_telemetry_local","c":"","i":""}`, `{"t":"iot_telemetry","c":"","i":""}`, `{"t":"iot_raw_message_local","c":"","i":""}`, `{"t":"iot_raw_message","c":"","i":""}`,
+					`{"t":"iot_telemetry_local","c":"properties_text","i":""}`, `{"t":"iot_telemetry","c":"properties_text","i":""}`,
+					`{"t":"iot_telemetry_local","c":"","i":"idx_message_id"}`, `{"t":"iot_raw_message_local","c":"","i":"idx_message_id"}`,
+				} {
+					_, _ = w.Write([]byte(row + "\n"))
+				}
+			case strings.HasPrefix(query, "CREATE") || strings.HasPrefix(query, "ALTER TABLE") && !strings.Contains(query, "TTL") && !strings.Contains(query, "COMMENT") && !strings.Contains(query, "SETTING"):
+				mu.Lock()
+				ddl = append(ddl, query)
+				mu.Unlock()
+			default:
+				return false
+			}
+			return true
+		})
+		if _, err := NewWithOptions(context.Background(), server.URL+"?database=iot", memory.NewRepository(), Options{Cluster: "iot_cluster", ForceSchema: force}); err != nil {
+			t.Fatal(err)
+		}
+		server.Close()
+		if want := map[bool]int{false: 0, true: len(SchemaStatements("iot_cluster")) + 1}[force]; len(ddl) != want {
+			t.Fatalf("force=%v: %d DDL statements, want %d: %v", force, len(ddl), want, ddl)
+		}
+	}
+}

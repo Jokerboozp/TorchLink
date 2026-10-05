@@ -266,7 +266,7 @@ func main() {
 		if *execute {
 			// Creates the database and the replicated and Distributed tables
 			// on every node (ON CLUSTER), as the platform would on start.
-			if _, err := clickhouseadapter.NewWithOptions(ctx, cfg.ClickHouseURL, nil, clickhouseadapter.Options{Cluster: cfg.ClickHouseCluster, InsertQuorum: cfg.ClickHouseInsertQuorum, TelemetryTTLDays: cfg.Retention.TelemetryDays, RawTTLDays: cfg.Retention.ClickRawDays}); err != nil {
+			if _, err := clickhouseadapter.NewWithOptions(ctx, cfg.ClickHouseURL, nil, clickhouseadapter.Options{Cluster: cfg.ClickHouseCluster, InsertQuorum: cfg.ClickHouseInsertQuorum, TelemetryTTLDays: cfg.Retention.TelemetryDays, RawTTLDays: cfg.Retention.ClickRawDays, ForceSchema: true}); err != nil {
 				checks = append(checks, check{Name: "clickhouse create tables", Detail: err.Error()})
 				ok = false
 			}

@@ -42,6 +42,11 @@ type Options struct {
 	// 0 keeps them forever.
 	TelemetryTTLDays int
 	RawTTLDays       int
+	// ForceSchema runs every schema statement. Otherwise statements whose
+	// table, column or index already exists in this node's database are
+	// skipped, so restarting many processes does not queue the same
+	// ON CLUSTER DDL again; cluster-init forces it to cover new nodes.
+	ForceSchema bool
 }
 
 var clusterNamePattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -121,12 +126,22 @@ func NewWithOptions(ctx context.Context, base string, repo ports.Repository, opt
 		params.Del("database")
 		bootstrapURL.RawQuery = params.Encode()
 		bootstrap := &Repository{Repository: repo, base: strings.TrimRight(bootstrapURL.String(), "/"), http: r.http}
-		create := "CREATE DATABASE IF NOT EXISTS " + database
-		if opts.Cluster != "" {
-			create += " ON CLUSTER " + opts.Cluster
+		exists := false
+		if !opts.ForceSchema {
+			body, err := bootstrap.query(ctx, "SELECT count() AS total FROM system.databases WHERE name="+quote(database)+" FORMAT JSONEachRow", nil)
+			if err == nil {
+				n, _ := decodeCount(body)
+				exists = n > 0
+			}
 		}
-		if _, err = bootstrap.query(ctx, create, nil); err != nil {
-			return nil, err
+		if !exists {
+			create := "CREATE DATABASE IF NOT EXISTS " + database
+			if opts.Cluster != "" {
+				create += " ON CLUSTER " + opts.Cluster
+			}
+			if _, err = bootstrap.query(ctx, create, nil); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if opts.Cluster != "" {
@@ -134,7 +149,14 @@ func NewWithOptions(ctx context.Context, base string, repo ports.Repository, opt
 			return nil, err
 		}
 	}
+	existing := schemaObjects{}
+	if !opts.ForceSchema {
+		existing = r.existingSchema(ctx)
+	}
 	for _, statement := range SchemaStatements(opts.Cluster) {
+		if existing.covers(statement) {
+			continue
+		}
 		if _, err = r.query(ctx, statement, nil); err != nil {
 			return nil, err
 		}
@@ -431,4 +453,56 @@ func decodeCount(body []byte) (int, error) {
 		return 0, fmt.Errorf("invalid clickhouse count %q", row.Total)
 	}
 	return total, nil
+}
+
+// schemaObjects are the tables, columns and indexes present in this node's
+// database, keyed "table", "table.column" and "table#index".
+type schemaObjects map[string]bool
+
+var (
+	createTablePattern = regexp.MustCompile(`^CREATE TABLE IF NOT EXISTS (\w+)`)
+	addIndexPattern    = regexp.MustCompile(`^ALTER TABLE (\w+)(?: ON CLUSTER \w+)? ADD INDEX IF NOT EXISTS (\w+)`)
+	addColumnPattern   = regexp.MustCompile(`^ALTER TABLE (\w+)(?: ON CLUSTER \w+)? ADD COLUMN IF NOT EXISTS (\w+)`)
+)
+
+// covers reports a statement whose object already exists; unknown
+// statements always run.
+func (o schemaObjects) covers(statement string) bool {
+	if m := createTablePattern.FindStringSubmatch(statement); m != nil {
+		return o[m[1]]
+	}
+	if m := addIndexPattern.FindStringSubmatch(statement); m != nil {
+		return o[m[1]+"#"+m[2]]
+	}
+	if m := addColumnPattern.FindStringSubmatch(statement); m != nil {
+		return o[m[1]+"."+m[2]]
+	}
+	return false
+}
+
+// existingSchema reads this node's schema; a failed read returns nothing,
+// so every statement runs as before.
+func (r *Repository) existingSchema(ctx context.Context) schemaObjects {
+	out := schemaObjects{}
+	body, err := r.query(ctx, `SELECT name AS t, '' AS c, '' AS i FROM system.tables WHERE database=currentDatabase()
+UNION ALL SELECT table, name, '' FROM system.columns WHERE database=currentDatabase() AND name='properties_text'
+UNION ALL SELECT table, '', name FROM system.data_skipping_indices WHERE database=currentDatabase() FORMAT JSONEachRow`, nil)
+	if err != nil {
+		return out
+	}
+	for _, line := range bytes.Split(bytes.TrimSpace(body), []byte("\n")) {
+		var row struct{ T, C, I string }
+		if len(line) == 0 || json.Unmarshal(line, &row) != nil {
+			continue
+		}
+		switch {
+		case row.C != "":
+			out[row.T+"."+row.C] = true
+		case row.I != "":
+			out[row.T+"#"+row.I] = true
+		default:
+			out[row.T] = true
+		}
+	}
+	return out
 }
