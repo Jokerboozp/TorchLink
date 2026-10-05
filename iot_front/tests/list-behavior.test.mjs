@@ -265,23 +265,21 @@ test('camera pagination retains latest requested page when responses arrive out 
   await first
   assert.equal(c.cameras.value[0].cameraId, 'page-2', `pager=${c.page.value}, displayed=${c.cameras.value[0].cameraId}`)
 })
-test('stale failure does not notify or stop the current camera loading state', async () => {
+test('stale failure does not surface or stop the current camera loading state', async () => {
   const pending = []
-  const errors = []
   const c = component(
     'CameraMappingsView.vue',
     path =>
       path.includes('device-registry')
         ? Promise.resolve({ items: [] })
         : new Promise((resolve, reject) => pending.push({ resolve, reject })),
-    'load,loading,cameras',
-    e => errors.push(e)
+    'load,loading,cameras,loadError'
   )
   const first = c.load()
   const second = c.load()
   pending[0].reject(new Error('old request failed'))
   await first
-  assert.equal(errors.length, 0)
+  assert.equal(c.loadError.value, '')
   assert.equal(c.loading.value, true)
   pending[1].resolve({ items: [{ cameraId: 'current' }], total: 1 })
   await second
@@ -289,7 +287,7 @@ test('stale failure does not notify or stop the current camera loading state', a
   const current = c.load()
   pending[2].reject(new Error('current request failed'))
   await current
-  assert.equal(errors.length, 1)
+  assert.equal(c.loadError.value, 'current request failed')
   assert.equal(c.loading.value, false)
 })
 for (const [file, endpoint, pageKey, rowsKey, totalKey] of [

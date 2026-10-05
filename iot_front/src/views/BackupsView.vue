@@ -30,6 +30,7 @@ const manifestTotal = ref(0)
 const page = ref(1)
 const pageSize = ref(20)
 let loadVersion = 0
+const loadError = ref('')
 
 const isAdmin = computed(() =>
   can([
@@ -83,12 +84,13 @@ async function load(resetPage = false) {
     const data = await api(`/api/v1/backups?${query.toString()}`)
     if (version !== loadVersion) return
     serviceMissing.value = false
+    loadError.value = ''
     records.value = data.items || []
     total.value = Number(data.total ?? data.count ?? records.value.length)
   } catch (error) {
     if (version !== loadVersion) return
     serviceMissing.value = error?.status === 503 && /not configured/i.test(error.originalMessage || '')
-    if (!serviceMissing.value) notifyError(error)
+    loadError.value = serviceMissing.value ? '' : error?.message || '备份记录读取失败'
   } finally {
     if (version === loadVersion) loading.value = false
   }
@@ -341,6 +343,8 @@ function rowActions(row) {
   <DataTableCard
     class="backup-table-card"
     :title="`备份记录 · ${total} 条`"
+    :error="loadError"
+    @retry="load()"
     :page="page"
     :page-size="pageSize"
     :total="total"

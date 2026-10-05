@@ -140,6 +140,7 @@ function insertField(key) {
 }
 
 let loadVersion = 0
+const loadError = ref('')
 async function load() {
   const version = ++loadVersion
   loading.value = true
@@ -152,8 +153,9 @@ async function load() {
     rules.value = rulesData.items || []
     total.value = Number(rulesData.total ?? rulesData.count ?? rules.value.length)
     products.value = productData.items || []
+    loadError.value = ''
   } catch (error) {
-    if (version === loadVersion) notifyError(error)
+    if (version === loadVersion) loadError.value = error?.message || '告警规则读取失败'
   } finally {
     if (version === loadVersion) loading.value = false
   }
@@ -314,6 +316,8 @@ function rowActions(row) {
 
   <DataTableCard
     :title="`告警规则 · ${total} 条`"
+    :error="loadError"
+    @retry="load()"
     :page="page"
     :page-size="pageSize"
     :total="total"

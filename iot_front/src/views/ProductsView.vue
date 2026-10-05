@@ -4,7 +4,7 @@ const emit = defineEmits(['navigate'])
 import ProductPreparation from '../components/ProductPreparation.vue'
 import { transportLabel, formatLabel } from '../presentation'
 import { onMounted, ref } from 'vue'
-import { api, apiAll, notifyError } from '../api'
+import { api, apiAll } from '../api'
 import { confirmDelete } from '../deleteAction'
 import { categories, label } from '../labels'
 import { can } from '../permissions'
@@ -69,6 +69,7 @@ const productPageSize = ref(20)
 const productTotal = ref(0)
 
 let loadVersion = 0
+const loadError = ref('')
 let catalogVersion = 0
 const unbound = ref([])
 // Templates without a usable protocol only accept the platform's standard
@@ -111,9 +112,10 @@ async function load({ catalog = true } = {}) {
     if (version !== loadVersion) return
     products.value = p.items || []
     productTotal.value = Number(p.total ?? p.count ?? products.value.length)
+    loadError.value = ''
     loadUnbound()
   } catch (error) {
-    if (version === loadVersion) notifyError(error)
+    if (version === loadVersion) loadError.value = error?.message || '设备模板读取失败'
   } finally {
     if (version === loadVersion) loading.value = false
   }
@@ -238,6 +240,8 @@ function rowActions(row) {
     </section>
     <DataTableCard
       :title="`设备模板 · ${productTotal} 个`"
+      :error="loadError"
+      @retry="load()"
       :page="productPage"
       :page-size="productPageSize"
       :total="productTotal"

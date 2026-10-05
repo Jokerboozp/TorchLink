@@ -11,7 +11,7 @@ const emit = defineEmits(['update:page', 'update:pageSize', 'retry'])
 </script>
 
 <template>
-  <section class="data-table-card">
+  <section class="data-table-card" :class="{ 'has-error': error }">
     <header v-if="title || $slots.header" class="data-table-card__header">
       <slot name="header"
         ><h2>{{ title }}</h2></slot
@@ -83,6 +83,10 @@ const emit = defineEmits(['update:page', 'update:pageSize', 'retry'])
 .data-table-card__footer > span {
   color: var(--text-muted);
   font-size: var(--font-size-sm);
+}
+/* 读取失败时不显示"暂无数据"，避免把失败误认为真实为空。 */
+.data-table-card.has-error :deep(.n-data-table-empty) {
+  display: none;
 }
 .data-table-card :deep(.n-data-table .n-data-table-th) {
   white-space: nowrap;

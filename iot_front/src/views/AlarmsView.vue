@@ -46,6 +46,7 @@ let analysisPollTimer = 0
 let analysisViewToken = 0
 let mediaRefreshVersion = 0
 let loadVersion = 0
+const loadError = ref('')
 
 const progressPercent = computed(() => Math.max(0, Math.min(100, Number(analysisProgress.value?.progress || 0))))
 const progressStatus = computed(() =>
@@ -62,9 +63,10 @@ async function load(resetPage = false) {
     if (version !== loadVersion) return
     items.value = d.items || []
     total.value = Number(d.total ?? d.count ?? items.value.length)
+    loadError.value = ''
     void loadStatistics(version)
   } catch (e) {
-    if (version === loadVersion) notifyError(e)
+    if (version === loadVersion) loadError.value = e?.message || '告警读取失败'
   } finally {
     if (version === loadVersion) loading.value = false
   }
@@ -422,6 +424,8 @@ function rowActions(row) {
 
   <DataTableCard
     :title="`告警 · ${total} 条`"
+    :error="loadError"
+    @retry="load()"
     :page="page"
     :page-size="pageSize"
     :total="total"

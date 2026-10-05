@@ -93,6 +93,7 @@ function assistantNavigate(page) {
 }
 const releaseCount = computed(() => protocols.value.reduce((total, item) => total + (item.releases?.length || 0), 0))
 let loadVersion = 0
+const loadError = ref('')
 
 async function load() {
   const version = ++loadVersion
@@ -101,8 +102,9 @@ async function load() {
     const catalog = await api('/api/v2/protocols')
     if (version !== loadVersion) return
     protocols.value = catalog.items || []
+    loadError.value = ''
   } catch (error) {
-    if (version === loadVersion) notifyError(error)
+    if (version === loadVersion) loadError.value = error?.message || '协议读取失败'
   } finally {
     if (version === loadVersion) loading.value = false
   }
@@ -226,6 +228,8 @@ function protocolActions(row) {
     </FilterBar>
     <DataTableCard
       :title="`协议开发 · ${protocols.length} 个协议 · ${releaseCount} 个版本`"
+      :error="loadError"
+      @retry="load()"
       :page="protocolPage"
       :page-size="protocolPageSize"
       :page-sizes="[10, 20, 50, 100]"

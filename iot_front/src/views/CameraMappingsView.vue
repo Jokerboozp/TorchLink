@@ -38,6 +38,7 @@ const blank = () => ({
 })
 const camera = reactive(blank())
 let loadVersion = 0
+const loadError = ref('')
 const liveConfigVisible = ref(false)
 const liveConfigCamera = ref(null)
 const playerVisible = ref(false)
@@ -79,8 +80,9 @@ async function load() {
     if (version !== loadVersion) return
     cameras.value = data.items || []
     total.value = Number(data.total ?? data.count ?? cameras.value.length)
+    loadError.value = ''
   } catch (error) {
-    if (version === loadVersion) notifyError(error)
+    if (version === loadVersion) loadError.value = error?.message || '摄像头读取失败'
   } finally {
     if (version === loadVersion) loading.value = false
   }
@@ -241,6 +243,8 @@ function rowActions(row) {
 
   <DataTableCard
     :title="`摄像头 · ${total} 个`"
+    :error="loadError"
+    @retry="load()"
     :page="page"
     :page-size="pageSize"
     :total="total"
