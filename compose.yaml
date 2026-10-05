@@ -2,7 +2,8 @@ name: iot-platform
 
 # 在线部署入口：scripts/deploy-online.ps1 / scripts/deploy-online.sh。
 # 本地源码调试使用独立 compose.local.yaml，离线使用 compose.offline.yaml 覆盖层。
-# 知识库使用现有 PostgreSQL + pgvector；对话和向量计算均调用外部 API。
+# 知识库使用现有 PostgreSQL + pgvector；向量计算与重排由随平台部署的 embedding / reranker
+# 服务（llama.cpp，amd64 / arm64，仅 CPU）完成；对话推理调用外部 API。
 # 所有 ${VAR:-default} 均可由 shell 环境变量或可选 .env 覆盖。
 
 x-service-defaults: &service-defaults
@@ -98,13 +99,16 @@ services:
       IOT_AI_HARNESS_MODEL: ${IOT_AI_HARNESS_MODEL:-deepseek-flash}
       IOT_AI_HARNESS_TIMEOUT: ${IOT_AI_HARNESS_TIMEOUT:-90s}
       IOT_AI_HARNESS_BUSINESS_TIMEOUT: ${IOT_AI_HARNESS_BUSINESS_TIMEOUT:-4m}
-      # 文档与向量保存在 PostgreSQL，向量计算调用外部 OpenAI 兼容 API。
-      IOT_EMBEDDING_URL: ${IOT_EMBEDDING_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
-      IOT_EMBEDDING_MODEL: ${IOT_EMBEDDING_MODEL:-text-embedding-v4}
+      # 文档与向量保存在 PostgreSQL；向量计算默认使用随平台部署的 embedding 服务（bge-m3）。
+      IOT_EMBEDDING_URL: ${IOT_EMBEDDING_URL:-http://embedding:8080/v1}
+      IOT_EMBEDDING_MODEL: ${IOT_EMBEDDING_MODEL:-bge-m3}
       IOT_EMBEDDING_API_KEY: ${IOT_EMBEDDING_API_KEY:-}
       IOT_EMBEDDING_DIMENSIONS: ${IOT_EMBEDDING_DIMENSIONS:-1024}
       IOT_EMBEDDING_BATCH_SIZE: ${IOT_EMBEDDING_BATCH_SIZE:-10}
       IOT_EMBEDDING_QUERY_INSTRUCTION: ${IOT_EMBEDDING_QUERY_INSTRUCTION:-}
+      # 检索结果重排（bge-reranker-v2-m3）；置空则不重排。
+      IOT_RERANK_URL: ${IOT_RERANK_URL-http://reranker:8080}
+      IOT_LOCAL_AI_HOSTS: ${IOT_LOCAL_AI_HOSTS:-embedding,reranker}
       IOT_BACKUP_URL: ${IOT_BACKUP_URL:-http://backup-service:8090}
       IOT_BACKUP_ADMIN_TOKEN: ${IOT_BACKUP_ADMIN_TOKEN:-change-me-backup-admin-token}
       # 运维中心：组件地址和凭据只在服务端使用；规则与通知配置通过共享卷交给组件加载。
@@ -237,6 +241,42 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+
+  # 知识库向量计算与重排：同一镜像（deploy/local-ai，模型构建时下载并校验）运行两个服务，
+  # 支持 amd64 / arm64，仅用 CPU，各约 1 GB 内存。IOT_LOCAL_AI_THREADS 限制推理线程（-1 为全部核）。
+  embedding:
+    <<: *service-defaults
+    image: ${IOT_LOCAL_AI_IMAGE:-iot-local-ai:local}
+    build:
+      context: ./deploy/local-ai
+      args:
+        HF_ENDPOINT: ${IOT_HF_ENDPOINT:-https://huggingface.co}
+        LLAMA_CPP_IMAGE: ${IOT_LLAMA_CPP_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b11382@sha256:559ac229adefe0f7e2d4e32f5222f26927b6bb8ba44b9db08e2544afebf41984}
+    environment:
+      LLAMA_ARG_MODEL: /models/bge-m3-Q8_0.gguf
+      LLAMA_ARG_EMBEDDINGS: "true"
+      LLAMA_ARG_POOLING: cls
+      LLAMA_ARG_THREADS: ${IOT_LOCAL_AI_THREADS:--1}
+    healthcheck: &local-ai-health
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  reranker:
+    <<: *service-defaults
+    image: ${IOT_LOCAL_AI_IMAGE:-iot-local-ai:local}
+    build:
+      context: ./deploy/local-ai
+      args:
+        HF_ENDPOINT: ${IOT_HF_ENDPOINT:-https://huggingface.co}
+        LLAMA_CPP_IMAGE: ${IOT_LLAMA_CPP_IMAGE:-ghcr.io/ggml-org/llama.cpp:server-b11382@sha256:559ac229adefe0f7e2d4e32f5222f26927b6bb8ba44b9db08e2544afebf41984}
+    environment:
+      LLAMA_ARG_MODEL: /models/bge-reranker-v2-m3-Q8_0.gguf
+      LLAMA_ARG_RERANKING: "true"
+      LLAMA_ARG_THREADS: ${IOT_LOCAL_AI_THREADS:--1}
+    healthcheck: *local-ai-health
 
   postgres:
     <<: *service-defaults

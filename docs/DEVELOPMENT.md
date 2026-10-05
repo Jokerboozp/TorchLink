@@ -90,7 +90,7 @@ go test -race ./internal/adapters/postgres -run 'Test(TemplateSwitch|PreparedEnr
 | FULL 隔离恢复 | 用 `IOT_BACKUP_FULL_RESTORE_TEST_ENV` 指向私有测试环境文件；`go test ./internal/backup -run TestFullKnowledgeAndAgentRestoreIntegration -count=1` | 独立源 fixture、恢复数据库、MinIO 备库与 Harness 恢复目录；核对知识表、向量、原件和 Agent/会话 |
 | 活跃 Harness 快照 | 配置服务端快照 URL/令牌并设置 `IOT_BACKUP_LIVE_HARNESS_TEST=1`；`go test ./internal/backup -run TestLiveHarnessSnapshotRestoreIntegration -count=1` | 只读收集实例快照，在临时隔离目录核对恢复数量和内容 |
 
-私有测试环境文件须限制访问权限，不提交或输出凭据。模拟 Embedding 测试不消耗云端额度；真实云向量索引需另配可用 Key，上传后确认状态达到 `INDEXED` 并检索到对应分片。配置与索引生命周期见 [知识库与云端向量 API](DEPLOYMENT.md#知识库与云端向量-api)。
+私有测试环境文件须限制访问权限，不提交或输出凭据。模拟 Embedding 测试不依赖向量服务；真实索引验证需启动随平台部署的 `embedding` / `reranker` 服务（或配置外部 API），上传后确认状态达到 `INDEXED` 并检索到对应分片。配置与索引生命周期见 [知识库向量服务](DEPLOYMENT.md#知识库向量服务)。
 
 ### 消防管理回归
 

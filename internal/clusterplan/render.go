@@ -442,8 +442,11 @@ func (r renderer) platformEnv(role, node string, salt int) map[string]string {
 		}
 		env["IOT_OPS_PROMETHEUS_URL"], env["IOT_OPS_ALERTMANAGER_URL"] = prometheus, alertmanager
 	}
-	env["IOT_EMBEDDING_URL"] = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-	env["IOT_EMBEDDING_MODEL"] = "text-embedding-v4"
+	// Each API node runs its own embedding and reranker on loopback ports.
+	env["IOT_EMBEDDING_URL"] = fmt.Sprintf("http://127.0.0.1:%d/v1", LocalEmbeddingPort)
+	env["IOT_RERANK_URL"] = fmt.Sprintf("http://127.0.0.1:%d", LocalRerankPort)
+	env["IOT_LOCAL_AI_HOSTS"] = "127.0.0.1"
+	env["IOT_EMBEDDING_MODEL"] = "bge-m3"
 	env["IOT_EMBEDDING_DIMENSIONS"] = "1024"
 	env["IOT_EMBEDDING_BATCH_SIZE"] = "10"
 	env["IOT_EMBEDDING_API_KEY"] = "${IOT_EMBEDDING_API_KEY}"
@@ -731,6 +734,18 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 						"environment": map[string]string{"IOT_PROCESS_ROLE": "protocol-runner", "IOT_PROTOCOL_RUNNER_SOCKET": "/run/torchlink/runner.sock", "IOT_PROTOCOL_RUNNER_DIR": "/tmp/protocol-runner"},
 						"volumes":     []string{"protocol-runner-socket:/run/torchlink"},
 					}), "protocol-runner-socket")
+				}
+			}
+			if kind == "api" {
+				// Knowledge vectors and reranking beside every API instance.
+				for svc, mode := range map[string]map[string]string{
+					"embedding": {"LLAMA_ARG_MODEL": "/models/bge-m3-Q8_0.gguf", "LLAMA_ARG_EMBEDDINGS": "true", "LLAMA_ARG_POOLING": "cls", "LLAMA_ARG_PORT": strconv.Itoa(LocalEmbeddingPort)},
+					"reranker":  {"LLAMA_ARG_MODEL": "/models/bge-reranker-v2-m3-Q8_0.gguf", "LLAMA_ARG_RERANKING": "true", "LLAMA_ARG_PORT": strconv.Itoa(LocalRerankPort)},
+				} {
+					mode["LLAMA_ARG_HOST"] = "127.0.0.1"
+					add(kind, svc, service(inv.Images.LocalAI, map[string]any{"environment": mode, "healthcheck": map[string]any{
+						"test": []string{"CMD", "curl", "-fsS", "http://127.0.0.1:" + mode["LLAMA_ARG_PORT"] + "/health"}, "interval": "10s", "timeout": "5s", "retries": 12, "start_period": "30s",
+					}}))
 				}
 			}
 			add(kind, name, def, name+"-data")

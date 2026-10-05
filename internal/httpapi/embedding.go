@@ -20,8 +20,13 @@ type embeddingInput struct {
 	TimeoutSeconds   int    `json:"timeoutSeconds"`
 }
 
-func embeddingView(cfg ports.EmbeddingConfig) map[string]any {
-	return map[string]any{"baseUrl": cfg.BaseURL, "model": cfg.Model, "apiKeyConfigured": strings.TrimSpace(cfg.APIKey) != "", "dimensions": cfg.Dimensions, "batchSize": cfg.BatchSize, "queryInstruction": cfg.QueryInstruction, "timeoutSeconds": cfg.TimeoutSeconds}
+func (s *Server) embeddingView(cfg ports.EmbeddingConfig) map[string]any {
+	view := map[string]any{"baseUrl": cfg.BaseURL, "model": cfg.Model, "apiKeyConfigured": strings.TrimSpace(cfg.APIKey) != "", "dimensions": cfg.Dimensions, "batchSize": cfg.BatchSize, "queryInstruction": cfg.QueryInstruction, "timeoutSeconds": cfg.TimeoutSeconds, "local": embedding.IsLocal(cfg)}
+	// The deployment's own vector service, offered as a one-click setting.
+	if bundled := embedding.NormalizeConfig(ports.EmbeddingConfig{BaseURL: s.cfg.EmbeddingURL, Model: s.cfg.EmbeddingModel, Dimensions: s.cfg.EmbeddingDimensions}); embedding.IsLocal(bundled) {
+		view["bundled"] = map[string]any{"baseUrl": bundled.BaseURL, "model": bundled.Model, "dimensions": bundled.Dimensions}
+	}
+	return view
 }
 
 func (s *Server) embeddingCandidate(w http.ResponseWriter, r *http.Request) (ports.EmbeddingConfig, bool) {
@@ -53,7 +58,7 @@ func (s *Server) embeddingConfig(w http.ResponseWriter, r *http.Request) {
 		problem(w, 503, "持久化知识库未配置")
 		return
 	}
-	write(w, 200, embeddingView(s.embeddingRuntime.CurrentConfig()))
+	write(w, 200, s.embeddingView(s.embeddingRuntime.CurrentConfig()))
 }
 
 func (s *Server) updateEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +73,7 @@ func (s *Server) updateEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "ai.embedding.update", "embedding-model", cfg.Model, map[string]any{"dimensions": cfg.Dimensions, "apiKeyConfigured": cfg.APIKey != ""})
-	write(w, 200, embeddingView(cfg))
+	write(w, 200, s.embeddingView(cfg))
 }
 
 func (s *Server) testEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
@@ -76,7 +81,7 @@ func (s *Server) testEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if cfg.APIKey == "" {
+	if cfg.APIKey == "" && !embedding.IsLocal(cfg) {
 		write(w, 200, map[string]any{"success": false, "error": "请填写 Embedding API Key", "model": cfg.Model, "dimensions": cfg.Dimensions, "latencyMs": 0})
 		return
 	}
@@ -94,7 +99,7 @@ func (s *Server) testEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
 		result["error"] = err.Error()
 	} else {
 		result["dimensions"] = len(vectors[0])
-		result["message"] = "云向量 API 连接正常"
+		result["message"] = "向量服务连接正常"
 	}
 	write(w, 200, result)
 }

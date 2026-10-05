@@ -46,9 +46,9 @@ IOT_HARNESS_MCP_ALLOWED_ORIGINS	允许 Harness MCP 请求使用的来源地址
 IOT_AI_HARNESS_PROVIDER	AI 工作流提供方，标准部署为 deepseek-official
 IOT_AI_HARNESS_MODEL	AI 工作流的默认模型；“模型管理”中保存的模型优先
 IOT_AI_HARNESS_TIMEOUT	AI 工作流请求超时时间
-IOT_EMBEDDING_URL	外部 Embedding API 地址，使用供应商兼容 /v1 接口
+IOT_EMBEDDING_URL	向量服务地址；默认随平台部署的 embedding 服务（bge-m3），也可填外部 HTTPS API 的 /v1 地址
 IOT_EMBEDDING_MODEL	向量模型；更换后知识库会按原始文档自动重建索引
-IOT_EMBEDDING_API_KEY	外部 Embedding API 密钥，由用户填写
+IOT_EMBEDDING_API_KEY	外部 Embedding API 密钥；本地向量服务无需填写
 IOT_EMBEDDING_QUERY_INSTRUCTION	检索问题的指令前缀；留空表示不加前缀
 IOT_BACKUP_URL	Go API 访问备份服务的地址
 IOT_BACKUP_HTTP_PORT	备份服务对外管理端口
@@ -136,7 +136,12 @@ IOT_EMQX_API_URL	EMQX 管理 API 根地址（不含 /api/v5），用于队列丢
 IOT_EMQX_API_KEY	平台专用 EMQX 管理 API Key，首次部署自动生成，后续保留
 IOT_EMQX_API_SECRET	平台专用 EMQX 管理 API Secret，仅后端读取，不发送给浏览器
 IOT_EMBEDDING_DIMENSIONS	向量输出维度，默认1024；切换后重建知识索引
-IOT_EMBEDDING_BATCH_SIZE	外部向量API单次文本数量，默认10
+IOT_EMBEDDING_BATCH_SIZE	向量服务单次文本数量，默认10
+IOT_RERANK_URL	检索结果重排服务地址；默认随平台部署的 reranker 服务，置空则不重排
+IOT_LOCAL_AI_HOSTS	随平台部署的模型服务主机名、IP 或网段；仅这些地址允许 HTTP 且无需密钥
+IOT_LOCAL_AI_THREADS	本地向量/重排服务推理线程数，-1 为全部 CPU 核
+IOT_HF_ENDPOINT	构建模型镜像时的模型下载地址，默认 https://huggingface.co，可改用 https://hf-mirror.com
+IOT_LLAMA_CPP_IMAGE	模型镜像的 llama.cpp 基础镜像；ghcr.io 受限时可指向镜像仓库中的同一镜像（保留 digest）
 IOT_POSTGRES_IMAGE	包含固定pgvector扩展的PostgreSQL17镜像
 IOT_BACKUP_HARNESS_DATA_DIR	可选 Harness 只读数据目录回退，仅包含 Agent 清单及会话
 IOT_BACKUP_HARNESS_SNAPSHOT_URLS	全部 Harness 实例的快照 endpoint，逗号分隔，使用服务端 Harness 令牌

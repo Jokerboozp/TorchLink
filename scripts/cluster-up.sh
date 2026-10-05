@@ -236,7 +236,7 @@ if [ -f "$inventory" ]; then platform_image="$(yaml_image platform)"; else platf
 [ -n "$platform_image" ] || fail "inventory has no images.platform"
 
 # 1. Images: build from this checkout, or load an offline bundle.
-own_keys=" platform web harness backup video "
+own_keys=" platform web harness backup video localAI "
 if [ -n "$images_tar" ]; then
   say "loading offline image bundle $images_tar"
   [ -f "$images_tar" ] || fail "$images_tar not found"
@@ -293,6 +293,7 @@ if [ -z "$images_tar" ] && [ "$build" = 1 ]; then
       harness) build_env+=("IOT_DEEPSEEK_HARNESS_IMAGE=$image"); build_services+=(deepseek-harness);;
       backup) build_env+=("IOT_BACKUP_IMAGE=$image"); build_services+=(backup-service);;
       video) build_env+=("IOT_ZLMEDIAKIT_IMAGE=$image"); build_services+=(zlmediakit);;
+      localAI) build_env+=("IOT_LOCAL_AI_IMAGE=$image"); build_services+=(embedding);;
     esac
   done <<< "$image_list"
   if [ "${#build_services[@]}" -gt 0 ]; then

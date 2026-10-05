@@ -235,7 +235,10 @@ func (k *KnowledgeRuntime) processDocument(ctx context.Context) error {
 		}
 		return k.repo.DeleteResource(ctx, doc.TenantID, "knowledge", doc.ID)
 	}
-	jobCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	// A large document embedded on the bundled CPU service can take far longer
+	// than with a cloud API; the lease is renewed as each batch completes, so
+	// the deadline only stops a job that stopped making progress.
+	jobCtx, cancel := context.WithTimeout(ctx, knowledgeJobTimeout)
 	defer cancel()
 	if doc.Metadata == nil {
 		doc.Metadata = map[string]any{}
@@ -291,6 +294,9 @@ func (k *KnowledgeRuntime) processDocument(ctx context.Context) error {
 	_, err = k.jobs.UpdateKnowledgeDocument(ctx, doc)
 	return err
 }
+
+// knowledgeJobTimeout bounds one indexing job.
+const knowledgeJobTimeout = 2 * time.Hour
 
 // knowledgeRetryDelays spaces automatic re-indexing after transient failures;
 // the document fails for good once they are used up.

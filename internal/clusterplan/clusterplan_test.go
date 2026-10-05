@@ -298,9 +298,21 @@ func TestExampleInventoryRendersIsolatedSecretsAndConfigs(t *testing.T) {
 	if !strings.Contains(string(files["cluster.json"]), `"coordination"`) {
 		t.Fatal("start stages missing")
 	}
-	// Knowledge uses the replicated database and cloud embeddings on every role.
-	if !strings.Contains(n1, "iot-platform-postgres-ha:17-pgvector-0.8.1") || !strings.Contains(n1, "IOT_EMBEDDING_URL: https://dashscope.aliyuncs.com/compatible-mode/v1") || !strings.Contains(n1, "IOT_EMBEDDING_DIMENSIONS: \"1024\"") || !strings.Contains(string(files["n1/.env"]), "IOT_EMBEDDING_API_KEY="+s.EmbeddingAPIKey) {
-		t.Fatal("platform must use pgvector and the cloud API with its configured key")
+	// Knowledge uses the replicated database and the embedding / reranker
+	// services running beside each API on loopback ports.
+	if !strings.Contains(n1, "iot-platform-postgres-ha:17-pgvector-0.8.1") || !strings.Contains(n1, "IOT_EMBEDDING_URL: http://127.0.0.1:18093/v1") || !strings.Contains(n1, "IOT_RERANK_URL: http://127.0.0.1:18094") || !strings.Contains(n1, "IOT_EMBEDDING_DIMENSIONS: \"1024\"") {
+		t.Fatal("platform must use pgvector and the bundled vector services")
+	}
+	apiNodes := map[string]bool{}
+	for _, node := range inv.Platform.Roles["api"].Nodes {
+		apiNodes[node] = true
+	}
+	for _, node := range inv.Nodes {
+		compose := string(files[node.Name+"/compose.yaml"])
+		local := strings.Contains(compose, "image: iot-local-ai:offline") && strings.Contains(compose, "LLAMA_ARG_HOST: 127.0.0.1") && strings.Contains(compose, "bge-reranker-v2-m3-Q8_0.gguf")
+		if local != apiNodes[node.Name] {
+			t.Fatalf("node %s: bundled vector services=%v, api node=%v", node.Name, local, apiNodes[node.Name])
+		}
 	}
 	backup := string(files[inv.Backup.Node+"/compose.yaml"])
 	for _, node := range inv.Harness.Nodes {
@@ -484,7 +496,7 @@ case "$1" in
   compose)
     [ "$2" = version ] && echo 2.29.0
     if [[ " $* " == *" build "* ]]; then
-      for img in "$IOT_PLATFORM_WEB_IMAGE" "$IOT_DEEPSEEK_HARNESS_IMAGE" "$IOT_BACKUP_IMAGE" "$IOT_ZLMEDIAKIT_IMAGE"; do [ -n "$img" ] && touch "$FAKE/images/$(key "$img")"; done
+      for img in "$IOT_PLATFORM_WEB_IMAGE" "$IOT_DEEPSEEK_HARNESS_IMAGE" "$IOT_BACKUP_IMAGE" "$IOT_ZLMEDIAKIT_IMAGE" "$IOT_LOCAL_AI_IMAGE"; do [ -n "$img" ] && touch "$FAKE/images/$(key "$img")"; done
     fi
     exit 0;;
   build) while [ $# -gt 0 ]; do [ "$1" = -t ] && touch "$FAKE/images/$(key "$2")"; shift; done; exit 0;;

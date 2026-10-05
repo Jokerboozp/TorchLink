@@ -135,14 +135,33 @@ wait_deployment_http() {
   return 1
 }
 
-# Populate cloud defaults without rewriting operator-supplied settings.
+has_deployment_env_key() {
+  grep -Eq "^[[:space:]]*(export[[:space:]]+)?$2[[:space:]]*=" "$1" 2>/dev/null
+}
+
+# Knowledge vectors and reranking use the embedding / reranker services
+# deployed with the platform. Earlier releases defaulted to the DashScope
+# cloud API; that default is replaced, an operator-chosen API is kept.
+# Arguments: env file, embedding URL, rerank URL, extra local hosts (optional).
 configure_embedding_env() {
-  local env_path="$1"
-  [ -n "$(get_deployment_env_value "$env_path" IOT_EMBEDDING_URL)" ] || set_deployment_env_value "$env_path" IOT_EMBEDDING_URL https://dashscope.aliyuncs.com/compatible-mode/v1
-  [ -n "$(get_deployment_env_value "$env_path" IOT_EMBEDDING_API_KEY)" ] || set_deployment_env_value "$env_path" IOT_EMBEDDING_API_KEY ''
-  [ -n "$(get_deployment_env_value "$env_path" IOT_EMBEDDING_MODEL)" ] || set_deployment_env_value "$env_path" IOT_EMBEDDING_MODEL text-embedding-v4
+  local env_path="$1" embedding_url="${2:-http://embedding:8080/v1}" rerank_url="${3:-http://reranker:8080}" extra_hosts="${4:-}" url model hosts
+  url="$(get_deployment_env_value "$env_path" IOT_EMBEDDING_URL)"
+  model="$(get_deployment_env_value "$env_path" IOT_EMBEDDING_MODEL)"
+  case "$url" in
+    ''|https://dashscope.aliyuncs.com/compatible-mode/v1|http://embedding:8080/v1|http://*:18093/v1)
+      [ "$url" != https://dashscope.aliyuncs.com/compatible-mode/v1 ] || echo '提示：知识库向量计算改为随平台部署的 embedding 服务（bge-m3），已有文档会在后台自动重建索引。若“模型管理”里保存过云端向量配置，请在该页切换为本地服务。' >&2
+      set_deployment_env_value "$env_path" IOT_EMBEDDING_URL "$embedding_url"
+      case "$model" in ''|text-embedding-v4) set_deployment_env_value "$env_path" IOT_EMBEDDING_MODEL bge-m3 ;; esac ;;
+  esac
   [ -n "$(get_deployment_env_value "$env_path" IOT_EMBEDDING_DIMENSIONS)" ] || set_deployment_env_value "$env_path" IOT_EMBEDDING_DIMENSIONS 1024
   [ -n "$(get_deployment_env_value "$env_path" IOT_EMBEDDING_BATCH_SIZE)" ] || set_deployment_env_value "$env_path" IOT_EMBEDDING_BATCH_SIZE 10
+  has_deployment_env_key "$env_path" IOT_EMBEDDING_API_KEY || set_deployment_env_value "$env_path" IOT_EMBEDDING_API_KEY ''
+  # An explicitly empty IOT_RERANK_URL turns reranking off and is kept.
+  if ! has_deployment_env_key "$env_path" IOT_RERANK_URL || [[ "$(get_deployment_env_value "$env_path" IOT_RERANK_URL)" == http://*:18094 ]]; then
+    set_deployment_env_value "$env_path" IOT_RERANK_URL "$rerank_url"
+  fi
+  hosts="embedding,reranker${extra_hosts:+,$extra_hosts}"
+  set_deployment_env_value "$env_path" IOT_LOCAL_AI_HOSTS "$hosts"
 }
 
 # Deployment inference defaults to the DeepSeek cloud API; another

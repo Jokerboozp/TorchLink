@@ -362,7 +362,7 @@ func TestEmbeddingConfiguration(t *testing.T) {
 	t.Setenv("IOT_EMBEDDING_MODEL", "")
 	t.Setenv("IOT_EMBEDDING_QUERY_INSTRUCTION", "")
 	cfg := Load()
-	if cfg.EmbeddingURL != "https://api.example.com/v1" || cfg.EmbeddingModel != "text-embedding-v4" || cfg.EmbeddingQueryPrompt != "" || cfg.EmbeddingDimensions != 1024 || cfg.EmbeddingBatchSize != 10 {
+	if cfg.EmbeddingURL != "https://api.example.com/v1" || cfg.EmbeddingModel != "bge-m3" || cfg.LocalAIHosts != "embedding,reranker" || cfg.EmbeddingQueryPrompt != "" || cfg.EmbeddingDimensions != 1024 || cfg.EmbeddingBatchSize != 10 {
 		t.Fatalf("unexpected embedding defaults: %+v", cfg)
 	}
 	t.Setenv("IOT_EMBEDDING_QUERY_INSTRUCTION", "none")
@@ -385,6 +385,27 @@ func TestEmbeddingConfiguration(t *testing.T) {
 	management.EmbeddingURL = "https://api.example.com/v1"
 	if err := management.Validate(); err != nil {
 		t.Fatalf("valid embedding configuration rejected: %v", err)
+	}
+	// Plain HTTP and private addresses only for the bundled services.
+	management.EmbeddingURL, management.RerankURL = "http://embedding:8080/v1", "http://reranker:8080"
+	if err := management.Validate(); err == nil {
+		t.Fatal("bundled service accepted without IOT_LOCAL_AI_HOSTS")
+	}
+	management.LocalAIHosts = "embedding,reranker,192.168.10.0/24"
+	if err := management.Validate(); err != nil {
+		t.Fatalf("bundled services rejected: %v", err)
+	}
+	management.EmbeddingURL = "http://192.168.10.5:8093/v1"
+	if err := management.Validate(); err != nil {
+		t.Fatalf("listed dependency host rejected: %v", err)
+	}
+	management.EmbeddingURL = "http://10.0.0.5:8093/v1"
+	if err := management.Validate(); err == nil {
+		t.Fatal("unlisted plain-HTTP embedding host accepted")
+	}
+	management.EmbeddingURL, management.RerankURL = "https://api.example.com/v1", "http://intranet-host/rerank"
+	if err := management.Validate(); err == nil {
+		t.Fatal("unlisted plain-HTTP rerank host accepted")
 	}
 }
 

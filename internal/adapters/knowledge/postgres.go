@@ -34,6 +34,9 @@ type PostgresOptions struct {
 	Dimensions     int
 	Preprocessing  string
 	ExpectedConfig *ports.EmbeddingConfig
+	// Reranker, when set, reorders the best candidates; on failure or timeout
+	// the hybrid order is kept.
+	Reranker ports.Reranker
 }
 
 // Postgres shares the platform repository pool. It owns neither the pool nor
@@ -583,7 +586,7 @@ func (p *Postgres) SearchKnowledge(ctx context.Context, input ports.KnowledgeSea
 		if len(terms) == 0 || ctx.Err() != nil {
 			return nil, fmt.Errorf("knowledge query embedding: %w", err)
 		}
-		return p.keywordSearch(ctx, where, args, terms, candidateLimit, limit, input.MinScore)
+		return p.keywordSearch(ctx, input.Question, where, args, terms, candidateLimit, limit, input.MinScore)
 	}
 	vector := fmt.Sprintf(`embedding::public.vector(%d) OPERATOR(public.<=>) $6::public.vector(%d)`, p.options.Dimensions, p.options.Dimensions)
 	fields := `document_id,chunk_id,workflow_id,product_id,category,tags,content,chunk_index,start_char,end_char,character_count,overlap_chars,(SELECT d.filename FROM ai_knowledge_doc d WHERE d.id=ai_knowledge_chunk.document_id AND d.tenant_id=ai_knowledge_chunk.tenant_id)`
@@ -624,14 +627,49 @@ func (p *Postgres) SearchKnowledge(ctx context.Context, input ports.KnowledgeSea
 	if err = tx.Commit(ctx); err != nil {
 		return nil, err
 	}
-	return mergeKnowledgeHits(semantic, lexical, terms, limit, input.MinScore), nil
+	return p.rerank(ctx, input.Question, mergeKnowledgeHits(semantic, lexical, terms, rerankPool(limit), input.MinScore), limit), nil
+}
+
+// Reranking runs a cross-encoder on CPU, so it sees a bounded number of
+// passages, each trimmed: about 10 x 400 characters takes a few seconds.
+const (
+	rerankCandidates    = 10
+	rerankMaxCandidates = 20
+	rerankPassageRunes  = 400
+)
+
+func rerankPool(limit int) int { return min(max(limit, rerankCandidates), rerankMaxCandidates) }
+
+// rerank orders hits by the cross-encoder's relevance and returns the best
+// limit; without a reranker, or when it fails, the incoming order is kept.
+func (p *Postgres) rerank(ctx context.Context, question string, hits []ports.KnowledgeHit, limit int) []ports.KnowledgeHit {
+	if p.options.Reranker == nil || len(hits) < 2 {
+		return hits[:min(limit, len(hits))]
+	}
+	passages := make([]string, len(hits))
+	for i, hit := range hits {
+		passages[i] = hit.Content
+		if r := []rune(hit.Content); len(r) > rerankPassageRunes {
+			passages[i] = string(r[:rerankPassageRunes])
+		}
+	}
+	scores, err := p.options.Reranker.Rerank(ctx, question, passages)
+	if err != nil || len(scores) != len(hits) {
+		return hits[:min(limit, len(hits))]
+	}
+	ranked := append([]ports.KnowledgeHit(nil), hits...)
+	for i := range ranked {
+		ranked[i].Score = scores[i]
+	}
+	sort.SliceStable(ranked, func(i, j int) bool { return ranked[i].Score > ranked[j].Score })
+	return ranked[:min(limit, len(ranked))]
 }
 
 // queryEmbeddingTimeout bounds the vector service call of one search.
 const queryEmbeddingTimeout = 10 * time.Second
 
 // keywordSearch ranks chunks by the share of question terms they contain.
-func (p *Postgres) keywordSearch(ctx context.Context, where string, args []any, terms []string, candidates, limit int, minScore float64) ([]ports.KnowledgeHit, error) {
+func (p *Postgres) keywordSearch(ctx context.Context, question, where string, args []any, terms []string, candidates, limit int, minScore float64) ([]ports.KnowledgeHit, error) {
 	fields := `document_id,chunk_id,workflow_id,product_id,category,tags,content,chunk_index,start_char,end_char,character_count,overlap_chars,(SELECT d.filename FROM ai_knowledge_doc d WHERE d.id=ai_knowledge_chunk.document_id AND d.tenant_id=ai_knowledge_chunk.tenant_id)`
 	args = append(args, terms, candidates)
 	query := `SELECT ` + fields + `,0::float8 AS score FROM ai_knowledge_chunk WHERE ` + where + ` AND keyword_tokens && $6::text[] ORDER BY cardinality(ARRAY(SELECT unnest(keyword_tokens) INTERSECT SELECT unnest($6::text[]))) DESC LIMIT $7`
@@ -644,7 +682,10 @@ func (p *Postgres) keywordSearch(ctx context.Context, where string, args []any, 
 	if err != nil {
 		return nil, err
 	}
-	return rankKeywordHits(hits, terms, limit, minScore), tx.Commit(ctx)
+	if err = tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return p.rerank(ctx, question, rankKeywordHits(hits, terms, rerankPool(limit), minScore), limit), nil
 }
 
 func rankKeywordHits(hits []ports.KnowledgeHit, terms []string, limit int, minScore float64) []ports.KnowledgeHit {

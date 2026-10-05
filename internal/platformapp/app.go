@@ -437,6 +437,7 @@ func Run(forcedRole string) {
 
 	}
 	var knowledgeRuntime *core.KnowledgeRuntime
+	embedding.SetLocalHosts(cfg.LocalAIHosts)
 	if cfg.Runs(config.ComponentManagement) && postgresRepo != nil {
 		embeddingConfig := embedding.NormalizeConfig(ports.EmbeddingConfig{BaseURL: cfg.EmbeddingURL, Model: cfg.EmbeddingModel, APIKey: cfg.EmbeddingAPIKey, Dimensions: cfg.EmbeddingDimensions, BatchSize: cfg.EmbeddingBatchSize, QueryInstruction: cfg.EmbeddingQueryPrompt, TimeoutSeconds: int(cfg.EmbeddingTimeout / time.Second)})
 		if saved, found, loadErr := postgresRepo.LoadEmbeddingConfig(ctx, false); loadErr != nil {
@@ -450,12 +451,18 @@ func Run(forcedRole string) {
 		} else if found {
 			activeConfig = saved
 		}
+		var reranker ports.Reranker
+		if cfg.RerankURL != "" {
+			r, rerankErr := embedding.NewReranker(cfg.RerankURL, cfg.RerankTimeout)
+			fatal(log, "initialize knowledge reranker", rerankErr)
+			reranker = r
+		}
 		factory := func(c ports.EmbeddingConfig) (ports.KnowledgeBase, error) {
 			client, err := embedding.ClientForConfig(c)
 			if err != nil {
 				return nil, err
 			}
-			return knowledge.NewPostgres(postgresRepo.Pool(), client, knowledge.PostgresOptions{Provider: c.BaseURL, Dimensions: c.Dimensions, Preprocessing: client.Signature(), ExpectedConfig: &c}), nil
+			return knowledge.NewPostgres(postgresRepo.Pool(), client, knowledge.PostgresOptions{Provider: c.BaseURL, Dimensions: c.Dimensions, Preprocessing: client.Signature(), ExpectedConfig: &c, Reranker: reranker}), nil
 		}
 		var knowledgeErr error
 		knowledgeRuntime, knowledgeErr = core.NewKnowledgeRuntime(embeddingConfig, activeConfig, factory, postgresRepo, postgresRepo, knowledgeStore, postgresRepo, engine.Archive, log)
@@ -463,7 +470,7 @@ func Run(forcedRole string) {
 		engine.KB = knowledgeRuntime
 		engine.KnowledgeReindex = knowledgeRuntime.StatusView
 		go knowledgeRuntime.Run(ctx)
-		log.Info("knowledge index enabled", "adapter", "postgres-pgvector", "embeddingModel", embeddingConfig.Model, "apiKeyConfigured", embeddingConfig.APIKey != "")
+		log.Info("knowledge index enabled", "adapter", "postgres-pgvector", "embeddingModel", embeddingConfig.Model, "bundledService", embedding.IsLocal(embeddingConfig), "apiKeyConfigured", embeddingConfig.APIKey != "", "rerank", reranker != nil)
 	} else {
 		engine.KB = knowledge.NewLocal()
 	}

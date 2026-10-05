@@ -80,10 +80,15 @@ func TestEmbeddingConfigurationPermissionsSecretsAndIndependentTest(t *testing.T
 	candidate["dimensions"] = 4096
 	requestJSON(t, server.Client(), "PUT", server.URL+"/api/v1/ai/embedding-config", admin, candidate, 422)
 	candidate["dimensions"] = 768
-	candidate["baseUrl"] = "http://embedding:80/v1"
+	// Plain HTTP is only for the bundled service (IOT_LOCAL_AI_HOSTS).
+	candidate["baseUrl"] = "http://intranet-vectors:80/v1"
 	requestJSON(t, server.Client(), "PUT", server.URL+"/api/v1/ai/embedding-config", admin, candidate, 422)
 	if runtime.updates != before {
 		t.Fatal("invalid vector configuration became active")
+	}
+	candidate["baseUrl"] = "http://embedding:8080/v1"
+	if saved := requestJSON(t, server.Client(), "PUT", server.URL+"/api/v1/ai/embedding-config", admin, candidate, 200); saved["local"] != true {
+		t.Fatalf("bundled vector service without a key rejected: %v", saved)
 	}
 	if routeMenu("/api/v1/ai/embedding-config") != "aiProviders" || routeMenu("/api/v1/ai/embedding-test") != "aiProviders" {
 		t.Fatal("embedding settings escaped model-management permission scope")

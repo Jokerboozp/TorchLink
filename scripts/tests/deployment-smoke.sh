@@ -314,7 +314,10 @@ if grep -Eq ' up .*backup-service' "$TEST_CALLS"; then echo 'Local setup unexpec
 assert_call 'go mod download'
 assert_call 'npm ci'
 assert_call 'compose.local.yaml up -d --build --wait --wait-timeout 900'
-grep -q '^IOT_EMBEDDING_URL=https://dashscope.aliyuncs.com/compatible-mode/v1$' "$test_root/.env.local"
+grep -q '^IOT_EMBEDDING_URL=http://127.0.0.1:18093/v1$' "$test_root/.env.local"
+grep -q '^IOT_EMBEDDING_MODEL=bge-m3$' "$test_root/.env.local"
+grep -q '^IOT_RERANK_URL=http://127.0.0.1:18094$' "$test_root/.env.local"
+grep -q '^IOT_LOCAL_AI_HOSTS=embedding,reranker,127.0.0.1$' "$test_root/.env.local"
 grep -q '^IOT_EMBEDDING_API_KEY=$' "$test_root/.env.local"
 grep -q '^IOT_EMBEDDING_DIMENSIONS=1024$' "$test_root/.env.local"
 cp "$test_root/.env.local" "$test_root/local-original"
@@ -482,9 +485,11 @@ done
 for key in IOT_JWT_SECRET IOT_AI_HARNESS_TOKEN IOT_BACKUP_ADMIN_TOKEN; do
   grep -Eq "^$key=[a-f0-9]{64}$" "$test_root/.env.online"
 done
-assert_call 'build --pull platform-api platform-web backup-service minio postgres deepseek-harness'
-grep -q '^IOT_EMBEDDING_URL=https://dashscope.aliyuncs.com/compatible-mode/v1$' "$test_root/.env.online"
-grep -q '^IOT_EMBEDDING_MODEL=text-embedding-v4$' "$test_root/.env.online"
+assert_call 'build --pull platform-api platform-web backup-service minio postgres deepseek-harness embedding reranker'
+assert_no_call ' pull [^|]*embedding'
+grep -q '^IOT_EMBEDDING_URL=http://embedding:8080/v1$' "$test_root/.env.online"
+grep -q '^IOT_EMBEDDING_MODEL=bge-m3$' "$test_root/.env.online"
+grep -q '^IOT_RERANK_URL=http://reranker:8080$' "$test_root/.env.online"
 cp "$test_root/.env.online" "$test_root/online-original"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"
 cmp "$test_root/online-original" "$test_root/.env.online"
@@ -648,7 +653,7 @@ assert_no_call 'build --pull .*zlmediakit'
 : > "$TEST_CALLS"
 bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online-video" --video on > /dev/null
 profiles_are "$test_root/.env.online-video" clickhouse,ops,video
-assert_call 'build --pull platform-api platform-web backup-service minio postgres deepseek-harness zlmediakit'
+assert_call 'build --pull platform-api platform-web backup-service minio postgres deepseek-harness embedding reranker zlmediakit'
 assert_no_call ' pull .*zlmediakit'
 "$TEST_COMPOSE" --env-file "$test_root/.env.online-video" -f "$scripts/../compose.yaml" config > "$test_root/video-online.yaml"
 grep -q 'published: "5060"' "$test_root/video-online.yaml"

@@ -29,7 +29,7 @@ function candidate() {
   error.value = ''
   const body = candidateFields()
   if (!body.baseUrl || !body.model) {
-    error.value = '请填写 Embedding API 地址和模型名称'
+    error.value = '请填写 Embedding 服务地址和模型名称'
     return null
   }
   try {
@@ -48,6 +48,14 @@ function candidate() {
     return null
   }
   return { body, fingerprint:fingerprint.value }
+}
+
+// The vector service deployed with the platform needs no API key.
+const bundled = computed(() => config.value?.bundled || null)
+const usingBundled = computed(() => Boolean(bundled.value) && form.baseUrl.trim().replace(/\/$/, '') === bundled.value.baseUrl)
+function useBundled() {
+  if (!bundled.value) return
+  Object.assign(form, { baseUrl:bundled.value.baseUrl, model:bundled.value.model, dimensions:bundled.value.dimensions, queryInstruction:'', apiKey:'', clearAPIKey:Boolean(config.value?.apiKeyConfigured) })
 }
 
 function sync(value) {
@@ -117,13 +125,14 @@ onBeforeUnmount(() => { ++loadVersion; loadController?.abort() })
 
 <template>
   <ui-card class="surface-card embedding-config" shadow="never" v-loading="loading">
-    <template #header><div class="embedding-heading"><div><strong>知识库 Embedding API</strong><small>独立于对话模型，将知识分片转换为向量；知识与索引保存在 PostgreSQL / pgvector。</small></div><ui-button v-if="canRead" size="small" plain :loading="loading" :disabled="saving || testing" @click="load">刷新配置</ui-button></div></template>
+    <template #header><div class="embedding-heading"><div><strong>知识库 Embedding</strong><small>独立于对话模型，将知识分片转换为向量；知识与索引保存在 PostgreSQL / pgvector。默认使用随平台部署的本地向量服务（bge-m3），也可改用外部 HTTPS API。</small></div><ui-button v-if="canRead" size="small" plain :loading="loading" :disabled="saving || testing" @click="load">刷新配置</ui-button></div></template>
     <ui-alert v-if="loadError" :title="loadError" type="error" :closable="false" show-icon />
+    <div v-if="bundled && !loadError" class="embedding-bundled"><ui-tag :type="usingBundled ? 'success' : 'info'" effect="light">{{ usingBundled ? '使用本地向量服务' : '使用外部 API' }}</ui-tag><small>本地服务：{{ bundled.model }}，{{ bundled.dimensions }} 维，无需接口密钥。</small><ui-button v-if="canSave && !usingBundled" size="small" plain :disabled="busy" @click="useBundled">切换为本地向量服务</ui-button></div>
     <ui-form label-position="top" :model="form" :disabled="busy || (!canSave && !canTest) || Boolean(loadError)">
       <div class="embedding-grid">
-        <ui-form-item label="Embedding API 地址"><ui-input v-model="form.baseUrl" placeholder="https://API 服务地址/v1" /></ui-form-item>
+        <ui-form-item label="Embedding 服务地址"><ui-input v-model="form.baseUrl" placeholder="本地服务地址，或 https://API 服务地址/v1" /></ui-form-item>
         <ui-form-item label="Embedding 模型"><ui-input v-model="form.model" placeholder="填写服务支持的向量模型名称" /></ui-form-item>
-        <div><ui-form-item label="接口密钥"><ui-input v-model="form.apiKey" type="password" show-password autocomplete="off" :disabled="form.clearAPIKey" placeholder="填写 API Key；留空沿用已保存的密钥" /></ui-form-item><p class="embedding-hint">{{ config?.apiKeyConfigured ? '已保存密钥，页面不会显示密钥内容。' : '尚未保存接口密钥。' }}</p><ui-checkbox v-model="form.clearAPIKey" :disabled="!config?.apiKeyConfigured">保存时清除已存密钥</ui-checkbox></div>
+        <div><ui-form-item label="接口密钥"><ui-input v-model="form.apiKey" type="password" show-password autocomplete="off" :disabled="form.clearAPIKey" placeholder="外部 API 填写 API Key；留空沿用已保存的密钥" /></ui-form-item><p class="embedding-hint">{{ usingBundled ? '本地向量服务无需接口密钥。' : config?.apiKeyConfigured ? '已保存密钥，页面不会显示密钥内容。' : '尚未保存接口密钥。' }}</p><ui-checkbox v-model="form.clearAPIKey" :disabled="!config?.apiKeyConfigured">保存时清除已存密钥</ui-checkbox></div>
         <div class="embedding-numbers"><ui-form-item label="向量维度"><ui-input-number v-model="form.dimensions" :min="1" :step="1" /></ui-form-item><ui-form-item label="每批分片数"><ui-input-number v-model="form.batchSize" :min="1" :step="1" /></ui-form-item><ui-form-item label="调用超时（秒）"><ui-input-number v-model="form.timeoutSeconds" :min="1" :step="1" /></ui-form-item></div>
         <ui-form-item class="embedding-query" label="查询向量指令（可选）"><ui-input v-model="form.queryInstruction" type="textarea" :rows="2" placeholder="模型要求查询前缀时填写；文档分片不附加此指令" /></ui-form-item>
       </div>
@@ -145,6 +154,8 @@ onBeforeUnmount(() => { ++loadVersion; loadController?.abort() })
 .embedding-numbers { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px; }
 .embedding-query { grid-column:1 / -1; }
 .embedding-hint { margin:5px 0 10px; }
+.embedding-bundled { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:14px; }
+.embedding-bundled small { color:var(--text-muted); font-size:12px; }
 .embedding-actions>div { display:flex; gap:8px; }
 .embedding-result { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:14px; font-size:12px; }
 @media(max-width:760px) { .embedding-grid { grid-template-columns:1fr; }.embedding-heading,.embedding-actions { align-items:stretch; flex-direction:column; }.embedding-actions>div { flex-wrap:wrap; }.embedding-query { grid-column:auto; } }

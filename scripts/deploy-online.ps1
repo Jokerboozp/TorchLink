@@ -3,8 +3,11 @@
 Build and deploy the platform with internet access (Docker + Compose v2 required).
 .DESCRIPTION
 Creates .env.online once with random credentials, pulls dependency images,
-builds the application and PostgreSQL with pgvector, and checks HTTP readiness.
-AI and knowledge embeddings call external APIs; no model weights are downloaded.
+builds the application, PostgreSQL with pgvector and the knowledge embedding /
+rerank image (models downloaded and checksum-verified at build time, about
+1.3 GB), and checks HTTP readiness. Chat inference calls an external API. Set
+IOT_HF_ENDPOINT (e.g. https://hf-mirror.com) or IOT_LLAMA_CPP_IMAGE (a mirror of
+the same image) where huggingface.co or ghcr.io is unreachable.
 .PARAMETER EnvFile
 Environment file, relative to the repository root. Credentials are never replaced.
 .PARAMETER Video
@@ -79,6 +82,8 @@ Add-DeploymentEnvComments -Path $EnvFile
 $compose = @('compose', '--project-name', $ProjectName, '--env-file', $EnvFile, '-f', (Join-Path $projectRoot 'compose.yaml'))
 $buildServices = @('platform-api', 'platform-web', 'backup-service', 'minio', 'postgres')
 $buildServices += 'deepseek-harness'
+# 知识库向量计算与重排（同一镜像，模型在构建时下载并校验）。
+$buildServices += @('embedding', 'reranker')
 Ensure-HarnessSource -ProjectRoot $projectRoot
 Invoke-DockerChecked -Arguments ($compose + @('config', '--quiet'))
 $allServices = @(& docker @($compose + @('config', '--services')))
@@ -89,7 +94,7 @@ if (@($allServices | ForEach-Object { $_.Trim() }) -contains 'zlmediakit') { $bu
 $pullServices = @($allServices | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notin $buildServices -and $_ -notin @('capacity', 'minio-dr') })
 Write-Host '拉取运行依赖镜像……'
 Invoke-DockerChecked -Arguments ($compose + @('pull') + $pullServices)
-Write-Host '构建 API、前端和备份服务镜像……'
+Write-Host '构建 API、前端、备份服务和知识库模型镜像……'
 Invoke-DockerChecked -Arguments ($compose + @('build', '--pull') + $buildServices)
 Write-Host '启动服务……'
 Invoke-DockerChecked -Arguments ($compose + @('up', '-d', '--no-build', '--pull', 'never'))

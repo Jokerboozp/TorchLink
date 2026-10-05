@@ -123,7 +123,8 @@ Set-LocalEnvValue -Key 'IOT_BACKUP_HARNESS_SNAPSHOT_URLS' -Value 'http://127.0.0
 Set-LocalEnvValue -Key 'IOT_BACKUP_HTTP_ADDR' -Value ':8092'
 Set-LocalEnvValue 'IOT_LOCAL_BACKUP_METRICS_TARGET' $(if ($IncludeBackup) { 'backup-service:8090' } else { 'host.docker.internal:8092' }) -Replace
 Set-DeepSeekDeploymentEnv -Path $EnvFile -Model $DeepSeekModel
-Set-EmbeddingDeploymentEnv -Path $EnvFile
+# The source API reaches the bundled vector / rerank services on the published ports.
+Set-EmbeddingDeploymentEnv -Path $EnvFile -EmbeddingUrl 'http://127.0.0.1:18093/v1' -RerankUrl 'http://127.0.0.1:18094' -ExtraHosts '127.0.0.1'
 
 # The controller follows the source API lifecycle, using its local addresses.
 if ($Capacity -eq 'keep') { $Capacity = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_CAPACITY_MODULE') -eq 'off') { 'off' } else { 'on' } }

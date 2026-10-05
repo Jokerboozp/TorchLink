@@ -238,6 +238,7 @@ function New-OfflineEnv {
         "IOT_PLATFORM_WEB_IMAGE" = "iot-platform-web:offline"
         "IOT_BACKUP_IMAGE" = "iot-platform-backup:offline"
         "IOT_DEEPSEEK_HARNESS_IMAGE" = "iot-deepseek-harness:offline"
+        "IOT_LOCAL_AI_IMAGE" = "iot-local-ai:offline"
     }
     foreach ($item in $imageValues.GetEnumerator()) {
         $lines = @(Set-OrAdd-EnvLine -Lines $lines -Key $item.Key -Value $item.Value)
@@ -358,6 +359,8 @@ try {
     )
     Invoke-Checked -Arguments ($composeBase + @("--profile", "ops", "--profile", "clickhouse", "pull") + $pullServices)
     Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "platform-api", "platform-web", "backup-service", "minio", "postgres"))
+    # Knowledge embedding / rerank image with its models, built for this machine's architecture.
+    Invoke-Checked -Arguments ($composeBase + @("build", "--pull", "embedding"))
     if (-not $WithoutVideo) { Invoke-Checked -Arguments ($composeBase + @("--profile", "video", "build", "--pull", "zlmediakit")) }
 
     Ensure-HarnessSource -ProjectRoot $projectRoot
@@ -442,7 +445,8 @@ try {
         aiModel = $DeepSeekModel
         aiRequiresInternet = $true
         knowledgeStore = 'postgres-pgvector'
-        embeddingRequiresInternet = $true
+        embeddingRequiresInternet = $false
+        localAI = "llama.cpp b11382: bge-m3 (embedding), bge-reranker-v2-m3 (rerank), Q8_0"
         arch = (& docker info --format '{{.Architecture}}').Trim()
         generatedCredentials = [bool]$envResult.Generated
     }

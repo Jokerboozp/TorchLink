@@ -22,7 +22,7 @@
 | 智能巡检 | 在线情况、上报时效和活动告警检查，后台进度、分页报告、AI 建议及 PDF 下载。[巡检报告](docs/PLATFORM.md#智能巡检与报告) |
 | 智能助手 | 流式对话、运维报告、自定义聊天 Agent、会话记录和运行轨迹；通过 Harness 与受控 MCP 查询授权数据。[AI 功能](docs/PLATFORM.md#ai-与知识库) |
 | 模型与 AI 工作流管理 | 统一模型配置、可选连接测试；查看当前租户运行/排队任务，手动刷新、逐条强制停止和停止审计，支持多 Harness 实例。[工作流管理](docs/PLATFORM.md#运行中的-ai-工作流) |
-| 知识库 | PostgreSQL + pgvector 持久检索、云端 Embedding、异步索引与重试、原子重建；按租户及 Agent / workflowId 隔离。[知识检索](docs/PLATFORM.md#ai-与知识库) |
+| 知识库 | PostgreSQL + pgvector 持久检索、随平台部署的本地向量与重排服务（amd64 / arm64，仅 CPU）、异步索引与自动重试、原子重建；按租户及 Agent / workflowId 隔离。[知识检索](docs/PLATFORM.md#ai-与知识库) |
 | 摄像头映射与直播 | 摄像头资料、位置、设备关联、视频告警；ONVIF / RTSP / GB28181 接入，WebRTC / HLS 播放和可选转码。[摄像头](docs/PLATFORM.md#摄像头) |
 | 运维中心 | 原生管理 Prometheus 指标、Loki 日志、Grafana 仪表盘、Alertmanager 告警、静默与通知；自动补齐内置仪表盘。[运维功能](docs/PLATFORM.md#运维中心) |
 | 容量测试 | 页面预设、CLI 与多 Agent 发压，按当前权限准备测试设备，阶梯搜索、长稳、故障注入、ID 核对、续跑、报告及跨运行比较。[模块部署](docs/DEPLOYMENT.md#容量测试模块) · [容量验证](docs/DEVELOPMENT.md#容量验证) |
@@ -49,7 +49,7 @@ go run ./cmd/backup-service --env-file .env.local
 
 访问 `http://localhost:5173`。平台登录、MQTT/Kafka 等基础服务工具连接与外部对接授权使用不同用途的凭据，见 [工具连接账号](docs/DEPLOYMENT.md#工具连接账号)；IDE 调试、端口与停止命令见 [部署指南](docs/DEPLOYMENT.md)。
 
-AI 和知识向量服务在“模型管理”分别配置密钥；未配置时可先使用设备业务。离线包仍通过外部 API 使用 AI，见 [AI 配置](docs/DEPLOYMENT.md#ai-与工作流)。本地容量模块随源码 API 启停，入口为“运维中心 → 容量测试”，见 [本地容量模块](docs/DEVELOPMENT.md#容量测试模块)。
+对话模型在“模型管理”配置密钥，未配置时可先使用设备业务；知识库向量与重排服务随平台部署，无需密钥。离线包内含向量与重排模型，对话推理仍通过外部 API，见 [AI 配置](docs/DEPLOYMENT.md#ai-与工作流)。本地容量模块随源码 API 启停，入口为“运维中心 → 容量测试”，见 [本地容量模块](docs/DEVELOPMENT.md#容量测试模块)。
 
 | 环境 | 配置与操作入口 |
 | --- | --- |
@@ -80,7 +80,7 @@ AI 和知识向量服务在“模型管理”分别配置密钥；未配置时�
                                                    管理端 / AI 工作流
 ```
 
-PostgreSQL 保存业务数据和索引，ClickHouse 按配置承载原文及遥测；Redis 提供缓存，Kafka / Redpanda 承载内部消息，EMQX 负责 MQTT。MinIO 保存知识原件和备份制品，外部 API 提供对话、推理及向量计算；PostgreSQL + pgvector 提供持久知识检索，Harness 保留自定义 Agent 与业务工作流。
+PostgreSQL 保存业务数据和索引，ClickHouse 按配置承载原文及遥测；Redis 提供缓存，Kafka / Redpanda 承载内部消息，EMQX 负责 MQTT。MinIO 保存知识原件和备份制品，外部 API 提供对话与推理，随平台部署的 embedding / reranker 服务提供向量计算与重排；PostgreSQL + pgvector 提供持久知识检索，Harness 保留自定义 Agent 与业务工作流。
 
 默认 `combined` 进程可拆分为 `api`、`gateway`、`parser`、`processor`、`jobs`，按角色分配资源；集群工具校验故障域、端口和连接预算，生成各节点配置并部署。默认 Compose 为单节点，集群示例也有单实例组件，具体见 [进程职责](docs/DEPLOYMENT.md#进程职责) 与 [高可用边界](docs/DEPLOYMENT.md#高可用边界)。工具可用不代表目标集群已经通过容量或故障切换验收。
 

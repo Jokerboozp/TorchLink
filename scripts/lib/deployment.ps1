@@ -227,12 +227,37 @@ function Wait-DeploymentHttp {
     throw "健康检查超时：$Url。请用相同的 Compose 项目和配置参数检查 ps / logs。"
 }
 
-# Populate cloud defaults without rewriting operator-supplied settings.
+function Test-DeploymentEnvKey {
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Key)
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    return [bool](Select-String -LiteralPath $Path -Pattern ('^\s*(export\s+)?' + [Regex]::Escape($Key) + '\s*=') -Quiet)
+}
+
+# Knowledge vectors and reranking use the embedding / reranker services
+# deployed with the platform. Earlier releases defaulted to the DashScope
+# cloud API; that default is replaced, an operator-chosen API is kept.
 function Set-EmbeddingDeploymentEnv {
-    param([Parameter(Mandatory)][string]$Path)
-    foreach ($setting in @{ IOT_EMBEDDING_URL='https://dashscope.aliyuncs.com/compatible-mode/v1'; IOT_EMBEDDING_API_KEY=''; IOT_EMBEDDING_MODEL='text-embedding-v4'; IOT_EMBEDDING_DIMENSIONS='1024'; IOT_EMBEDDING_BATCH_SIZE='10' }.GetEnumerator()) {
+    param([Parameter(Mandatory)][string]$Path, [string]$EmbeddingUrl = 'http://embedding:8080/v1', [string]$RerankUrl = 'http://reranker:8080', [string]$ExtraHosts = '')
+    $url = Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_URL'
+    $model = Get-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_MODEL'
+    if (-not $url -or $url -eq 'https://dashscope.aliyuncs.com/compatible-mode/v1' -or $url -eq 'http://embedding:8080/v1' -or $url -match '^http://[^/]+:18093/v1$') {
+        if ($url -eq 'https://dashscope.aliyuncs.com/compatible-mode/v1') {
+            Write-Warning '知识库向量计算改为随平台部署的 embedding 服务（bge-m3），已有文档会在后台自动重建索引。若“模型管理”里保存过云端向量配置，请在该页切换为本地服务。'
+        }
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_URL' -Value $EmbeddingUrl
+        if (-not $model -or $model -eq 'text-embedding-v4') { Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_MODEL' -Value 'bge-m3' }
+    }
+    foreach ($setting in @{ IOT_EMBEDDING_DIMENSIONS='1024'; IOT_EMBEDDING_BATCH_SIZE='10' }.GetEnumerator()) {
         if (-not (Get-DeploymentEnvValue -Path $Path -Key $setting.Key)) { Set-DeploymentEnvValue -Path $Path -Key $setting.Key -Value $setting.Value }
     }
+    if (-not (Test-DeploymentEnvKey -Path $Path -Key 'IOT_EMBEDDING_API_KEY')) { Set-DeploymentEnvValue -Path $Path -Key 'IOT_EMBEDDING_API_KEY' -Value '' }
+    # An explicitly empty IOT_RERANK_URL turns reranking off and is kept.
+    if (-not (Test-DeploymentEnvKey -Path $Path -Key 'IOT_RERANK_URL') -or (Get-DeploymentEnvValue -Path $Path -Key 'IOT_RERANK_URL') -match '^http://[^/]+:18094$') {
+        Set-DeploymentEnvValue -Path $Path -Key 'IOT_RERANK_URL' -Value $RerankUrl
+    }
+    $hosts = 'embedding,reranker'
+    if ($ExtraHosts) { $hosts = "$hosts,$ExtraHosts" }
+    Set-DeploymentEnvValue -Path $Path -Key 'IOT_LOCAL_AI_HOSTS' -Value $hosts
 }
 
 function Set-DeepSeekDeploymentEnv {

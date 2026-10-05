@@ -279,6 +279,17 @@ func NormalizeConfig(cfg ports.EmbeddingConfig) ports.EmbeddingConfig {
 	return cfg
 }
 
+// localHosts lists the vector services the deployment runs itself
+// (IOT_LOCAL_AI_HOSTS); set once at startup.
+var localHosts = ports.DefaultLocalAIHosts
+
+// SetLocalHosts replaces the bundled service host list.
+func SetLocalHosts(hosts string) { localHosts = hosts }
+
+// IsLocal reports whether cfg addresses the bundled vector service, which
+// needs no API key.
+func IsLocal(cfg ports.EmbeddingConfig) bool { return ports.LocalAIEndpoint(cfg.BaseURL, localHosts) }
+
 func ClientForConfig(cfg ports.EmbeddingConfig) (*OpenAI, error) {
 	cfg = NormalizeConfig(cfg)
 	if cfg.TimeoutSeconds < 1 || cfg.TimeoutSeconds > 300 {
@@ -287,20 +298,25 @@ func ClientForConfig(cfg ports.EmbeddingConfig) (*OpenAI, error) {
 	if len(cfg.APIKey) > 4096 || len(cfg.BaseURL) > 2048 || len(cfg.Model) > 256 || len(cfg.QueryInstruction) > 4096 {
 		return nil, errors.New("embedding configuration is too long")
 	}
-	u, err := url.Parse(cfg.BaseURL)
-	if err != nil || u.Scheme != "https" {
-		return nil, errors.New("external embedding API must use HTTPS")
-	}
-	host := strings.ToLower(u.Hostname())
-	if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".orb.internal") || host == "embedding" || host == "vllm" || host == "ollama" {
-		return nil, errors.New("embedding API must be an external service")
-	}
-	if ip := net.ParseIP(host); ip != nil && (ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast()) {
-		return nil, errors.New("embedding API must be an external service")
+	local := IsLocal(cfg)
+	// Only the bundled service may use plain HTTP or a private address; any
+	// other endpoint is an external HTTPS API, never an arbitrary internal URL.
+	if !local {
+		u, err := url.Parse(cfg.BaseURL)
+		if err != nil || u.Scheme != "https" {
+			return nil, errors.New("embedding API must be the bundled vector service or an external HTTPS API")
+		}
+		host := strings.ToLower(u.Hostname())
+		if host == "localhost" || strings.HasSuffix(host, ".localhost") || strings.HasSuffix(host, ".orb.internal") {
+			return nil, errors.New("embedding API must be the bundled vector service or an external HTTPS API")
+		}
+		if ip := net.ParseIP(host); ip != nil && (ip.IsPrivate() || ip.IsLoopback() || ip.IsUnspecified() || ip.IsLinkLocalUnicast()) {
+			return nil, errors.New("embedding API must be the bundled vector service or an external HTTPS API")
+		}
 	}
 	client, err := NewOpenAI(Config{BaseURL: cfg.BaseURL, Model: cfg.Model, APIKey: cfg.APIKey, Dimensions: cfg.Dimensions, BatchSize: cfg.BatchSize, QueryInstruction: cfg.QueryInstruction, Timeout: time.Duration(cfg.TimeoutSeconds) * time.Second})
 	if client != nil {
-		client.requireAPIKey = true
+		client.requireAPIKey = !local
 	}
 	return client, err
 }

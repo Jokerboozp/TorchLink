@@ -86,8 +86,9 @@ try {
     Assert (Contains-Call 'go mod download') 'Local setup omitted Go dependencies'
     Assert (Contains-Call 'npm ci') 'Local setup omitted npm dependencies'
     Assert (Contains-Call 'compose.local.yaml up -d --build --wait --wait-timeout 900') 'Local setup does not wait for dependency readiness'
-    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_EMBEDDING_URL') -eq 'https://dashscope.aliyuncs.com/compatible-mode/v1') 'Local embedding API URL is missing'
-    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_EMBEDDING_API_KEY') -eq '') 'Cloud API key must be operator-supplied'
+    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_EMBEDDING_URL') -eq 'http://127.0.0.1:18093/v1') 'Local embedding service URL is missing'
+    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_RERANK_URL') -eq 'http://127.0.0.1:18094') 'Local rerank service URL is missing'
+    Assert ((Get-DeploymentEnvValue -Path $localEnv -Key 'IOT_EMBEDDING_API_KEY') -eq '') 'The bundled vector service needs no API key'
     $localModel = & $global:IotTest_composeParser --project-name iot-platform-local --env-file $localEnv -f (Join-Path $scripts '../compose.local.yaml') config --format json | ConvertFrom-Json
     Assert ($LASTEXITCODE -eq 0) 'Local Compose model failed'
     Assert ($localModel.services.PSObject.Properties.Name -notcontains 'platform-api') 'Local setup starts API container'
@@ -235,8 +236,8 @@ try {
         Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key $key) -eq 'admin') "Online tool username incorrect: $key"
     }
     Assert-CommentedEnv $onlineEnv
-    Assert (Contains-Call 'build --pull platform-api platform-web backup-service minio postgres deepseek-harness') 'Online omitted the default Harness image build'
-    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_EMBEDDING_URL') -eq 'https://dashscope.aliyuncs.com/compatible-mode/v1') 'Online embedding API URL is missing'
+    Assert (Contains-Call 'build --pull platform-api platform-web backup-service minio postgres deepseek-harness embedding reranker') 'Online omitted the Harness or knowledge model image build'
+    Assert ((Get-DeploymentEnvValue -Path $onlineEnv -Key 'IOT_EMBEDDING_URL') -eq 'http://embedding:8080/v1') 'Online embedding service URL is missing'
     $onlineHash = (Get-FileHash $onlineEnv).Hash
     & (Join-Path $scripts 'deploy-online.ps1') -EnvFile $onlineEnv
     Assert ((Get-FileHash $onlineEnv).Hash -eq $onlineHash) 'Online rerun changed configuration'

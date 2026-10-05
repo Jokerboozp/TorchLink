@@ -32,7 +32,8 @@ while [ "$#" -gt 0 ]; do
   --capacity on|off     部署或关闭容量测试模块（运维中心 → 容量测试）；省略时沿用上次选择，新环境默认关闭
   --ops on|off          部署或关闭监控组件（Prometheus、Loki、Grafana、Alertmanager 等）；省略时沿用上次选择，新环境默认开启
   --clickhouse on|off   部署或关闭 ClickHouse（高频原文与遥测）；关闭后全部写 PostgreSQL；省略时沿用上次选择，新环境默认开启
-默认拉取运行镜像、构建应用与 PostgreSQL + pgvector 并启动服务；AI 和向量计算调用外部 API，不下载本地模型。
+默认拉取运行镜像、构建应用、PostgreSQL + pgvector 与知识库向量/重排服务（构建时下载并校验模型，约 1.3 GB）并启动服务；对话推理调用外部 API。
+下载模型受限时可设 IOT_HF_ENDPOINT（如 https://hf-mirror.com）；ghcr.io 受限时可设 IOT_LLAMA_CPP_IMAGE 为镜像仓库中的同一镜像。
 Linux 缺少 Docker/Compose/Buildx 时自动安装；首次安装使用 root/sudo。Windows/macOS 需预装 Docker Desktop；Git 和 curl 需可用。
 EOF
       exit 0;;
@@ -106,6 +107,8 @@ compose=(compose --project-name "$project_name" --env-file "$env_file" -f "$proj
 build_services=(platform-api platform-web backup-service minio postgres)
 command -v git >/dev/null 2>&1 || { echo 'AI 工作流服务（Harness）为必装组件，构建需要安装 Git。' >&2; exit 1; }
 build_services+=(deepseek-harness)
+# 知识库向量计算与重排（同一镜像，模型在构建时下载并校验）。
+build_services+=(embedding reranker)
 sh "$script_dir/fetch-deepseek-harness.sh"
 run_docker "${compose[@]}" config --quiet
 services="$(docker "${compose[@]}" config --services)"
@@ -114,7 +117,7 @@ while IFS= read -r service; do
   service="${service%$'\r'}"
   case "$service" in
     # minio-dr runs the MinIO image built here.
-    platform-api|platform-web|backup-service|deepseek-harness|minio|minio-dr|postgres|'') ;;
+    platform-api|platform-web|backup-service|deepseek-harness|minio|minio-dr|postgres|embedding|reranker|'') ;;
     # 摄像头直播媒体服务（video profile，默认启用），由固定 digest 的官方镜像构建。
     zlmediakit) build_services+=(zlmediakit) ;;
     # 容量测试模块使用平台镜像，不单独拉取。
@@ -124,7 +127,7 @@ while IFS= read -r service; do
 done <<< "$services"
 echo '拉取运行依赖镜像……'
 run_docker "${compose[@]}" pull "${pull_services[@]}"
-echo '构建 API、前端和备份服务镜像……'
+echo '构建 API、前端、备份服务和知识库模型镜像……'
 run_docker "${compose[@]}" build --pull "${build_services[@]}"
 echo '启动服务……'
 run_docker "${compose[@]}" up -d --no-build --pull never

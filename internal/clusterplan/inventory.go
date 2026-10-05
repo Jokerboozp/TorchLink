@@ -66,6 +66,9 @@ type Images struct {
 	// LB is the HAProxy image of the per-node internal load balancers used
 	// when platform.internalURL/gatewayURL are left empty.
 	LB string `yaml:"lb"`
+	// LocalAI holds the knowledge embedding and rerank models
+	// (deploy/local-ai); every API node runs both next to its API.
+	LocalAI string `yaml:"localAI"`
 }
 
 type Node struct {
@@ -165,7 +168,7 @@ var Ports = map[string][]int{
 	"redis": {6379}, "sentinel": {26379}, "minio": {9002, 9003}, "harness": {8091},
 	"video":  {80, 8000},
 	"backup": {8090}, "prometheus": {9090, 9093, 9094}, "node-exporter": {9100}, "web": {8080, 8443},
-	"api": {8081, 5060}, "gateway": {8082, 26875}, "parser": {8101}, "processor": {8102}, "jobs": {8104},
+	"api": {8081, 5060, LocalEmbeddingPort, LocalRerankPort}, "gateway": {8082, 26875}, "parser": {8101}, "processor": {8102}, "jobs": {8104},
 	"lb": {LBAPIPort, LBGatewayPort, LBMinIOPort, LBVideoPort, LBPrometheusPort, LBAlertmanagerPort}, "capacity": {7080},
 }
 
@@ -177,6 +180,12 @@ const (
 	LBVideoPort        = 18180
 	LBPrometheusPort   = 18190
 	LBAlertmanagerPort = 18193
+)
+
+// Knowledge embedding and rerank services beside each API (127.0.0.1 only).
+const (
+	LocalEmbeddingPort = 18093
+	LocalRerankPort    = 18094
 )
 
 // LocalLB reports whether nodes run the local HAProxy: for the API and
@@ -227,6 +236,10 @@ func Load(path string) (*Inventory, error) {
 }
 
 func (inv *Inventory) defaults() {
+	// Inventories written before the bundled knowledge models existed.
+	if inv.Images.LocalAI == "" {
+		inv.Images.LocalAI = DefaultImages().LocalAI
+	}
 	if inv.DataRoot == "" {
 		inv.DataRoot = "/opt/" + inv.Name + "/data"
 	}

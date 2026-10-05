@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"iot-platform/internal/ports"
 )
 
 const (
@@ -130,6 +132,9 @@ type Config struct {
 	EmbeddingAPIKey      string
 	EmbeddingQueryPrompt string
 	EmbeddingTimeout     time.Duration
+	LocalAIHosts         string
+	RerankURL            string
+	RerankTimeout        time.Duration
 	BackupURL            string
 	BackupToken          string
 	OfflineScan          time.Duration
@@ -232,8 +237,11 @@ func Load() Config {
 		AIBusinessTimeout:           duration("IOT_AI_HARNESS_BUSINESS_TIMEOUT", 4*time.Minute),
 		EmbeddingDimensions:         int(int64Value("IOT_EMBEDDING_DIMENSIONS", 1024)),
 		EmbeddingBatchSize:          int(int64Value("IOT_EMBEDDING_BATCH_SIZE", 10)),
-		EmbeddingURL:                strings.TrimRight(strings.TrimSpace(get("IOT_EMBEDDING_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1")), "/"),
-		EmbeddingModel:              get("IOT_EMBEDDING_MODEL", "text-embedding-v4"),
+		EmbeddingURL:                strings.TrimRight(strings.TrimSpace(get("IOT_EMBEDDING_URL", "http://embedding/v1")), "/"),
+		EmbeddingModel:              get("IOT_EMBEDDING_MODEL", "bge-m3"),
+		LocalAIHosts:                get("IOT_LOCAL_AI_HOSTS", ports.DefaultLocalAIHosts),
+		RerankURL:                   strings.TrimRight(strings.TrimSpace(os.Getenv("IOT_RERANK_URL")), "/"),
+		RerankTimeout:               duration("IOT_RERANK_TIMEOUT", 8*time.Second),
 		EmbeddingAPIKey:             strings.TrimSpace(os.Getenv("IOT_EMBEDDING_API_KEY")),
 		EmbeddingQueryPrompt:        embeddingQueryPrompt(),
 		EmbeddingTimeout:            duration("IOT_EMBEDDING_TIMEOUT", time.Minute),
@@ -305,7 +313,8 @@ func (c Config) Validate() error {
 			}
 		}
 	}
-	// The persistent knowledge index uses the external embedding API.
+	// The persistent knowledge index uses the bundled vector service or an
+	// external HTTPS embedding API.
 	if c.Runs(ComponentManagement) && !c.DevMode && c.PostgresDSN == "" {
 		return fmt.Errorf("IOT_POSTGRES_DSN is required for the persistent PostgreSQL knowledge index")
 	}
@@ -313,8 +322,13 @@ func (c Config) Validate() error {
 		if c.EmbeddingURL == "" {
 			return fmt.Errorf("IOT_EMBEDDING_URL is required for the PostgreSQL knowledge index")
 		}
-		if u, err := url.Parse(c.EmbeddingURL); err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-			return fmt.Errorf("IOT_EMBEDDING_URL must be an HTTPS external API URL without credentials or query")
+		if u, err := url.Parse(c.EmbeddingURL); err != nil || (u.Scheme != "https" && !ports.LocalAIEndpoint(c.EmbeddingURL, c.LocalAIHosts)) || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("IOT_EMBEDDING_URL must be the bundled vector service (IOT_LOCAL_AI_HOSTS) or an HTTPS external API URL without credentials or query")
+		}
+	}
+	if c.RerankURL != "" && !ports.LocalAIEndpoint(c.RerankURL, c.LocalAIHosts) {
+		if u, err := url.Parse(c.RerankURL); err != nil || u.Scheme != "https" || u.Host == "" || u.User != nil {
+			return fmt.Errorf("IOT_RERANK_URL must be the bundled rerank service (IOT_LOCAL_AI_HOSTS) or an HTTPS URL")
 		}
 	}
 	if (c.EmbeddingDimensions != 0 && (c.EmbeddingDimensions < 1 || c.EmbeddingDimensions > 2000)) || (c.EmbeddingBatchSize != 0 && (c.EmbeddingBatchSize < 1 || c.EmbeddingBatchSize > 100)) {

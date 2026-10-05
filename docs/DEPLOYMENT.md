@@ -32,7 +32,7 @@ bash ./scripts/setup-local.sh
 | 开启 / 关闭摄像头直播媒体服务（默认开启，省略沿用上次选择） | `-Video on` / `-Video off` | `--video on` / `--video off` |
 | 开启 / 关闭随源码 API 运行的容量控制器（默认开启，省略沿用上次选择） | `-Capacity on` / `-Capacity off` | `--capacity on` / `--capacity off` |
 
-对话与推理默认使用 DeepSeek API。启动后在“模型管理”填写 API Key 并保存即可，连接测试可选；也可通过各环境文件的 `DEEPSEEK_API_KEY` 配置。未填密钥不阻止平台启动。知识库使用 PostgreSQL + pgvector，向量通过独立的云端 Embedding API 计算；“模型管理”中配置向量 API Key，未填密钥不阻止设备业务启动。完整配置、升级与离线联网边界见 [AI 配置](#ai-与工作流)。
+对话与推理默认使用 DeepSeek API。启动后在“模型管理”填写 API Key 并保存即可，连接测试可选；也可通过各环境文件的 `DEEPSEEK_API_KEY` 配置。未填密钥不阻止平台启动。知识库使用 PostgreSQL + pgvector，向量计算与检索重排由随平台部署的 `embedding` / `reranker` 服务完成，无需密钥，见[知识库向量服务](#知识库向量服务)。完整配置、升级与离线联网边界见 [AI 配置](#ai-与工作流)。
 
 依赖部署到虚拟机时使用 `--dependencies-only`，网络与配置共享见 [端口与地址](#端口与地址)；Mac 使用 [OrbStack 调试](#orbstack-虚拟机本地调试)。
 
@@ -334,7 +334,7 @@ bash ./scripts/deploy-online.sh --env-file .env --project-name iot-platform
 
 ### 数据库迁移
 
-PostgreSQL 仓储启动时先执行 `internal/adapters/postgres/schema.sql` 幂等基线，再按版本号执行 `internal/adapters/postgres/migrations/` 中尚未执行的迁移，结果记录在 `schema_migration`；已执行的迁移被修改时拒绝启动。多个进程同时启动时由会话级 advisory lock 串行，其余进程等待后跳过。沿用原数据库与数据卷，无需清空数据；编写约定见该目录的 README。部署账户须有创建所需表及扩展的权限，外部 PostgreSQL 的 pgvector 要求见 [知识库配置](#知识库与云端向量-api)。
+PostgreSQL 仓储启动时先执行 `internal/adapters/postgres/schema.sql` 幂等基线，再按版本号执行 `internal/adapters/postgres/migrations/` 中尚未执行的迁移，结果记录在 `schema_migration`；已执行的迁移被修改时拒绝启动。多个进程同时启动时由会话级 advisory lock 串行，其余进程等待后跳过。沿用原数据库与数据卷，无需清空数据；编写约定见该目录的 README。部署账户须有创建所需表及扩展的权限，外部 PostgreSQL 的 pgvector 要求见 [知识库配置](#知识库向量服务)。
 
 排班、灭火器和消防站随 API 与 Web 提供，无独立容器或模块开关。升级后由迁移创建 `fire_safety_record` 等表并转换已有数据，业务数据仍保存在既有 PostgreSQL；配置和关联约束见 [消防管理持久化](FIRE_SAFETY.md#持久化)。升级前保留数据库备份；平台设备数据导出的覆盖范围见 [设备数据备份](#设备数据备份)。
 
@@ -355,26 +355,42 @@ sudo docker compose -p iot-platform-local --env-file .env.local \
 
 源码 API 到 Harness 使用 `IOT_AI_HARNESS_URL/TOKEN`；容器回调使用 `IOT_AI_HARNESS_MCP_URL`，必须能到达源码 API，OrbStack 为 `host.orb.internal`。旧 Provider 数据、IDE 进程变量可能覆盖环境文件，排查时核对实际运行配置。工作流和权限见 [平台功能](PLATFORM.md#ai-与知识库)。
 
-### 知识库与云端向量 API
+### 知识库向量服务
 
-对话模型与向量模型独立配置，统一使用外部 API；部署只保留 Harness 工作流运行时和 PostgreSQL 知识索引，不携带 GPU 配置或模型权重。Agent、MCP 与权限边界见 [AI 与知识库](PLATFORM.md#ai-与知识库)。
+对话模型（DeepSeek 等外部 API）与向量模型独立配置。向量计算和检索重排默认由随平台部署的两个服务完成，部署平台时一并构建和启动，无需额外机器或密钥：
 
-PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数据卷。API 迁移创建 `vector` 扩展及知识索引表；外部 PostgreSQL 须预先安装 pgvector，并由具备权限的账户执行扩展创建。知识原件继续保存到既有 MinIO，文档、分片、向量、Agent 绑定及索引版本存于 PostgreSQL。
+| 服务 | 模型 | 作用 |
+|---|---|---|
+| `embedding` | bge-m3（Q8_0，1024 维） | 把知识分片和检索问题转换为向量 |
+| `reranker` | bge-reranker-v2-m3（Q8_0） | 对检索候选按相关性重新排序 |
 
-在“模型管理”的“知识库向量模型”中保存 Embedding 配置。连接测试是独立诊断，不影响配置保存；密钥不会返回浏览器，留空保持已有密钥，明确清除才删除。也可通过环境文件给首次启动提供默认值：
+两者使用同一镜像 `deploy/local-ai`（llama.cpp 固定版本 b11382，按 digest 固定的多架构基础镜像，支持 **linux/amd64 与 linux/arm64**，只用 CPU）。模型在构建镜像时从固定版本下载并按 SHA-256 校验，运行时和离线环境都不再下载；镜像约 1.5 GB，每个服务常驻约 1 GB 内存。huggingface.co 不可达时设置 `IOT_HF_ENDPOINT=https://hf-mirror.com`；ghcr.io 不可达时把 `IOT_LLAMA_CPP_IMAGE` 指向镜像仓库中的同一镜像（保留 digest）。`IOT_LOCAL_AI_THREADS`（默认 -1，即全部核）可限制推理线程，主机繁忙时调小。
+
+- 在线部署：`deploy-online` 构建并启动两个服务。离线包按打包机的架构构建并包含该镜像（`manifest.json` 中 `embeddingRequiresInternet=false`），目标机须与打包机架构一致。
+- 源码调试：`compose.local.yaml` 把两个服务发布在依赖机的 `18093`（embedding）和 `18094`（reranker），准备脚本写入 `IOT_EMBEDDING_URL`、`IOT_RERANK_URL` 并把依赖机地址加入 `IOT_LOCAL_AI_HOSTS`。
+- 集群：每个 API 节点在本机 `127.0.0.1:18093/18094` 运行一组，API 只访问本机实例；镜像键为 `images.localAI`，旧清单缺省时取默认值。
 
 | 配置 | 默认或说明 |
 |---|---|
-| `IOT_EMBEDDING_URL` | `https://dashscope.aliyuncs.com/compatible-mode/v1`，外部 HTTPS OpenAI 兼容 API |
-| `IOT_EMBEDDING_MODEL` | `text-embedding-v4` |
-| `IOT_EMBEDDING_API_KEY` | 自行填写向量服务密钥，独立于 DeepSeek Key；默认空 |
-| `IOT_EMBEDDING_DIMENSIONS` | `1024`，模型实际输出维度须一致，支持 1–2000 |
-| `IOT_EMBEDDING_BATCH_SIZE` | `10`，须遵守所选服务的单批上限 |
+| `IOT_EMBEDDING_URL` | `http://embedding:8080/v1`；也可填外部 HTTPS OpenAI 兼容 API |
+| `IOT_EMBEDDING_MODEL` | `bge-m3` |
+| `IOT_EMBEDDING_API_KEY` | 仅外部 API 需要；默认空 |
+| `IOT_EMBEDDING_DIMENSIONS` | `1024`，须与模型实际输出一致（bge-m3 固定 1024） |
+| `IOT_EMBEDDING_BATCH_SIZE` | `10` |
 | `IOT_EMBEDDING_QUERY_INSTRUCTION` | 默认空；仅为需要查询前缀的模型配置 |
+| `IOT_RERANK_URL` | `http://reranker:8080`；置空则不重排 |
+| `IOT_RERANK_TIMEOUT` | `8s`，超时或失败时保留原排序 |
+| `IOT_LOCAL_AI_HOSTS` | `embedding,reranker`；只有这里列出的主机名、IP 或网段允许使用 HTTP 且无需密钥，其他地址必须是外部 HTTPS API |
 
-页面保存的配置持久化到 PostgreSQL，并优先于首次启动环境默认值。API 对 429/502/503/504 最多退避重试两次，其他错误直接返回，不把上游凭据写入失败原因。没有向量密钥时文档仍可上传，但索引会失败；配置密钥后可重试。
+“模型管理”的知识库 Embedding 卡片显示当前是否使用本地服务，可一键“切换为本地向量服务”或改填外部 API；页面保存的配置持久化到 PostgreSQL，优先于环境文件默认值。早期版本默认使用 DashScope 云端 API：部署脚本会把仍为该默认值的环境文件改为本地服务；若曾在“模型管理”保存过云端配置，须在该页切换。改变向量服务地址、模型、维度或查询指令会在后台重建索引，建好后原子切换，失败继续使用旧索引；仅更新密钥不改变向量空间。
 
-改变向量服务地址、模型、维度或查询指令会触发重建，仅更新密钥不改变向量空间。上传、删除、重试、原子重建及检索授权统一见[知识库使用](PLATFORM.md#ai-与知识库)；多副本共享 PostgreSQL 重建锁，部署时保留原库、对象和环境秘密。
+检索与索引的容错：
+
+- 检索问题最长 512 字；业务功能使用各自的简短检索问题，不把设备快照等数据当作问题。
+- 检索时向量计算限时 10 秒；向量服务不可用时退回关键词检索，结果标记为“仅关键词匹配”。重排每次最多看 20 条候选、每条前 400 字（CPU 上约数秒），失败或超时保留混合排序。
+- 建索引对连接失败、429、5xx 重试，遵守 `Retry-After`；临时失败按 1、5、15、60 分钟自动重新排队，用完才标记索引失败，等待中的文档可手动立即重试。CPU 上大文档建索引较慢，单个任务上限 2 小时（每批完成都会续租）。
+
+PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数据卷。API 迁移创建 `vector` 扩展及知识索引表；外部 PostgreSQL 须预先安装 pgvector，并由具备权限的账户执行扩展创建。知识原件继续保存到既有 MinIO，文档、分片、向量、Agent 绑定及索引版本存于 PostgreSQL。上传、删除、重试、原子重建及检索授权统一见[知识库使用](PLATFORM.md#ai-与知识库)；多副本共享 PostgreSQL 重建锁。
 
 ### 运维组件
 

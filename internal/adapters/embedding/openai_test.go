@@ -186,3 +186,58 @@ func TestOpenAIRetryPolicyByPurpose(t *testing.T) {
 		t.Fatal("credential failure must not be retried later", err)
 	}
 }
+
+// The bundled service may use plain HTTP and no key; any other plain-HTTP or
+// internal endpoint is still refused.
+func TestClientForConfigAcceptsOnlyTheBundledServiceWithoutHTTPS(t *testing.T) {
+	defer SetLocalHosts(localHosts)
+	SetLocalHosts("embedding,reranker,192.168.10.0/24")
+	for url, ok := range map[string]bool{
+		"http://embedding:8080/v1":    true,
+		"http://192.168.10.5:8093/v1": true,
+		"https://api.example.com/v1":  true,
+		"http://api.example.com/v1":   false,
+		"http://10.1.2.3:8080/v1":     false,
+		"https://10.1.2.3/v1":         false,
+		"http://ollama:11434/v1":      false,
+		"http://user:pw@embedding/v1": false,
+		"https://localhost:8443/v1":   false,
+	} {
+		client, err := ClientForConfig(ports.EmbeddingConfig{BaseURL: url, Model: "bge-m3", Dimensions: 1024})
+		if (err == nil) != ok {
+			t.Errorf("%s: accepted=%v want %v (%v)", url, err == nil, ok, err)
+		}
+		if err == nil && client.requireAPIKey == IsLocal(ports.EmbeddingConfig{BaseURL: url}) {
+			t.Errorf("%s: API key requirement wrong", url)
+		}
+	}
+}
+
+func TestRerankerNormalizesLogitsInDocumentOrder(t *testing.T) {
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/rerank" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		_, _ = w.Write([]byte(`{"results":[{"index":1,"relevance_score":2.3},{"index":0,"relevance_score":-10.8}]}`))
+	}))
+	defer server.Close()
+	defer SetLocalHosts(localHosts)
+	SetLocalHosts("127.0.0.1")
+	r, err := NewReranker(server.URL, time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	scores, err := r.Rerank(context.Background(), "烟感离线", []string{"水泵", "烟感离线处置"})
+	if err != nil || len(scores) != 2 || scores[1] < .9 || scores[0] > .01 || got["query"] != "烟感离线" {
+		t.Fatalf("scores=%v err=%v body=%v", scores, err, got)
+	}
+	if _, err = r.Rerank(context.Background(), "q", []string{"a", "b", "c"}); err == nil {
+		t.Fatal("a response missing documents must be rejected")
+	}
+	if _, err = NewReranker("http://10.0.0.9/rerank", time.Second); err == nil {
+		t.Fatal("unlisted plain-HTTP reranker accepted")
+	}
+}

@@ -550,6 +550,12 @@ func IsTransient(err error) bool {
 	return errors.As(err, &t) && t.Transient()
 }
 
+// Reranker orders retrieved passages by relevance to a question; scores are
+// in (0, 1) and follow the document order.
+type Reranker interface {
+	Rerank(ctx context.Context, query string, documents []string) ([]float64, error)
+}
+
 // MaxKnowledgeQueryRunes bounds a retrieval question: it is embedded as one
 // input, and a question longer than a few sentences only dilutes the match.
 const MaxKnowledgeQueryRunes = 512

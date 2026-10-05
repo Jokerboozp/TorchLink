@@ -18,6 +18,13 @@ services:
   backup-service:
     image: iot-platform-backup:offline
 
+  # 知识库向量计算与重排（模型已打包在镜像内）。
+  embedding:
+    image: iot-local-ai:offline
+
+  reranker:
+    image: iot-local-ai:offline
+
   # 可选摄像头直播媒体服务；仅在离线包包含视频组件且启用 profile "video" 时使用。
   zlmediakit:
     image: iot-zlmediakit:offline

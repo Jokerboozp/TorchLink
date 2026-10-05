@@ -13,6 +13,7 @@ images:
   platform: iot-platform-api:offline
   web: iot-platform-web:offline
   harness: iot-deepseek-harness:offline
+  localAI: iot-local-ai:offline       # 知识库向量与重排模型，随每个 API 实例部署
   backup: iot-platform-backup:offline
   video: iot-zlmediakit:offline
   redpanda: redpandadata/redpanda:v25.2.11

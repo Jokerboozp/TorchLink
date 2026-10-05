@@ -19,7 +19,7 @@ func DefaultImages() Images {
 		Postgres: "iot-platform-postgres-ha:17-pgvector-0.8.1", Redis: "redis:7.4-alpine",
 		ClickHouse: "clickhouse/clickhouse-server:25.7-alpine", Keeper: "clickhouse/clickhouse-keeper:25.7-alpine",
 		MinIO: "iot-platform-minio:RELEASE.2025-09-07T16-13-09Z", Prometheus: "prom/prometheus:v3.5.0", Alertmanager: "prom/alertmanager:v0.34.1",
-		NodeExporter: "prom/node-exporter:v1.12.1", LB: "haproxy:3.0-alpine",
+		NodeExporter: "prom/node-exporter:v1.12.1", LB: "haproxy:3.0-alpine", LocalAI: "iot-local-ai:offline",
 	}
 }
 

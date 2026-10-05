@@ -185,7 +185,7 @@ if (Test-Path $Inventory) {
         if ($in -and $l -match '^\s+platform:\s*([^\s#]+)') { $platformImage = $Matches[1].Trim('"', "'") }
     }
 }
-$ownKeys = @("platform", "web", "harness", "backup", "video")
+$ownKeys = @("platform", "web", "harness", "backup", "video", "localAI")
 if ($Images) {
     Say "loading offline image bundle $Images"
     Invoke-Native @("docker", "load", "-i", $Images)
@@ -234,7 +234,7 @@ $nodeAddresses = (@(Invoke-Tool @("-print-nodes") | ForEach-Object { ($_ -split 
 
 if (-not $Images -and -not $NoBuild) {
     $buildServices = @()
-    $envNames = @{ web = @("IOT_PLATFORM_WEB_IMAGE", "platform-web"); harness = @("IOT_DEEPSEEK_HARNESS_IMAGE", "deepseek-harness"); backup = @("IOT_BACKUP_IMAGE", "backup-service"); video = @("IOT_ZLMEDIAKIT_IMAGE", "zlmediakit") }
+    $envNames = @{ web = @("IOT_PLATFORM_WEB_IMAGE", "platform-web"); harness = @("IOT_DEEPSEEK_HARNESS_IMAGE", "deepseek-harness"); backup = @("IOT_BACKUP_IMAGE", "backup-service"); video = @("IOT_ZLMEDIAKIT_IMAGE", "zlmediakit"); localAI = @("IOT_LOCAL_AI_IMAGE", "embedding") }
     foreach ($i in $imageList) {
         if ($i.Key -eq 'postgres' -and $i.Image -like 'iot-platform-postgres-ha:*') {
             Invoke-Native @('docker', 'build', '--pull', '-t', $i.Image, '-f', (Join-Path $projectRoot 'deploy/postgres/Dockerfile.spilo'), (Join-Path $projectRoot 'deploy/postgres'))

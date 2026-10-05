@@ -219,6 +219,7 @@ EOF
   set_env_value "$destination" IOT_PLATFORM_WEB_IMAGE iot-platform-web:offline
   set_env_value "$destination" IOT_BACKUP_IMAGE iot-platform-backup:offline
   set_env_value "$destination" IOT_DEEPSEEK_HARNESS_IMAGE iot-deepseek-harness:offline
+  set_env_value "$destination" IOT_LOCAL_AI_IMAGE iot-local-ai:offline
   if (( include_video )); then
     # 摄像头直播：密钥只在缺失时生成；WebRTC 地址须在目标机上填写 IOT_VIDEO_RTC_EXTERN_IP。
     set_env_value "$destination" IOT_ZLMEDIAKIT_IMAGE iot-zlmediakit:offline
@@ -345,6 +346,9 @@ pull_services=(
 )
 run_compose --profile ops --profile clickhouse pull "${pull_services[@]}"
 run_compose build --pull platform-api platform-web backup-service minio postgres
+# Knowledge embedding / rerank image with its models, built for this machine's
+# architecture (amd64 or arm64) like every other packaged image.
+run_compose build --pull embedding
 if (( include_video )); then run_compose --profile video build --pull zlmediakit; fi
 
 command -v git >/dev/null 2>&1 || die "打包 Harness 需要 Git"
@@ -435,7 +439,8 @@ cat > "$bundle_root/manifest.json" <<EOF
   "aiRequiresInternet": true,
   "arch": "$bundle_arch",
   "knowledgeStore": "postgres-pgvector",
-  "embeddingRequiresInternet": true,
+  "embeddingRequiresInternet": false,
+  "localAI": "llama.cpp b11382: bge-m3 (embedding), bge-reranker-v2-m3 (rerank), Q8_0",
   "generatedCredentials": $([[ "$generated_credentials" = 1 ]] && echo true || echo false)
 }
 EOF

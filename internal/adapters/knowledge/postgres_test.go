@@ -540,3 +540,35 @@ func TestPostgresKnowledgePersistenceScopesAndAtomicRebuild(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+type fakeReranker struct {
+	scores []float64
+	err    error
+	seen   []string
+}
+
+func (f *fakeReranker) Rerank(_ context.Context, _ string, documents []string) ([]float64, error) {
+	f.seen = documents
+	return f.scores, f.err
+}
+
+func TestRerankReordersBoundedTrimmedCandidatesAndFallsBack(t *testing.T) {
+	long := strings.Repeat("长", 1000)
+	hits := []ports.KnowledgeHit{{DocumentID: "a", Content: long, Score: .9}, {DocumentID: "b", Content: "b", Score: .8}, {DocumentID: "c", Content: "c", Score: .7}}
+	reranker := &fakeReranker{scores: []float64{.1, .95, .5}}
+	p := &Postgres{options: PostgresOptions{Reranker: reranker}}
+	ranked := p.rerank(context.Background(), "q", hits, 2)
+	if len(ranked) != 2 || ranked[0].DocumentID != "b" || ranked[1].DocumentID != "c" || ranked[0].Score != .95 {
+		t.Fatalf("rerank order %#v", ranked)
+	}
+	if len([]rune(reranker.seen[0])) != rerankPassageRunes {
+		t.Fatal("passages are not trimmed before reranking")
+	}
+	reranker.err = errors.New("rerank service unavailable")
+	if kept := p.rerank(context.Background(), "q", hits, 2); kept[0].DocumentID != "a" || kept[1].DocumentID != "b" {
+		t.Fatalf("failed rerank must keep the hybrid order: %#v", kept)
+	}
+	if rerankPool(5) != rerankCandidates || rerankPool(100) != rerankMaxCandidates {
+		t.Fatal("rerank candidate pool not bounded")
+	}
+}

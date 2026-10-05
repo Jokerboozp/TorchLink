@@ -201,7 +201,8 @@ else
   set_local_env_value IOT_LOCAL_BACKUP_METRICS_TARGET "${api_host}:8092" true
 fi
 configure_deepseek_env "$env_file" "$deepseek_model"
-configure_embedding_env "$env_file"
+# The source API reaches the bundled vector / rerank services on the dependency host.
+configure_embedding_env "$env_file" "http://${dependency_host}:18093/v1" "http://${dependency_host}:18094" "$dependency_host"
 
 # The controller follows the source API lifecycle, using its local addresses.
 if [ "$capacity" = keep ]; then
