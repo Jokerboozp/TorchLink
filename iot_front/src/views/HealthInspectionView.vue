@@ -5,6 +5,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { api, download, formatTime, isAbort, notifyError, session } from '../api'
 import { useListLoader } from '../composables/useListLoader'
+import DataTableCard from '../components/layout/DataTableCard.vue'
 import { businessStatuses, inspectionSeverities, label, tagType } from '../labels'
 import MarkdownContent from '../components/MarkdownContent.vue'
 import { loadHealthInspection, saveHealthInspection } from '../healthInspectionState'
@@ -16,6 +17,7 @@ const loading = ref(false)
 const downloading = ref(false)
 const page = ref(1)
 const pageSize = 50
+const pageError = ref('')
 const pageLoading = ref(false)
 const pageLoader = useListLoader(pageLoading)
 const error = ref('')
@@ -63,6 +65,7 @@ function handleProgress(value, token, announce = false) {
   if (value.status === 'succeeded' && value.report) {
     report.value = value.report
     page.value = 1
+    pageError.value = ''
     saveHealthInspection(inspectionStorage, session, value.report)
     void loadReportPage(1)
     if (announce && previous?.status === 'running') UiMessage.success('设备健康巡检已完成')
@@ -130,9 +133,10 @@ async function loadReportPage(nextPage = page.value) {
     if (view !== viewToken) return
     page.value = nextPage
     report.value = value
+    pageError.value = ''
     saveHealthInspection(inspectionStorage, session, { ...value, items: [] })
   } catch (exception) {
-    if (!isAbort(exception) && view === viewToken) notifyError(exception)
+    if (!isAbort(exception) && view === viewToken) pageError.value = exception.message || '巡检明细读取失败'
   }
 }
 
@@ -244,44 +248,51 @@ onBeforeUnmount(() => {
           type="warning"
           :closable="false"
         />
-        <ui-table class="top-gap" v-loading="pageLoading" :data="report.items || []" stripe
-          ><ui-table-column label="设备" min-width="190"
-            ><template #default="{ row }"
-              ><b>{{ row.deviceName || row.deviceId }}</b
-              ><small class="subline">{{ row.deviceId }} · {{ row.productId }}</small></template
-            ></ui-table-column
-          ><ui-table-column label="业务状态" width="130"
-            ><template #default="{ row }"
-              ><ui-tag :type="tagType(row.businessStatus)" round>{{
-                label(businessStatuses, row.businessStatus, row.businessStatus)
-              }}</ui-tag></template
-            ></ui-table-column
-          ><ui-table-column label="最近上报" min-width="170"
-            ><template #default="{ row }">{{ formatTime(row.lastSeenAt) }}</template></ui-table-column
-          ><ui-table-column label="活动告警" width="100"
-            ><template #default="{ row }">{{ row.activeAlarmCount }}</template></ui-table-column
-          ><ui-table-column label="巡检结论" min-width="280"
-            ><template #default="{ row }"
-              ><ui-tag :type="tagType(row.severity)" size="small" round>{{
-                label(inspectionSeverities, String(row.severity || '').toUpperCase(), '未分级')
-              }}</ui-tag
-              ><span class="inspection-findings">{{ (row.findings || []).join('；') }}</span></template
-            ></ui-table-column
-          ></ui-table
-        >
-        <ui-pagination
-          class="top-gap"
-          :current-page="page"
-          :page-size="pageSize"
-          :total="report.totalItems || 0"
-          @current-change="loadReportPage"
-        />
       </template>
       <div v-else class="inspection-empty">
         <strong>尚无巡检结果</strong>
         <p>点击上方“立即巡检”开始检查，结果会显示在这里。</p>
       </div>
     </ui-card>
+
+    <DataTableCard
+      v-if="report"
+      class="top-gap"
+      title="设备巡检明细"
+      :error="pageError"
+      :page="page"
+      :page-size="pageSize"
+      :page-sizes="[pageSize]"
+      :total="report.totalItems || 0"
+      @retry="loadReportPage()"
+      @update:page="loadReportPage"
+    >
+      <ui-table v-loading="pageLoading" :data="report.items || []" stripe
+        ><ui-table-column label="设备" min-width="190"
+          ><template #default="{ row }"
+            ><b>{{ row.deviceName || row.deviceId }}</b
+            ><small class="subline">{{ row.deviceId }} · {{ row.productId }}</small></template
+          ></ui-table-column
+        ><ui-table-column label="业务状态" width="130"
+          ><template #default="{ row }"
+            ><ui-tag :type="tagType(row.businessStatus)" round>{{
+              label(businessStatuses, row.businessStatus, row.businessStatus)
+            }}</ui-tag></template
+          ></ui-table-column
+        ><ui-table-column label="最近上报" min-width="170"
+          ><template #default="{ row }">{{ formatTime(row.lastSeenAt) }}</template></ui-table-column
+        ><ui-table-column label="活动告警" width="100"
+          ><template #default="{ row }">{{ row.activeAlarmCount }}</template></ui-table-column
+        ><ui-table-column label="巡检结论" min-width="280"
+          ><template #default="{ row }"
+            ><ui-tag :type="tagType(row.severity)" size="small" round>{{
+              label(inspectionSeverities, String(row.severity || '').toUpperCase(), '未分级')
+            }}</ui-tag
+            ><span class="inspection-findings">{{ (row.findings || []).join('；') }}</span></template
+          ></ui-table-column
+        ></ui-table
+      >
+    </DataTableCard>
   </div>
 </template>
 

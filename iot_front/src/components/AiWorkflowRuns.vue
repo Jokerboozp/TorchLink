@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api'
 import { can } from '../permissions'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
+import DataTableCard from './layout/DataTableCard.vue'
 
 const items = ref([])
 const loading = ref(false)
@@ -114,24 +115,23 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <ui-card shadow="never" class="surface-card workflow-runs">
-    <template #header
-      ><div class="runs-header">
-        <div>
-          <strong>运行中的 AI 工作流</strong><small>当前租户的任务 · 列表手动刷新，已用时间实时更新 · {{ items.length }} 个任务</small>
-        </div>
-        <ui-button size="small" :loading="loading" @click="loadRuns">刷新列表</ui-button>
-      </div></template
-    >
-    <p class="runs-note">切换模型前，请等待任务结束或手动停止。停止操作仅影响所选任务，已经执行的业务操作不会撤销。</p>
-    <ui-alert v-if="error" :title="error" type="error" :closable="false" show-icon />
-    <ui-alert
-      v-if="items.some(row => row.status === 'stop_failed')"
-      title="部分任务无法确认进程退出，请联系管理员重启 Harness 服务；并发名额仍保留。"
-      type="error"
-      :closable="false"
-      show-icon
-    />
+  <DataTableCard class="workflow-runs" :error="error" @retry="loadRuns">
+    <template #header>
+      <div class="runs-header">
+        <strong>运行中的 AI 工作流</strong><small>当前租户的任务 · 列表手动刷新，已用时间实时更新 · {{ items.length }} 个任务</small>
+      </div>
+      <ui-button size="small" :loading="loading" @click="loadRuns">刷新列表</ui-button>
+    </template>
+    <div class="runs-notes">
+      <p class="runs-note">切换模型前，请等待任务结束或手动停止。停止操作仅影响所选任务，已经执行的业务操作不会撤销。</p>
+      <ui-alert
+        v-if="items.some(row => row.status === 'stop_failed')"
+        title="部分任务无法确认进程退出，请联系管理员重启 Harness 服务；并发名额仍保留。"
+        type="error"
+        :closable="false"
+        show-icon
+      />
+    </div>
     <ui-table v-if="items.length" :data="items" stripe row-key="runId">
       <ui-table-column label="工作流" min-width="190"
         ><template #default="{ row }"
@@ -167,19 +167,13 @@ onUnmounted(() => {
         ></ui-table-column
       >
     </ui-table>
-    <ui-empty v-else-if="!error && !loading" description="当前没有运行中的 AI 工作流" :image-size="56" />
-    <p v-else-if="loading && !items.length" class="runs-note">正在读取运行状态…</p>
-  </ui-card>
+    <ui-empty v-else-if="!error && !loading" class="runs-empty" description="当前没有运行中的 AI 工作流" :image-size="56" />
+    <p v-else-if="loading && !items.length" class="runs-note runs-empty">正在读取运行状态…</p>
+  </DataTableCard>
 </template>
 
 <style scoped>
-.runs-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.runs-header > div,
+.runs-header,
 .run-title {
   display: grid;
   gap: 5px;
@@ -195,8 +189,16 @@ onUnmounted(() => {
   overflow-wrap: anywhere;
 }
 .runs-note {
-  margin: 0 0 14px;
+  margin: 0;
   line-height: 1.6;
+}
+.runs-notes {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+}
+.runs-empty {
+  padding: 0 var(--space-4) var(--space-4);
 }
 .workflow-runs {
   min-width: 0;
