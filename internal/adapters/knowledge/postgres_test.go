@@ -275,8 +275,16 @@ func TestPostgresKnowledgePersistenceScopesAndAtomicRebuild(t *testing.T) {
 		t.Fatalf("queued upload triggered full rebuild: %v %v", needed, rebuildErr)
 	}
 	queueDoc.Status = "INDEX_FAILED"
+	queueDoc.Metadata = map[string]any{"size": 2048, "chunks": 5}
 	if err = repo.SaveKnowledgeDoc(ctx, queueDoc); err != nil {
 		t.Fatal(err)
+	}
+	// Totals cover the whole tenant; failed documents add size but not chunks.
+	if summary, summaryErr := repo.KnowledgeDocSummary(ctx, "a"); summaryErr != nil || summary != (model.KnowledgeSummary{Documents: 4, Indexed: 3, Failed: 1, Bytes: 2048}) {
+		t.Fatalf("unexpected knowledge summary %#v %v", summary, summaryErr)
+	}
+	if summary, summaryErr := repo.KnowledgeDocSummary(ctx, "b"); summaryErr != nil || summary.Documents != 1 || summary.Failed != 0 {
+		t.Fatalf("knowledge summary crossed tenants %#v %v", summary, summaryErr)
 	}
 	if needed, rebuildErr := index.NeedsRebuild(ctx); rebuildErr != nil || needed {
 		t.Fatalf("failed upload triggered repeated full rebuild: %v %v", needed, rebuildErr)
