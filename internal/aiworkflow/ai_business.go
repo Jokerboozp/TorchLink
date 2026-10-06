@@ -214,7 +214,14 @@ func retrievalQuery(topic string, terms []string) string {
 	return ports.BoundKnowledgeQuery(strings.Join(parts, " "))
 }
 
-func (e *Service) runAlarmAnalysisWorkflow(ctx context.Context, alarm model.Alarm, history []map[string]any, knowledge []string, withKnowledge bool) (model.AIAnalysis, error) {
+// Alarm context is fitted below the business input limit, leaving room for
+// knowledge evidence, which is then appended within the full budget.
+const (
+	alarmPromptBytes = 22 << 10
+	alarmPromptUnits = 15000
+)
+
+func (e *Service) runAlarmAnalysisWorkflow(ctx context.Context, alarm model.Alarm, analysisContext alarmContext, knowledge []ports.KnowledgeHit, withKnowledge bool) (model.AIAnalysis, error) {
 	if withKnowledge {
 		identity, ok := ports.AIRunIdentityFrom(ctx)
 		if !ok {
@@ -231,12 +238,21 @@ func (e *Service) runAlarmAnalysisWorkflow(ctx context.Context, alarm model.Alar
 			return model.AIAnalysis{}, errors.New("当前用户无知识库访问权限，拒绝发送知识内容")
 		}
 	}
-	input := map[string]any{"context": history}
-	if withKnowledge {
-		input["knowledge"] = knowledge
+	prompt := analysisContext.fitPrompt(func(history []map[string]any) string {
+		return aiprompt.AlarmAnalysis(mustJSON(map[string]any{"context": history}))
+	}, alarmPromptBytes, alarmPromptUnits)
+	if withKnowledge && len(knowledge) > 0 {
+		// The same cited, budgeted evidence format as every other workflow,
+		// marked as data rather than instructions.
+		withEvidence, evidenceErr := core.AppendKnowledgeEvidence(prompt, knowledge, 30<<10)
+		if evidenceErr != nil {
+			return model.AIAnalysis{}, evidenceErr
+		}
+		prompt = withEvidence
+		if KeywordOnlyHits(knowledge) {
+			prompt += aiprompt.KnowledgeKeywordOnly
+		}
 	}
-	payload := mustJSON(input)
-	prompt := aiprompt.AlarmAnalysis(payload)
 	tools := []string{"query_alarm_list", "query_alarm_detail", "query_property_history", "query_similar_alarms"}
 	if withKnowledge {
 		tools = append(tools, "query_knowledge_base")
@@ -342,7 +358,7 @@ func (e *Service) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wi
 		return model.AIAnalysis{}, err
 	}
 	analysisContext := e.buildAlarmContext(ctx, alarm)
-	knowledge := []string{}
+	var knowledge []ports.KnowledgeHit
 	scope := model.AIAnalysisScopeNone
 	var documents []string
 	if withKnowledge {
@@ -362,7 +378,7 @@ func (e *Service) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wi
 	}
 	var analysis model.AIAnalysis
 	if err == nil {
-		analysis, err = e.runAlarmAnalysisWorkflow(ctx, alarm, analysisContext.payload(), knowledge, withKnowledge)
+		analysis, err = e.runAlarmAnalysisWorkflow(ctx, alarm, analysisContext, knowledge, withKnowledge)
 	}
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) && e.engine.Metrics != nil {

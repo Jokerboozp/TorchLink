@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"iot-platform/internal/adapters/memory"
+	"iot-platform/internal/aiprompt"
+	"iot-platform/internal/core"
+	"iot-platform/internal/ports"
 	"strings"
 	"testing"
 
@@ -149,5 +152,36 @@ func TestAlarmContextIncludesDeviceSignals(t *testing.T) {
 	signals, ok := c.blocks["deviceSignals"].([]map[string]any)
 	if !ok || len(signals) != 1 || signals[0]["name"] != "数值超出有效范围" || signals[0]["property"] != "temperature" {
 		t.Fatalf("device signals block %v", c.blocks["deviceSignals"])
+	}
+}
+
+// With every block filled to its budget and twenty knowledge excerpts, the
+// alarm analysis input still fits: the least important blocks are dropped and
+// named, and knowledge is appended within the overall limit.
+func TestFullAlarmContextAndKnowledgeFitTheInputBudget(t *testing.T) {
+	c := alarmContext{blocks: map[string]any{}}
+	for name, budget := range alarmContextBudgets {
+		c.blocks[name] = map[string]any{"text": strings.Repeat("温", budget/3-20)}
+	}
+	render := func(history []map[string]any) string {
+		return aiprompt.AlarmAnalysis(mustJSON(map[string]any{"context": history}))
+	}
+	prompt := c.fitPrompt(render, alarmPromptBytes, alarmPromptUnits)
+	if !core.WithinAIInputBudget(prompt, alarmPromptBytes, alarmPromptUnits) {
+		t.Fatal("fitted alarm context exceeds its budget")
+	}
+	if !strings.Contains(prompt, `"contextType":"alarm"`) || !strings.Contains(prompt, "超出长度预算") {
+		t.Fatal("the alarm block must stay and dropped blocks must be named")
+	}
+	hits := make([]ports.KnowledgeHit, 20)
+	for i := range hits {
+		hits[i] = ports.KnowledgeHit{DocumentID: fmt.Sprintf("doc-%d", i), ChunkID: "c", Content: strings.Repeat("处置步骤", 300), Score: 0.9}
+	}
+	withEvidence, err := core.AppendKnowledgeEvidence(prompt, hits, 30<<10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = core.ValidateAIInput(withEvidence, 30<<10); err != nil || !strings.Contains(withEvidence, "[1] documentId=doc-0") {
+		t.Fatalf("knowledge evidence must be cited and within budget: %v", err)
 	}
 }

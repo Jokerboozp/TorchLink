@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"iot-platform/internal/core"
+	"slices"
 	"strings"
 	"time"
 
@@ -390,4 +391,28 @@ func (e *Service) deviceSignalsContext(ctx context.Context, tenant, device strin
 		out = append(out, item)
 	}
 	return out
+}
+
+// fitPrompt renders the context with render and, while the result exceeds
+// the budget, drops whole blocks from the least important end
+// (alarmContextOrder reversed); the alarm itself is always kept.
+func (c alarmContext) fitPrompt(render func([]map[string]any) string, maxBytes, maxUnits int) string {
+	blocks := make(map[string]any, len(c.blocks))
+	for name, block := range c.blocks {
+		blocks[name] = block
+	}
+	fitted := alarmContext{blocks: blocks, omitted: append([]string(nil), c.omitted...)}
+	prompt := render(fitted.payload())
+	for i := len(alarmContextOrder) - 1; i > 0 && !core.WithinAIInputBudget(prompt, maxBytes, maxUnits); i-- {
+		name := alarmContextOrder[i]
+		if _, ok := fitted.blocks[name]; !ok {
+			continue
+		}
+		delete(fitted.blocks, name)
+		if !slices.Contains(fitted.omitted, name) {
+			fitted.omitted = append(fitted.omitted, name)
+		}
+		prompt = render(fitted.payload())
+	}
+	return prompt
 }

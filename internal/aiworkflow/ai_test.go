@@ -365,13 +365,13 @@ func TestBusinessMissingKnowledgeAllowModelAndAlarmPrefetchGuards(t *testing.T) 
 	}
 	ctx := ports.WithAIRunIdentity(context.Background(), ports.AIRunIdentity{Username: "reader", Scopes: []string{auth.ScopeQueryAlarmList}})
 	count := len(workflows.Requests())
-	if _, err := engine.runAlarmAnalysisWorkflow(ctx, model.Alarm{TenantID: "t1", ID: "alarm"}, nil, []string{"知识机密"}, true); err == nil || len(workflows.Requests()) != count {
+	if _, err := engine.runAlarmAnalysisWorkflow(ctx, model.Alarm{TenantID: "t1", ID: "alarm"}, alarmContext{}, []ports.KnowledgeHit{{Content: "知识机密"}}, true); err == nil || len(workflows.Requests()) != count {
 		t.Fatalf("unauthorized preloaded alarm evidence must never reach Harness: %v", err)
 	}
 	index := &businessKnowledgeIndex{Local: knowledge.NewLocal()}
 	engine.KB = index
 	workflows.Answer = func(ports.AIWorkflowRequest) (string, error) { return analysisAnswer, nil }
-	if _, err := engine.runAlarmAnalysisWorkflow(aitest.Context(context.Background()), model.Alarm{TenantID: "t1", ID: "alarm"}, nil, []string{"已检索告警证据"}, true); err != nil || len(index.Requests()) != 0 {
+	if _, err := engine.runAlarmAnalysisWorkflow(aitest.Context(context.Background()), model.Alarm{TenantID: "t1", ID: "alarm"}, alarmContext{}, []ports.KnowledgeHit{{Content: "已检索告警证据", DocumentID: "doc-1"}}, true); err != nil || len(index.Requests()) != 0 {
 		t.Fatalf("already prefetched alarm knowledge must not be searched twice: %v", err)
 	}
 }

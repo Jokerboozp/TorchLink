@@ -31,7 +31,7 @@ func SearchWorkflowKnowledge(ctx context.Context, kb ports.KnowledgeBase, tenant
 
 // alarmAnalysisKnowledge follows the alarm-handler Agent's knowledge binding.
 // It returns the evidence text and the distinct source document IDs.
-func (e *Service) alarmAnalysisKnowledge(ctx context.Context, alarm model.Alarm, symptoms []string) ([]string, []string, error) {
+func (e *Service) alarmAnalysisKnowledge(ctx context.Context, alarm model.Alarm, symptoms []string) ([]ports.KnowledgeHit, []string, error) {
 	binding, err := e.engine.Repo.GetWorkflowKnowledgeBinding(ctx, alarm.TenantID, model.AlarmAnalysisWorkflowID)
 	if err != nil {
 		return nil, nil, fmt.Errorf("读取告警研判知识策略失败：%w", err)
@@ -55,15 +55,13 @@ func (e *Service) alarmAnalysisKnowledge(ctx context.Context, alarm model.Alarm,
 	if len(hits) == 0 && binding.NoMatchPolicy == "require-evidence" {
 		return nil, nil, errors.New("告警研判智能体要求知识证据，但未检索到匹配内容")
 	}
-	knowledge := make([]string, 0, len(hits))
 	documents := []string{}
 	seen := map[string]bool{}
 	for _, hit := range hits {
-		knowledge = append(knowledge, hit.Content)
 		if hit.DocumentID != "" && !seen[hit.DocumentID] {
 			seen[hit.DocumentID] = true
 			documents = append(documents, hit.DocumentID)
 		}
 	}
-	return knowledge, documents, nil
+	return hits, documents, nil
 }
