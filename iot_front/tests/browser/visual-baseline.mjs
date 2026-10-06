@@ -29,7 +29,8 @@ const defaultPages = [
 // IOT_VISUAL_PAGES（逗号分隔的菜单名称）可改为检查其他页面。
 const pages = process.env.IOT_VISUAL_PAGES ? process.env.IOT_VISUAL_PAGES.split(',') : defaultPages
 // IOT_VISUAL_ACTIONS 另外采集弹窗与抽屉：分号分隔，每项为“菜单>按钮|按钮”，依次点击文字完全相同的按钮或页签，
-// 例如 '排班>批量排班;排班>换班申请|审批'。只设置它而不设置 IOT_VISUAL_PAGES 时不采集页面。
+// 例如 '排班>批量排班;排班>换班申请|审批'；以 = 开头的项（如 '=知识库>检索策略'）不等待弹层，用于采集页签。
+// 只设置它而不设置 IOT_VISUAL_PAGES 时不采集页面。
 const actions = (process.env.IOT_VISUAL_ACTIONS || '').split(';').filter(Boolean)
 const pageList = process.env.IOT_VISUAL_ACTIONS && !process.env.IOT_VISUAL_PAGES ? [] : pages
 const variants = [
@@ -157,7 +158,8 @@ async function capture(dir) {
     }
     for (const [index, action] of actions.entries()) {
       // Each overlay starts from a fresh session so earlier dialogs leave nothing behind.
-      const [page, steps] = action.split('>')
+      const overlay = !action.startsWith('=')
+      const [page, steps] = action.replace(/^=/, '').split('>')
       await login(v.theme)
       await openPage(page)
       try {
@@ -166,10 +168,11 @@ async function capture(dir) {
         await shoot(dir, `failed-${v.name}-${index}`, 'body')
         throw error
       }
-      await until(() => evaluate("[...document.querySelectorAll('.n-modal,.n-drawer')].some(e => e.getClientRects().length)"), 'overlay')
+      if (overlay)
+        await until(() => evaluate("[...document.querySelectorAll('.n-modal,.n-drawer')].some(e => e.getClientRects().length)"), 'overlay')
       await evaluate('document.activeElement?.blur()')
       await settle()
-      await shoot(dir, `${v.name}-action-${index.toString().padStart(2, '0')}-${action.replace(/[>|/]/g, '-')}`, 'body')
+      await shoot(dir, `${v.name}-action-${index.toString().padStart(2, '0')}-${action.replace(/[=>|/]/g, '-')}`, 'body')
     }
     await call('Page.removeScriptToEvaluateOnNewDocument', { identifier })
   }

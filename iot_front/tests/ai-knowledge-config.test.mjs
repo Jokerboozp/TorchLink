@@ -223,9 +223,9 @@ test('knowledge pending documents trigger polling even when no global rebuild is
         return { items: [{ id: 'doc', status }], total: 1, persistentIndex: true, indexState: { state: 'ready' } }
       return { items: [] }
     },
-    'load,documents,knowledgeBinding'
+    'load,documents,binding'
   )
-  assert.equal(state.knowledgeBinding.value.retrievalMode, 'always')
+  assert.equal(state.binding.knowledgeBinding.value.retrievalMode, 'always')
   await state.load()
   assert.equal(timers.size, 1)
   status = 'INDEXED'
@@ -316,16 +316,32 @@ function fakeUploads() {
   return { requests, XMLHttpRequest: FakeXHR }
 }
 
+// The upload dialog starts open; emitted events are collected for assertions.
+function uploadDialog(uploads) {
+  const emitted = []
+  const dialog = component(
+    'components/knowledge/KnowledgeUploadDialog.vue',
+    async () => ({ items: [], total: 0 }),
+    'upload,cancelUpload,selectedFile,workflowId,uploading,uploadPercent,visible',
+    () => true,
+    {
+      XMLHttpRequest: uploads.XMLHttpRequest,
+      defineModel: () => ref(true),
+      defineProps: () => ({ agents: [{ id: 'agent', name: '运维助手' }] }),
+      defineEmits:
+        () =>
+        (...args) =>
+          emitted.push(args),
+      nextTick: callback => callback()
+    }
+  )
+  return { ...dialog, emitted }
+}
+
 test('knowledge upload reports acceptance and leaves indexing status to the server', async () => {
   const uploads = fakeUploads()
-  const { state, notices, unmount } = component(
-    'views/KnowledgeView.vue',
-    async () => ({ items: [], total: 0 }),
-    'upload,selectedFile,workflowId,uploadPercent,activeTab',
-    () => true,
-    { XMLHttpRequest: uploads.XMLHttpRequest }
-  )
-  state.workflowId.value = 'agent'
+  const { state, notices, emitted, unmount } = uploadDialog(uploads)
+  assert.equal(state.workflowId.value, 'agent', '默认关联第一个智能体')
   state.selectedFile.value = new Blob(['manual'])
   const running = state.upload()
   const request = uploads.requests[0]
@@ -335,34 +351,50 @@ test('knowledge upload reports acceptance and leaves indexing status to the serv
   assert.equal(state.uploadPercent.value, 50, '进度按浏览器实际发送的字节计算')
   request.respond(201, { id: 'doc', workflowId: 'agent', status: 'UPLOADED' })
   await running
-  assert.match(notices.find(item => item.type === 'success').message, /后台建立/)
+  assert.match(notices.find(item => item.type === 'success').message, /运维助手.*后台建立/)
   assert.doesNotMatch(notices.find(item => item.type === 'success').message, /已索引/)
+  assert.equal(state.visible.value, false)
+  assert.deepEqual(emitted, [['uploaded']])
   unmount()
 })
 
 test('cancelling a knowledge upload aborts it and ignores a late result', async () => {
   const uploads = fakeUploads()
-  const { state, notices, unmount } = component(
-    'views/KnowledgeView.vue',
-    async () => ({ items: [], total: 0 }),
-    'upload,cancelUpload,selectedFile,workflowId,uploading,uploadDialog,activeTab',
-    () => true,
-    { XMLHttpRequest: uploads.XMLHttpRequest }
-  )
-  state.workflowId.value = 'agent'
+  const { state, notices, emitted, unmount } = uploadDialog(uploads)
   state.selectedFile.value = new Blob(['manual'])
-  state.uploadDialog.value = true
-  state.activeTab.value = 'binding'
   const running = state.upload()
   uploads.requests[0].progress(1, 6)
   state.cancelUpload()
   await running
   assert.equal(uploads.requests[0].aborted, true)
   assert.equal(state.uploading.value, false)
-  assert.equal(state.uploadDialog.value, false)
-  assert.equal(state.activeTab.value, 'binding', '取消后不能再切换标签')
+  assert.equal(state.visible.value, false)
+  assert.deepEqual(emitted, [], '取消后页面不刷新也不切换标签')
   assert.equal(notices.filter(item => item.type === 'success' || item.type === 'error').length, 0)
   unmount()
+})
+
+test('knowledge binding follows the agent list and keeps the loaded policy', async () => {
+  const requests = []
+  const { state } = component(
+    'views/KnowledgeView.vue',
+    async path => {
+      requests.push(path)
+      if (path.includes('/knowledge-binding')) return { retrievalMode: 'auto', topK: 3, minScore: 0.4 }
+      if (path.includes('/ai/workflows')) return { items: [{ id: 'first' }, { id: 'second' }], total: 2 }
+      return { items: [], total: 0 }
+    },
+    'load,binding'
+  )
+  await state.load()
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(state.binding.bindingWorkflowId.value, 'first')
+  assert.deepEqual(
+    { ...state.binding.knowledgeBinding.value },
+    { retrievalMode: 'auto', topK: 3, minScore: 0.4, noMatchPolicy: 'allow-model' }
+  )
+  await state.load(true)
+  assert.equal(requests.filter(path => path.includes('/knowledge-binding')).length, 1, '已读取的策略不会被刷新列表覆盖')
 })
 
 test('knowledge polling failure keeps existing rows and exposes one inline error', async () => {

@@ -12,7 +12,9 @@ const shared = [
   '../../src/transfer.ts',
   '../../src/composables/usePagedList.js',
   '../../src/deleteAction.js',
-  '../../src/composables/useRealtime.ts'
+  '../../src/composables/useRealtime.ts',
+  '../../src/knowledge.js',
+  '../../src/composables/useKnowledgeBinding.js'
 ].map(file =>
   (file.endsWith('.ts') ? stripTypeScriptTypes : String)(readFileSync(new URL(file, import.meta.url), 'utf8'))
     .replace(/^import\s[^'"]*['"][^'"]+['"];?$/gm, '')
@@ -30,7 +32,13 @@ const helpers = {
   transferText: shared[5],
   usePagedList: shared[6],
   confirmed: shared[7],
-  useRealtime: shared[8]
+  useRealtime: shared[8],
+  agentKey: shared[9],
+  agentName: shared[9],
+  categoryLabel: shared[9],
+  isIndexing: shared[9],
+  retryable: shared[9],
+  useKnowledgeBinding: [shared[0], shared[1], shared[9], shared[10]].join('\n')
 }
 
 // vm contexts have no AbortController unless a test provides one.

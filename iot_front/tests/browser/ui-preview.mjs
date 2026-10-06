@@ -125,6 +125,16 @@ const inspections = [
 ]
 fireOptions.extinguishers = [extinguisher]
 fireOptions.inspectionChecks = ['外观完好', '压力正常', '喷管完好']
+const knowledgeDocument = {
+  id: 'document-demo',
+  filename: '消防设备手册',
+  workflowId: 'assistant',
+  category: 'manual',
+  tags: ['烟感'],
+  status: 'INDEXED',
+  createdAt: now,
+  metadata: { chunks: 3, size: 2048 }
+}
 const list = items => ({ items, total: items.length, count: items.length, page: 1, pageSize: 20 })
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://localhost')
@@ -220,20 +230,43 @@ const server = http.createServer(async (req, res) => {
       }
     else if (u.pathname === '/api/v1/knowledge/documents')
       data = {
-        ...list([
-          {
-            id: 'document-demo',
-            filename: '消防设备手册',
-            workflowId: 'assistant',
-            status: 'INDEXED',
-            createdAt: now,
-            metadata: { chunks: 3, size: 2048 }
-          }
-        ]),
+        ...list([knowledgeDocument]),
         persistentIndex: true,
         summary: { documents: 1, indexed: 1, failed: 0, chunks: 3, bytes: 2048 },
         indexMode: 'postgres-pgvector',
         embeddingModel: 'text-embedding-v4'
+      }
+    else if (u.pathname === `/api/v1/knowledge/documents/${knowledgeDocument.id}`)
+      data = {
+        document: knowledgeDocument,
+        index: {
+          mode: 'postgres-pgvector',
+          vectorizer: 'embedding-api',
+          chunking: { strategy: 'fixed-window-overlap', size: 800, overlap: 100 },
+          extractedChars: 2048,
+          chunkCount: 2,
+          embeddingModel: 'text-embedding-v4'
+        },
+        chunks: [
+          {
+            chunkId: 'chunk-1',
+            startChar: 0,
+            endChar: 800,
+            overlapChars: 0,
+            characterCount: 800,
+            vectorized: true,
+            content: '烟感持续报警时，先查看现场是否有烟雾或明火，再核对设备状态。'
+          },
+          {
+            chunkId: 'chunk-2',
+            startChar: 700,
+            endChar: 1500,
+            overlapChars: 100,
+            characterCount: 800,
+            vectorized: true,
+            content: '确认误报后清洁探测器并记录处置过程。'
+          }
+        ]
       }
     else if (u.pathname === '/api/v1/ai/workflows')
       data = list([
