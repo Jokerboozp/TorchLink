@@ -197,21 +197,17 @@ func TestOpsCenterPermissionBoundaryAndAudit(t *testing.T) {
 	upstream := fakeObservability()
 	defer upstream.Close()
 	repo := &auditingRepo{Repository: memory.NewRepository()}
-	cfg := config.Load()
-	cfg.AdminUser, cfg.AdminPassword = "root", "root-password-test"
-	cfg.AdminTenants = []string{"tenant_ops", "tenant_biz"}
-	cfg.JWTSecret = "test-only-secret-for-ops-at-least-32"
-	cfg.DevMode = true
-	cfg.Ops.Tenants = []string{"tenant_ops"}
-	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	a := newTestAPI(t, repo, func(cfg *config.Config) {
+		cfg.AdminTenants = []string{"tenant_ops", "tenant_biz"}
+		cfg.Ops.Tenants = []string{"tenant_ops"}
+	})
+	api, server, cfg := a.Server, a.server, a.cfg
 	api.SetOpsCenter(&opscenter.Service{
 		Metrics:    observability.NewPrometheus(upstream.URL, time.Second),
 		Dashboards: observability.NewGrafana(upstream.URL, "t", "", "", time.Second),
 		Prefs:      repo.Repository,
 		Limits:     opscenter.Limits{QueryTimeout: time.Second, MaxSeries: 10, MaxLogLines: 10, MaxExportLines: 10, MaxMetricRange: 24 * time.Hour, MaxLogRange: 24 * time.Hour},
 	})
-	server := httptest.NewServer(api.Handler())
-	defer server.Close()
 	req := func(method, path, token string, body any, status int) map[string]any {
 		return requestJSON(t, server.Client(), method, server.URL+path, token, body, status)
 	}

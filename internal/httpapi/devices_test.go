@@ -719,12 +719,8 @@ func TestIndependentProductAndDeviceRegistration(t *testing.T) {
 func TestNewTemplateOnVersionedReleaseIsBound(t *testing.T) {
 	ctx := context.Background()
 	repo := memory.NewRepository()
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	cfg := config.Load()
-	cfg.JWTSecret = "versioned-template-binding-test-key-32"
-	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), log)
-	server := httptest.NewServer(api.Handler())
-	defer server.Close()
+	a := newTestAPI(t, repo, nil)
+	api, server := a.Server, a.server
 	token, _ := api.auth.Issue("tester", "tenant", "admin", nil, time.Hour)
 	if err := repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "tenant", ProtocolID: "meter", Version: "1", Transport: "MODBUS_TCP", PayloadFormat: "hex", ParserType: parser.ModbusTCPParserName, Status: "PUBLISHED"}); err != nil {
 		t.Fatal(err)

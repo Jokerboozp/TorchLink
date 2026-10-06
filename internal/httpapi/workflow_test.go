@@ -564,12 +564,8 @@ func checkDashboard(t *testing.T, repo ports.Repository) {
 	if len(camerasByDevice) != 1 || len(camerasByDevice["0"]) != 1 || camerasByDevice["0"][0].CameraID != "batch-camera" {
 		t.Fatalf("batch camera mappings: %+v", camerasByDevice)
 	}
-	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	cfg := config.Load()
-	cfg.JWTSecret = "dashboard-test-secret-32-characters"
-	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), log)
-	server := httptest.NewServer(api.Handler())
-	defer server.Close()
+	a := newTestAPI(t, repo, nil)
+	api, server := a.Server, a.server
 	token, _ := api.auth.Issue("viewer", "tenant", "viewer", nil, time.Hour)
 	result := requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/dashboard?days=7&offset=480", token, nil, 200)
 	if result["devices"] != float64(5) || result["online"] != float64(2) || result["activeAlarms"] != float64(123) || result["highAlarms"] != float64(123) {
@@ -868,12 +864,8 @@ func TestDeleteResourceRoutesReturnConflictAndNotFound(t *testing.T) {
 	repo := memory.NewRepository()
 	_ = repo.SaveProduct(ctx, model.Product{TenantID: "tenant_a", ID: "product"})
 	_ = repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant_a", ID: "device", ProductID: "product"})
-	cfg := config.Load()
-	cfg.AdminUser, cfg.AdminPassword, cfg.JWTSecret = "root", "root-password-test", "delete-test-signing-key-32-characters"
-	cfg.AdminTenants = []string{"tenant_a"}
-	cfg.DevMode = true
-	server := httptest.NewServer(New(cfg, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
-	defer server.Close()
+	a := newTestAPI(t, repo, nil)
+	server, cfg := a.server, a.cfg
 	request := func(method, path, token string, body any, status int) map[string]any {
 		return requestJSON(t, server.Client(), method, server.URL+path, token, body, status)
 	}
@@ -894,13 +886,9 @@ func TestDeleteProtocolReleaseOnlyRemovesSelectedVersionAndArtifacts(t *testing.
 		}
 	}
 	_ = repo.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: "tenant_a", ProductID: "product", ProtocolID: "protocol", Version: "2.0.0", PreviousVersion: "1.0.0"})
-	cfg := config.Load()
-	cfg.AdminUser, cfg.AdminPassword, cfg.JWTSecret = "root", "root-password-test", "delete-test-signing-key-32-characters"
-	cfg.AdminTenants = []string{"tenant_a"}
-	cfg.DevMode = true
-	cfg.DataDir = t.TempDir()
+	dataDir := t.TempDir()
 	for _, version := range []string{"1.0.0", "2.0.0"} {
-		path := filepath.Join(cfg.DataDir, "protocol-releases", "tenant_a", "protocol", version)
+		path := filepath.Join(dataDir, "protocol-releases", "tenant_a", "protocol", version)
 		if err := os.MkdirAll(path, 0755); err != nil {
 			t.Fatal(err)
 		}
@@ -908,9 +896,9 @@ func TestDeleteProtocolReleaseOnlyRemovesSelectedVersionAndArtifacts(t *testing.
 			t.Fatal(err)
 		}
 	}
-	server := httptest.NewServer(New(cfg, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
-	defer server.Close()
-	token := requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/auth/login", "", map[string]any{"username": "root", "password": cfg.AdminPassword, "tenantId": "tenant_a"}, 200)["accessToken"].(string)
+	a := newTestAPI(t, repo, func(cfg *config.Config) { cfg.DataDir = dataDir })
+	server := a.server
+	token := a.login(t, "root", a.cfg.AdminPassword, "tenant_a")
 	path := server.URL + "/api/v2/protocols/protocol/releases/1.0.0"
 	requestJSON(t, server.Client(), "DELETE", path, token, nil, 409)
 	_ = repo.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: "tenant_a", ProductID: "product", ProtocolID: "protocol", Version: "2.0.0"})
@@ -922,10 +910,10 @@ func TestDeleteProtocolReleaseOnlyRemovesSelectedVersionAndArtifacts(t *testing.
 	if _, err := repo.GetProtocolRelease(ctx, "tenant_a", "protocol", "2.0.0"); err != nil {
 		t.Fatalf("other version was deleted: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.DataDir, "protocol-releases", "tenant_a", "protocol", "1.0.0")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dataDir, "protocol-releases", "tenant_a", "protocol", "1.0.0")); !os.IsNotExist(err) {
 		t.Fatalf("deleted version artifacts remain: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(cfg.DataDir, "protocol-releases", "tenant_a", "protocol", "2.0.0", "package.zip")); err != nil {
+	if _, err := os.Stat(filepath.Join(dataDir, "protocol-releases", "tenant_a", "protocol", "2.0.0", "package.zip")); err != nil {
 		t.Fatalf("other version artifacts were removed: %v", err)
 	}
 }
