@@ -57,7 +57,54 @@ type Listeners struct {
 	// rejected counts connections and datagram peers refused at the session limit.
 	rejected     atomic.Int64
 	lastRejectAt atomic.Int64
+	// dropped counts frames dropped for a transient ingest failure
+	// (backpressure, storage or queue outage); the session stays open.
+	dropped atomic.Int64
+	// checks caches profile and product state for frame admission.
+	checks admissionCache
 }
+
+// DroppedFrames is the number of frames dropped for transient ingest failures.
+func (r *Listeners) DroppedFrames() int64 { return r.dropped.Load() }
+
+// admissionTTL bounds how long a disabled or changed profile or product keeps
+// admitting frames; reconciliation stops listeners of changed profiles too.
+const admissionTTL = 2 * time.Second
+
+type admissionCache struct {
+	mu       sync.Mutex
+	profiles map[string]cachedAdmission
+	products map[string]cachedAdmission
+}
+
+type cachedAdmission struct {
+	ok     bool
+	config string
+	at     time.Time
+}
+
+func (c *admissionCache) get(entries map[string]cachedAdmission, key string) (cachedAdmission, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	v, found := entries[key]
+	return v, found && time.Since(v.at) < admissionTTL
+}
+
+func (c *admissionCache) put(entries *map[string]cachedAdmission, key string, v cachedAdmission) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if *entries == nil || len(*entries) > 4096 {
+		*entries = map[string]cachedAdmission{}
+	}
+	v.at = time.Now()
+	(*entries)[key] = v
+}
+
+// transientFrameError marks a frame that was dropped because ingest failed
+// for a reason retrying can fix. The device gets no reply and retransmits.
+type transientFrameError struct{ error }
+
+func (e transientFrameError) Unwrap() error { return e.error }
 
 // SetMaxSessions sets the per-listener session limit; values below 1 keep the default.
 func (r *Listeners) SetMaxSessions(n int) {
@@ -421,6 +468,15 @@ func (s *listenerSession) receiveTCP() {
 			buffer = append(buffer, chunk[:n]...)
 			for len(buffer) > 0 {
 				consumed, needMore, frameErr := s.frame(buffer, false)
+				var transient transientFrameError
+				if errors.As(frameErr, &transient) {
+					// Keep the connection: closing every session during
+					// backpressure would turn into a reconnect storm.
+					s.host.owner.dropped.Add(1)
+					s.host.owner.warn("protocol TCP frame dropped, device will retransmit", frameErr)
+					buffer = buffer[consumed:]
+					continue
+				}
 				if frameErr != nil {
 					s.host.mu.Lock()
 					s.host.lastError = limitError(frameErr.Error(), 512)
@@ -511,6 +567,10 @@ func (s *listenerSession) processUDP() {
 			return
 		case packet := <-s.packets:
 			if _, _, err := s.frame(packet, true); err != nil {
+				var transient transientFrameError
+				if errors.As(err, &transient) {
+					s.host.owner.dropped.Add(1)
+				}
 				s.host.owner.warn("protocol UDP frame rejected", err)
 			}
 		}
@@ -653,6 +713,10 @@ func (s *listenerSession) frame(data []byte, datagram bool) (int, bool, error) {
 		}
 	}
 	if err := s.host.owner.ingest(s.host.ctx, raw); err != nil {
+		if !errors.Is(err, model.ErrPermanent) && s.host.ctx.Err() == nil {
+			s.partial = false
+			return response.Consumed, false, transientFrameError{fmt.Errorf("ingest protocol frame: %w", err)}
+		}
 		return 0, false, fmt.Errorf("ingest protocol frame: %w", err)
 	}
 	if err := s.ingestChildren(p, device, raw, response.Children); err != nil {
@@ -704,28 +768,55 @@ func (r *Listeners) device(ctx context.Context, p model.DeviceAccessProfile, id,
 	if p.DeviceID != "" && p.DeviceID != id {
 		return model.ManagedDevice{}, errors.New("protocol device does not match access profile")
 	}
-	current, e := r.repo.GetDeviceAccessProfile(ctx, p.TenantID, p.ID)
-	if e != nil || !current.Enabled || current.Configuration() != p.Configuration() {
+	// Profile and product state is checked at most every admissionTTL per
+	// listener, not with two queries on every frame.
+	profileKey := p.TenantID + "\x00" + p.ID
+	profile, cached := r.checks.get(r.checks.profiles, profileKey)
+	if !cached || profile.config != p.Configuration() {
+		current, e := r.repo.GetDeviceAccessProfile(ctx, p.TenantID, p.ID)
+		profile = cachedAdmission{ok: e == nil && current.Enabled, config: current.Configuration()}
+		if e == nil {
+			r.checks.put(&r.checks.profiles, profileKey, profile)
+		}
+	}
+	if !profile.ok || profile.config != p.Configuration() {
 		return model.ManagedDevice{}, errors.New("protocol access profile is disabled or changed")
 	}
-	product, err := r.repo.GetProduct(ctx, p.TenantID, p.ProductID)
-	if err != nil || product.Status != "ENABLED" {
+	productKey := p.TenantID + "\x00" + p.ProductID
+	product, cached := r.checks.get(r.checks.products, productKey)
+	if !cached {
+		current, e := r.repo.GetProduct(ctx, p.TenantID, p.ProductID)
+		product = cachedAdmission{ok: e == nil && current.Status == "ENABLED"}
+		if e == nil {
+			r.checks.put(&r.checks.products, productKey, product)
+		}
+	}
+	if !product.ok {
 		return model.ManagedDevice{}, errors.New("protocol product is disabled or unavailable")
 	}
-	r.registerMu.Lock()
-	defer r.registerMu.Unlock()
 	device, err := r.repo.GetManagedDevice(ctx, p.TenantID, id)
 	if err == nil {
-		if device.GatewayID != "" || device.TenantID != p.TenantID || device.ProductID != p.ProductID || strings.EqualFold(device.Status, "DISABLED") {
-			return device, errors.New("protocol device is disabled or belongs to another product")
-		}
-		return device, nil
+		return checkedProtocolDevice(device, p)
 	}
 	if !p.AutoRegister {
 		return device, fmt.Errorf("protocol device is not registered: %w", err)
 	}
+	// Only automatic registration needs the lock; it rechecks the device so
+	// two sessions of a new device register it once.
+	r.registerMu.Lock()
+	defer r.registerMu.Unlock()
+	if device, err = r.repo.GetManagedDevice(ctx, p.TenantID, id); err == nil {
+		return checkedProtocolDevice(device, p)
+	}
 	device, _, err = r.repo.RegisterProtocolDevice(ctx, p, id, name)
 	return device, err
+}
+
+func checkedProtocolDevice(device model.ManagedDevice, p model.DeviceAccessProfile) (model.ManagedDevice, error) {
+	if device.GatewayID != "" || device.TenantID != p.TenantID || device.ProductID != p.ProductID || strings.EqualFold(device.Status, "DISABLED") {
+		return device, errors.New("protocol device is disabled or belongs to another product")
+	}
+	return device, nil
 }
 
 // write is serialized by the session lock with ingress and command encoding.

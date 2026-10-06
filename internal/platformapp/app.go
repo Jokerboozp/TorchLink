@@ -641,6 +641,7 @@ func (a *app) startAccess() {
 	listeners.SetMaxSessions(int(cfg.ProtocolListenerMaxSessions))
 	a.every(5*time.Second, func() {
 		a.registry.Set("protocol_listener_rejected_total", float64(listeners.RejectedSessions()))
+		a.registry.Set("protocol_listener_dropped_frames_total", float64(listeners.DroppedFrames()))
 	})
 	listeners.SetConnectionReporter(engine.ReportConnection)
 	listeners.SetCoordinator(coordinator)

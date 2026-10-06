@@ -8,6 +8,7 @@ import (
 	"net"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -271,6 +272,34 @@ func TestListenerDoesNotAcknowledgeFailedArchive(t *testing.T) {
 	var buf [1]byte
 	if n, err := conn.Read(buf[:]); n != 0 || err == nil {
 		t.Fatalf("failed ingest was acknowledged: %d %v", n, err)
+	}
+}
+
+// Backpressure drops the frame without a reply but keeps the session, so the
+// device's retransmission on the same connection succeeds once ingest resumes.
+func TestListenerKeepsSessionThroughTransientIngestFailure(t *testing.T) {
+	var paused atomic.Bool
+	paused.Store(true)
+	r, _, conn, _ := listenerFixture(t, func(context.Context, model.RawMessage) error {
+		if paused.Load() {
+			return model.ErrBackpressure
+		}
+		return nil
+	})
+	_, _ = conn.Write([]byte{0xaa, 0xbb})
+	deadline := time.Now().Add(3 * time.Second)
+	for r.DroppedFrames() == 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if r.DroppedFrames() != 1 {
+		t.Fatalf("dropped frames = %d, want 1", r.DroppedFrames())
+	}
+	paused.Store(false)
+	_, _ = conn.Write([]byte{0xaa, 0xbb})
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var b [1]byte
+	if _, err := io.ReadFull(conn, b[:]); err != nil || b[0] != 0x11 {
+		t.Fatalf("retransmission on the kept session was not acknowledged: %x %v", b, err)
 	}
 }
 
