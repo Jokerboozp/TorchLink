@@ -121,7 +121,8 @@ IOT_VIDEO_MEDIA_SERVER_ID	媒体服务节点标识，回调时用于校验来源
 IOT_VIDEO_RTC_EXTERN_IP	浏览器访问媒体服务使用的主机 IP（WebRTC 候选地址），多个用逗号分隔
 IOT_VIDEO_RTC_PORT	WebRTC 媒体 UDP/TCP 端口，需对浏览器所在网络开放
 IOT_VIDEO_RTC_BIND_ADDRESS	WebRTC 媒体端口监听地址，默认 0.0.0.0
-IOT_VIDEO_ALLOWED_CIDRS	允许平台访问的摄像头网段，逗号分隔；云元数据与链路本地地址始终禁止
+IOT_VIDEO_ALLOWED_CIDRS	允许平台访问的摄像头网段，逗号分隔；云元数据与链路本地地址始终禁止，生产环境应收窄为实际摄像头网段
+IOT_VIDEO_DENIED_CIDRS	从允许网段中排除的网段（如容器网络），逗号分隔；优先于 IOT_VIDEO_ALLOWED_CIDRS
 IOT_VIDEO_ALLOWED_PORTS	允许访问的摄像头 RTSP / ONVIF 端口，逗号分隔
 IOT_VIDEO_TRANSCODE_ENABLED	是否允许转码（H.265 转 H.264 等），默认 false
 IOT_VIDEO_TRANSCODE_MAX	同时运行的转码任务上限

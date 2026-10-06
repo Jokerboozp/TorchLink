@@ -328,3 +328,15 @@ func TestRedactText(t *testing.T) {
 		}
 	}
 }
+
+func TestTargetGuardDeniedNetworksWinOverAllowed(t *testing.T) {
+	g := testGuard(t, []string{"172.16.0.0/12"}, 554)
+	_, compose, _ := net.ParseCIDR("172.18.0.0/16")
+	g.denied = []*net.IPNet{compose}
+	if _, err := g.pinnedRTSP(context.Background(), "rtsp://172.18.0.5:554/x"); err == nil {
+		t.Fatal("an address in IOT_VIDEO_DENIED_CIDRS was reachable")
+	}
+	if _, err := g.pinnedRTSP(context.Background(), "rtsp://172.20.0.5:554/x"); err != nil {
+		t.Fatalf("other allowed cameras must stay reachable: %v", err)
+	}
+}

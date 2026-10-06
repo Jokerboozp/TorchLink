@@ -22,6 +22,8 @@ var ErrTargetDenied = errors.New("目标地址不在允许的摄像头网段或�
 // between check and use (rebinding) cannot redirect a request.
 type targetGuard struct {
 	networks []*net.IPNet
+	// denied excludes addresses inside networks, such as the Compose network.
+	denied   []*net.IPNet
 	ports    map[int]bool
 	resolver interface {
 		LookupNetIP(context.Context, string, string) ([]netip.Addr, error)
@@ -36,6 +38,11 @@ func (g targetGuard) allowedAddr(addr netip.Addr) bool {
 	// Metadata, link-local and multicast stay denied even inside a broad CIDR.
 	if netguard.Denied(addr) {
 		return false
+	}
+	for _, n := range g.denied {
+		if n.Contains(net.IP(addr.AsSlice())) {
+			return false
+		}
 	}
 	for _, n := range g.networks {
 		if n.Contains(net.IP(addr.AsSlice())) {

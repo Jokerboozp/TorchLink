@@ -98,7 +98,7 @@ func New(cfg config.VideoConfig, store ports.VideoStore, cameras CameraLookup, a
 		log = slog.Default()
 	}
 	s := &Service{cfg: cfg, store: store, cameras: cameras, authorize: authorize, log: log, testResults: map[string]testMemo{}, now: time.Now}
-	s.guard = targetGuard{networks: cfg.AllowedCIDRs, ports: cfg.AllowedPorts}
+	s.guard = targetGuard{networks: cfg.AllowedCIDRs, denied: cfg.DeniedCIDRs, ports: cfg.AllowedPorts}
 	s.seal = sealer{key: cfg.CredentialKey, keyID: cfg.CredentialKeyID}
 	if cfg.Deployed() && cfg.Problem() == nil && store != nil {
 		s.media = newZLM(cfg.MediaAPIURL, cfg.MediaSecret)

@@ -25,6 +25,7 @@ type VideoConfig struct {
 	CredentialKey    []byte
 	CredentialKeyID  string
 	AllowedCIDRs     []*net.IPNet
+	DeniedCIDRs      []*net.IPNet
 	AllowedPorts     map[int]bool
 	HLSPublicPath    string
 	LeaseTTL         time.Duration
@@ -136,6 +137,16 @@ func loadVideo() VideoConfig {
 			break
 		}
 		cfg.AllowedCIDRs = append(cfg.AllowedCIDRs, network)
+	}
+	// Denied networks win over allowed ones, so a broad camera CIDR can still
+	// exclude the platform's own container network.
+	for _, value := range split(get("IOT_VIDEO_DENIED_CIDRS", "")) {
+		_, network, err := net.ParseCIDR(value)
+		if err != nil {
+			cfg.loadErr = fmt.Errorf("IOT_VIDEO_DENIED_CIDRS contains an invalid CIDR: %s", value)
+			break
+		}
+		cfg.DeniedCIDRs = append(cfg.DeniedCIDRs, network)
 	}
 	for _, value := range split(get("IOT_VIDEO_ALLOWED_PORTS", "80,443,554,8000,8080,8554,8899,10554,2020,5000,37777")) {
 		port, err := strconv.Atoi(value)
