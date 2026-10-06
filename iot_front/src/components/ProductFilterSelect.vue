@@ -1,6 +1,6 @@
 <script setup>
-// 按设备模板名称或标识搜索并选择一个模板，值为模板标识；用于列表的模板筛选。
-// 服务端按关键字检索（最多 20 条），不预先加载全部模板。
+// 按设备模板名称或标识搜索并选择一个模板，值为模板标识；用于列表筛选和表单中的模板选择。
+// 服务端按关键字检索（最多 20 条），不预先加载全部模板。custom 为 false 时只能选择检索到的模板。
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { NSelect } from 'naive-ui'
 import { api, isAbort } from '../api'
@@ -9,7 +9,8 @@ import { can } from '../permissions'
 
 const props = defineProps({
   modelValue: { type: String, default: '' },
-  placeholder: { type: String, default: '按模板名称或标识筛选，可直接输入标识' }
+  placeholder: { type: String, default: '按模板名称或标识筛选，可直接输入标识' },
+  custom: { type: Boolean, default: true }
 })
 const emit = defineEmits(['update:modelValue', 'change'])
 const options = ref([])
@@ -72,7 +73,7 @@ onBeforeUnmount(() => {
     filterable
     remote
     clearable
-    tag
+    :tag="custom"
     aria-label="设备模板筛选"
     @search="onSearch"
     @focus="options.length <= 1 && search('')"

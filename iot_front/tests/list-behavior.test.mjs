@@ -166,17 +166,24 @@ test('camera association searches devices on the server instead of loading the w
     'the linked device stays selectable when it is not in the results'
   )
 })
-test('rule editor offers product 101', async () => {
+test('rules load without reading every product; the editor searches products remotely', async () => {
+  const requests = []
   const c = component(
     'RulesView.vue',
-    async path => (path.includes('/products') ? paginated(path) : { items: [], total: 0 }),
-    'load,products'
+    async path => {
+      requests.push(path)
+      if (path.includes('/products')) throw Object.assign(new Error('forbidden'), { status: 403 })
+      return { items: [{ id: 'rule-1' }], total: 1 }
+    },
+    'load,rules,loadError'
   )
   await c.load()
-  assert.ok(
-    c.products.value.some(x => x.id === 'item-101'),
-    `only ${c.products.value.length}/101 product options loaded`
+  assert.deepEqual(
+    requests.filter(path => path.includes('/products')),
+    []
   )
+  assert.equal(c.rules.value[0].id, 'rule-1', '没有设备模板权限的用户也能读取规则')
+  assert.equal(c.loadError.value, '')
 })
 test('device registration offers product 101', async () => {
   const c = component(

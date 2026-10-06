@@ -4,7 +4,7 @@ import { takeNavigation } from '../router/paths'
 defineEmits(['navigate'])
 import { onMounted, reactive, ref, watch } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, apiAll, isAbort, notifyError, parseJSON, pretty } from '../api'
+import { api, isAbort, notifyError, parseJSON, pretty } from '../api'
 import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
 import { alarmLevels, alarmType, alarmTypes, label, tagType } from '../labels'
@@ -13,13 +13,13 @@ import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
+import ProductFilterSelect from '../components/ProductFilterSelect.vue'
 import { errorMessage } from '../presentation'
 import { usePageState } from '../composables/usePageState.js'
 import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
 import { usePagedList } from '../composables/usePagedList'
 
 const rules = ref([])
-const products = ref([])
 const dialog = ref(false)
 const draftDialog = ref(false)
 const readonly = ref(false)
@@ -156,12 +156,10 @@ const loader = useListLoader(loading)
 const loadError = ref('')
 async function load() {
   try {
-    const [rulesData, productData] = await loader.run(signal =>
-      Promise.all([api(`/api/v1/rules?page=${page.value}&pageSize=${pageSize.value}`, { signal }), apiAll('/api/v1/products', { signal })])
-    )
+    // 规则表单的产品下拉按关键字远程检索，列表不预先加载全部设备模板。
+    const rulesData = await loader.run(signal => api(`/api/v1/rules?page=${page.value}&pageSize=${pageSize.value}`, { signal }))
     rules.value = rulesData.items || []
     total.value = Number(rulesData.total ?? rules.value.length)
-    products.value = productData.items || []
     loadError.value = ''
   } catch (error) {
     if (!isAbort(error)) loadError.value = error?.status === 401 ? '' : errorMessage(error) || '告警规则读取失败'
@@ -428,9 +426,8 @@ function rowActions(row) {
               ><ui-option v-for="(text, key) in alarmLevels" :key="key" :label="text" :value="key" /></ui-select
           ></ui-form-item>
           <ui-form-item label="所属产品（可选）"
-            ><ui-select v-model="form.productId" clearable
-              ><ui-option v-for="x in products" :key="x.id" :label="x.name" :value="x.id" /></ui-select
-          ></ui-form-item>
+            ><ProductFilterSelect v-model="form.productId" class="ui-select" :custom="false" placeholder="请选择" aria-label="所属产品"
+          /></ui-form-item>
           <ui-form-item label="条件关系"
             ><ui-select v-model="form.match"><ui-option label="全部满足" value="all" /><ui-option label="任一满足" value="any" /></ui-select
           ></ui-form-item>
