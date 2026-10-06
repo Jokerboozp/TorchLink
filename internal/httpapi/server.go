@@ -1455,21 +1455,10 @@ func (s *Server) alarmAction(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) mqttToken(w http.ResponseWriter, r *http.Request) {
 	c := claims(r)
+	// Only the built-in administrator reaches this handler (allowsRoute
+	// refuses managed users), so the tenant-wide wildcard subscriptions
+	// never reach an account limited to some devices.
 	scope := []string{fmt.Sprintf("/iot/parsed/%s/#", c.TenantID), fmt.Sprintf("/iot/alarm/%s/#", c.TenantID), fmt.Sprintf("/iot/device/state/%s/#", c.TenantID), fmt.Sprintf("/iot/ui-action/%s", c.TenantID)}
-	if c.TokenUse == "user" {
-		_, p, err := s.managedIdentity(r.Context(), c)
-		if err != nil {
-			problem(w, 401, "会话已失效")
-			return
-		}
-		scope = []string{}
-		if p["menu:raw"] || p["menu:devices"] {
-			scope = append(scope, fmt.Sprintf("/iot/parsed/%s/#", c.TenantID), fmt.Sprintf("/iot/device/state/%s/#", c.TenantID))
-		}
-		if p["menu:alarms"] || p["menu:dashboard"] {
-			scope = append(scope, fmt.Sprintf("/iot/alarm/%s/#", c.TenantID))
-		}
-	}
 	// Broker-only credentials: never usable as a console token.
 	token, err := s.auth.IssueBrowserMQTT(c.Username, c.TenantID, scope, 15*time.Minute)
 	if err != nil {

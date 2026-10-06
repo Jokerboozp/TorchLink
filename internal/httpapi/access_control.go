@@ -316,6 +316,10 @@ func allowsRoute(p map[string]bool, method, path string) bool {
 	if path == "/api/v1/events" {
 		return p["menu:devices"] || p["menu:alarms"] || p["menu:dashboard"] || p["menu:raw"]
 	}
+	// The browser MQTT token grants tenant-wide wildcard topics. Managed users
+	// may be limited to some devices, so they receive realtime data through
+	// /api/v1/events, which filters by their device scope. Opening this route
+	// to them would need per-device topics, never wildcards.
 	if path == "/api/v1/mqtt/token" || path == "/api/v1/mqtt/load-token" {
 		return false
 	}
