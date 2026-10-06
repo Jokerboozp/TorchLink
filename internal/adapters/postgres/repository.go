@@ -580,7 +580,7 @@ func (r *Repository) ListPendingRawIndexes(ctx context.Context, limit int) ([]mo
 	if limit <= 0 {
 		limit = 100
 	}
-	rows, err := r.pool.Query(ctx, `SELECT message_id,tenant_id,product_id,device_id,protocol,payload_format,object_bucket,object_key,object_offset,payload_hash,payload_size,received_at,archived_at,published_at,publish_attempts,last_publish_error,parse_attempted_at,parse_error FROM raw_archive_index WHERE published_at=0 AND archived_at < (extract(epoch FROM now())*1000)::bigint - 30000 ORDER BY archived_at LIMIT $1`, limit)
+	rows, err := r.pool.Query(ctx, `SELECT message_id,tenant_id,product_id,device_id,protocol,payload_format,object_bucket,object_key,object_offset,payload_hash,payload_size,received_at,archived_at,published_at,publish_attempts,last_publish_error,parse_attempted_at,parse_error FROM raw_archive_index WHERE published_at=0 AND publish_attempts < $2 AND archived_at < (extract(epoch FROM now())*1000)::bigint - 30000 * power(2, LEAST(publish_attempts, 16))::bigint ORDER BY publish_attempts, archived_at LIMIT $1`, limit, model.MaxRawPublishAttempts)
 	if err != nil {
 		return nil, err
 	}
@@ -594,6 +594,12 @@ func (r *Repository) ListPendingRawIndexes(ctx context.Context, limit int) ([]mo
 		out = append(out, v)
 	}
 	return out, rows.Err()
+}
+
+func (r *Repository) CountStalledRawIndexes(ctx context.Context) (int, error) {
+	var n int
+	err := r.pool.QueryRow(ctx, `SELECT count(*) FROM raw_archive_index WHERE published_at=0 AND publish_attempts >= $1`, model.MaxRawPublishAttempts).Scan(&n)
+	return n, err
 }
 
 type rowScanner interface{ Scan(...any) error }

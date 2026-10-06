@@ -445,12 +445,28 @@ func (r *Repository) ListPendingRawIndexes(_ context.Context, limit int) ([]mode
 	defer r.mu.RUnlock()
 	out := []model.RawArchiveIndex{}
 	for _, v := range r.raw {
-		if v.PublishedAt == 0 {
+		if v.PublishedAt == 0 && v.PublishAttempts < model.MaxRawPublishAttempts {
 			out = append(out, v)
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].ArchivedAt < out[j].ArchivedAt })
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].PublishAttempts != out[j].PublishAttempts {
+			return out[i].PublishAttempts < out[j].PublishAttempts
+		}
+		return out[i].ArchivedAt < out[j].ArchivedAt
+	})
 	return page(out, 0, limit), nil
+}
+func (r *Repository) CountStalledRawIndexes(context.Context) (int, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	n := 0
+	for _, v := range r.raw {
+		if v.PublishedAt == 0 && v.PublishAttempts >= model.MaxRawPublishAttempts {
+			n++
+		}
+	}
+	return n, nil
 }
 func (r *Repository) GetRawIndex(_ context.Context, tenant, messageID string) (model.RawArchiveIndex, error) {
 	r.mu.RLock()

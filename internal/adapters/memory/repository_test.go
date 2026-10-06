@@ -327,3 +327,7 @@ func TestDeleteAlarmRemovesEveryAnalysisScope(t *testing.T) {
 func TestDevicePagesAndPlaySessions(t *testing.T) {
 	repositorytest.DevicePagesAndPlaySessions(t, NewRepository())
 }
+
+func TestRawPublishRetriesStopAtTheLimit(t *testing.T) {
+	repositorytest.RawPublishRetriesStopAtTheLimit(t, NewRepository())
+}

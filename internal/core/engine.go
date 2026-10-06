@@ -212,6 +212,13 @@ func (e *Engine) retryPendingRawOnce(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list pending raw: %w", err)
 	}
+	if e.Metrics != nil {
+		if stalled, countErr := e.Repo.CountStalledRawIndexes(ctx); countErr == nil {
+			if gauges, ok := e.Metrics.(interface{ Set(string, float64) }); ok {
+				gauges.Set("raw_publish_stalled", float64(stalled))
+			}
+		}
+	}
 	for _, idx := range indexes {
 		raw, readErr := e.GetRaw(ctx, idx)
 		if readErr != nil {

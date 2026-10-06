@@ -10,3 +10,7 @@ func TestVideoMediaRetries(t *testing.T) { repositorytest.VideoMediaRetries(t, t
 func TestDevicePagesAndPlaySessions(t *testing.T) {
 	repositorytest.DevicePagesAndPlaySessions(t, testRepository(t))
 }
+
+func TestRawPublishRetriesStopAtTheLimit(t *testing.T) {
+	repositorytest.RawPublishRetriesStopAtTheLimit(t, testRepository(t))
+}

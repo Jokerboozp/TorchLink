@@ -122,6 +122,12 @@ func (m RawMessage) PayloadHash() string {
 	return hex.EncodeToString(h[:])
 }
 
+// MaxRawPublishAttempts bounds the automatic queue retries of one archived
+// message. Retries back off exponentially from 30 seconds, so the last one
+// happens about a day after archiving; afterwards the message stays archived
+// and counted as stalled (raw_publish_stalled) until replayed.
+const MaxRawPublishAttempts = 12
+
 type RawArchiveIndex struct {
 	MessageID        string `json:"messageId"`
 	TenantID         string `json:"tenantId"`
