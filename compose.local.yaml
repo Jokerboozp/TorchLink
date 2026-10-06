@@ -365,6 +365,9 @@ services:
     <<: *service-defaults
     profiles: [ops]
     image: prom/prometheus:v3.5.0
+    # Compose 不会因 configs 内联内容变化而重建容器；抓取目标写入标签，源码机地址变化时随之重建。
+    labels:
+      iot.prometheus.platform-targets: "${IOT_LOCAL_API_HOST:-host.docker.internal}:8081,${IOT_LOCAL_BACKUP_METRICS_TARGET:-host.docker.internal:8092}"
     # 抓取平台 /metrics 的令牌只放在环境变量里，启动时写入数据卷内的私有文件。
     entrypoint: ["/bin/sh", "-c", "umask 077 && printf '%s' \"$$IOT_METRICS_TOKEN\" > /prometheus/.metrics-token && exec /bin/prometheus \"$$@\"", "prometheus"]
     environment:
