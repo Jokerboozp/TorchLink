@@ -34,6 +34,7 @@ import (
 	"iot-platform/internal/firesafety"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
+	"iot-platform/internal/netguard"
 	"iot-platform/internal/notify"
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/opscenter"
@@ -139,6 +140,8 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	s.externalData, externalErr = externaldata.New(s.unscopedRepo().ExternalDataStore(), cfg.JWTSecret, s.authorizeExternalSource, s.deliverExternalEvent)
 	if externalErr != nil {
 		log.Error("external data initialization failed", "error", externalErr)
+	} else {
+		s.externalData.SetOutbound(netguard.Policy{Allowed: cfg.ExternalDataAllowedCIDRs})
 	}
 	router.Use(requestID(), s.cors(), s.security(), s.accessLog(), s.recovery())
 	s.routes()

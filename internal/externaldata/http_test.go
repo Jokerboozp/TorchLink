@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iot-platform/internal/netguard"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"strings"
@@ -86,7 +88,7 @@ func TestHTTPAuthenticationsAndTemplates(t *testing.T) {
 			e.Method = http.MethodPost
 			e.Query = map[string]string{"from": "{{from}}", "to": "{{to}}"}
 			e.RequestBody = map[string]any{"from": "{{from}}", "nested": map[string]any{"limit": "{{pageSize}}"}}
-			result, err := NewHTTPClient().Fetch(context.Background(), s, e, Job{From: 1000, To: 2000})
+			result, err := NewHTTPClient(netguard.Loopback).Fetch(context.Background(), s, e, Job{From: 1000, To: 2000})
 			if err != nil || len(result.Items) != 1 || !result.Done {
 				t.Fatalf("fetch: %+v %v", result, err)
 			}
@@ -121,7 +123,7 @@ func TestHTTPTokenCacheAndRefresh(t *testing.T) {
 	defer server.Close()
 	s, e := fixtureHTTP(server.URL + "/events")
 	s.Auth = Auth{Type: "token", Secret: `p"word`, TokenURL: server.URL + "/login", TokenBody: map[string]any{"password": "{{secret}}"}, TokenPath: "data.token", TokenExpiresPath: "data.expires"}
-	c := NewHTTPClient()
+	c := NewHTTPClient(netguard.Loopback)
 	for i := 0; i < 2; i++ {
 		if _, err := c.Fetch(context.Background(), s, e, Job{}); err != nil {
 			t.Fatal(err)
@@ -157,7 +159,7 @@ func TestHTTPPaginationBoundaries(t *testing.T) {
 			s, e := fixtureHTTP(server.URL)
 			e.Mapping.ItemsPath = "items"
 			e.Pagination = Pagination{Mode: mode, PageSize: 2, TotalPath: "total", NextPath: "next"}
-			c := NewHTTPClient()
+			c := NewHTTPClient(netguard.Loopback)
 			result, err := c.Fetch(context.Background(), s, e, Job{})
 			if err != nil || result.Done || len(result.Items) != 2 {
 				t.Fatalf("first page: %+v %v", result, err)
@@ -185,7 +187,7 @@ func TestHTTPPaginationBoundaries(t *testing.T) {
 			s, e := fixtureHTTP(server.URL)
 			e.Mapping.ItemsPath = "items"
 			e.Pagination = tc.p
-			if _, err := NewHTTPClient().Fetch(context.Background(), s, e, tc.j); err == nil {
+			if _, err := NewHTTPClient(netguard.Loopback).Fetch(context.Background(), s, e, tc.j); err == nil {
 				t.Fatal("accepted invalid pagination")
 			}
 		})
@@ -202,7 +204,7 @@ func TestHTTPAllowedHostsRedirectAndRedactedErrors(t *testing.T) {
 	s.Auth = Auth{Type: "bearer", Secret: "PRIVATE-CREDENTIAL"}
 	u, _ := url.Parse(other.URL)
 	s.AllowedHosts = append(s.AllowedHosts, u.Host)
-	_, err := NewHTTPClient().Fetch(context.Background(), s, e, Job{})
+	_, err := NewHTTPClient(netguard.Loopback).Fetch(context.Background(), s, e, Job{})
 	if err == nil || leaked.Load() {
 		t.Fatalf("cross-origin request made: %v", err)
 	}
@@ -210,19 +212,19 @@ func TestHTTPAllowedHostsRedirectAndRedactedErrors(t *testing.T) {
 		t.Fatal("error leaked request details")
 	}
 	s.AllowedHosts = []string{"example.com:443"}
-	if _, err = NewHTTPClient().Fetch(context.Background(), s, e, Job{}); err == nil {
+	if _, err = NewHTTPClient(netguard.Loopback).Fetch(context.Background(), s, e, Job{}); err == nil {
 		t.Fatal("allowlist not enforced")
 	}
 	oversized := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, strings.Repeat("x", MaxBodyBytes+1)) }))
 	defer oversized.Close()
 	s, e = fixtureHTTP(oversized.URL)
-	if _, err = NewHTTPClient().Fetch(context.Background(), s, e, Job{}); err == nil {
+	if _, err = NewHTTPClient(netguard.Loopback).Fetch(context.Background(), s, e, Job{}); err == nil {
 		t.Fatal("unbounded response")
 	}
 	errServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "PRIVATE-CREDENTIAL", 500) }))
 	defer errServer.Close()
 	s, e = fixtureHTTP(errServer.URL)
-	_, err = NewHTTPClient().Fetch(context.Background(), s, e, Job{})
+	_, err = NewHTTPClient(netguard.Loopback).Fetch(context.Background(), s, e, Job{})
 	if err == nil || strings.Contains(err.Error(), "PRIVATE-CREDENTIAL") {
 		t.Fatalf("error body leaked: %v", err)
 	}
@@ -241,7 +243,7 @@ func TestHTTPTimeoutAndEndpointAuthOverride(t *testing.T) {
 	e.Auth = &Auth{Type: "none"}
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
 	defer cancel()
-	if _, err := NewHTTPClient().Fetch(ctx, s, e, Job{}); err == nil {
+	if _, err := NewHTTPClient(netguard.Loopback).Fetch(ctx, s, e, Job{}); err == nil {
 		t.Fatal("timeout not enforced")
 	}
 }
@@ -265,7 +267,7 @@ func TestHTTPPaginationInJSONBody(t *testing.T) {
 	e.Method = http.MethodPost
 	e.Pagination = Pagination{Mode: "page", PageSize: 25}
 	e.RequestBody = map[string]any{"page": "{{page}}", "size": "{{pageSize}}"}
-	if _, err := NewHTTPClient().Fetch(context.Background(), s, e, Job{}); err != nil {
+	if _, err := NewHTTPClient(netguard.Loopback).Fetch(context.Background(), s, e, Job{}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -296,7 +298,7 @@ func TestHTTPRetainsDataResponseWhenValidationFails(t *testing.T) {
 			tc.mapping.Fields = e.Mapping.Fields
 			e.Mapping = tc.mapping
 			e.Pagination = tc.pagination
-			result, err := NewHTTPClient().Fetch(context.Background(), s, e, Job{})
+			result, err := NewHTTPClient(netguard.Loopback).Fetch(context.Background(), s, e, Job{})
 			if err == nil || string(result.Body) != tc.body || len(result.Items) != 0 || result.NextCursor != "" || result.Done {
 				t.Fatalf("failed response lost or marked consumable: %+v %v", result, err)
 			}
@@ -316,7 +318,7 @@ func TestHTTPNeverRetainsTokenEndpointResponse(t *testing.T) {
 			defer server.Close()
 			s, e := fixtureHTTP(server.URL + "/data")
 			s.Auth = Auth{Type: "token", Secret: "credential", TokenURL: server.URL + "/login", TokenPath: "token", TokenExpiresPath: "expires"}
-			result, err := NewHTTPClient().Fetch(context.Background(), s, e, Job{})
+			result, err := NewHTTPClient(netguard.Loopback).Fetch(context.Background(), s, e, Job{})
 			if err == nil || len(result.Body) != 0 || strings.Contains(err.Error(), "secret-") {
 				t.Fatalf("token response leaked: %q %v", result.Body, err)
 			}
@@ -332,6 +334,30 @@ func TestRetryAfterParsesSecondsAndHTTPDate(t *testing.T) {
 	}{{"120", 2 * time.Minute}, {now.Add(5 * time.Minute).UTC().Format(http.TimeFormat), 5 * time.Minute}, {"invalid", time.Minute}, {"0", time.Second}, {"999999999", 24 * time.Hour}} {
 		if got := retryAfterDeadline(tc.header, now); got != now.Add(tc.want).UnixMilli() {
 			t.Fatalf("Retry-After %s: %d", tc.header, got)
+		}
+	}
+}
+
+// Allowed host:port pairs name the partner system; they must not let an
+// interface reach platform services, cloud metadata or other internal
+// addresses unless IOT_EXTERNAL_DATA_ALLOWED_CIDRS lists the network.
+func TestClientRefusesInternalTargetsByDefault(t *testing.T) {
+	var reached atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { reached.Store(true); fmt.Fprint(w, `[]`) }))
+	defer server.Close()
+	s, e := fixtureHTTP(server.URL + "/events")
+	if _, err := NewHTTPClient(netguard.Policy{}).Fetch(context.Background(), s, e, Job{}); err == nil || reached.Load() {
+		t.Fatal("the default policy reached a loopback service")
+	}
+	for _, target := range []string{"http://169.254.169.254/latest/meta-data", "http://100.100.100.200/latest/meta-data"} {
+		u, _ := url.Parse(target)
+		s.AllowedHosts = []string{hostPort(u)}
+		e.URL = target
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		_, err := NewHTTPClient(netguard.Policy{Allowed: []netip.Prefix{netip.MustParsePrefix("169.254.0.0/16"), netip.MustParsePrefix("100.64.0.0/10")}}).Fetch(ctx, s, e, Job{})
+		cancel()
+		if err == nil {
+			t.Fatalf("%s was reachable", target)
 		}
 	}
 }

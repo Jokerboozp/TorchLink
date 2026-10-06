@@ -15,9 +15,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/netguard"
 	"mime"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/smtp"
 	"net/url"
 	"strconv"
@@ -114,13 +116,11 @@ func NewSender(allowed []*net.IPNet) *Sender {
 	return s
 }
 
+// allowedIP applies the shared outbound policy: public addresses, plus the
+// private networks in Allowed; cloud metadata and link-local never.
 func (s *Sender) allowedIP(ip net.IP) bool {
-	for _, n := range s.Allowed {
-		if n.Contains(ip) {
-			return true
-		}
-	}
-	return !(ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() || ip.IsInterfaceLocalMulticast())
+	addr, ok := netip.AddrFromSlice(ip)
+	return ok && netguard.Policy{Allowed: netguard.FromIPNets(s.Allowed)}.AllowedAddr(addr)
 }
 
 // control checks the address actually dialled, after DNS resolution, so a

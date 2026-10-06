@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/netguard"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -29,7 +30,10 @@ func externalMediaEngine(t *testing.T, repo ports.Repository) *Engine {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	e := New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// Media fixtures serve from httptest on the loopback address.
+	e.MediaOutbound = netguard.Loopback
+	return e
 }
 
 func externalMediaSource(t *testing.T, repo ports.Repository, rawURL string) externaldata.Entry {

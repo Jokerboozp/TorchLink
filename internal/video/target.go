@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iot-platform/internal/netguard"
 	"net"
 	"net/netip"
 	"net/url"
@@ -27,28 +28,14 @@ type targetGuard struct {
 	}
 }
 
-// Addresses that must never be reached even when an administrator configures
-// a broad CIDR: cloud metadata, link-local, multicast and unspecified ranges.
-var alwaysDenied = []netip.Prefix{
-	netip.MustParsePrefix("169.254.0.0/16"),
-	netip.MustParsePrefix("100.100.100.200/32"), // Alibaba Cloud metadata
-	netip.MustParsePrefix("fe80::/10"),
-	netip.MustParsePrefix("fd00:ec2::254/128"),
-	netip.MustParsePrefix("224.0.0.0/4"),
-	netip.MustParsePrefix("ff00::/8"),
-	netip.MustParsePrefix("0.0.0.0/8"),
-	netip.MustParsePrefix("255.255.255.255/32"),
-}
-
 func (g targetGuard) allowedAddr(addr netip.Addr) bool {
 	addr = addr.Unmap()
 	if !addr.IsValid() || addr.IsUnspecified() {
 		return false
 	}
-	for _, p := range alwaysDenied {
-		if p.Contains(addr) {
-			return false
-		}
+	// Metadata, link-local and multicast stay denied even inside a broad CIDR.
+	if netguard.Denied(addr) {
+		return false
 	}
 	for _, n := range g.networks {
 		if n.Contains(net.IP(addr.AsSlice())) {

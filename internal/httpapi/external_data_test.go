@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"iot-platform/internal/netguard"
 	"log/slog"
 	"net"
 	"net/http"
@@ -64,6 +65,9 @@ func externalAPIFixture(t *testing.T) (*Server, *memory.Repository, context.Cont
 	cfg.DataDir = t.TempDir()
 	cfg.ProcessRole = "all"
 	cfg.AccessCoordination = false
+	// Partner systems in these tests are httptest servers on the loopback.
+	cfg.ExternalDataAllowedCIDRs = netguard.Loopback.Allowed
+	engine.MediaOutbound = netguard.Loopback
 	api := New(cfg, engine, metrics.New(), log)
 	if api.externalData == nil {
 		t.Fatal("external data service unavailable")

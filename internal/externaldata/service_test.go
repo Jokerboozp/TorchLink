@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"iot-platform/internal/netguard"
 	"strings"
 	"testing"
 
@@ -27,6 +28,8 @@ func runtimeService(t *testing.T, store externaldata.Store, deliver externaldata
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Fixtures serve from httptest on the loopback address.
+	s.SetOutbound(netguard.Loopback)
 	return s
 }
 
@@ -204,6 +207,9 @@ func TestServiceSourceCredentialsCanBeReenteredAfterEncryptionKeyChanges(t *test
 		t.Fatal(err)
 	}
 	fresh, err := externaldata.New(old.Store, "replacement-encryption-key", old.Authorize, old.Deliver)
+	if fresh != nil {
+		fresh.SetOutbound(netguard.Loopback)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}

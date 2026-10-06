@@ -35,6 +35,7 @@ import (
 	"iot-platform/internal/messagetopics"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
+	"iot-platform/internal/netguard"
 	"iot-platform/internal/notify"
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
@@ -392,6 +393,7 @@ func (a *app) buildEngine() {
 	engine.SignalOptions = core.DeviceSignalOptions{Window: cfg.DeviceSignalWindow, RaiseAlarms: cfg.DeviceSignalAlarm}
 	engine.SetIdentity(cfg.InstanceID)
 	engine.PublishExternalTopics = cfg.PublishExternalTopics
+	engine.MediaOutbound = netguard.Policy{Allowed: cfg.ExternalDataAllowedCIDRs}
 	a.registry.SetProcessInfo(cfg.ProcessRole, cfg.InstanceID, version.Version)
 	log.Info("platform build", "version", version.Version, "revision", version.Commit(), "role", cfg.ProcessRole)
 	if a.kafkaBus != nil && cfg.IngestMaxBacklog > 0 {

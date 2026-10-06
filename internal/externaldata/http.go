@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/netguard"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -38,8 +39,12 @@ type Client struct {
 	tokens    map[string]cachedToken
 }
 
-func NewHTTPClient() *Client {
-	return &Client{transport: http.DefaultTransport.(*http.Transport).Clone(), tokens: make(map[string]cachedToken)}
+// NewHTTPClient dials only addresses the policy allows. The configured
+// host:port list says which systems an interface may call; the policy keeps
+// those names from reaching platform services, cloud metadata or other
+// internal addresses, including through DNS rebinding.
+func NewHTTPClient(policy netguard.Policy) *Client {
+	return &Client{transport: policy.Transport(), tokens: make(map[string]cachedToken)}
 }
 
 func renderString(s string, vars map[string]string) string {

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iot-platform/internal/netguard"
 	"log/slog"
 	"slices"
 	"strings"
@@ -72,6 +73,9 @@ type Engine struct {
 	// ChatRunTimeout is the Harness client's limit for one chat turn
 	// (zero: 90 seconds); chat MCP credentials outlive it by a minute.
 	ChatRunTimeout time.Duration
+	// MediaOutbound limits which addresses third-party media downloads may
+	// reach (zero value: public addresses only).
+	MediaOutbound netguard.Policy
 }
 
 func New(repo ports.Repository, archive ports.Archive, bus ports.EventBus, realtime ports.RealtimePublisher, parsers *parser.Registry, log *slog.Logger) *Engine {

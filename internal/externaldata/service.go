@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iot-platform/internal/netguard"
 	"strings"
 	"time"
 
@@ -30,8 +31,12 @@ func New(store Store, key string, authorize Authorize, deliver Deliver) (*Servic
 	if err != nil {
 		return nil, err
 	}
-	return &Service{Store: store, cipher: c, client: NewHTTPClient(), Authorize: authorize, Deliver: deliver}, nil
+	return &Service{Store: store, cipher: c, client: NewHTTPClient(netguard.Policy{}), Authorize: authorize, Deliver: deliver}, nil
 }
+
+// SetOutbound replaces the outbound network policy, normally with the private
+// networks listed in IOT_EXTERNAL_DATA_ALLOWED_CIDRS.
+func (s *Service) SetOutbound(policy netguard.Policy) { s.client = NewHTTPClient(policy) }
 
 func invalid(detail string) error { return fmt.Errorf("%w: %s", ErrInvalid, detail) }
 func key(parts ...string) string {

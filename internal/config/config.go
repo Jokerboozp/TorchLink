@@ -3,6 +3,8 @@ package config
 import (
 	"errors"
 	"fmt"
+	"iot-platform/internal/netguard"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
@@ -150,15 +152,23 @@ type Config struct {
 	DeviceSignalWindow   time.Duration
 	DeviceSignalAlarm    bool
 	ModbusAllowedCIDRs   []string
-	DevMode              bool
-	Ops                  OpsConfig
-	Video                VideoConfig
-	Retention            RetentionConfig
-	Notify               NotifyConfig
-	loadErr              error
+	// ExternalDataAllowedCIDRs lists internal networks that external data
+	// interfaces and third-party media downloads may reach; public addresses
+	// are always allowed, platform and metadata addresses never.
+	ExternalDataAllowedCIDRs []netip.Prefix
+	DevMode                  bool
+	Ops                      OpsConfig
+	Video                    VideoConfig
+	Retention                RetentionConfig
+	Notify                   NotifyConfig
+	loadErr                  error
 }
 
 func Load() Config {
+	externalAllowed, externalAllowedErr := netguard.ParsePrefixes(get("IOT_EXTERNAL_DATA_ALLOWED_CIDRS", ""))
+	if externalAllowedErr != nil {
+		externalAllowedErr = fmt.Errorf("IOT_EXTERNAL_DATA_ALLOWED_CIDRS: %w", externalAllowedErr)
+	}
 	// Development mode skips the production secret checks, so it must be
 	// asked for explicitly; an unset variable means production.
 	devMode, devModeErr := strictBoolValue("IOT_DEV_MODE", false)
@@ -272,7 +282,8 @@ func Load() Config {
 		Video:                       loadVideo(),
 		Retention:                   loadRetention(),
 		Notify:                      loadNotify(),
-		loadErr:                     errors.Join(devModeErr, kafkaTLSErr),
+		ExternalDataAllowedCIDRs:    externalAllowed,
+		loadErr:                     errors.Join(devModeErr, kafkaTLSErr, externalAllowedErr),
 	}
 }
 

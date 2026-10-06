@@ -186,6 +186,7 @@ IOT_RETENTION_CLICKHOUSE_RAW_DAYS	ClickHouse 高频原文保留天数（表 TTL�
 IOT_CONSUMER_MAX_BLOCK	依赖故障时一条设备消息最长暂停等待时间，超过后转入死信，默认 30m
 IOT_NOTIFY_ENABLED	是否启用告警通知（机器人、Webhook、邮件），默认 true
 IOT_NOTIFY_ALLOWED_CIDRS	告警通知允许访问的内网网段（逗号分隔 CIDR），如内网 SMTP 中继；公网地址始终允许
+IOT_EXTERNAL_DATA_ALLOWED_CIDRS	外部数据拉取与媒体下载允许访问的内网网段（逗号分隔 CIDR）；默认只允许公网地址，云元数据地址始终拒绝
 IOT_PUBLIC_WEB_URL	管理端对外访问地址，告警通知中的详情链接使用，可留空
 IOT_TLS_DIR	证书目录（含 tls.crt、tls.key），存在时启用 HTTPS（8443）与 MQTTS/WSS（8883/8084），默认 ./tls
 IOT_WEB_HTTPS_PORT	Web HTTPS 对外端口，默认 8443

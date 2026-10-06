@@ -149,7 +149,7 @@ func (e *Engine) transferVideoURL(ctx context.Context, v model.VideoAlarmEvent, 
 	if err = e.videoMediaURLAllowed(ctx, v, u); err != nil {
 		return "", err
 	}
-	client := &http.Client{Timeout: 45 * time.Second, CheckRedirect: func(req *http.Request, via []*http.Request) error {
+	client := &http.Client{Timeout: 45 * time.Second, Transport: e.MediaOutbound.Transport(), CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) > 3 {
 			return fmt.Errorf("too many redirects")
 		}
