@@ -140,7 +140,10 @@ function submit() {
       <ui-form-item v-if="form.auth.type === 'token'" label="Token 登录请求体（JSON）"
         ><ui-input v-model="tokenBody" type="textarea" :rows="4"
       /></ui-form-item>
-      <p v-if="form.auth.type === 'token'" v-pre class="hint">凭据字段使用 {{ secret }} 引用认证密钥，例如 {"password":"{{ secret }}"}。</p>
+      <!-- v-pre 与 v-if 不能同在一个元素上，否则条件不生效 -->
+      <p v-if="form.auth.type === 'token'" class="hint">
+        <span v-pre>凭据字段使用 {{ secret }} 引用认证密钥，例如 {"password":"{{ secret }}"}。</span>
+      </p>
       <ui-form-item label="说明"><ui-input v-model="form.description" type="textarea" :rows="2" /></ui-form-item>
       <ui-switch v-model="form.enabled" active-text="启用来源" />
     </template>
@@ -388,10 +391,11 @@ function submit() {
   flex-wrap: wrap;
   gap: 8px;
   position: sticky;
-  bottom: 0;
+  /* 覆盖弹窗正文的底部内边距，滚动内容不会从按钮下方露出。 */
+  bottom: calc(-1 * var(--n-padding-bottom, 0px));
   background: var(--surface);
-  padding: 16px 0 0;
-  margin-top: 16px;
+  padding: 16px 0 var(--n-padding-bottom, 0px);
+  margin: 16px 0 calc(-1 * var(--n-padding-bottom, 0px));
   border-top: 1px solid var(--border);
 }
 .editor-error {

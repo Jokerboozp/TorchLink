@@ -46,8 +46,16 @@ const types = {
       ><ui-input :model-value="auth.tokenExpiresPath" placeholder="expires_in" @update:model-value="set('tokenExpiresPath', $event)"
     /></ui-form-item>
   </div>
-  <p v-if="auth.type === 'none'" style="color: var(--text-muted); font-size: 12px">拉取不附加认证；推送使用接口单独生成的接收密钥。</p>
+  <p v-if="auth.type === 'none'" class="auth-hint">拉取不附加认证；推送使用接口单独生成的接收密钥。</p>
   <ui-checkbox v-if="auth.secretSet" :model-value="auth.clearSecret" @update:model-value="set('clearSecret', $event)"
     >清除已保存的认证密钥</ui-checkbox
   >
 </template>
+<style scoped>
+.auth-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.7;
+  margin: 8px 0 16px;
+}
+</style>

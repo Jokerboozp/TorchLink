@@ -388,7 +388,12 @@ export const UiSwitch = defineComponent({
           }
         }),
         props.activeText || props.inactiveText
-          ? h('span', { class: 'ui-switch-label' }, props.modelValue === props.activeValue ? props.activeText : props.inactiveText)
+          ? h(
+              'span',
+              { class: 'ui-switch-label' },
+              /* 只给 active-text 时它是开关的固定标签，关闭时也显示。 */
+              props.modelValue === props.activeValue || props.inactiveText === undefined ? props.activeText : props.inactiveText
+            )
           : null
       ])
   }
