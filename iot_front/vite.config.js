@@ -141,7 +141,7 @@ export default defineConfig(({ mode }) => {
           entryFileNames: 'app.js',
           // 框架、组件库、图标与其他依赖分别成块：业务代码更新后浏览器仍可复用缓存，单块也不过大。
           // mqtt、hls.js、uplot 只在需要时按需加载，不并入这些块。
-          advancedChunks: {
+          codeSplitting: {
             groups: vendorGroups
               .map(([name, test], index) => ({
                 name,
