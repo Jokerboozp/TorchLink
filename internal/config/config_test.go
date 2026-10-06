@@ -120,6 +120,7 @@ func TestAdminTenantAllowlist(t *testing.T) {
 func TestProductionConfigRequiresExplicitStrongJWTSecret(t *testing.T) {
 	t.Setenv("IOT_POSTGRES_DSN", "test-dsn")
 	t.Setenv("IOT_AI_HARNESS_URL", testHarnessURL)
+	t.Setenv("IOT_AI_HARNESS_TOKEN", strings.Repeat("h", 40))
 	t.Setenv("IOT_DEV_MODE", "false")
 	t.Setenv("IOT_JWT_SECRET", "")
 	t.Setenv("IOT_ADMIN_PASSWORD", "")
@@ -149,6 +150,7 @@ func TestProductionConfigRequiresExplicitStrongJWTSecret(t *testing.T) {
 
 func TestDevelopmentConfigAllowsLocalFallbacks(t *testing.T) {
 	t.Setenv("IOT_AI_HARNESS_URL", testHarnessURL)
+	t.Setenv("IOT_AI_HARNESS_TOKEN", strings.Repeat("h", 40))
 	t.Setenv("IOT_DEV_MODE", "true")
 	t.Setenv("IOT_JWT_SECRET", "")
 	t.Setenv("IOT_ADMIN_PASSWORD", "")
@@ -174,7 +176,7 @@ func TestProductionConfigRejectsPlaceholderSecretsAndInvalidMode(t *testing.T) {
 }
 
 func TestExplicitConfigValueCanBeValidatedWithoutEnvironmentProvenance(t *testing.T) {
-	cfg := Config{DevMode: false, PostgresDSN: "test-dsn", JWTSecret: strings.Repeat("j", 48), AdminPassword: strings.Repeat("p", 20), AIHarnessURL: testHarnessURL, EmbeddingURL: "https://api.example.com/v1"}
+	cfg := Config{DevMode: false, PostgresDSN: "test-dsn", JWTSecret: strings.Repeat("j", 48), AdminPassword: strings.Repeat("p", 20), AIHarnessURL: testHarnessURL, AIHarnessToken: strings.Repeat("h", 40), EmbeddingURL: "https://api.example.com/v1"}
 	if err := cfg.Validate(); err != nil {
 		t.Fatalf("explicit configuration values were rejected: %v", err)
 	}
@@ -259,6 +261,7 @@ func TestProductionConfigAllowsCustomAdminPasswords(t *testing.T) {
 	t.Setenv("IOT_POSTGRES_DSN", "test-dsn")
 	t.Setenv("IOT_DEV_MODE", "false")
 	t.Setenv("IOT_AI_HARNESS_URL", testHarnessURL)
+	t.Setenv("IOT_AI_HARNESS_TOKEN", strings.Repeat("h", 40))
 	t.Setenv("IOT_JWT_SECRET", strings.Repeat("j", 48))
 	for _, password := range []string{"", "admin123", "1", "自定义密码", "a $!#'", "change-this-password"} {
 		t.Run(password, func(t *testing.T) {
@@ -503,5 +506,21 @@ func TestIngestBacklogZeroDisablesThePause(t *testing.T) {
 	t.Setenv("IOT_INGEST_MAX_BACKLOG", "")
 	if got := Load().IngestMaxBacklog; got != 50000 {
 		t.Fatalf("unset backlog keeps the default, got %d", got)
+	}
+}
+
+func TestProductionRejectsPlaceholderServiceTokens(t *testing.T) {
+	base := Config{PostgresDSN: "test-dsn", JWTSecret: strings.Repeat("j", 48), AdminPassword: "p", AIHarnessURL: testHarnessURL, AIHarnessToken: strings.Repeat("h", 40), EmbeddingURL: "https://api.example.com/v1", BackupURL: "http://backup-service:8090", BackupToken: strings.Repeat("b", 40)}
+	if err := base.Validate(); err != nil {
+		t.Fatalf("strong service tokens rejected: %v", err)
+	}
+	harness := base
+	harness.AIHarnessToken = "local-harness-gateway-token-change-me-now"
+	backup := base
+	backup.BackupToken = "change-me-backup-admin-token"
+	for name, cfg := range map[string]Config{"IOT_AI_HARNESS_TOKEN": harness, "IOT_BACKUP_ADMIN_TOKEN": backup} {
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), name) {
+			t.Fatalf("%s placeholder accepted: %v", name, err)
+		}
 	}
 }

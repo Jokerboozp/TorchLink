@@ -145,6 +145,19 @@ ensure_metrics_token() {
   has_deployment_env_key "$1" IOT_METRICS_TOKEN || set_deployment_env_value "$1" IOT_METRICS_TOKEN "$(deployment_secret)"
 }
 
+# ensure_service_tokens replaces missing or published placeholder service
+# tokens (Harness gateway, backup restore API) with generated secrets; the
+# platform refuses placeholders outside development mode.
+ensure_service_tokens() {
+  local key value
+  for key in IOT_AI_HARNESS_TOKEN IOT_BACKUP_ADMIN_TOKEN; do
+    value="$(get_deployment_env_value "$1" "$key")"
+    if [[ ${#value} -lt 32 || "$value" == *change-me* ]]; then
+      set_deployment_env_value "$1" "$key" "$(deployment_secret)"
+    fi
+  done
+}
+
 # Knowledge vectors and reranking use the embedding / reranker services
 # deployed with the platform. Earlier releases defaulted to the DashScope
 # cloud API; that default is replaced, an operator-chosen API is kept.

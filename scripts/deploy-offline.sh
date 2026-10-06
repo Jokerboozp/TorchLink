@@ -40,6 +40,7 @@ done
 source "$script_dir/lib/docker-bootstrap.sh"
 source "$script_dir/lib/deployment.sh"
 ensure_metrics_token "$env_file"
+ensure_service_tokens "$env_file"
 ensure_kafka_bind_address "$env_file"
 mkdir -p "$bundle_dir/tls"
 ensure_deployment_docker offline "$bundle_dir/docker-runtime"

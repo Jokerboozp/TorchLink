@@ -242,6 +242,19 @@ function Ensure-MetricsToken {
     }
 }
 
+# Replaces missing or published placeholder service tokens (Harness gateway,
+# backup restore API) with generated secrets; the platform refuses
+# placeholders outside development mode.
+function Ensure-ServiceTokens {
+    param([Parameter(Mandatory)][string]$Path)
+    foreach ($key in @('IOT_AI_HARNESS_TOKEN', 'IOT_BACKUP_ADMIN_TOKEN')) {
+        $value = [string](Get-DeploymentEnvValue -Path $Path -Key $key)
+        if ($value.Length -lt 32 -or $value -like '*change-me*') {
+            Set-DeploymentEnvValue -Path $Path -Key $key -Value (New-DeploymentSecret)
+        }
+    }
+}
+
 # Knowledge vectors and reranking use the embedding / reranker services
 # deployed with the platform. Earlier releases defaulted to the DashScope
 # cloud API; that default is replaced, an operator-chosen API is kept.

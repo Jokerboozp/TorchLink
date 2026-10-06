@@ -61,6 +61,7 @@ foreach ($path in @($envPath, $composePath, $offlineComposePath, $archivePath, $
 }
 . (Join-Path $scriptDir 'lib/deployment.ps1')
 Ensure-MetricsToken -Path $envPath
+Ensure-ServiceTokens -Path $envPath
 Ensure-KafkaBindAddress -Path $envPath
 New-Item -ItemType Directory -Force -Path (Join-Path $BundleDir 'tls') | Out-Null
 

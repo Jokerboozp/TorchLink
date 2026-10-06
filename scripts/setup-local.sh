@@ -121,6 +121,7 @@ new_env=false
 ensure_deployment_env "$env_file"
 ensure_emqx_admin_env "$env_file" "http://${dependency_host}:18083"
 ensure_metrics_token "$env_file"
+ensure_service_tokens "$env_file"
 # Live video is deployed by default; an earlier --video off is kept.
 if [ "$video" = keep ]; then
   video=on

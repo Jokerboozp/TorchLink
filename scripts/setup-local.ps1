@@ -65,6 +65,7 @@ $newEnv = -not (Test-Path -LiteralPath $EnvFile)
 Ensure-DeploymentEnv -Path $EnvFile
 Ensure-EmqxAdminEnv -Path $EnvFile -DefaultUrl 'http://127.0.0.1:18083'
 Ensure-MetricsToken -Path $EnvFile
+Ensure-ServiceTokens -Path $EnvFile
 # Live video is deployed by default; an earlier -Video off is kept.
 if ($Video -eq 'keep') { $Video = if ((Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_VIDEO_MODULE') -eq 'off') { 'off' } else { 'on' } }
 $postgresPassword = [Uri]::EscapeDataString((Get-DeploymentEnvValue -Path $EnvFile -Key 'POSTGRES_PASSWORD'))

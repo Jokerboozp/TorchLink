@@ -769,6 +769,10 @@ export function createGateway(options = {}) {
   if (typeof gatewayToken !== 'string' || gatewayToken.length < 32 || gatewayToken.length > 512) {
     throw new Error('IOT_HARNESS_GATEWAY_TOKEN must contain 32 to 512 characters')
   }
+  // The Compose files ship a public placeholder; it must never guard a gateway.
+  if (/change-me/i.test(gatewayToken)) {
+    throw new Error('IOT_HARNESS_GATEWAY_TOKEN must not be the published placeholder')
+  }
   const pluginDir = resolve(options.pluginDir ?? process.env.IOT_HARNESS_PLUGIN_DIR ?? DEFAULT_PLUGIN_DIR)
   const patchFile = resolve(
     options.patchFile

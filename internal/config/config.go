@@ -405,6 +405,14 @@ func (c Config) Validate() error {
 	if c.MetricsToken != "" && (len(c.MetricsToken) < 32 || insecurePlaceholder(c.MetricsToken)) {
 		invalid = append(invalid, "IOT_METRICS_TOKEN must be at least 32 characters and not be a placeholder")
 	}
+	// Service tokens guard the Harness gateway and the backup service's
+	// restore API; the public Compose placeholders must never reach production.
+	if c.AIHarnessURL != "" && (len(c.AIHarnessToken) < 32 || insecurePlaceholder(c.AIHarnessToken)) {
+		invalid = append(invalid, "IOT_AI_HARNESS_TOKEN must be at least 32 characters and not be a placeholder")
+	}
+	if c.BackupURL != "" && (len(c.BackupToken) < 32 || insecurePlaceholder(c.BackupToken)) {
+		invalid = append(invalid, "IOT_BACKUP_ADMIN_TOKEN must be at least 32 characters and not be a placeholder")
+	}
 	if len(invalid) > 0 {
 		return fmt.Errorf("invalid production security configuration: %s", strings.Join(invalid, "; "))
 	}

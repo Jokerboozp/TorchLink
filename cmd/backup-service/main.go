@@ -71,7 +71,13 @@ func main() {
 		log.Info("one-shot backup completed", "type", kind, "id", result.ID)
 		return
 	}
-	adminToken := env("IOT_BACKUP_ADMIN_TOKEN", "change-me-backup-admin-token")
+	adminToken := env("IOT_BACKUP_ADMIN_TOKEN", "")
+	// The token authorizes restores; a missing or published placeholder token
+	// is refused unless the process is explicitly a development instance.
+	if !boolean("IOT_DEV_MODE") && (len(adminToken) < 32 || strings.Contains(strings.ToLower(adminToken), "change-me")) {
+		log.Error("IOT_BACKUP_ADMIN_TOKEN must be at least 32 characters and not a placeholder")
+		os.Exit(1)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"status": "UP"})

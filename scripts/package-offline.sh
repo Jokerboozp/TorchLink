@@ -242,6 +242,7 @@ EOF
   fi
   ensure_emqx_admin_env "$destination" "http://emqx:18083"
   ensure_metrics_token "$destination"
+  ensure_service_tokens "$destination"
   configure_deepseek_env "$destination" "$deepseek_model"
   configure_embedding_env "$destination"
   set_env_value "$destination" IOT_POSTGRES_IMAGE iot-platform-postgres:17-pgvector-0.8.1
