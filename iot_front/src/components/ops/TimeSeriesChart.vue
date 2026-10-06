@@ -6,6 +6,7 @@ import uPlot from 'uplot'
 import 'uplot/dist/uPlot.min.css'
 import { formatValue } from '../../ops/format.js'
 import { isDark } from '../../theme/mode.js'
+import { formatTime } from '../../format'
 
 const props = defineProps({
   times: { type: Array, default: () => [] },
@@ -83,7 +84,7 @@ function build() {
       { stroke: axis, font, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid }, size: 80, values: (u, ticks) => ticks.map(fmt) }
     ],
     series: [
-      { label: '时间', value: (u, v) => (v == null ? '—' : new Date(v * 1000).toLocaleString('zh-CN', { hour12: false })) },
+      { label: '时间', value: (u, v) => (v == null ? '—' : formatTime(v * 1000)) },
       ...ordered().map(({ s, i }) => {
         const color = s.color ? token(s.color, colors[i % colors.length]) : colors[i % colors.length]
         if (props.bars)

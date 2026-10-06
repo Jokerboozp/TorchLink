@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api, formatTime } from '../api'
+import { formatCount } from '../format'
 
 const statusLabels = { SUCCEEDED: '成功', FAILED: '失败', STOPPED: '已停止', TIMEOUT: '超时' }
 const statusTypes = { SUCCEEDED: 'success', FAILED: 'danger', STOPPED: 'warning', TIMEOUT: 'warning' }
@@ -58,7 +59,7 @@ function workflowName(id) {
   return workflowLabels[id] || id
 }
 function tokens(value) {
-  return Number(value || 0).toLocaleString('zh-CN')
+  return formatCount(value)
 }
 function seconds(ms) {
   return ms >= 60000 ? `${Math.floor(ms / 60000)} 分 ${Math.round((ms % 60000) / 1000)} 秒` : `${(ms / 1000).toFixed(1)} 秒`

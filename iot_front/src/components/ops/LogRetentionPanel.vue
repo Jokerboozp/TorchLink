@@ -10,6 +10,7 @@ import { relativeTime } from '../../ops/format.js'
 import StatusDot from '../layout/StatusDot.vue'
 import MatcherEditor from './MatcherEditor.vue'
 import { useUnsavedGuard } from '../../composables/unsavedGuard.js'
+import { formatTime } from '../../format'
 
 defineProps({
   labels: { type: Array, default: () => [] },
@@ -130,7 +131,7 @@ async function submitDelete() {
   }
   try {
     await UiMessageBox.confirm(
-      `将删除 ${new Date(start).toLocaleString('zh-CN', { hour12: false })} 至 ${new Date(end).toLocaleString('zh-CN', { hour12: false })} 内匹配条件的日志。删除执行后不可恢复${settings.value?.cancelPeriod ? `，提交后 ${settings.value.cancelPeriod} 内可以取消` : ''}。`,
+      `将删除 ${formatTime(start)} 至 ${formatTime(end)} 内匹配条件的日志。删除执行后不可恢复${settings.value?.cancelPeriod ? `，提交后 ${settings.value.cancelPeriod} 内可以取消` : ''}。`,
       '确认删除日志',
       { confirmButtonText: '提交删除请求', type: 'warning' }
     )
@@ -167,7 +168,7 @@ async function cancelRequest(item) {
     UiMessage.error(opsErrorText(e))
   }
 }
-const fmtSeconds = value => (value ? new Date(value * 1000).toLocaleString('zh-CN', { hour12: false }) : '—')
+const fmtSeconds = value => (value ? formatTime(value * 1000) : '—')
 onMounted(load)
 </script>
 

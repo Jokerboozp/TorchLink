@@ -234,7 +234,7 @@ export function notifyError(error: unknown) {
   if ((error as ApiError | undefined)?.sessionExpired) return
   UiMessage.error(errorMessage(error))
 }
-export const formatTime = (value: unknown) => (value ? new Date(Number(value)).toLocaleString('zh-CN', { hour12: false }) : '—')
+export { formatTime } from './format.ts'
 export const pretty = (value: unknown) => JSON.stringify(value, null, 2)
 export function parseJSON(value: string, label = '结构化数据') {
   try {

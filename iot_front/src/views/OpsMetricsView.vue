@@ -16,6 +16,7 @@ import QueryLibrary from '../components/ops/QueryLibrary.vue'
 import RuleGroupsPanel from '../components/ops/RuleGroupsPanel.vue'
 import TimeRangeBar from '../components/ops/TimeRangeBar.vue'
 import TimeSeriesChart from '../components/ops/TimeSeriesChart.vue'
+import { formatTime } from '../format'
 
 defineEmits(['navigate'])
 const canQuery = computed(() => can('POST /api/v1/ops/metrics/query'))
@@ -357,9 +358,7 @@ onBeforeUnmount(() => {
                 ><template #default="{ row }">{{ formatValue(row.value, unit) }}</template></ui-table-column
               >
               <ui-table-column label="时间" width="180"
-                ><template #default="{ row }">{{
-                  row.time ? new Date(row.time).toLocaleString('zh-CN', { hour12: false }) : '—'
-                }}</template></ui-table-column
+                ><template #default="{ row }">{{ formatTime(row.time) }}</template></ui-table-column
               >
             </ui-table>
           </template>

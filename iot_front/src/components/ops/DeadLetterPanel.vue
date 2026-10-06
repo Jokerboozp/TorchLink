@@ -6,6 +6,7 @@ import { RefreshCw } from '@lucide/vue'
 import { can } from '../../permissions'
 import { UiMessage, UiMessageBox } from '../../ui/feedback.js'
 import { isAbort, latest, opsErrorText, opsGet, opsSend } from '../../ops/opsApi.js'
+import { formatTime } from '../../format'
 
 const groupNames = { parser: '解析', processor: '业务处理', state: '设备状态', 'device-alarm-notifications': '告警邮件通知' }
 const groups = ref([])
@@ -54,7 +55,7 @@ async function replay(row) {
   }
 }
 
-const time = value => (value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '—')
+const time = value => formatTime(value)
 onMounted(load)
 onBeforeUnmount(() => runner.cancel())
 defineExpose({ reload: load })

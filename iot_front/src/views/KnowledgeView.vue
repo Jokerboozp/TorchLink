@@ -13,6 +13,7 @@ import RowActions from '../components/layout/RowActions.vue'
 import KnowledgeIndexStatus from '../components/KnowledgeIndexStatus.vue'
 import { confirmDelete } from '../deleteAction'
 import { usePagedList } from '../composables/usePagedList'
+import { formatBytes } from '../format'
 
 const emit = defineEmits(['navigate'])
 const uploadRef = ref(null)
@@ -83,12 +84,6 @@ const categoryNames = {
 }
 function categoryLabel(value) {
   return categoryNames[value] || value || '未分类'
-}
-function formatBytes(value) {
-  const size = Number(value || 0)
-  if (size < 1024) return `${size} 字节`
-  if (size < 1024 ** 2) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / 1024 ** 2).toFixed(1)} MB`
 }
 
 function isIndexing(document) {

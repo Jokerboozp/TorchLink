@@ -17,6 +17,7 @@ import MatcherEditor from '../components/ops/MatcherEditor.vue'
 import NotificationPanel from '../components/ops/NotificationPanel.vue'
 import SilenceDialog from '../components/ops/SilenceDialog.vue'
 import TimeRangeBar from '../components/ops/TimeRangeBar.vue'
+import { formatTime } from '../format'
 
 const emit = defineEmits(['navigate'])
 const tab = ref('current')
@@ -339,9 +340,7 @@ onBeforeUnmount(() => {
                 >
                 <ui-table-column label="开始" width="120"
                   ><template #default="{ row }"
-                    ><span :title="new Date(row.startsAt).toLocaleString('zh-CN', { hour12: false })">{{
-                      relativeTime(row.startsAt)
-                    }}</span></template
+                    ><span :title="formatTime(row.startsAt)">{{ relativeTime(row.startsAt) }}</span></template
                   ></ui-table-column
                 >
                 <ui-table-column label="通知状态" width="120"
@@ -510,14 +509,11 @@ onBeforeUnmount(() => {
                 ></ui-table-column
               >
               <ui-table-column label="开始" width="170"
-                ><template #default="{ row }">{{
-                  new Date(row.start).toLocaleString('zh-CN', { hour12: false })
-                }}</template></ui-table-column
+                ><template #default="{ row }">{{ formatTime(row.start) }}</template></ui-table-column
               >
               <ui-table-column label="结束" width="170"
                 ><template #default="{ row }"
-                  ><span v-if="row.active" class="tone-danger">仍在触发</span
-                  ><span v-else>{{ new Date(row.end).toLocaleString('zh-CN', { hour12: false }) }}</span></template
+                  ><span v-if="row.active" class="tone-danger">仍在触发</span><span v-else>{{ formatTime(row.end) }}</span></template
                 ></ui-table-column
               >
               <ui-table-column label="持续" width="120"
@@ -566,10 +562,7 @@ onBeforeUnmount(() => {
                 ><template #default="{ row }">{{ row.comment }}</template></ui-table-column
               >
               <ui-table-column label="时间" min-width="220"
-                ><template #default="{ row }"
-                  >{{ new Date(row.startsAt).toLocaleString('zh-CN', { hour12: false }) }} 至
-                  {{ new Date(row.endsAt).toLocaleString('zh-CN', { hour12: false }) }}</template
-                ></ui-table-column
+                ><template #default="{ row }">{{ formatTime(row.startsAt) }} 至 {{ formatTime(row.endsAt) }}</template></ui-table-column
               >
               <ui-table-column label="创建人" width="120"
                 ><template #default="{ row }">{{ row.createdBy }}</template></ui-table-column

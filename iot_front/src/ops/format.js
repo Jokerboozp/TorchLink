@@ -1,3 +1,4 @@
+import { formatTime } from '../format.ts'
 // 运维中心数值、单位、时长与标签的显示格式。单位编号沿用 Grafana 的常用单位，
 // 保证导入的仪表盘在平台中显示一致；未知单位原样作为后缀显示。
 
@@ -105,7 +106,7 @@ export function formatValue(value, unit = 'short', decimals) {
       return `${shortNumber(v, decimals)} 次/秒`
     case 'dateTimeAsIso':
     case 'dateTimeAsSystem':
-      return new Date(v).toLocaleString('zh-CN', { hour12: false })
+      return formatTime(v)
     case '':
     case undefined:
     case null:

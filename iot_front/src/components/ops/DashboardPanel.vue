@@ -10,6 +10,7 @@ import GaugeChart from './GaugeChart.vue'
 import LogList from './LogList.vue'
 import SparkLine from './SparkLine.vue'
 import TimeSeriesChart from './TimeSeriesChart.vue'
+import { formatTime } from '../../format'
 
 const props = defineProps({
   panel: { type: Object, required: true },
@@ -79,7 +80,7 @@ function barRatio(value) {
 function cell(row, column) {
   const value = row[column.key]
   if (value == null) return '—'
-  if (column.type === 'time') return new Date(Number(value)).toLocaleString('zh-CN', { hour12: false })
+  if (column.type === 'time') return formatTime(value)
   if (column.type === 'number') return formatValue(value, column.unit || unit.value, decimals.value)
   return typeof value === 'object' ? JSON.stringify(value) : String(value)
 }

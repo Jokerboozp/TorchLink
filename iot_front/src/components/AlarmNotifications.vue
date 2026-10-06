@@ -5,6 +5,7 @@ import { api, isAbort } from '../api'
 import { useListLoader } from '../composables/useListLoader'
 import { taskStatuses, taskTone } from '../notifications'
 import StatusDot from './layout/StatusDot.vue'
+import { formatTime } from '../format'
 
 const props = defineProps({ alarmId: { type: String, required: true } })
 const items = ref([]),
@@ -22,7 +23,7 @@ async function load() {
     if (!isAbort(e)) error.value = e.message || '读取通知记录失败'
   }
 }
-const time = value => (value ? new Date(value).toLocaleString('zh-CN', { hour12: false }) : '')
+const time = value => formatTime(value, '')
 const stageText = item => (item.kind === 'recovery' ? '恢复通知' : item.stage === 0 ? '第 1 级' : `第 ${item.stage + 1} 级（升级）`)
 watch(() => props.alarmId, load, { immediate: true })
 onBeforeUnmount(loader.cancel)

@@ -6,6 +6,7 @@ import { api, apiBlob, download, formatTime, notifyError } from '../api'
 import { confirmDelete } from '../deleteAction'
 import { UiMessage } from '../ui/feedback.js'
 import { Download, FileText, Trash2, Upload } from '@lucide/vue'
+import { formatBytes } from '../format'
 
 const props = defineProps({ alarm: { type: Object, required: true } })
 const emit = defineEmits(['updated'])
@@ -14,7 +15,7 @@ const input = ref(null),
 const attachments = computed(() => props.alarm.attachments || [])
 const editable = computed(() => props.alarm.status !== 'CLOSED')
 const base = computed(() => `/api/v1/alarms/${encodeURIComponent(props.alarm.alarmId)}/attachments`)
-const size = bytes => (bytes >= 1 << 20 ? `${(bytes / (1 << 20)).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`)
+const size = bytes => formatBytes(bytes)
 
 async function upload(event) {
   const file = event.target.files?.[0]

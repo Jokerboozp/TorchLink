@@ -26,6 +26,7 @@ import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 import { usePagedList } from '../composables/usePagedList'
+import { formatBytes, formatTime } from '../format'
 
 const filters = reactive({ type: '', status: '' })
 const records = ref([])
@@ -75,19 +76,7 @@ function statusType(value) {
   return 'info'
 }
 
-function formatDate(value) {
-  if (!value) return '—'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? '—' : date.toLocaleString('zh-CN', { hour12: false })
-}
-
-function formatBytes(value) {
-  const size = Number(value || 0)
-  if (size < 1024) return `${size} 字节`
-  if (size < 1024 ** 2) return `${(size / 1024).toFixed(1)} 千字节`
-  if (size < 1024 ** 3) return `${(size / 1024 ** 2).toFixed(1)} 兆字节`
-  return `${(size / 1024 ** 3).toFixed(2)} 吉字节`
-}
+const formatDate = value => formatTime(value)
 
 function idPath(value) {
   return encodeURIComponent(String(value || ''))
