@@ -1552,6 +1552,17 @@ func (r *Repository) ListKnowledgeDocs(ctx context.Context, tenant string) ([]mo
 	return r.queryKnowledgeDocs(ctx, `SELECT id,tenant_id,coalesce(workflow_id,''),coalesce(product_id,''),coalesce(category,''),coalesce(tags,'{}'),object_bucket,object_key,filename,status,metadata,(extract(epoch from created_at)*1000)::bigint FROM ai_knowledge_doc WHERE tenant_id=$1 ORDER BY created_at DESC,id DESC`, tenant)
 }
 
+func (r *Repository) GetKnowledgeDoc(ctx context.Context, tenant, id string) (model.KnowledgeDoc, error) {
+	docs, err := r.queryKnowledgeDocs(ctx, `SELECT id,tenant_id,coalesce(workflow_id,''),coalesce(product_id,''),coalesce(category,''),coalesce(tags,'{}'),object_bucket,object_key,filename,status,metadata,(extract(epoch from created_at)*1000)::bigint FROM ai_knowledge_doc WHERE tenant_id=$1 AND id=$2`, tenant, id)
+	if err != nil {
+		return model.KnowledgeDoc{}, err
+	}
+	if len(docs) == 0 {
+		return model.KnowledgeDoc{}, ErrNotFound
+	}
+	return docs[0], nil
+}
+
 // ListAllKnowledgeDocs is used only by the knowledge index rebuild, which
 // re-embeds every tenant's documents after the embedding model changes.
 func (r *Repository) ListAllKnowledgeDocs(ctx context.Context) ([]model.KnowledgeDoc, error) {

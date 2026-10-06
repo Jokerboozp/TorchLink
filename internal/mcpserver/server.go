@@ -238,9 +238,9 @@ func buildSystemOverview(ctx context.Context, engine *core.Engine, tenant string
 			return nil, err
 		}
 	}
-	var documents []model.KnowledgeDoc
+	var knowledgeSummary model.KnowledgeSummary
 	if can("knowledge") {
-		documents, err = engine.Repo.ListKnowledgeDocs(ctx, tenant)
+		knowledgeSummary, err = engine.Repo.KnowledgeDocSummary(ctx, tenant)
 		if err != nil {
 			return nil, err
 		}
@@ -270,18 +270,7 @@ func buildSystemOverview(ctx context.Context, engine *core.Engine, tenant string
 			linkedDevices++
 		}
 	}
-	indexedDocs, chunks := 0, 0
-	for _, item := range documents {
-		if item.Status == "INDEXED" {
-			indexedDocs++
-		}
-		switch value := item.Metadata["chunks"].(type) {
-		case int:
-			chunks += value
-		case float64:
-			chunks += int(value)
-		}
-	}
+
 	components := map[string]string{
 		"repository": componentHealth(ctx, engine.Repo),
 		"archive":    componentHealth(ctx, engine.Archive),
@@ -304,7 +293,7 @@ func buildSystemOverview(ctx context.Context, engine *core.Engine, tenant string
 		"alarms":           map[string]any{"total": alarms.Total, "active": alarms.Active, "highRiskActive": alarms.HighRiskActive, "triggeredLast24h": alarms.Recent, "byStatus": alarms.ByStatus, "byLevel": alarms.ByLevel, "bySource": alarms.BySource},
 		"rules":            map[string]any{"total": len(rules), "enabled": ruleEnabled, "disabled": len(rules) - ruleEnabled},
 		"cameras":          map[string]any{"total": len(cameras), "enabled": cameraEnabled, "linkedDevices": linkedDevices},
-		"knowledge":        map[string]any{"documents": len(documents), "indexed": indexedDocs, "chunks": chunks},
+		"knowledge":        map[string]any{"documents": knowledgeSummary.Documents, "indexed": knowledgeSummary.Indexed, "chunks": knowledgeSummary.Chunks},
 	}
 	for field, menu := range map[string]string{"products": "products", "protocolPackages": "protocols", "rules": "rules", "cameras": "cameras", "knowledge": "knowledge"} {
 		if !can(menu) {

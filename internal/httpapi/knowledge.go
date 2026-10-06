@@ -183,20 +183,13 @@ func (s *Server) knowledgeDocumentDetail(w http.ResponseWriter, r *http.Request)
 		problem(w, http.StatusUnprocessableEntity, "document id is required")
 		return
 	}
-	documents, err := s.engine.Repo.ListKnowledgeDocs(r.Context(), claims(r).TenantID)
-	if err != nil {
-		s.internalError(w, r, err)
+	document, err := s.engine.Repo.GetKnowledgeDoc(r.Context(), claims(r).TenantID, documentID)
+	if errors.Is(err, model.ErrNotFound) {
+		problem(w, http.StatusNotFound, "knowledge document not found")
 		return
 	}
-	var document model.KnowledgeDoc
-	for _, item := range documents {
-		if item.ID == documentID {
-			document = item
-			break
-		}
-	}
-	if document.ID == "" {
-		problem(w, http.StatusNotFound, "knowledge document not found")
+	if err != nil {
+		s.internalError(w, r, err)
 		return
 	}
 	inspector, ok := s.engine.KB.(ports.InspectableKnowledgeBase)

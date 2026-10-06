@@ -10,6 +10,8 @@ import (
 type KnowledgeStore interface {
 	SaveKnowledgeDoc(context.Context, model.KnowledgeDoc) error
 	ListKnowledgeDocs(context.Context, string) ([]model.KnowledgeDoc, error)
+	// GetKnowledgeDoc returns one document of the tenant or model.ErrNotFound.
+	GetKnowledgeDoc(context.Context, string, string) (model.KnowledgeDoc, error)
 	ListKnowledgeDocsPage(context.Context, string, int, int) ([]model.KnowledgeDoc, int, error)
 	KnowledgeDocSummary(context.Context, string) (model.KnowledgeSummary, error)
 	SaveWorkflowKnowledgeBinding(context.Context, model.WorkflowKnowledgeBinding) error

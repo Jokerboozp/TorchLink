@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -15,20 +16,13 @@ func (s *Server) deleteKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	tenant := claims(r).TenantID
-	docs, err := s.engine.Repo.ListKnowledgeDocs(r.Context(), tenant)
-	if err != nil {
-		s.failure(w, r, err, "could not load document")
+	doc, err := s.engine.Repo.GetKnowledgeDoc(r.Context(), tenant, id)
+	if errors.Is(err, model.ErrNotFound) {
+		problem(w, http.StatusNotFound, "knowledge document not found")
 		return
 	}
-	var doc model.KnowledgeDoc
-	for _, item := range docs {
-		if item.ID == id {
-			doc = item
-			break
-		}
-	}
-	if doc.ID == "" {
-		problem(w, http.StatusNotFound, "knowledge document not found")
+	if err != nil {
+		s.failure(w, r, err, "could not load document")
 		return
 	}
 	index, indexed := s.engine.KB.(ports.KnowledgeDocumentDeleter)

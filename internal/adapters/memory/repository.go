@@ -1241,6 +1241,16 @@ func (r *Repository) ListKnowledgeDocs(_ context.Context, tenant string) ([]mode
 	})
 	return out, nil
 }
+func (r *Repository) GetKnowledgeDoc(_ context.Context, tenant, id string) (model.KnowledgeDoc, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, v := range r.knowledge {
+		if v.TenantID == tenant && v.ID == id {
+			return clone(v), nil
+		}
+	}
+	return model.KnowledgeDoc{}, ErrNotFound
+}
 func (r *Repository) ListAllKnowledgeDocs(_ context.Context) ([]model.KnowledgeDoc, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

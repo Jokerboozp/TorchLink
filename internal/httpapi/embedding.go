@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"iot-platform/internal/adapters/embedding"
+	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 	"net/http"
 	"strings"
@@ -131,50 +133,47 @@ func (s *Server) testEmbeddingConfig(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) retryKnowledgeDocument(w http.ResponseWriter, r *http.Request) {
 	tenant := claims(r).TenantID
-	docs, err := s.engine.Repo.ListKnowledgeDocs(r.Context(), tenant)
+	doc, err := s.engine.Repo.GetKnowledgeDoc(r.Context(), tenant, r.PathValue("id"))
+	if errors.Is(err, model.ErrNotFound) {
+		problem(w, 404, "知识文档不存在")
+		return
+	}
 	if err != nil {
 		s.failure(w, r, err, "无法读取知识文档")
 		return
 	}
-	for _, doc := range docs {
-		if doc.ID != r.PathValue("id") {
-			continue
-		}
-		// A document waiting for an automatic retry may be retried at once.
-		if _, waiting := doc.Metadata["indexRetryAt"]; doc.Status == "INDEXING" || doc.Status == "UPLOADED" && !waiting {
-			problem(w, 409, "文档正在等待或执行索引")
-			return
-		}
-		if _, ok := s.engine.KB.(interface{ CurrentConfig() ports.EmbeddingConfig }); !ok {
-			problem(w, 503, "后台知识索引未配置")
-			return
-		}
-		doc.Status = "UPLOADED"
-		if doc.Metadata == nil {
-			doc.Metadata = map[string]any{}
-		}
-		doc.Metadata["indexStage"] = "pending"
-		doc.Metadata["indexProgress"] = map[string]int{"done": 0, "total": 0}
-		delete(doc.Metadata, "indexError")
-		delete(doc.Metadata, "indexRetryAt")
-		delete(doc.Metadata, "indexAttempts")
-		if s.knowledgeJobs != nil {
-			updated, err := s.knowledgeJobs.UpdateKnowledgeDocument(r.Context(), doc)
-			if err != nil {
-				s.failure(w, r, err, "无法重试知识索引")
-				return
-			}
-			if !updated {
-				problem(w, 409, "文档已删除，无法重试")
-				return
-			}
-		} else if err := s.engine.Repo.SaveKnowledgeDoc(r.Context(), doc); err != nil {
+	// A document waiting for an automatic retry may be retried at once.
+	if _, waiting := doc.Metadata["indexRetryAt"]; doc.Status == "INDEXING" || doc.Status == "UPLOADED" && !waiting {
+		problem(w, 409, "文档正在等待或执行索引")
+		return
+	}
+	if _, ok := s.engine.KB.(interface{ CurrentConfig() ports.EmbeddingConfig }); !ok {
+		problem(w, 503, "后台知识索引未配置")
+		return
+	}
+	doc.Status = "UPLOADED"
+	if doc.Metadata == nil {
+		doc.Metadata = map[string]any{}
+	}
+	doc.Metadata["indexStage"] = "pending"
+	doc.Metadata["indexProgress"] = map[string]int{"done": 0, "total": 0}
+	delete(doc.Metadata, "indexError")
+	delete(doc.Metadata, "indexRetryAt")
+	delete(doc.Metadata, "indexAttempts")
+	if s.knowledgeJobs != nil {
+		updated, err := s.knowledgeJobs.UpdateKnowledgeDocument(r.Context(), doc)
+		if err != nil {
 			s.failure(w, r, err, "无法重试知识索引")
 			return
 		}
-		s.audit(r, "knowledge.retry", "knowledge-document", doc.ID, nil)
-		write(w, 202, doc)
+		if !updated {
+			problem(w, 409, "文档已删除，无法重试")
+			return
+		}
+	} else if err := s.engine.Repo.SaveKnowledgeDoc(r.Context(), doc); err != nil {
+		s.failure(w, r, err, "无法重试知识索引")
 		return
 	}
-	problem(w, 404, "知识文档不存在")
+	s.audit(r, "knowledge.retry", "knowledge-document", doc.ID, nil)
+	write(w, 202, doc)
 }

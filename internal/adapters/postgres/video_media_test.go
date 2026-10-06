@@ -18,3 +18,7 @@ func TestRawPublishRetriesStopAtTheLimit(t *testing.T) {
 func TestRuleDeleteRemovesDurationTimers(t *testing.T) {
 	repositorytest.RuleDeleteRemovesDurationTimers(t, testRepository(t))
 }
+
+func TestKnowledgeDocLookupStaysInTenant(t *testing.T) {
+	repositorytest.KnowledgeDocLookupStaysInTenant(t, testRepository(t))
+}
