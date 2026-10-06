@@ -18,3 +18,9 @@ upstream/deepseek-harness/**/*.tsbuildinfo
 upstream/deepseek-harness/.cache
 upstream/deepseek-harness/dist-exe
 upstream/deepseek-harness/python/sdk-runtime/src/deepseek_harness_runtime/runtime/node
+
+# TLS material and local tooling never belong in an image build context.
+tls
+*.key
+*.pem
+.claude
