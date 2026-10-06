@@ -67,15 +67,19 @@
 | `ConsumerBlockedByOutage` | 依赖（数据库、Kafka 等）临时故障，消费者暂停在原位置重试 | 先恢复依赖；恢复后自动继续，不需要回放。持续超过 `IOT_CONSUMER_MAX_BLOCK`（默认 30 分钟）的消息会进入死信 |
 | `DeadLetterPublished` | 消息因永久错误或长时间阻塞进入死信 | 运维中心 → 运维总览 → 死信，查看错误原因；修复后逐条“重新投递”（写审计）。存储死信也可用 `cmd/dlq-replay`，见 [开发与测试](DEVELOPMENT.md) |
 | `KafkaConsumerLagHigh` | 消费积压 | 看是否伴随阻塞或解析失败；持续增长时检查 Parser / Processor 资源与数据库耗时，必要时拆分角色或增加副本 |
-| `RawArchiveFailures`、`ParseFailureSpike` | 原文归档失败、解析失败突增 | 归档失败检查 PostgreSQL / ClickHouse；解析失败在“原始报文”按设备查看错误，多为协议版本或设备配置变化 |
+| `RawArchiveFailures`、`ParseFailureRatioHigh`、`ParseFailingCompletely` | 原文归档失败；解析失败超过 5%（且 10 分钟内超过 20 条）；或 10 分钟内全部解析失败 | 归档失败检查 PostgreSQL / ClickHouse；解析失败在“原始报文”按解析状态筛选查看错误，多为协议版本或设备配置变化 |
+| `RawPublishFailures`、`RawPublishStalled` | 原文已归档但写入内部队列失败；多次失败后停止自动重试 | 检查 Redpanda / Kafka 与主题；恢复后滞留的原文需在“原始报文”回放（`REINGEST`） |
+| `IngestPaused`、`ProtocolFramesDropped` | 处理积压超过 `IOT_INGEST_MAX_BACKLOG`，平台暂停接收；TCP/UDP 因背压持续丢帧 | 查 `KafkaConsumerLagHigh` 与 Parser / Processor 资源；积压降到 80% 以下自动恢复，设备按协议重传 |
+| `ClickHouseInsertFailures`、`PostgresReplicaReadsDisabled` | ClickHouse 写入失败；只读副本不可用、读请求回到主库 | 检查 ClickHouse 日志与磁盘；检查副本复制延迟（`IOT_POSTGRES_MAX_REPLICA_LAG`） |
+| `ReadinessDegraded` | 负载均衡探测到某实例依赖未就绪（只在有 `/health/ready` 探测时产生） | 按标签中的依赖排查；Redis 缓存故障标为 degraded，不会被摘除 |
 | `ProtocolListenerFull` | TCP / UDP 会话达到上限 | 调整 `IOT_PROTOCOL_LISTENER_MAX_SESSIONS`，核对是否有异常重连的设备 |
 | `MQTTSubscriptionLost`、`MQTTDeliveryLoss`、`MQTTInboxBacklog`、`MQTTBrokerObservationMissing` | MQTT 订阅、投递或本地收件箱异常 | 检查 EMQX 状态与管理 API 配置、磁盘空间；收件箱积压在依赖恢复后自动排空 |
 | `AlarmNotificationFailures` | 火警通知多次重试仍失败 | 告警详情 → 通知记录查看失败原因；检查渠道地址、加签密钥、SMTP 账号和 `IOT_NOTIFY_ALLOWED_CIDRS`，修复后在通知页发送测试消息 |
 | `AlarmEventDeliveryFailures` | 告警事件未能推送到消息总线或实时通道 | 告警已入库，告警中心仍可查询；检查 Kafka / EMQX 状态和平台日志中的 `event delivery failed`，对外消息主题订阅方可能缺少这段时间的事件 |
 | `AuditWriteFailures` | 审计记录写入失败 | 操作已生效但缺少审计；检查 PostgreSQL 连接与磁盘，平台日志 `audit write failed` 列出租户与动作 |
 | `AIAnalysisFailures` | 研判工作流失败 | 检查 Harness 健康、DeepSeek Key 与额度、MCP 回调地址 |
-| `BackupFailures` | 备份、异地副本或恢复演练失败 | 备份中心查看失败任务；检查 RustFS、异地存储凭据、磁盘空间和 PostgreSQL 客户端版本 |
-| `RetentionFailures` | 历史数据清理失败 | Jobs 日志中 `retention purge failed` 的表与原因；不处理会使磁盘持续增长 |
+| `BackupFailures`、`BackupStale` | 备份、异地副本或恢复演练失败；超过 26 小时没有成功备份 | 备份中心查看失败任务；检查备份服务是否运行、RustFS、异地存储凭据、磁盘空间和 PostgreSQL 客户端版本 |
+| `RetentionFailures`、`RetentionStale` | 历史数据清理失败；超过 2 天没有成功清理 | Jobs 日志中 `retention purge failed` 的表与原因；`RetentionStale` 多为 jobs 进程未运行。不处理会使磁盘持续增长 |
 | `PartitionMaintenanceFailures` | 未能提前创建月分区 | Jobs 日志中 `create upcoming partitions`；数据会进入 `_default` 分区，仍可读写，修复后若默认分区已有该月数据需人工迁出再建分区 |
 | `ScrapeTargetDown`、`HostDiskAlmostFull` | 监控目标不可达、磁盘将满 | 检查对应容器；磁盘不足时先确认保留任务正常，再扩容或缩短保留期 |
 | `CoreComponentDown` | Redpanda、EMQX 或备份服务不可抓取 | `docker compose ps` 与对应服务日志；Redpanda 不可用时设备消息停在 MQTT 持久队列，恢复后继续 |

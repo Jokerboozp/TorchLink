@@ -37,11 +37,51 @@ groups:
         for: 0m
         labels: {severity: critical}
         annotations: {summary: "TCP/UDP 接入监听已满，新设备连接被拒绝，请调大 IOT_PROTOCOL_LISTENER_MAX_SESSIONS 或拆分接入网关"}
-      - alert: ParseFailureSpike
-        expr: increase(parse_failed_total[5m]) > 100
+      - alert: ParseFailureRatioHigh
+        expr: (sum(increase(parse_failed_total[10m])) / clamp_min(sum(increase(parse_failed_total[10m])) + sum(increase(parse_success_total[10m])), 1) > 0.05) and (sum(increase(parse_failed_total[10m])) > 20)
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "解析失败超过 5%，请在原始报文中按解析状态筛选查看原因"}
+      - alert: ParseFailingCompletely
+        expr: (sum(increase(parse_failed_total[10m])) > 0) and (sum(increase(parse_success_total[10m])) == 0)
+        for: 10m
+        labels: {severity: critical}
+        annotations: {summary: "近 10 分钟收到的报文全部解析失败，请检查设备模板绑定的协议版本"}
+      - alert: RawPublishFailures
+        expr: increase(raw_publish_failed_total[10m]) > 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "原始报文已归档但写入内部消息队列失败，平台正在退避重试"}
+      - alert: RawPublishStalled
+        expr: max(raw_publish_stalled) > 0
+        for: 0m
+        labels: {severity: critical}
+        annotations: {summary: "有原始报文多次入队失败后已停止自动重试，需检查消息队列并回放"}
+      - alert: IngestPaused
+        expr: max(ingest_paused) == 1
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: "处理积压超限，平台已暂停接收原始报文，设备上报被拒绝或丢帧重传"}
+      - alert: ProtocolFramesDropped
+        expr: increase(protocol_listener_dropped_frames_total[10m]) > 100
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "TCP/UDP 接入因背压或存储故障持续丢帧，设备需重传"}
+      - alert: ClickHouseInsertFailures
+        expr: delta(clickhouse_insert_failed[10m]) > 0
+        for: 0m
+        labels: {severity: warning}
+        annotations: {summary: "ClickHouse 写入失败，遥测与原文可能缺失"}
+      - alert: PostgresReplicaReadsDisabled
+        expr: min(postgres_replica_reads) == 0
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "PostgreSQL 只读副本延迟过大或不可用，读请求已回到主库"}
+      - alert: ReadinessDegraded
+        expr: min by (instance, dependency) (readiness_ok) == 0
         for: 2m
         labels: {severity: warning}
-        annotations: {summary: "解析失败量升高"}
+        annotations: {summary: "实例 {{ $labels.instance }} 的依赖 {{ $labels.dependency }} 未就绪"}
       - alert: AIAnalysisFailures
         expr: increase(ai_analysis_failed_total[15m]) > 10
         for: 5m
@@ -102,6 +142,16 @@ groups:
         for: 1m
         labels: {severity: critical}
         annotations: {summary: "备份或恢复演练失败"}
+      - alert: BackupStale
+        expr: time() - max(backup_last_success_timestamp_seconds > 0) > 26 * 3600
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "超过 26 小时没有成功的备份，请检查备份服务是否运行"}
+      - alert: RetentionStale
+        expr: time() - max(retention_last_success_timestamp_seconds > 0) > 2 * 86400
+        for: 10m
+        labels: {severity: warning}
+        annotations: {summary: "超过 2 天没有成功的历史数据清理，请检查 jobs 进程"}
   - name: infrastructure
     rules:
       - alert: ScrapeTargetDown
