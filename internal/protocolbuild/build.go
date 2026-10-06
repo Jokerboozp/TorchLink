@@ -107,6 +107,11 @@ func localPath(name string) bool {
 
 // Build uses an isolated source directory and a minimal environment. This is
 // process separation, not an OS sandbox; uploads are trusted operator code.
+// sharedCacheDir, when set, replaces the per-data-directory build cache. Only
+// tests set it, so builds in separate temporary directories reuse compiled
+// standard library packages.
+var sharedCacheDir string
+
 func Build(ctx context.Context, dataDir string, files map[string][]byte, entry string) ([]byte, string, error) {
 	return BuildForPlatform(ctx, dataDir, files, entry, runtime.GOOS+"-"+runtime.GOARCH)
 }
@@ -218,6 +223,9 @@ func BuildLocal(ctx context.Context, dataDir string, files map[string][]byte, en
 		}
 	}
 	cache := filepath.Join(buildRoot, "cache")
+	if sharedCacheDir != "" {
+		cache = sharedCacheDir
+	}
 	for _, dir := range []string{cache, filepath.Join(work, "tmp"), filepath.Join(work, "modcache")} {
 		if err = os.MkdirAll(dir, 0o700); err != nil {
 			return nil, "", err

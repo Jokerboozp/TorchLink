@@ -17,6 +17,19 @@ import (
 	"iot-platform/internal/model"
 )
 
+// TestMain shares one Go build cache across the package's builds, each of
+// which uses its own temporary data directory.
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "protocolbuild-cache-")
+	if err != nil {
+		panic(err)
+	}
+	sharedCacheDir = dir
+	code := m.Run()
+	_ = os.RemoveAll(dir)
+	os.Exit(code)
+}
+
 func TestSourceZIPRejectsUnsafePaths(t *testing.T) {
 	for _, name := range []string{"../escape.go", "/root.go", "C:/root.go", `dir\file.go`, "a/../file.go", "a.go:stream", "trailing./file.go"} {
 		t.Run(name, func(t *testing.T) {
