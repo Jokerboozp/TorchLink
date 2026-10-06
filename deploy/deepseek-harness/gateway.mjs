@@ -847,7 +847,7 @@ export function createGateway(options = {}) {
   )
   const runTimeoutMs = integerOption(
     options.runTimeoutMs ?? process.env.IOT_HARNESS_RUN_TIMEOUT_MS,
-    180000,
+    300000,
     'IOT_HARNESS_RUN_TIMEOUT_MS',
     1000,
     1800000,

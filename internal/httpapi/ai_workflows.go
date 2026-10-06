@@ -30,7 +30,7 @@ func (s *Server) runAIAlarmAnalysis(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) healthInspection(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(r.Context(), s.ai.BusinessRunBudget()+30*time.Second)
 	defer cancel()
 	report, err := s.ai.InspectDeviceHealth(aiRunContext(ctx, claims(r)), claims(r).TenantID)
 	if err != nil {
@@ -189,7 +189,7 @@ func (s *Server) generateProtocolAssistant(w http.ResponseWriter, r *http.Reques
 		problem(w, 422, "sample payload exceeds 1 MiB")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	ctx, cancel := context.WithTimeout(r.Context(), s.ai.BusinessRunBudget()+30*time.Second)
 	defer cancel()
 	draft, err := s.ai.GenerateProtocolAssistant(aiRunContext(ctx, claims(r)), claims(r).TenantID, input)
 	if err != nil {

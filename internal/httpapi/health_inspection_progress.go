@@ -94,7 +94,9 @@ func (s *Server) loadHealthInspectionJob(ctx context.Context, tenantID string) (
 
 func (s *Server) runHealthInspectionJob(job model.HealthInspectionJob, identity ports.AIRunIdentity) {
 	started := time.UnixMilli(job.StartedAt)
-	ctx, cancel := context.WithTimeout(ports.WithAIRunIdentity(context.Background(), identity), 3*time.Minute)
+	// A business run may first wait for a free Harness slot; the job must
+	// outlive that wait plus the run itself.
+	ctx, cancel := context.WithTimeout(ports.WithAIRunIdentity(context.Background(), identity), s.ai.BusinessRunBudget()+30*time.Second)
 	defer cancel()
 	resultCh := make(chan struct {
 		report model.DeviceHealthReport
