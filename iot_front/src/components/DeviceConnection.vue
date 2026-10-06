@@ -35,7 +35,7 @@ const credential = ref(null),
   verification = ref(null),
   verificationBusy = ref(false)
 async function verifyDevice() {
-  if (loading.value || verificationBusy.value || !canEdit.value || !can('menu:devices')) return
+  if (loading.value || verificationBusy.value || !canVerify.value) return
   const current = generation
   verificationBusy.value = true
   try {
@@ -87,7 +87,14 @@ const lists = reactive(
 )
 const narrow = useMediaQuery('(max-width: 640px)')
 const columns = computed(() => (narrow.value ? 1 : 2))
-const canEdit = computed(() => ['admin', 'operator'].includes(session.role))
+// 按实际接口权限决定可用操作，不按角色名判断：自定义角色同样适用，服务端仍逐项校验。
+const canVerify = computed(() => can('menu:devices') && can('POST /api/v1/device-registry/:id/verification'))
+const canCommand = computed(() =>
+  can(['POST /api/v1/device-registry/:id/commands', 'POST /api/v2/device-access-profiles/:id/devices/:deviceId/commands'])
+)
+const canManageCredentials = computed(() =>
+  can(['POST /api/v1/device-registry/:id/credentials', 'DELETE /api/v1/device-registry/:id/credentials'])
+)
 const isParent = computed(
   () => data.value && !data.value.parent && (data.value.device.deviceRole === 'GATEWAY' || data.value.profile?.childProducts?.length)
 )
@@ -186,8 +193,8 @@ async function showCommandReply() {
     if (cause.name !== 'AbortError') notifyError(cause)
   }
 }
-async function action(work) {
-  if (actionBusy.value || loading.value || !canEdit.value) return
+async function action(work, allowed = true) {
+  if (actionBusy.value || loading.value || !allowed) return
   actionBusy.value = true
   try {
     await work()
@@ -207,7 +214,7 @@ async function rotate() {
     if (current !== generation || session.token !== identityToken) return
     credential.value = result.credential
     await load()
-  })
+  }, can('POST /api/v1/device-registry/:id/credentials'))
 }
 async function disable() {
   await action(async () => {
@@ -216,7 +223,7 @@ async function disable() {
     credential.value = null
     UiMessage.success('凭据已禁用')
     await load()
-  })
+  }, can('DELETE /api/v1/device-registry/:id/credentials'))
 }
 async function sendMQTT() {
   await action(async () => {
@@ -232,7 +239,7 @@ async function sendMQTT() {
       body: JSON.stringify({ ...body, id: pendingCommand.value.id, confirmed: true })
     })
     await loadList('commands')
-  })
+  }, can('POST /api/v1/device-registry/:id/commands'))
 }
 async function send() {
   await action(async () => {
@@ -250,7 +257,7 @@ async function send() {
       `/api/v2/device-access-profiles/${encodeURIComponent(profileId)}/devices/${encodeURIComponent(props.deviceId)}/commands`,
       { method: 'POST', body: JSON.stringify({ ...body, requestId: pendingProtocol.value.id, confirmed: true }) }
     )
-  })
+  }, can('POST /api/v2/device-access-profiles/:id/devices/:deviceId/commands'))
 }
 function openChildDialog() {
   Object.assign(childForm, { type: childTypes.value[0]?.type || '', address: '', name: '' })
@@ -317,7 +324,7 @@ onBeforeUnmount(() => {
             :status="data"
             :verification="verification"
             :verification-busy="verificationBusy"
-            :can-verify="canEdit && can('menu:devices')"
+            :can-verify="canVerify"
             @refresh="load"
             @verify="verifyDevice"
             @raw="emit('navigate', 'raw', { deviceId: props.deviceId, rawMessageId: data.ingest?.rawMessageId })"
@@ -426,7 +433,7 @@ onBeforeUnmount(() => {
           <div class="section-heading">
             <h3>子设备（{{ lists.children.total }}）</h3>
             <ui-button
-              v-if="childTypes.length && canEdit"
+              v-if="childTypes.length"
               v-permission="'POST /api/v1/device-registry/:id/children'"
               size="small"
               @click="openChildDialog"
@@ -609,7 +616,7 @@ onBeforeUnmount(() => {
         >
           <h3>设备控制</h3>
           <p>已发送不代表设备执行成功。请核对发送状态和设备应答；结果未知时不要重复发送。</p>
-          <template v-if="canEdit">
+          <template v-if="canCommand">
             <ui-form label-position="top" :disabled="actionBusy || loading">
               <ui-form-item label="设备命令"
                 ><ui-select v-model="commandType" aria-label="设备命令" placeholder="选择设备支持的命令"
@@ -705,7 +712,7 @@ onBeforeUnmount(() => {
           </template>
         </section>
 
-        <section v-if="standardAccess && canEdit" class="connection-section device-credentials">
+        <section v-if="standardAccess && canManageCredentials" class="connection-section device-credentials">
           <h3>设备凭据</h3>
           <p>重新生成后旧凭据立即停用，新密钥仅显示一次。</p>
           <div class="section-actions">

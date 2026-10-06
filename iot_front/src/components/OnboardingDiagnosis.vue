@@ -33,7 +33,6 @@ const ownConnection = computed(() => {
 const canCorrect = computed(
   () =>
     ownConnection.value &&
-    ['admin', 'operator'].includes(session.role) &&
     can('menu:profiles') &&
     can('PUT /api/v2/device-access-profiles/:id')
 )
