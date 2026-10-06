@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"iot-platform/internal/devicescope"
 	"net/http"
 	"slices"
 	"strings"
@@ -13,7 +14,7 @@ import (
 // New inventory records must use the same atomic registration and template
 // snapshot as the onboarding API; ordinary edits retain their existing path.
 func (s *Server) enrollCompatibleDevice(w http.ResponseWriter, r *http.Request, device model.ManagedDevice, product model.Product, trial bool, auditAction string) {
-	if limited(r.Context()) {
+	if devicescope.Limited(r.Context()) {
 		problem(w, 403, "登记新设备需要全部设备范围")
 		return
 	}

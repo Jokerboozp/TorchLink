@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"net"
 	"net/http"
@@ -252,7 +253,7 @@ func TestVideoCameraRelationsHTTPEnforcesCameraToOneDevice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.Metrics = metrics.New()
 	if err = engine.Start(context.Background()); err != nil {
 		t.Fatal(err)

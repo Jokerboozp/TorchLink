@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -35,7 +36,7 @@ func TestRegisterConfiguredChildUsesStableParentAddress(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
 	cfg := config.Load()
 	cfg.JWTSecret = "child-register-test-signing-key-32-characters"
 	cfg.AdminTenants = []string{"tenant"}
@@ -121,7 +122,7 @@ func TestProtocolDevicesHaveNoPlatformCredentials(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := config.Load()
 	cfg.DataDir, cfg.JWTSecret = root, "credential-scope-test-key-32-characters"
-	api := New(cfg, core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log), metrics.New(), log)
+	api := New(cfg, core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log), metrics.New(), log)
 	call := func(method, path, body, tenant, role, key, secret string) *httptest.ResponseRecorder {
 		token, err := api.auth.Issue("tester", tenant, role, nil, time.Minute)
 		if err != nil {
@@ -342,7 +343,7 @@ func TestLegacyDeviceConnectionResolution(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
 	cfg := config.Load()
 	cfg.JWTSecret = "legacy-test-key-32-characters"
 	srv := New(cfg, engine, metrics.New(), log)
@@ -430,7 +431,7 @@ func TestDeviceOperationsHTTPAndRawReply(t *testing.T) {
 		t.Fatal(e)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
 	if e = engine.Start(ctx); e != nil {
 		t.Fatal(e)
 	}
@@ -556,7 +557,7 @@ func TestDeviceConnectionCheckUsesCurrentFieldEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
 	cfg := config.Load()
 	cfg.JWTSecret = "device-check-test-signing-key-32-characters"
 	cfg.AdminTenants = []string{"tenant"}
@@ -641,7 +642,7 @@ func TestIndependentProductAndDeviceRegistration(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
 	if err := engine.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -769,7 +770,7 @@ func TestTestDeviceUsesConfiguredAlarmRuleWithoutCreatingFixtureRule(t *testing.
 		t.Fatal(err)
 	}
 	realtime := local.NewRealtime()
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), realtime, parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), realtime, parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err := engine.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -842,7 +843,7 @@ func TestTestDeviceDirectAlarmCreatesAlarmAndUpdatesDeviceState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	if err := engine.Start(ctx); err != nil {
 		t.Fatal(err)
 	}

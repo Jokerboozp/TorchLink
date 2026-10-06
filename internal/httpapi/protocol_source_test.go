@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"mime/multipart"
 	"net"
@@ -69,7 +70,7 @@ func TestGoSourceUploadHotSwitchFailureAndRollback(t *testing.T) {
 	cfg.DataDir = root
 	cfg.JWTSecret = "source-test-secret-at-least-32-characters"
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ExternalParser{Root: root}), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ExternalParser{Root: root}), log)
 	engine.Metrics = metrics.New()
 	if err = engine.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -259,7 +260,7 @@ func TestLegacyGoProtocolUploadIsUnavailable(t *testing.T) {
 	cfg.DataDir = t.TempDir()
 	cfg.DevMode = true
 	cfg.JWTSecret = "test-secret-at-least-32-characters"
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ExternalParser{Root: cfg.DataDir}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ExternalParser{Root: cfg.DataDir}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.Metrics = metrics.New()
 	if err := engine.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -316,7 +317,7 @@ func TestGoFunctionsUploadAndListener(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
 	if err := engine.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -432,11 +433,11 @@ func TestGoFunctionsUploadAndListener(t *testing.T) {
 		beforeIndexes, _ := repo.ListRawIndexes(ctx, ports.RawFilter{TenantID: "tenant"})
 		beforeArchive, _ := archive.GetRaw(ctx, index)
 		beforeJSON, _ := json.Marshal(beforeArchive)
-		check := func(permissions map[string]bool, scope deviceScope, version string, body map[string]any, want int) map[string]any {
+		check := func(permissions map[string]bool, scope devicescope.Scope, version string, body map[string]any, want int) map[string]any {
 			t.Helper()
 			requestCtx := context.WithValue(ctx, claimsKey, auth.Claims{TenantID: "tenant"})
 			requestCtx = context.WithValue(requestCtx, permissionsKey{}, permissions)
-			requestCtx = context.WithValue(requestCtx, deviceScopeKey{}, scope)
+			requestCtx = devicescope.With(requestCtx, scope)
 			data, _ := json.Marshal(body)
 			req := httptest.NewRequest("POST", "/", bytes.NewReader(data)).WithContext(requestCtx)
 			req.SetPathValue("id", "functions")
@@ -451,10 +452,10 @@ func TestGoFunctionsUploadAndListener(t *testing.T) {
 			return result
 		}
 		permission := map[string]bool{"menu:raw": true}
-		scope := deviceScope{Tenant: "tenant", IDs: map[string]bool{archived.DeviceID: true}}
+		scope := devicescope.Scope{Tenant: "tenant", IDs: map[string]bool{archived.DeviceID: true}}
 		input := map[string]any{"rawMessageId": archived.MessageID}
 		check(map[string]bool{}, scope, release.Version, input, 403)
-		check(permission, deviceScope{Tenant: "tenant", IDs: map[string]bool{"other": true}}, release.Version, input, 404)
+		check(permission, devicescope.Scope{Tenant: "tenant", IDs: map[string]bool{"other": true}}, release.Version, input, 404)
 		check(permission, scope, previewRelease.Version, input, 409)
 		result := check(permission, scope, release.Version, input, 200)
 		standard := result["standardMessage"].(map[string]any)
@@ -706,7 +707,7 @@ func TestImportModbusTCPV2RequiresGoPackage(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ModbusTCPParser{}), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ModbusTCPParser{}), log)
 	engine.Metrics = metrics.New()
 	if err = engine.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -821,7 +822,7 @@ func TestStandardProtocolReadOnlyPreview(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
 	api := New(config.Load(), engine, metrics.New(), log)
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
@@ -1003,7 +1004,7 @@ func TestGoProtocolListenerSourceHotSwitch(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
 	engine.Metrics = metrics.New()
 	if err = engine.Start(ctx); err != nil {
 		t.Fatal(err)
@@ -1348,7 +1349,7 @@ func newProtocolDownloadFixtureV2(t *testing.T) protocolDownloadFixtureV2 {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(), log)
 	engine.Metrics = metrics.New()
 	cfg := config.Load()
 	cfg.DataDir = root

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"mime/multipart"
 	"net"
@@ -62,7 +63,7 @@ func TestStandardMQTTLiveBroker(t *testing.T) {
 		t.Fatal(e)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
 	if e = engine.Start(ctx); e != nil {
 		t.Fatal(e)
 	}
@@ -505,7 +506,7 @@ func TestModbusOnboardingRuntimeChain(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
 	if err = engine.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -627,7 +628,7 @@ func TestTCPParentChildSourceChain(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
 	if err = engine.Start(ctx); err != nil {
 		t.Fatal(err)
 	}

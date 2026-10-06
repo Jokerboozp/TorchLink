@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"net/http/httptest"
 	"strings"
@@ -30,7 +31,7 @@ func taskHTTPFixture(t *testing.T) (*Server, *memory.Repository, func(string, st
 		t.Fatal(err)
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), logger)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), logger)
 	cfg := config.Load()
 	cfg.JWTSecret = strings.Repeat("task-http-test-key-", 3)
 	cfg.AdminTenants = []string{"admin-tenant"}

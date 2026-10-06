@@ -10,6 +10,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"io"
+	"iot-platform/internal/devicescope"
 	"net/http"
 	"slices"
 	"strconv"
@@ -71,7 +72,7 @@ func (s *Server) siteRoutes() {
 
 func (s *Server) siteError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
-	case errors.Is(err, errDeviceScope):
+	case errors.Is(err, devicescope.ErrDenied):
 		problemCode(w, 403, codeDeviceScopeDenied, err.Error())
 	case errors.Is(err, sites.ErrValidation):
 		problem(w, 422, err.Error())
@@ -102,7 +103,7 @@ func (s *Server) listSites(w http.ResponseWriter, r *http.Request) {
 	points := []model.SitePoint{}
 	ids, seen := []string{}, map[string]bool{}
 	for _, p := range state.Points {
-		if deviceAllowed(r.Context(), tenant, p.DeviceID) {
+		if devicescope.Allowed(r.Context(), tenant, p.DeviceID) {
 			points = append(points, p)
 			if !seen[p.DeviceID] {
 				seen[p.DeviceID] = true
@@ -135,11 +136,11 @@ func (s *Server) listSites(w http.ResponseWriter, r *http.Request) {
 // checkPointDevice requires an existing device within the caller's scope.
 func (s *Server) checkPointDevice(r *http.Request, deviceID string) error {
 	tenant := claims(r).TenantID
-	if !deviceAllowed(r.Context(), tenant, deviceID) {
-		return errDeviceScope
+	if !devicescope.Allowed(r.Context(), tenant, deviceID) {
+		return devicescope.ErrDenied
 	}
 	if _, err := s.engine.Repo.GetManagedDevice(r.Context(), tenant, deviceID); err != nil {
-		return errDeviceScope
+		return devicescope.ErrDenied
 	}
 	return nil
 }
@@ -225,8 +226,8 @@ func (s *Server) checkExistingPoint(r *http.Request, id string) error {
 		return err
 	}
 	for _, p := range state.Points {
-		if p.ID == id && !deviceAllowed(r.Context(), claims(r).TenantID, p.DeviceID) {
-			return errDeviceScope
+		if p.ID == id && !devicescope.Allowed(r.Context(), claims(r).TenantID, p.DeviceID) {
+			return devicescope.ErrDenied
 		}
 	}
 	return nil

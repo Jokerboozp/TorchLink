@@ -75,7 +75,7 @@ Go 协议源码与制品上传属于平台级操作，规则见 [上传与发布
 
 事件轮询为每个授权视图缓存 2 秒、最多 100 条活动告警和 100 条设备状态，先按设备范围过滤再分页。`truncated=true` 表示通知窗口不完整；告警页和总览刷新列表。设备页保留手动刷新，仍只按已知的运行状态变化或新增设备提示，不把窗口轮转或窗口不完整误认为新数据。总览按租户、用户、权限版本和日期区间缓存 2 秒，权限更新会换用新缓存键。
 
-用户、角色、开放密钥与设备授权分别存于 `platform_user`、`platform_role`、`platform_api_key`、`access_device_grant`，每次变更在一个事务内校验并递增租户的 `platform_access_revision`（迁移 0005/0006 自原 `platform_access` 文档转换，旧表保留为 `platform_access_legacy`）。请求鉴权先读取版本号，版本未变时复用进程内缓存，变更后下一次请求即重新加载。请求范围写入上下文，不修改共享仓库全局状态；内置管理员也绑定当前登录租户。入口：`internal/httpapi/access_control.go`、`device_scope.go`、`user_events.go`、`internal/auth/`。开放密钥与绑定用户权限交集见 [开放接口](INTEGRATION.md#开放接口)。
+用户、角色、开放密钥与设备授权分别存于 `platform_user`、`platform_role`、`platform_api_key`、`access_device_grant`，每次变更在一个事务内校验并递增租户的 `platform_access_revision`（迁移 0005/0006 自原 `platform_access` 文档转换，旧表保留为 `platform_access_legacy`）。请求鉴权先读取版本号，版本未变时复用进程内缓存，变更后下一次请求即重新加载。请求范围写入上下文，不修改共享仓库全局状态；内置管理员也绑定当前登录租户。入口：`internal/httpapi/access_control.go`、`device_scope.go`、`user_events.go`、`internal/devicescope/`（范围类型与按范围过滤的仓储）、`internal/auth/`。开放密钥与绑定用户权限交集见 [开放接口](INTEGRATION.md#开放接口)。
 
 ### EMQX 授权
 

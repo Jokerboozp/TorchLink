@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"iot-platform/internal/aiworkflow"
+	"iot-platform/internal/devicescope"
 	"net/http"
 
 	"iot-platform/internal/auth"
@@ -77,7 +78,7 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 	if identity.AccessVersion == "" || identity.AccessVersion != s.accessVersion(user, permissions, tenantID) {
 		return ctx, ports.AIRejected(http.StatusConflict, "权限或设备范围已变化，请重新发起 AI 任务")
 	}
-	ctx = context.WithValue(ctx, deviceScopeKey{}, s.scopeFor(user, permissions, tenantID))
+	ctx = devicescope.With(ctx, s.scopeFor(user, permissions, tenantID))
 	ctx = context.WithValue(ctx, permissionsKey{}, permissions)
 	identity.Scopes = intersectScopes(identity.Scopes, workflowScopes(ctx))
 	return ports.WithAIRunIdentity(ctx, identity), nil
@@ -150,12 +151,12 @@ func requestAccessVersion(ctx context.Context, claims auth.Claims) string {
 	if claims.TokenUse != "user" {
 		return ""
 	}
-	scope, _ := requestScope(ctx)
+	scope, _ := devicescope.FromContext(ctx)
 	permissions, _ := ctx.Value(permissionsKey{}).(map[string]bool)
 	return scopeAccessVersion(scope, permissions, claims.SessionVersion)
 }
 
-func scopeAccessVersion(scope deviceScope, permissions map[string]bool, version int64) string {
+func scopeAccessVersion(scope devicescope.Scope, permissions map[string]bool, version int64) string {
 	// The expanded device list keeps the version unchanged by site edits
 	// that do not change which devices the user may use.
 	payload, _ := json.Marshal([]any{scope.Tenant, scope.All, scope.DeviceIDs(), permissionList(permissions), version})

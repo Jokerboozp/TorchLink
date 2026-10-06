@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"iot-platform/internal/devicescope"
 	"iot-platform/internal/model"
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
@@ -67,7 +68,7 @@ func (s *Server) connectorStatus(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
-	if limited(r.Context()) {
+	if devicescope.Limited(r.Context()) {
 		profiles = nil
 	}
 	items := []map[string]any{}
@@ -125,7 +126,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
-	if limited(r.Context()) {
+	if devicescope.Limited(r.Context()) {
 		all = nil
 	}
 	candidates := []model.DeviceAccessProfile{}
@@ -297,7 +298,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	var parent any
-	if !deviceAllowed(r.Context(), tenant, d.GatewayID) {
+	if !devicescope.Allowed(r.Context(), tenant, d.GatewayID) {
 		d.GatewayID = ""
 	}
 	if d.GatewayID != "" {

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"iot-platform/internal/devicescope"
 	"net/http"
 	"strings"
 	"time"
@@ -271,9 +272,9 @@ func (s *Server) videoCameraSummary(w http.ResponseWriter, r *http.Request) {
 // built-in token and a managed user are both limited by the request context.
 func (s *Server) videoDeviceVisible(r *http.Request, camera model.VideoCameraMapping) bool {
 	if camera.DeviceID != "" {
-		return deviceAllowed(r.Context(), claims(r).TenantID, camera.DeviceID)
+		return devicescope.Allowed(r.Context(), claims(r).TenantID, camera.DeviceID)
 	}
-	return !limited(r.Context())
+	return !devicescope.Limited(r.Context())
 }
 
 func (s *Server) videoCreateSession(w http.ResponseWriter, r *http.Request) {

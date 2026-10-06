@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"iot-platform/internal/devicescope"
 	"net/http"
 	"regexp"
 	"slices"
@@ -180,7 +181,7 @@ func (s *Server) authorizeAPIKey(capability, consoleMethod, consolePath string) 
 		s.stripOpsPermissions(tenantID, permissions)
 		user = resolveUserDeviceScope(state, user)
 		scope := s.scopeFor(user, permissions, tenantID)
-		ctx := context.WithValue(c.Request.Context(), deviceScopeKey{}, scope)
+		ctx := devicescope.With(c.Request.Context(), scope)
 		ctx = context.WithValue(ctx, permissionsKey{}, permissions)
 		claimsValue := auth.Claims{Username: user.Username, TenantID: tenantID, Role: "operator", TokenUse: "user", SessionVersion: user.SessionVersion}
 		ctx = auth.ContextWithClaims(context.WithValue(ctx, claimsKey, claimsValue), claimsValue)
@@ -206,7 +207,7 @@ func (s *Server) authorizeAPIKey(capability, consoleMethod, consolePath string) 
 
 func (s *Server) openIdentity(w http.ResponseWriter, r *http.Request) {
 	key, _ := requestAPIKeyRecord(r.Context())
-	scope, _ := requestScope(r.Context())
+	scope, _ := devicescope.FromContext(r.Context())
 	deviceScope := "none"
 	if scope.All {
 		deviceScope = "all"

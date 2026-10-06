@@ -10,6 +10,7 @@ import (
 	"io"
 	"iot-platform/internal/aiprompt"
 	"iot-platform/internal/aiworkflow"
+	"iot-platform/internal/devicescope"
 	"iot-platform/internal/sites"
 	"log/slog"
 	"mime/multipart"
@@ -89,7 +90,7 @@ func TestAIProviderConfigSwitchesRuntimeAndRedactsKey(t *testing.T) {
 	}
 	runtime := &providerConfigTestRuntime{config: ports.AIPluginConfig{Provider: "openai-compatible", BaseURL: "http://localhost:8000/v1", Model: "Qwen/Qwen3-8B"}}
 	workflow := &providerConfigTestWorkflow{}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.AI = runtime
 	engine.AIPlugins = aiadapter.NewProviderRegistry()
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -178,7 +179,7 @@ func TestAIProviderConfigReportsActiveWorkflowsAndCanRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime := &providerConfigTestRuntime{config: previous}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.AI = runtime
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	api.SetAIProviderRuntime(runtime)
@@ -226,7 +227,7 @@ func TestAIProviderConfigSavesWithoutSuccessfulConnectionTest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.AI = runtime
 	engine.AIPlugins = registry
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -283,7 +284,7 @@ func TestAIProviderTestDoesNotApplyAndReusesActiveKey(t *testing.T) {
 	}
 	active := ports.AIPluginConfig{Provider: "deepseek", BaseURL: providerServer.URL, Model: "active-model", APIKey: "active-secret"}
 	runtime := &providerConfigTestRuntime{config: active}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.AI = runtime
 	engine.AIPlugins = aiadapter.NewProviderRegistry()
 	// A newly supplied endpoint must work without an address allowlist.
@@ -335,7 +336,7 @@ func TestAIAnalysisJobReportsProgressAndPersistsResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := make(chan struct{})
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.AIWorkflows, engine.HarnessTokens = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { <-release; return testAnalysisAnswer, nil }}, aitest.Tokens()
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	_, _, err = repo.UpsertAlarm(context.Background(), model.Alarm{ID: "alarm-progress", TenantID: "tenant-a", DeviceID: "device-a", AlarmType: "SMOKE_DETECTED", AlarmLevel: "HIGH", Status: "ACTIVE", LastTriggeredAt: time.Now().UnixMilli()})
@@ -375,7 +376,7 @@ func TestAIAnalysisProgressCanBeLoadedWithoutJobID(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := make(chan struct{})
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.KB = knowledge.NewLocal()
 	engine.AIWorkflows, engine.HarnessTokens = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { <-release; return testAnalysisAnswer, nil }}, aitest.Tokens()
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -426,7 +427,7 @@ func TestProtocolAssistantExcelUploadDoesNotRequireAI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ModbusCoilParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ModbusCoilParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.Metrics = metrics.New()
 	if err = engine.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -511,7 +512,7 @@ func TestAIRuleDraftReturnsAnnotatedJSONAndCommentedGengine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	installEndpointWorkflows(engine)
 	engine.Metrics = metrics.New()
 	if err = engine.Start(context.Background()); err != nil {
@@ -560,7 +561,7 @@ func TestProtocolAssistantEndpoints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ModbusCoilParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.ModbusCoilParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	installEndpointWorkflows(engine)
 	engine.Metrics = metrics.New()
 	if err = engine.Start(context.Background()); err != nil {
@@ -621,7 +622,7 @@ func TestHealthInspectionPDFDownload(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.Metrics = metrics.New()
 	if err = engine.Start(context.Background()); err != nil {
 		t.Fatal(err)
@@ -707,7 +708,7 @@ func TestHealthInspectionJobCanBeLoadedWithoutJobID(t *testing.T) {
 	release := make(chan struct{})
 	var releaseOnce sync.Once
 	releaseJob := func() { releaseOnce.Do(func() { close(release) }) }
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.AIWorkflows, engine.HarnessTokens = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { <-release; return "巡检建议已生成", nil }}, aitest.Tokens()
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := newTestHTTPServer(api)
@@ -755,7 +756,7 @@ func TestHealthInspectionJobIsSharedAcrossServerInstances(t *testing.T) {
 	var releaseOnce sync.Once
 	releaseJob := func() { releaseOnce.Do(func() { close(release) }) }
 	defer releaseJob()
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.AIWorkflows, engine.HarnessTokens = &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { <-release; return "巡检建议已生成", nil }}, aitest.Tokens()
 	first := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	second := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -792,7 +793,7 @@ func TestHealthInspectionStaleRunningJobIsMarkedInterrupted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := newTestHTTPServer(api)
 	defer server.Close()
@@ -959,7 +960,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	runtime := &captureWorkflowRuntime{
 		plugins: []ports.AIWorkflowPlugin{
 			{ID: "alarm-handler", Name: "AI Alarm Handler", Enabled: true},
@@ -1159,7 +1160,7 @@ func TestKnowledgeUploadAndTenantScopedList(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.KB = knowledge.NewLocal()
 	cfg := config.Load()
 	cfg.JWTSecret = "test-secret-at-least-32-characters"
@@ -1359,7 +1360,7 @@ func TestAIProviderConfigKeepsTheStoredKeyOnAStaleReplica(t *testing.T) {
 		t.Fatal(err)
 	}
 	runtime := &providerConfigTestRuntime{config: stale}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.AI = runtime
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	api.SetAIProviderRuntime(runtime)
@@ -1407,7 +1408,7 @@ func TestDynamicAgentChangesAreStoredForReconciliation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	var lock sync.Mutex
 	api.SetAISync(&lock, repo)
@@ -1444,7 +1445,7 @@ func TestDynamicAgentChangesAreStoredForReconciliation(t *testing.T) {
 func TestAlarmAnalysisNearbyAlarmsFollowDeviceScope(t *testing.T) {
 	ctx := context.Background()
 	base := memory.NewRepository()
-	repo := ScopedRepository(base)
+	repo := devicescope.Wrap(base)
 	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime(), Locator: sites.New(repo)}
 	workflows := &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { return testAnalysisAnswer, nil }}
 	engine.AIWorkflows, engine.HarnessTokens = workflows, aitest.Tokens()
@@ -1468,7 +1469,7 @@ func TestAlarmAnalysisNearbyAlarmsFollowDeviceScope(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	scoped := context.WithValue(aitest.Context(ctx), deviceScopeKey{}, deviceScope{Tenant: "t1", IDs: map[string]bool{"mine": true, "visible": true}})
+	scoped := devicescope.With(aitest.Context(ctx), devicescope.Scope{Tenant: "t1", IDs: map[string]bool{"mine": true, "visible": true}})
 	if _, err := aiworkflow.New(engine, nil).AnalyzeAlarm(scoped, "t1", "alarm-mine", false); err != nil {
 		t.Fatal(err)
 	}
@@ -1500,7 +1501,7 @@ func TestAIProviderTestOnlyReusesStoredKeyForSameAddress(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.AI = runtime
 	engine.AIPlugins = registry
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -1549,7 +1550,7 @@ func TestAIProviderConfigSaveFailureRestoresPreviousEverywhere(t *testing.T) {
 	}
 	runtime := &providerConfigTestRuntime{config: previous}
 	workflow := &providerConfigTestWorkflow{}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.AI = runtime
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	api.SetAIProviderRuntime(runtime)
@@ -1602,7 +1603,7 @@ func TestChatRunStatesMissingKnowledgeEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	runtime := &captureWorkflowRuntime{}
 	engine.AIWorkflows = runtime
 	engine.KB = knowledge.NewLocal()
@@ -1632,7 +1633,7 @@ func TestChatConversationsBelongToTheUser(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	engine.AIWorkflows = &captureWorkflowRuntime{}
 	engine.AIConversations = repo
 	cfg := config.Load()

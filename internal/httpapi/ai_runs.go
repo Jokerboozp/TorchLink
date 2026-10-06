@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"iot-platform/internal/devicescope"
 	"net/http"
 	"strings"
 	"time"
@@ -11,7 +12,7 @@ import (
 )
 
 func (s *Server) aiWorkflowRuns(w http.ResponseWriter, r *http.Request) {
-	if limited(r.Context()) {
+	if devicescope.Limited(r.Context()) {
 		problem(w, http.StatusForbidden, "管理工作流需要当前租户全部设备的访问权限")
 		return
 	}
@@ -38,7 +39,7 @@ func (s *Server) aiWorkflowRuns(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) stopAIWorkflowRun(w http.ResponseWriter, r *http.Request) {
-	if limited(r.Context()) {
+	if devicescope.Limited(r.Context()) {
 		problem(w, http.StatusForbidden, "管理工作流需要当前租户全部设备的访问权限")
 		return
 	}
@@ -88,7 +89,7 @@ func aiRunFilter(r *http.Request) ports.AIRunFilter {
 
 // aiRunHistory lists finished runs with their sizes, token usage and outcome.
 func (s *Server) aiRunHistory(w http.ResponseWriter, r *http.Request) {
-	if limited(r.Context()) {
+	if devicescope.Limited(r.Context()) {
 		problem(w, http.StatusForbidden, "查看 AI 运行记录需要当前租户全部设备的访问权限")
 		return
 	}
@@ -106,7 +107,7 @@ func (s *Server) aiRunHistory(w http.ResponseWriter, r *http.Request) {
 
 // aiRunUsage sums runs per day and workflow for the same filters.
 func (s *Server) aiRunUsage(w http.ResponseWriter, r *http.Request) {
-	if limited(r.Context()) {
+	if devicescope.Limited(r.Context()) {
 		problem(w, http.StatusForbidden, "查看 AI 运行记录需要当前租户全部设备的访问权限")
 		return
 	}

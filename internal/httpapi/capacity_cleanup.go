@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"iot-platform/internal/devicescope"
 	"net/http"
 	"net/url"
 	"slices"
@@ -56,7 +57,7 @@ func (s *Server) capacityOperatorToken(r *http.Request) (string, error) {
 }
 
 func capacityFullScope(w http.ResponseWriter, r *http.Request) bool {
-	if limited(r.Context()) {
+	if devicescope.Limited(r.Context()) {
 		problem(w, 403, "清理容量测试需要全租户设备范围")
 		return false
 	}
@@ -161,7 +162,7 @@ func (s *Server) capacityCleanupStatus(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) capacityControllerScope(w http.ResponseWriter, r *http.Request) (ports.CapacityDataCleaner, bool) {
 	got := r.Header.Get("X-Capacity-Service-Token")
-	if s.cfg.Ops.CapacityToken == "" || subtle.ConstantTimeCompare([]byte(got), []byte(s.cfg.Ops.CapacityToken)) != 1 || limited(r.Context()) {
+	if s.cfg.Ops.CapacityToken == "" || subtle.ConstantTimeCompare([]byte(got), []byte(s.cfg.Ops.CapacityToken)) != 1 || devicescope.Limited(r.Context()) {
 		problem(w, 403, "capacity controller and full tenant device scope required")
 		return nil, false
 	}

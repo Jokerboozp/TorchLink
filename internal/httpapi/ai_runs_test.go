@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"iot-platform/internal/devicescope"
 	"iot-platform/internal/protocolruntime"
 	"log/slog"
 	"net/http"
@@ -174,7 +175,7 @@ func TestAIRunHistoryPermissionsAndTenantIsolation(t *testing.T) {
 // Device health signals follow the device scope like the rest of the device.
 func TestDeviceSignalsFollowDeviceScope(t *testing.T) {
 	repo := memory.NewRepository()
-	engine := &core.Engine{Repo: ScopedRepository(repo), DeviceSignals: repo}
+	engine := &core.Engine{Repo: devicescope.Wrap(repo), DeviceSignals: repo}
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := newTestHTTPServer(api)
 	defer server.Close()

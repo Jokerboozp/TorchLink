@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"iot-platform/internal/devicescope"
 	"iot-platform/internal/model"
 	"net/http"
 )
@@ -40,7 +41,7 @@ func (s *Server) userEvents(w http.ResponseWriter, r *http.Request) {
 		// snapshot per tenant; a restricted user's snapshot is loaded through
 		// their own device scope and stays private to their view.
 		view := access
-		if scope, scoped := requestScope(r.Context()); !scoped || scope.All {
+		if scope, scoped := devicescope.FromContext(r.Context()); !scoped || scope.All {
 			view = "all"
 		}
 		snapshot, err := s.events.snapshot(r.Context(), s.engine.Repo, c.TenantID, view)

@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -106,8 +107,8 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 			log = slog.New(logctx.NewHandler(log.Handler()))
 		}
 	}
-	if _, ok := engine.Repo.(*deviceScopeRepository); !ok {
-		engine.Repo = ScopedRepository(engine.Repo)
+	if _, ok := engine.Repo.(*devicescope.Repository); !ok {
+		engine.Repo = devicescope.Wrap(engine.Repo)
 	}
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -1211,7 +1212,7 @@ func (s *Server) startReplay(w http.ResponseWriter, r *http.Request) {
 // cancelReplay stops a running replay; it must reach the API instance that
 // runs it, which a single-replica deployment always does.
 func (s *Server) cancelReplay(w http.ResponseWriter, r *http.Request) {
-	if limited(r.Context()) {
+	if devicescope.Limited(r.Context()) {
 		problem(w, 404, "replay not found")
 		return
 	}
@@ -1229,7 +1230,7 @@ func (s *Server) getReplay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Only full-scope users can start a replay, so a limited user never owns one.
-	if v.TenantID != claims(r).TenantID || limited(r.Context()) {
+	if v.TenantID != claims(r).TenantID || devicescope.Limited(r.Context()) {
 		problem(w, 404, "replay not found")
 		return
 	}
@@ -1798,7 +1799,7 @@ func (s *Server) authorize(role string) gin.HandlerFunc {
 			}
 			allowed = allowsRoute(permissions, c.Request.Method, c.FullPath())
 			scope := s.scopeFor(user, permissions, claimsValue.TenantID)
-			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), deviceScopeKey{}, scope))
+			c.Request = c.Request.WithContext(devicescope.With(c.Request.Context(), scope))
 			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), permissionsKey{}, permissions))
 			if allowed {
 				// The status stays 403 (the established contract); the code tells
@@ -1864,7 +1865,7 @@ func (s *Server) authorizeHarness() gin.HandlerFunc {
 				c.Abort()
 				return
 			}
-			ctx := context.WithValue(c.Request.Context(), deviceScopeKey{}, s.scopeFor(user, permissions, claimsValue.TenantID))
+			ctx := devicescope.With(c.Request.Context(), s.scopeFor(user, permissions, claimsValue.TenantID))
 			ctx = context.WithValue(ctx, permissionsKey{}, permissions)
 			claimsValue.Scopes = intersectScopes(claimsValue.Scopes, workflowScopes(ctx))
 			claimsValue.Permissions = permissionList(permissions)

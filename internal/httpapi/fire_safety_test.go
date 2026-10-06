@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"net/http/httptest"
 	"strconv"
@@ -180,7 +181,7 @@ func TestFireSafetyHTTPWorkflowsAndPermissions(t *testing.T) {
 
 func TestFireSafetyRepositoryDecoratorContract(t *testing.T) {
 	base := memory.NewRepository()
-	repo := ScopedRepository(redisadapter.New(&clickhouse.Repository{Repository: base}, nil))
+	repo := devicescope.Wrap(redisadapter.New(&clickhouse.Repository{Repository: base}, nil))
 	repositorytest.FireSafety(t, repo)
 }
 

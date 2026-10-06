@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"net/http/httptest"
 	"strings"
@@ -30,7 +31,7 @@ func TestOpenAPIKeyScopesReportsAndAlarms(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
 	if err = engine.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +175,7 @@ func TestOpenAPIKeyScopesReportsAndAlarms(t *testing.T) {
 func TestForgedAPIKeysDoNotGrowAccessCaches(t *testing.T) {
 	repo := memory.NewRepository()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), nil, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), log)
+	engine := core.New(devicescope.Wrap(repo), nil, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), log)
 	api := New(config.Config{DevMode: true, JWTSecret: "forged-key-test-secret-at-least-32-bytes"}, engine, metrics.New(), log)
 	call := func(key string) int {
 		r := httptest.NewRequest("GET", "/api/open/v1/alarms", nil)

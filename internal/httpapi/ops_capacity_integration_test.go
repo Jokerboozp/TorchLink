@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"net/http/httptest"
 	"os"
@@ -126,7 +127,7 @@ func TestCapacityRunUsesAuthorizedTrialForUnverifiedTemplate(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
 	repo.engine = engine
 	m := metrics.New()
 	engine.Metrics = m

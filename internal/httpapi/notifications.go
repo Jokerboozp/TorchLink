@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"iot-platform/internal/devicescope"
 	"net/http"
 	"slices"
 	"strings"
@@ -366,7 +367,7 @@ func (s *Server) notificationOptions(w http.ResponseWriter, r *http.Request) {
 func (s *Server) alarmNotifications(w http.ResponseWriter, r *http.Request) {
 	tenant := claims(r).TenantID
 	if _, err := s.engine.Repo.GetAlarm(r.Context(), tenant, r.PathValue("id")); err != nil {
-		if errors.Is(err, errDeviceScope) {
+		if errors.Is(err, devicescope.ErrDenied) {
 			problemCode(w, 403, codeDeviceScopeDenied, "无权查看该设备的告警")
 			return
 		}

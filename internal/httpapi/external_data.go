@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"iot-platform/internal/devicescope"
 	"net/http"
 	"net/url"
 	"slices"
@@ -86,7 +87,7 @@ func (s *Server) externalManagement(w http.ResponseWriter, r *http.Request) bool
 	}
 	// Configuration and unmatched raw payloads are tenant-wide resources.
 	// A narrow execution user may receive data but cannot browse this console.
-	if scope, ok := requestScope(r.Context()); ok && !scope.All {
+	if scope, ok := devicescope.FromContext(r.Context()); ok && !scope.All {
 		problem(w, 403, "管理外部数据接入需要全部设备范围；执行用户可单独限制设备范围")
 		return false
 	}
@@ -397,7 +398,7 @@ func (s *Server) authorizeExternalSource(ctx context.Context, tenant string, src
 		c := auth.Claims{Username: src.Username, TenantID: tenant, Role: "admin"}
 		ctx = context.WithValue(ctx, claimsKey, c)
 		ctx = auth.ContextWithClaims(ctx, c)
-		return context.WithValue(ctx, deviceScopeKey{}, deviceScope{Tenant: tenant, All: true}), nil
+		return devicescope.With(ctx, devicescope.Scope{Tenant: tenant, All: true}), nil
 	}
 	state, err := s.authorizationAccess(ctx, tenant)
 	if err != nil {
@@ -425,7 +426,7 @@ func (s *Server) authorizeExternalSource(ctx context.Context, tenant string, src
 		ctx = context.WithValue(ctx, claimsKey, c)
 		ctx = auth.ContextWithClaims(ctx, c)
 		ctx = context.WithValue(ctx, permissionsKey{}, permissions)
-		ctx = context.WithValue(ctx, deviceScopeKey{}, scope)
+		ctx = devicescope.With(ctx, scope)
 		return ctx, nil
 	}
 	return ctx, errExternalDenied

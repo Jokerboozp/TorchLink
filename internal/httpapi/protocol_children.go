@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"iot-platform/internal/devicescope"
 	"iot-platform/internal/model"
 	"net/http"
 )
@@ -8,7 +9,7 @@ import (
 // Register a child only through a configured parent mapping. The repository
 // derives the stable child ID from tenant, parent and address and handles retries.
 func (s *Server) registerConfiguredChild(w http.ResponseWriter, r *http.Request) {
-	if limited(r.Context()) {
+	if devicescope.Limited(r.Context()) {
 		problem(w, 403, "登记子设备需要全部设备范围")
 		return
 	}

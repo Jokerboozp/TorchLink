@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/google/uuid"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"math"
 	"net/http"
@@ -399,7 +400,7 @@ func (a *app) connectMQTT() {
 func (a *app) buildEngine() {
 	cfg, log := a.cfg, a.log
 	a.parsers = parser.NewPlatformRegistry(cfg.DataDir)
-	engine := core.New(httpapi.ScopedRepository(a.repo), a.archive, a.bus, a.realtime, a.parsers, log)
+	engine := core.New(devicescope.Wrap(a.repo), a.archive, a.bus, a.realtime, a.parsers, log)
 	a.engine = engine
 	engine.AIRuns = a.aiRunStore
 	engine.AIConversations = a.conversationStore

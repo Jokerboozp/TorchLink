@@ -2,11 +2,10 @@ package httpapi
 
 import (
 	"context"
-	"slices"
+	"iot-platform/internal/devicescope"
 	"sync"
 
 	"iot-platform/internal/model"
-	"iot-platform/internal/sites"
 )
 
 // accessCache keeps each tenant's access state for request authorization.
@@ -26,26 +25,7 @@ const maxCachedAccess = 4096
 type cachedAccess struct {
 	state        model.AccessState
 	siteRevision int64
-	sites        *siteIndex
-}
-
-// siteIndex resolves unit grants: the unit each placed device belongs to and
-// the devices of each unit. One index per tenant and site revision is shared
-// by every request, so unit grants cost no per-user copies.
-type siteIndex struct {
-	unitOf  map[string]string
-	devices map[string][]string
-}
-
-func newSiteIndex(state model.SiteState) *siteIndex {
-	index := &siteIndex{unitOf: sites.DeviceUnits(state), devices: map[string][]string{}}
-	for device, unit := range index.unitOf {
-		index.devices[unit] = append(index.devices[unit], device)
-	}
-	for _, list := range index.devices {
-		slices.Sort(list)
-	}
-	return index
+	sites        *devicescope.UnitIndex
 }
 
 // authorizationAccess returns the tenant's current access state for
@@ -79,7 +59,7 @@ func (s *Server) authorizationAccess(ctx context.Context, tenant string) (model.
 	if err != nil {
 		return state, err
 	}
-	entry := cachedAccess{state: state, siteRevision: siteState.Revision, sites: newSiteIndex(siteState)}
+	entry := cachedAccess{state: state, siteRevision: siteState.Revision, sites: devicescope.NewUnitIndex(siteState)}
 	if revision == 0 && len(state.Users) == 0 && len(state.Roles) == 0 && len(state.APIKeys) == 0 {
 		// A tenant without stored access grants nobody anything; caching it
 		// would only let invented tenant names fill the cache.
@@ -104,7 +84,7 @@ func (s *Server) authorizationAccess(ctx context.Context, tenant string) (model.
 
 // cachedSiteIndex returns the site index cached with the tenant's access
 // state, loaded by the authorizationAccess call that preceded it.
-func (s *Server) cachedSiteIndex(tenant string) *siteIndex {
+func (s *Server) cachedSiteIndex(tenant string) *devicescope.UnitIndex {
 	s.access.mu.Lock()
 	defer s.access.mu.Unlock()
 	return s.access.entries[tenant].sites

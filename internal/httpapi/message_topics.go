@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iot-platform/internal/devicescope"
 	"net/http"
 	"slices"
 	"strconv"
@@ -133,7 +134,7 @@ func (s *Server) listMessageTopics(w http.ResponseWriter, r *http.Request) {
 }
 
 func messageTopicWriteAllowed(w http.ResponseWriter, r *http.Request) bool {
-	if limited(r.Context()) {
+	if devicescope.Limited(r.Context()) {
 		problem(w, 403, "配置消息主题需要全部设备范围及设备管理菜单权限")
 		return false
 	}

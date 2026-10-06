@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -42,7 +43,7 @@ func TestHTTPWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}, parser.JavaScriptParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}, parser.JavaScriptParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	installEndpointWorkflows(engine)
 	engine.AIPlugins = aiadapter.NewProviderRegistry()
 	engine.KB = knowledge.NewLocal()
@@ -405,7 +406,7 @@ func TestComponentAlarmAPIAndBrowser(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(root), log)
 	if err = repo.CreateProtocolRelease(ctx, model.ProtocolRelease{TenantID: "tenant", ProtocolID: parser.StandardProtocolID, Version: "1.0.0", ParserType: parser.StandardParserName, Status: "PUBLISHED"}); err != nil {
 		t.Fatal(err)
 	}

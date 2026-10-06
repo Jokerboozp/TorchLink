@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"net/http/httptest"
 	"slices"
@@ -32,7 +33,7 @@ func TestMessageTopicsCRUDPermissionsAndPublishing(t *testing.T) {
 	repo := &topicAuditRepository{Repository: memory.NewRepository()}
 	realtime := local.NewRealtime()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), nil, local.NewBus(), realtime, nil, log)
+	engine := core.New(devicescope.Wrap(repo), nil, local.NewBus(), realtime, nil, log)
 	cfg := config.Load()
 	cfg.AdminUser, cfg.AdminPassword, cfg.AdminTenants = "root", "root-password-test", []string{"tenant_a", "tenant_b"}
 	cfg.JWTSecret = "test-message-topics-secret-at-least-32"
@@ -129,7 +130,7 @@ func TestMessageTopicKeysCredentialsAndBoundScope(t *testing.T) {
 	repo := memory.NewRepository()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	realtime := local.NewRealtime()
-	engine := core.New(ScopedRepository(repo), nil, local.NewBus(), realtime, nil, log)
+	engine := core.New(devicescope.Wrap(repo), nil, local.NewBus(), realtime, nil, log)
 	cfg := config.Load()
 	cfg.AdminUser, cfg.AdminPassword, cfg.AdminTenants = "root", "test-password", []string{"tenant_a", "tenant_b"}
 	cfg.JWTSecret = "topic-consumer-test-secret-long-enough"
@@ -315,7 +316,7 @@ func newKafkaTopicAPI(t *testing.T, secret string) (*Server, *memory.Repository,
 	cfg.JWTSecret = secret
 	cfg.KafkaBrokers = []string{"broker:9092"}
 	cfg.KafkaPublicBrokers = cfg.KafkaBrokers
-	engine := core.New(ScopedRepository(repo), nil, local.NewBus(), local.NewRealtime(), nil, log)
+	engine := core.New(devicescope.Wrap(repo), nil, local.NewBus(), local.NewRealtime(), nil, log)
 	return New(cfg, engine, metrics.New(), log), repo, engine
 }
 

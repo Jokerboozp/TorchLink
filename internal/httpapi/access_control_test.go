@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"io"
 	"iot-platform/internal/aiworkflow"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -812,11 +813,11 @@ func (r *noFullRegistryRepo) ListManagedDevices(ctx context.Context, tenant stri
 }
 func TestScopedChildCountsStayInStorage(t *testing.T) {
 	base := &noFullRegistryRepo{Repository: memory.NewRepository()}
-	ctx := context.WithValue(context.Background(), deviceScopeKey{}, deviceScope{Tenant: "t", IDs: map[string]bool{"g": true, "c": true, "x": true}})
+	ctx := devicescope.With(context.Background(), devicescope.Scope{Tenant: "t", IDs: map[string]bool{"g": true, "c": true, "x": true}})
 	for _, d := range []model.ManagedDevice{{TenantID: "t", ID: "c", GatewayID: "g"}, {TenantID: "t", ID: "hidden", GatewayID: "g"}, {TenantID: "t", ID: "x", GatewayID: "other"}} {
 		_ = base.SaveManagedDevice(ctx, d)
 	}
-	counts, err := ScopedRepository(base).CountManagedDeviceChildren(ctx, "t", []string{"g"})
+	counts, err := devicescope.Wrap(base).CountManagedDeviceChildren(ctx, "t", []string{"g"})
 	if err != nil || counts["g"] != 1 || len(counts) != 1 || base.fullReads != 0 {
 		t.Fatalf("counts=%v fullRegistryReads=%d err=%v", counts, base.fullReads, err)
 	}
@@ -826,13 +827,13 @@ func TestScopedChildCountsStayInStorage(t *testing.T) {
 // store over the grant, without reading the tenant's registry.
 func TestScopedChildrenAndStateCountsStayInStorage(t *testing.T) {
 	base := &noFullRegistryRepo{Repository: memory.NewRepository()}
-	ctx := context.WithValue(context.Background(), deviceScopeKey{}, deviceScope{Tenant: "t", IDs: map[string]bool{"g": true, "c1": true, "c3": true}})
+	ctx := devicescope.With(context.Background(), devicescope.Scope{Tenant: "t", IDs: map[string]bool{"g": true, "c1": true, "c3": true}})
 	for _, d := range []model.ManagedDevice{{ID: "g"}, {ID: "c1", GatewayID: "g"}, {ID: "c2", GatewayID: "g"}, {ID: "c3", GatewayID: "g"}} {
 		d.TenantID, d.AccessKey = "t", "ak-"+d.ID
 		_ = base.SaveManagedDevice(ctx, d)
 		_ = base.UpsertDeviceState(ctx, model.DeviceState{TenantID: "t", DeviceID: d.ID, BusinessStatus: "ONLINE"})
 	}
-	repo := ScopedRepository(base)
+	repo := devicescope.Wrap(base)
 	page, total, err := repo.ListManagedDeviceChildren(ctx, "t", "g", 1, 1)
 	if err != nil || total != 2 || len(page) != 1 || page[0].ID != "c3" || base.fullReads != 0 {
 		t.Fatalf("children page=%v total=%d reads=%d err=%v", page, total, base.fullReads, err)
@@ -849,13 +850,13 @@ func TestScopedChildrenAndStateCountsStayInStorage(t *testing.T) {
 // alarms, and are computed by the store.
 func TestScopedOverviewCountsStayInStorage(t *testing.T) {
 	base := &noFullRegistryRepo{Repository: memory.NewRepository()}
-	ctx := context.WithValue(context.Background(), deviceScopeKey{}, deviceScope{Tenant: "t", IDs: map[string]bool{"a": true}})
+	ctx := devicescope.With(context.Background(), devicescope.Scope{Tenant: "t", IDs: map[string]bool{"a": true}})
 	for _, id := range []string{"a", "b"} {
 		_ = base.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ID: id, Status: "ENABLED", AccessKey: "ak-" + id})
 		_ = base.UpsertDeviceState(ctx, model.DeviceState{TenantID: "t", DeviceID: id, BusinessStatus: "ONLINE", LastSeenAt: 10})
 		_, _, _ = base.UpsertAlarm(ctx, model.Alarm{TenantID: "t", ID: "alarm-" + id, DeviceID: id, Status: "ACTIVE", AlarmLevel: "HIGH", LastTriggeredAt: 10})
 	}
-	repo := ScopedRepository(base)
+	repo := devicescope.Wrap(base)
 	devices, err := repo.DeviceOverviewCounts(ctx, "t", false, nil)
 	if err != nil || devices.Total != 1 || devices.Reported != 1 || devices.DiscoveredUnregistered != 0 || base.fullReads != 0 {
 		t.Fatalf("devices=%+v fullRegistryReads=%d err=%v", devices, base.fullReads, err)
@@ -909,7 +910,7 @@ func TestAIRejectsPermissionChangesDuringKnowledgePrefetch(t *testing.T) {
 			}
 			permissions := effectivePermissions(state, user)
 			requestCtx := context.WithValue(ctx, permissionsKey{}, permissions)
-			requestCtx = context.WithValue(requestCtx, deviceScopeKey{}, (&Server{}).scopeFor(user, permissions, "tenant-a"))
+			requestCtx = devicescope.With(requestCtx, (&Server{}).scopeFor(user, permissions, "tenant-a"))
 			c := auth.Claims{TenantID: "tenant-a", Username: "expert", TokenUse: "user", SessionVersion: 1}
 			workflows := &aitest.Workflows{}
 			engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, AIWorkflows: workflows, HarnessTokens: aitest.Tokens()}
@@ -1176,7 +1177,7 @@ func toStrings(v any) []string {
 }
 
 // Every repository read that returns device data must be narrowed by
-// deviceScopeRepository, or be listed here with the reason it cannot leak
+// devicescope.Repository, or be listed here with the reason it cannot leak
 // devices outside the caller's scope. A new method fails until it is decided.
 func TestRepositoryDeviceReadsFollowDeviceScope(t *testing.T) {
 	reviewed := map[string]string{
@@ -1205,7 +1206,8 @@ func TestRepositoryDeviceReadsFollowDeviceScope(t *testing.T) {
 		"LoadMessageTopicConfig":        "消息主题服务按主题绑定用户的范围过滤",
 		"LoadSiteState":                 "单位建筑接口逐个点位按设备范围过滤",
 	}
-	sources, err := filepath.Glob("*.go")
+	// The scope wrapper lives in internal/devicescope; collect the methods it declares.
+	sources, err := filepath.Glob("../devicescope/*.go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1220,7 +1222,7 @@ func TestRepositoryDeviceReadsFollowDeviceScope(t *testing.T) {
 		}
 		for _, decl := range file.Decls {
 			if fn, ok := decl.(*ast.FuncDecl); ok && fn.Recv != nil {
-				if star, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok && fmt.Sprint(star.X) == "deviceScopeRepository" {
+				if star, ok := fn.Recv.List[0].Type.(*ast.StarExpr); ok && fmt.Sprint(star.X) == "Repository" {
 					wrapped[fn.Name.Name] = true
 				}
 			}
@@ -1235,7 +1237,7 @@ func TestRepositoryDeviceReadsFollowDeviceScope(t *testing.T) {
 		}
 		switch {
 		case carries && !wrapped[method.Name] && reviewed[method.Name] == "":
-			t.Errorf("%s returns device data: narrow it in deviceScopeRepository or record why it cannot leak", method.Name)
+			t.Errorf("%s returns device data: narrow it in devicescope.Repository or record why it cannot leak", method.Name)
 		case reviewed[method.Name] != "" && (!carries || wrapped[method.Name]):
 			t.Errorf("%s no longer needs a reviewed exception", method.Name)
 		}

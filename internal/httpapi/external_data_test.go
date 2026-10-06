@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"iot-platform/internal/devicescope"
 	"iot-platform/internal/netguard"
 	"log/slog"
 	"net"
@@ -41,7 +42,7 @@ func externalAPIFixture(t *testing.T) (*Server, *memory.Repository, context.Cont
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
 	if err = engine.Start(ctx); err != nil {
 		t.Fatal(err)
 	}

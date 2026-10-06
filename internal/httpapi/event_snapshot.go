@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"iot-platform/internal/devicescope"
 	"sync"
 	"time"
 
@@ -152,7 +153,7 @@ func loadEventSnapshot(ctx context.Context, repo eventSnapshotStore, tenant stri
 func scopedEventAlarms(ctx context.Context, tenant string, rows []model.Alarm) []model.Alarm {
 	out := []model.Alarm{}
 	for _, v := range rows {
-		if deviceAllowed(ctx, tenant, v.DeviceID) {
+		if devicescope.Allowed(ctx, tenant, v.DeviceID) {
 			out = append(out, v)
 		}
 	}
@@ -162,7 +163,7 @@ func scopedEventAlarms(ctx context.Context, tenant string, rows []model.Alarm) [
 func scopedEventStates(ctx context.Context, tenant string, rows []model.DeviceState) []model.DeviceState {
 	out := []model.DeviceState{}
 	for _, v := range rows {
-		if deviceAllowed(ctx, tenant, v.DeviceID) {
+		if devicescope.Allowed(ctx, tenant, v.DeviceID) {
 			out = append(out, v)
 		}
 	}

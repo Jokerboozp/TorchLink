@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"iot-platform/internal/devicescope"
 	"iot-platform/internal/logctx"
 	"log/slog"
 	"net/http"
@@ -341,8 +342,8 @@ func TestSplitGatewayHTTPFlow(t *testing.T) {
 	bus := local.NewBus()
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	// Separate engines, shared test repository and queue. Only the API consumes Raw.
-	gatewayEngine := core.New(ScopedRepository(repo), archive, bus, local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
-	apiEngine := core.New(ScopedRepository(repo), archive, bus, local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	gatewayEngine := core.New(devicescope.Wrap(repo), archive, bus, local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	apiEngine := core.New(devicescope.Wrap(repo), archive, bus, local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
 	if err = apiEngine.Start(ctx); err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +433,7 @@ func TestExecutionRouteUsesTenantLeaseAndPreservesAuth(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
 	cfg := config.Load()
 	cfg.ProcessRole = "gateway"
 	cfg.AccessCoordination = true
@@ -491,7 +492,7 @@ func TestWorkerRolesServeOnlyHealthAndMetrics(t *testing.T) {
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, role := range []string{config.RoleParser, config.RoleProcessor, config.RoleJobs} {
-		engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+		engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
 		cfg := config.Load()
 		cfg.ProcessRole, cfg.InstanceID = role, role+"-1"
 		registry := metrics.New()
@@ -545,7 +546,7 @@ func TestVideoRoutesFollowTheControlOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(ScopedRepository(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewPlatformRegistry(t.TempDir()), log)
 	server := New(config.Load(), engine, metrics.New(), log)
 	var forwarded atomic.Int32
 	owner := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

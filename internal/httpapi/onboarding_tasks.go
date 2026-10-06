@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"iot-platform/internal/devicescope"
 	"net/http"
 	"time"
 
@@ -37,13 +38,13 @@ func (s *Server) authorizeOnboardingTask(ctx context.Context, tenant string, own
 		if owner.Username != s.cfg.AdminUser || !adminTenantAllowed(s.cfg.AdminTenants, tenant) {
 			return ctx, denied
 		}
-		return context.WithValue(ctx, deviceScopeKey{}, deviceScope{Tenant: tenant, All: true}), nil
+		return devicescope.With(ctx, devicescope.Scope{Tenant: tenant, All: true}), nil
 	}
 	user, p, err := s.managedIdentity(ctx, auth.Claims{TenantID: tenant, Username: owner.Username, TokenUse: "user", SessionVersion: owner.SessionVersion})
 	if err != nil || user.DeviceScope != "all" || !allowsRoute(p, "POST", "/api/v1/device-registry") {
 		return ctx, denied
 	}
-	ctx = context.WithValue(ctx, deviceScopeKey{}, s.scopeFor(user, p, tenant))
+	ctx = devicescope.With(ctx, s.scopeFor(user, p, tenant))
 	ctx = context.WithValue(ctx, permissionsKey{}, p)
 	return ctx, nil
 }
@@ -69,7 +70,7 @@ func (s *Server) authorizeTemplateDraft(ctx context.Context, tenant string, owne
 	if err != nil || u.DeviceScope != "all" || !p["menu:products"] || !(allowsRoute(p, "POST", "/api/v1/products") || allowsRoute(p, "PUT", "/api/v1/products/:id")) {
 		return ctx, &onboarding.EnrollError{Status: 403, Message: "当前账号不能编辑设备模板或设备范围已变化"}
 	}
-	ctx = context.WithValue(ctx, deviceScopeKey{}, s.scopeFor(u, p, tenant))
+	ctx = devicescope.With(ctx, s.scopeFor(u, p, tenant))
 	return context.WithValue(ctx, permissionsKey{}, p), nil
 }
 
