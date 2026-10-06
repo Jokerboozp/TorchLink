@@ -107,9 +107,12 @@ type rate struct {
 	value       float64
 }
 
+// New returns a registry with every counter that alert rules watch already
+// exported as 0: increase() over a series that appears with its first event
+// misses that event, so a first failure would not alert.
 func New() *Registry {
 	counters := map[string]uint64{}
-	for _, name := range []string{"raw_archive_success_total", "raw_archive_failed_total", "raw_publish_failed_total", "parse_failed_total", "parse_success_total", "alarm_trigger_total", "video_alarm_ingest_total", "video_alarm_failed_total", "video_media_transfer_success_total", "video_media_transfer_failed_total", "ai_analysis_success_total", "ai_analysis_failed_total", "ai_analysis_timeout_total", "mqtt_archive_receipt_total", "dlq_published_total", "retention_failed_total", "retention_deleted_total", "notification_sent_total", "notification_failed_total", "event_publish_failed_total", "audit_write_failed_total"} {
+	for _, name := range []string{"raw_archive_success_total", "raw_archive_failed_total", "raw_publish_failed_total", "parse_failed_total", "parse_success_total", "alarm_trigger_total", "video_alarm_ingest_total", "video_alarm_failed_total", "video_media_transfer_success_total", "video_media_transfer_failed_total", "ai_analysis_success_total", "ai_analysis_failed_total", "ai_analysis_timeout_total", "mqtt_archive_receipt_total", "dlq_published_total", "retention_failed_total", "retention_deleted_total", "notification_sent_total", "notification_failed_total", "event_publish_failed_total", "audit_write_failed_total", "partition_maintenance_failed_total", "parsed_mqtt_publish_failed_total", "consumer_retry_total", "retention_partitions_dropped_total"} {
 		counters[name] = 0
 	}
 	gauges := map[string]float64{"raw_publish_stalled": 0, "storage_latency_ms": 0, "mqtt_inflight_messages": 0, "mqtt_subscription_count": 0, "mqtt_ws_client_count": 0, "kafka_lag": 0}
