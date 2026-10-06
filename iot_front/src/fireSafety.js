@@ -59,6 +59,15 @@ const tones = {
 }
 export const statusLabel = value => labels[String(value || '').toLowerCase()] || value || '—'
 export const statusTone = value => tones[String(value || '').toLowerCase()] || 'neutral'
+// 消防站、人员与班次的名称查找，options 为 /api/v1/fire-safety/options 的结果，找不到时显示原编号。
+export function optionLabels(options) {
+  const name = (rows, id) => rows.find(row => row.id === id)?.name || id || '—'
+  return {
+    stationName: id => name(options.stations, id),
+    personName: id => name(options.personnel, id),
+    shiftName: id => name(options.shifts, id)
+  }
+}
 const pad = value => String(value).padStart(2, '0')
 
 export function toDateInput(value = Date.now()) {

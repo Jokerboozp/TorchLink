@@ -13,7 +13,7 @@ const pageStubs = {
   toRef
 }
 
-function component(api, exports, overrides = {}) {
+function component(api, exports, { source: file = new URL('../src/views/DutyView.vue', import.meta.url), ...overrides } = {}) {
   const warnings = [],
     errors = []
   const context = vm.createContext({
@@ -34,10 +34,28 @@ function component(api, exports, overrides = {}) {
     confirmDelete: async () => {},
     ...overrides
   })
-  const source = setupScript(new URL('../src/views/DutyView.vue', import.meta.url))
+  const source = setupScript(file)
   return { ...vm.runInContext(source + '\n;({' + exports + '})', context), warnings, errors }
 }
 const settle = () => new Promise(resolve => setImmediate(resolve))
+
+// Runs a duty dialog's setup with the given props; the dialog starts open and reset() mirrors opening it.
+function dialog(name, exports, props = {}, overrides = {}) {
+  const emitted = []
+  const c = component(null, exports + ',reset,visible', {
+    defineModel: () => ref(true),
+    defineProps: () => reactive({ options: { stations: [], personnel: [], shifts: [] }, target: null, ...props }),
+    defineEmits:
+      () =>
+      (...args) =>
+        emitted.push(args),
+    watch() {},
+    ...overrides,
+    source: new URL(`../src/components/duty/${name}.vue`, import.meta.url)
+  })
+  c.reset()
+  return Object.assign(c, { emitted })
+}
 
 test('班次按本地日期生成时段，跨日包含月底及年度边界', () => {
   const [startAt, endAt] = fireSafety.shiftRange('2026-12-31', '23:00', '07:00')
@@ -170,15 +188,22 @@ test('排班列表只接纳最近一次请求，删除末页后修正页码', as
 test('多人排班提交保留版本与实际时段，重复点击只发送一次', async () => {
   let resolveSave
   const mutations = []
-  const c = component(async (path, request) => {
-    if (request?.method) {
-      mutations.push({ path, request, body: JSON.parse(request.body) })
-      await new Promise(resolve => {
-        resolveSave = resolve
-      })
+  const c = dialog(
+    'DutyAssignmentDialog',
+    'assignment,saveAssignment,saving',
+    {},
+    {
+      api: async (path, request) => {
+        if (request?.method) {
+          mutations.push({ path, request, body: JSON.parse(request.body) })
+          await new Promise(resolve => {
+            resolveSave = resolve
+          })
+        }
+        return { items: [], total: 0 }
+      }
     }
-    return { items: [], total: 0 }
-  }, 'assignment,saveAssignment,saving')
+  )
   const [startAt, endAt] = fireSafety.shiftRange('2026-10-01', '08:00', '17:00')
   Object.assign(c.assignment, {
     id: 'schedule/1',
@@ -200,47 +225,62 @@ test('多人排班提交保留版本与实际时段，重复点击只发送一�
   resolveSave()
   await first
   assert.equal(c.saving.value, false)
+  assert.equal(c.visible.value, false)
+  assert.deepEqual(c.emitted, [['saved']])
 })
 
 test('换站清除跨站人员，自申请审批既不显示也不提交', async () => {
   const mutations = []
-  const c = component(async (path, request) => {
+  const api = async (path, request) => {
     if (request?.method) mutations.push(path)
     return { items: [], total: 0 }
-  }, 'assignment,options,changeAssignmentStation,canReview,reviewTarget,saveReview,openSwap,swap,swapToChoices')
-  c.options.personnel = [
-    { id: 'p1', stationId: 'one', enabled: true },
-    { id: 'p2', stationId: 'two', enabled: true },
-    { id: 'p3', stationId: 'two', enabled: true }
-  ]
-  Object.assign(c.assignment, { stationId: 'two', personnelIds: ['p1', 'p2'] })
-  c.changeAssignmentStation()
-  assert.deepEqual([...c.assignment.personnelIds], ['p2'])
-  c.openSwap({ id: 'assignment', stationId: 'two', personnelIds: ['p2'] })
+  }
+  const options = {
+    stations: [],
+    personnel: [
+      { id: 'p1', stationId: 'one', enabled: true },
+      { id: 'p2', stationId: 'two', enabled: true },
+      { id: 'p3', stationId: 'two', enabled: true }
+    ],
+    shifts: []
+  }
+  const editor = dialog('DutyAssignmentDialog', 'assignment,changeAssignmentStation', { options }, { api })
+  Object.assign(editor.assignment, { stationId: 'two', personnelIds: ['p1', 'p2'] })
+  editor.changeAssignmentStation()
+  assert.deepEqual([...editor.assignment.personnelIds], ['p2'])
+  const swap = dialog(
+    'DutySwapDialog',
+    'swap,swapToChoices',
+    { options, target: { id: 'assignment', stationId: 'two', personnelIds: ['p2'] } },
+    { api }
+  )
+  assert.equal(swap.swap.fromPersonnelId, 'p2')
   assert.deepEqual(
-    c.swapToChoices.value.map(row => row.id),
+    swap.swapToChoices.value.map(row => row.id),
     ['p3']
   )
-  c.reviewTarget.value = { id: 'swap', version: 2, status: 'pending', requestedBy: 'operator' }
-  assert.equal(c.canReview(c.reviewTarget.value), false)
-  await c.saveReview()
+  const own = { id: 'swap', version: 2, status: 'pending', requestedBy: 'operator' }
+  assert.equal(component(api, 'canReview').canReview(own), false)
+  const review = dialog('DutyReviewDialog', 'canReview,saveReview', { options, target: own }, { api })
+  assert.equal(review.canReview(own), false)
+  await review.saveReview()
   assert.equal(mutations.length, 0)
 })
 
 test('没有对应写权限时保存排班及审批都不会发起请求', async () => {
   const mutations = []
-  const c = component(
-    async (path, request) => {
+  const overrides = {
+    api: async (path, request) => {
       if (request?.method) mutations.push(path)
       return { items: [], total: 0 }
     },
-    'assignment,saveAssignment,reviewTarget,saveReview',
-    { can: () => false }
-  )
-  Object.assign(c.assignment, { stationId: 'station', shiftId: 'day', personnelIds: ['person'], startAt: 1, endAt: 2 })
-  await c.saveAssignment()
-  c.reviewTarget.value = { id: 'swap', version: 2, status: 'pending', requestedBy: 'another-user' }
-  await c.saveReview()
+    can: () => false
+  }
+  const editor = dialog('DutyAssignmentDialog', 'assignment,saveAssignment', {}, overrides)
+  Object.assign(editor.assignment, { stationId: 'station', shiftId: 'day', personnelIds: ['person'], startAt: 1, endAt: 2 })
+  await editor.saveAssignment()
+  const target = { id: 'swap', version: 2, status: 'pending', requestedBy: 'another-user' }
+  await dialog('DutyReviewDialog', 'saveReview', { target }, overrides).saveReview()
   assert.equal(mutations.length, 0)
 })
 
@@ -276,11 +316,18 @@ test('换班列表和审批使用服务端关联排班，跨月及列表分页�
 
 test('创建换班只提交申请字段，服务端关联与审批字段不会回传', async () => {
   const mutations = []
-  const c = component(async (path, request) => {
-    if (request?.method) mutations.push({ path, body: JSON.parse(request.body) })
-    return { items: [], total: 0 }
-  }, 'openSwap,swap,saveSwap')
-  c.openSwap({ id: 'assignment', personnelIds: ['from'], assignment: { id: 'unrelated' }, requestedBy: 'server', version: 8 })
+  const target = { id: 'assignment', personnelIds: ['from'], assignment: { id: 'unrelated' }, requestedBy: 'server', version: 8 }
+  const c = dialog(
+    'DutySwapDialog',
+    'swap,saveSwap',
+    { target },
+    {
+      api: async (path, request) => {
+        if (request?.method) mutations.push({ path, body: JSON.parse(request.body) })
+        return { items: [], total: 0 }
+      }
+    }
+  )
   Object.assign(c.swap, {
     toPersonnelId: 'to',
     reason: ' 调整人员 ',
@@ -292,6 +339,20 @@ test('创建换班只提交申请字段，服务端关联与审批字段不会�
   assert.deepEqual(mutations, [
     { path: '/api/v1/duty/swaps', body: { assignmentId: 'assignment', fromPersonnelId: 'from', toPersonnelId: 'to', reason: '调整人员' } }
   ])
+  assert.deepEqual(c.emitted, [['saved']])
+})
+
+test('新增排班按默认消防站与首个班次带入时段，详情打开时复制原人员', () => {
+  const options = { stations: [], personnel: [], shifts: [{ id: 'day', startTime: '08:00', endTime: '17:00' }] }
+  const created = dialog('DutyAssignmentDialog', 'assignment,assignmentDate', { options, date: '2026-10-01', stationId: 'station' })
+  assert.equal(created.assignment.stationId, 'station')
+  assert.equal(created.assignment.shiftId, 'day')
+  assert.deepEqual([created.assignment.startAt, created.assignment.endAt], fireSafety.shiftRange('2026-10-01', '08:00', '17:00'))
+  const row = { id: 'a', version: 3, stationId: 's', shiftId: 'day', personnelIds: ['p'], startAt: 1, endAt: 2 }
+  const opened = dialog('DutyAssignmentDialog', 'assignment', { options, target: row })
+  opened.assignment.personnelIds.push('q')
+  assert.deepEqual(row.personnelIds, ['p'])
+  assert.equal(opened.assignment.version, 3)
 })
 
 test('批量排班按日期逐日生成并按组轮换，超出范围或缺少人员时拒绝', () => {

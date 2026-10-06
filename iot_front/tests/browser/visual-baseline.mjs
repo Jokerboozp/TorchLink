@@ -39,10 +39,13 @@ const variants = [
 ]
 const [mode, first, second] = process.argv.slice(2)
 
-// Scoped style hashes change when components move between files; they are not structure.
+// Scoped style hashes change when components move between files; they are not structure. Empty
+// comments are v-if placeholders that render nothing, and the click wave reflects the last click.
 const normalize = html =>
   html
     .replace(/ data-v-[0-9a-f]{8}(="")?/g, '')
+    .replace(/<!---->/g, '')
+    .replace(/ n-base-wave--active/g, '')
     .replace(/ data-n-id="[^"]*"/g, '')
     .replace(/ (id|for|aria-controls|aria-labelledby|aria-describedby)="[^"]*\d[^"]*"/g, ' $1="#"')
     .replace(/></g, '>\n<')
