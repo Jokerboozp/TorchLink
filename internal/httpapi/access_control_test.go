@@ -643,7 +643,10 @@ func testAssistantDeviceScope(t *testing.T, inherited bool) {
 	tool(aiOnly.MCPToken, "query_alarm_list", nil, true)
 	// Required knowledge evidence must not trigger an unauthorized prefetch.
 	must(repo.SaveWorkflowKnowledgeBinding(ctx, model.WorkflowKnowledgeBinding{TenantID: "tenant-a", WorkflowID: "required-kb", RetrievalMode: "always", NoMatchPolicy: "require-evidence", TopK: 5}))
-	req("POST", "/api/v1/ai/chat", token, map[string]any{"question": "查询知识", "workflowId": "required-kb"}, 502)
+	// The refusal is the user's missing grant, reported as such (not a gateway error).
+	if v := req("POST", "/api/v1/ai/chat", token, map[string]any{"question": "查询知识", "workflowId": "required-kb"}, 403); v["code"] != "AI_REQUEST_REJECTED" {
+		t.Fatalf("missing knowledge grant must be a rejected request: %v", v)
+	}
 	// Disabling a user invalidates the already issued MCP credential.
 	user["enabled"] = false
 	req("PUT", "/api/v1/access/users/reader", root, user, 200)

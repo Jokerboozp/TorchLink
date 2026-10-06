@@ -1106,7 +1106,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 
 	runtime.fail = true
 	failedSync := requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/ai/chat", token, map[string]any{"question": "fail?"}, http.StatusBadGateway)
-	if errorMessage, _ := failedSync["detail"].(string); errorMessage != "AI workflow request failed" || strings.Contains(errorMessage, "sensitive internal runtime error") {
+	if errorMessage, _ := failedSync["detail"].(string); !strings.HasPrefix(errorMessage, "AI 工作流请求失败（编号 ") || strings.Contains(errorMessage, "sensitive internal runtime error") {
 		t.Fatalf("sync workflow leaked an internal error: %#v", failedSync)
 	}
 	failedReq, _ := http.NewRequest(http.MethodPost, server.URL+"/api/v1/ai/chat/stream", bytes.NewBufferString(`{"question":"fail?"}`))
