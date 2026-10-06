@@ -691,7 +691,7 @@ Windows 使用 `scripts/generate-tls-cert.ps1 -HostName <地址>`（需要 opens
 
 - **升级方式**：迁移 `0010_partition_prepare` 在不阻塞写入的情况下为每张表建立包含分区键的唯一索引，并校验“所有已有行早于切换点”的约束（切换点为下下个月 1 日 UTC）；迁移 `0011_partition_large_tables` 在一个事务内把原表改名为 `<表>_legacy` 并作为切换点之前的分区挂上，不复制、不重扫数据，只短暂持有表锁（超过 60 秒拿不到锁则本次启动失败，下次重试）。大表首次升级的耗时主要在建索引和校验约束，建议低峰进行。
 - **旧数据**：`_legacy` 分区中的数据继续按天逐行清理，清空后自动删除。之后的月份各自成表，另有 `_default` 分区兜底；Jobs 进程每天提前创建本月及之后 3 个月的分区（不受 `IOT_RETENTION_ENABLED` 影响），失败计入 `partition_maintenance_failed_total`。
-- **消息去重**：分区表主键包含分区键，消息编号的唯一性由写入时的检查保证：原文仍以 `raw_ingest_reservation` 预约，标准消息在 `standard_message_key` 登记（保留期同原文去重预约）并检查各分区是否已有同一编号。
+- **消息去重**：分区表主键包含分区键，消息编号的唯一性由写入时的检查保证：原文仍以 `raw_ingest_reservation` 预约，标准消息在 `standard_message_key` 登记（保留期同原文去重预约）并检查各分区是否已有同一编号。这项跨分区检查不按接收时间收窄：2026-10-06 在 develop 虚拟机 PostgreSQL 上用 24 个月分区、240 万行测得每次检查约 200 µs，限定为一个月窗口约 16 µs；默认保留 180 天时只涉及约 7 个分区，收窄会让超出窗口的重复投递漏判，因此保留全分区检查。分区数明显增加时再评估。
 - **滚动升级**：旧版本的保留任务不识别分区表，升级到本版本时请先升级或停止所有 Jobs 进程（`combined` 或 `jobs`），避免旧进程在切换后执行清理。
 - 指标 `retention_partitions_dropped_total` 记录删除的分区数。实现见 `internal/adapters/postgres/partitions.go`。
 
