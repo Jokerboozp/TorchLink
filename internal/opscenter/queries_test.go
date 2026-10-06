@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -72,48 +73,53 @@ func TestOverviewKPIsReturnsOnlyTheRequestedGroup(t *testing.T) {
 // The overview page loads every KPI group in parallel; they must share one
 // Prometheus target listing instead of issuing one each.
 func TestOverviewKPIGroupsShareOneTargetListing(t *testing.T) {
-	prom := &overviewPrometheus{release: make(chan struct{})}
-	s := &Service{Metrics: prom}
-	var wg sync.WaitGroup
-	for _, group := range []string{"platform", "backup", "host", "observability"} {
-		wg.Add(1)
-		go func(group string) {
-			defer wg.Done()
-			if _, err := s.OverviewKPIs(context.Background(), group); err != nil {
-				t.Error(err)
-			}
-		}(group)
-	}
-	time.Sleep(50 * time.Millisecond)
-	close(prom.release)
-	wg.Wait()
-	if _, err := s.OverviewKPIs(context.Background(), "platform"); err != nil {
-		t.Fatal(err)
-	}
-	if calls := prom.targetCalls.Load(); calls != 1 {
-		t.Fatalf("target listing called %d times, want 1", calls)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		prom := &overviewPrometheus{release: make(chan struct{})}
+		s := &Service{Metrics: prom}
+		var wg sync.WaitGroup
+		for _, group := range []string{"platform", "backup", "host", "observability"} {
+			wg.Add(1)
+			go func(group string) {
+				defer wg.Done()
+				if _, err := s.OverviewKPIs(context.Background(), group); err != nil {
+					t.Error(err)
+				}
+			}(group)
+		}
+		// Every group is now waiting on the one shared listing.
+		synctest.Wait()
+		close(prom.release)
+		wg.Wait()
+		if _, err := s.OverviewKPIs(context.Background(), "platform"); err != nil {
+			t.Fatal(err)
+		}
+		if calls := prom.targetCalls.Load(); calls != 1 {
+			t.Fatalf("target listing called %d times, want 1", calls)
+		}
+	})
 }
 
 // A caller that gives up must not cancel the shared listing for others.
 func TestOverviewTargetsSurviveFirstCallerCancel(t *testing.T) {
-	prom := &overviewPrometheus{release: make(chan struct{})}
-	s := &Service{Metrics: prom}
-	first, cancel := context.WithCancel(context.Background())
-	firstDone := make(chan error, 1)
-	go func() { _, err := s.overviewTargets(first); firstDone <- err }()
-	time.Sleep(20 * time.Millisecond)
-	secondDone := make(chan error, 1)
-	go func() { _, err := s.overviewTargets(context.Background()); secondDone <- err }()
-	time.Sleep(20 * time.Millisecond)
-	cancel()
-	if err := <-firstDone; !errors.Is(err, context.Canceled) {
-		t.Fatalf("first caller: %v", err)
-	}
-	close(prom.release)
-	if err := <-secondDone; err != nil {
-		t.Fatalf("second caller should get the shared result: %v", err)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		prom := &overviewPrometheus{release: make(chan struct{})}
+		s := &Service{Metrics: prom}
+		first, cancel := context.WithCancel(context.Background())
+		firstDone := make(chan error, 1)
+		go func() { _, err := s.overviewTargets(first); firstDone <- err }()
+		synctest.Wait()
+		secondDone := make(chan error, 1)
+		go func() { _, err := s.overviewTargets(context.Background()); secondDone <- err }()
+		synctest.Wait()
+		cancel()
+		if err := <-firstDone; !errors.Is(err, context.Canceled) {
+			t.Fatalf("first caller: %v", err)
+		}
+		close(prom.release)
+		if err := <-secondDone; err != nil {
+			t.Fatalf("second caller should get the shared result: %v", err)
+		}
+	})
 }
 
 func TestComponentRejectsUnknownID(t *testing.T) {

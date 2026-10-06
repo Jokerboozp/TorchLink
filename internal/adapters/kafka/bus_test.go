@@ -13,6 +13,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/segmentio/kafka-go"
@@ -207,33 +208,35 @@ func TestConsumerKeepsPerKeyOrderAndRunsKeysInParallel(t *testing.T) {
 // A slow message holds back the commit of later offsets in its partition even
 // when those later messages finished first.
 func TestConsumerCommitsOnlyContiguousFinishedOffsets(t *testing.T) {
-	source := &fakeSource{messages: messages([]string{"slow", "a", "b", "c"}), exhausted: make(chan struct{}, 1)}
-	release := make(chan struct{})
-	handler := func(_ context.Context, payload []byte) error {
-		if strings.HasPrefix(string(payload), "slow") {
-			<-release
+	// Virtual time: the commit ticks pass without real waiting.
+	synctest.Test(t, func(t *testing.T) {
+		source := &fakeSource{messages: messages([]string{"slow", "a", "b", "c"}), exhausted: make(chan struct{}, 1)}
+		release := make(chan struct{})
+		handler := func(_ context.Context, payload []byte) error {
+			if strings.HasPrefix(string(payload), "slow") {
+				<-release
+			}
+			return nil
 		}
-		return nil
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	bus := New(nil)
-	go func() { bus.consume(ctx, source, "t", "g", 4, handler); close(done) }()
-	<-source.exhausted
-	time.Sleep(3 * commitInterval)
-	if got := source.lastCommit(0); got != -1 {
-		t.Fatalf("offsets after an unfinished message must not be committed, got %d", got)
-	}
-	close(release)
-	deadline := time.Now().Add(2 * time.Second)
-	for source.lastCommit(0) != 3 && time.Now().Before(deadline) {
-		time.Sleep(10 * time.Millisecond)
-	}
-	cancel()
-	<-done
-	if got := source.lastCommit(0); got != 3 {
-		t.Fatalf("finished prefix must be committed, got %d", got)
-	}
+		ctx, cancel := context.WithCancel(context.Background())
+		done := make(chan struct{})
+		bus := New(nil)
+		go func() { bus.consume(ctx, source, "t", "g", 4, handler); close(done) }()
+		<-source.exhausted
+		time.Sleep(3 * commitInterval)
+		synctest.Wait()
+		if got := source.lastCommit(0); got != -1 {
+			t.Fatalf("offsets after an unfinished message must not be committed, got %d", got)
+		}
+		close(release)
+		time.Sleep(2 * commitInterval)
+		synctest.Wait()
+		cancel()
+		<-done
+		if got := source.lastCommit(0); got != 3 {
+			t.Fatalf("finished prefix must be committed, got %d", got)
+		}
+	})
 }
 
 func TestOffsetTrackerTracksPartitionsIndependently(t *testing.T) {
