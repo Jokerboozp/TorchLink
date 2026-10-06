@@ -28,3 +28,6 @@ offline-bundles/
 # Cluster state from scripts/cluster-up.*: generated secrets and renderings.
 /.cluster/
 /tls/
+
+# Claude Code local worktrees and helpers
+.claude/worktrees/
