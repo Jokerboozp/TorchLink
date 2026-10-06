@@ -109,7 +109,7 @@ func TestAlarmAttachments(t *testing.T) {
 	user := map[string]any{"username": "other", "password": "other-password-1", "enabled": true, "permissions": []string{"menu:devices", "menu:alarms", "POST " + alarmAttachmentPath, "DELETE " + alarmAttachmentPath + "/:attachmentId"}, "deviceScope": "selected", "deviceIds": []string{"d2"}}
 	req("POST", "/api/v1/access/users", root, user, 200)
 	other := req("POST", "/api/v1/auth/login", "", map[string]any{"username": "other", "password": "other-password-1", "tenantId": "t"}, 200)["accessToken"].(string)
-	if resp, _ := get(path, other); resp.StatusCode != 403 {
+	if resp, _ := get(path, other); resp.StatusCode != 404 {
 		t.Fatalf("out-of-scope download %d", resp.StatusCode)
 	}
 	upload("fire", other, "x.png", photo.Bytes(), 403)

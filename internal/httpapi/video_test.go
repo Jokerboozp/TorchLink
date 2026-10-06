@@ -137,7 +137,7 @@ func TestVideoLiveAuthorizationBoundaries(t *testing.T) {
 	e.req("POST", "/api/v1/video/cameras/cam-d2/play-sessions", scoped, map[string]any{}, 403)
 	e.req("POST", "/api/v1/video/cameras/cam-free/play-sessions", scoped, map[string]any{}, 403)
 	e.req("GET", "/api/v1/video/cameras/cam-d2", scoped, nil, 404)
-	e.req("GET", "/api/v1/video/devices/d2/cameras", scoped, nil, 403)
+	e.req("GET", "/api/v1/video/devices/d2/cameras", scoped, nil, 404)
 	e.req("GET", "/api/v1/integrations/video/cameras", scoped, nil, 403)
 	e.req("PUT", "/api/v1/integrations/video/cameras/cam-d1/live", scoped, live, 403)
 	e.req("POST", "/api/v1/video/cameras/cam-d1/play-sessions", noplay, map[string]any{}, 403)

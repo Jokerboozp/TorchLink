@@ -96,7 +96,7 @@ func TestNotificationManagementAndRecipientScope(t *testing.T) {
 		t.Fatalf("timeline %v", timeline)
 	}
 	limited := req("POST", "/api/v1/auth/login", "", map[string]any{"username": "limited-user", "password": "notify-user-password", "tenantId": "t"}, 200)["accessToken"].(string)
-	req("GET", "/api/v1/alarms/a1/notifications", limited, nil, 403)
+	req("GET", "/api/v1/alarms/a1/notifications", limited, nil, 404)
 	// Managing notifications is tenant-wide and needs the full device scope.
 	req("GET", "/api/v1/notifications/policies", limited, nil, 403)
 }

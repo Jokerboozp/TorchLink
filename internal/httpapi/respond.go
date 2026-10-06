@@ -107,6 +107,19 @@ func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error
 	write(w, http.StatusInternalServerError, map[string]any{"type": "about:blank", "title": http.StatusText(http.StatusInternalServerError), "status": http.StatusInternalServerError, "detail": "服务内部错误，请稍后重试；如持续出现请提供编号 " + reference + " 联系管理员", "traceId": reference})
 }
 
+// scopeDenied answers a request about a device outside the caller's scope:
+// a read sees it as missing (404) so its existence is not disclosed, and a
+// change is refused with 403 and DEVICE_SCOPE_DENIED.
+func scopeDenied(w http.ResponseWriter, r *http.Request, detail string) {
+	if isRead(r.Method) {
+		problem(w, http.StatusNotFound, "资源不存在或无访问权限")
+		return
+	}
+	problemCode(w, http.StatusForbidden, codeDeviceScopeDenied, detail)
+}
+
+func isRead(method string) bool { return method == http.MethodGet || method == http.MethodHead }
+
 // statusError is a domain error that chooses its own HTTP status, such as an
 // onboarding.EnrollError.
 type statusError interface {
@@ -126,11 +139,7 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error, detail 
 	var domain *model.Error
 	switch {
 	case errors.Is(err, devicescope.ErrDenied):
-		if r.Method == http.MethodGet || r.Method == http.MethodHead {
-			problem(w, http.StatusNotFound, devicescope.ErrDenied.Error())
-		} else {
-			problemCode(w, http.StatusForbidden, codeDeviceScopeDenied, devicescope.ErrDenied.Error())
-		}
+		scopeDenied(w, r, devicescope.ErrDenied.Error())
 	case errors.As(err, &own):
 		problem(w, own.StatusCode(), own.Error())
 	case errors.As(err, &domain):

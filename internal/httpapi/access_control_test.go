@@ -278,12 +278,16 @@ func checkDeviceScopeHTTPIsolation(t *testing.T, repo ports.Repository) {
 			t.Fatalf("%s total=%v", path, v["total"])
 		}
 	}
-	if v := req("GET", "/api/v1/device-registry/device-01/connection", token, nil, 403); v["code"] != "DEVICE_SCOPE_DENIED" {
-		t.Fatalf("scope denial must be distinguishable: %v", v)
+	// A device outside the scope reads exactly like a missing one.
+	if v := req("GET", "/api/v1/device-registry/device-01/connection", token, nil, 404); v["code"] != nil {
+		t.Fatalf("a hidden device must not be disclosed: %v", v)
 	}
-	req("GET", "/api/v1/devices/device-01/properties/history?property=x", token, nil, 403)
-	req("GET", "/api/v1/alarms/alarm-device-01", token, nil, 403)
-	req("POST", "/api/v1/alarms/alarm-device-01/actions", token, map[string]string{"action": "ACK"}, 403)
+	req("GET", "/api/v1/devices/device-01/properties/history?property=x", token, nil, 404)
+	req("GET", "/api/v1/alarms/alarm-device-01", token, nil, 404)
+	// Changes to out-of-scope resources are refused with a distinguishable code.
+	if v := req("POST", "/api/v1/alarms/alarm-device-01/actions", token, map[string]string{"action": "ACK"}, 403); v["code"] != "DEVICE_SCOPE_DENIED" {
+		t.Fatalf("scope denial of a change must be distinguishable: %v", v)
+	}
 	req("GET", "/api/v1/raw-messages/raw-device-01", token, nil, 404)
 	req("GET", "/api/v1/alarms/alarm-device-00", token, nil, 200)
 	v := req("GET", "/api/v1/alarms?deviceId=device-01", token, nil, 200)
@@ -595,7 +599,7 @@ func testAssistantDeviceScope(t *testing.T, inherited bool) {
 	if len(events["alarms"].([]any)) != 1 {
 		t.Fatal("events scope", events)
 	}
-	req("GET", "/api/v1/alarms/alarm-hidden", token, nil, 403)
+	req("GET", "/api/v1/alarms/alarm-hidden", token, nil, 404)
 	req("POST", "/api/v1/ai/reports", token, nil, 403)
 	req("GET", "/api/v1/rules", token, nil, 403)
 	if inherited {
@@ -607,7 +611,7 @@ func testAssistantDeviceScope(t *testing.T, inherited bool) {
 		if text := tool(first.MCPToken, "query_alarm_list", nil, false); strings.Contains(text, "allowed") || !strings.Contains(text, "alarm-hidden") {
 			t.Fatal("role scope not reloaded", text)
 		}
-		req("GET", "/api/v1/device-registry/allowed/history", token, nil, 403)
+		req("GET", "/api/v1/device-registry/allowed/history", token, nil, 404)
 		if req("GET", "/api/v1/auth/me", token, nil, 200)["accessVersion"] == identity["accessVersion"] {
 			t.Fatal("role scope must invalidate browser history")
 		}

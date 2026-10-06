@@ -190,12 +190,19 @@ func (s *Server) authorizeAPIKey(capability, consoleMethod, consolePath string) 
 		if consolePath != "" {
 			allowed = allowsRoute(permissions, consoleMethod, consolePath)
 		}
+		hidden := false
 		if allowed {
-			allowed = s.allowScopedRequest(c, scope)
+			decision := s.scopeRequest(c, scope)
+			allowed, hidden = decision == scopeAllowed, decision == scopeHidden
 		}
 		if allowed && strings.Contains(c.FullPath(), "/alarms/:id") {
 			_, err = s.engine.Repo.GetAlarm(c.Request.Context(), tenantID, c.Param("id"))
-			allowed = err == nil
+			allowed, hidden = err == nil, err != nil
+		}
+		// A device or alarm outside the user's scope reads as missing.
+		if hidden && isRead(c.Request.Method) {
+			fail(http.StatusNotFound, "资源不存在或无访问权限")
+			return
 		}
 		if !allowed {
 			fail(http.StatusForbidden, "the API key's user lacks this permission or device access")

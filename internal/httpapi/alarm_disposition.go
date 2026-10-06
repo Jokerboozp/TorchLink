@@ -61,7 +61,7 @@ func (s *Server) verifyAlarm(w http.ResponseWriter, r *http.Request) {
 	a, err := s.engine.VerifyAlarm(r.Context(), claims(r).TenantID, r.PathValue("id"), in, claims(r).Username)
 	switch {
 	case errors.Is(err, devicescope.ErrDenied):
-		problemCode(w, 403, codeDeviceScopeDenied, "无权处置该设备的告警")
+		scopeDenied(w, r, "无权处置该设备的告警")
 	case errors.Is(err, model.ErrNotFound):
 		problem(w, 404, "告警不存在")
 	case err != nil:

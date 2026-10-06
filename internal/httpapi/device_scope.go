@@ -59,22 +59,34 @@ func (s *Server) accessDeviceOptions(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, map[string]any{"items": out, "units": units, "tenantId": claims(r).TenantID})
 }
 
-func (s *Server) allowScopedRequest(c *gin.Context, v devicescope.Scope) bool {
+// scopeDecision is the outcome of checking a request against the caller's
+// device scope.
+type scopeDecision int
+
+const (
+	scopeAllowed scopeDecision = iota
+	// scopeHidden: the request names a device or alarm outside the scope.
+	scopeHidden
+	// scopeForbidden: the operation needs a scope covering every device.
+	scopeForbidden
+)
+
+func (s *Server) scopeRequest(c *gin.Context, v devicescope.Scope) scopeDecision {
 	path := c.FullPath()
 	// Each draft handler resolves its owner and checks the stored draft kind's
 	// exact permissions and raw account scope before exposing any body.
 	if strings.HasPrefix(path, "/api/v1/onboarding/drafts") {
-		return true
+		return scopeAllowed
 	}
 	ctx := c.Request.Context()
 	t := v.Tenant
 	if strings.HasPrefix(path, "/api/v1/device-registry/:id") || strings.HasPrefix(path, "/api/v1/discovered-devices/:id") {
 		if !devicescope.Allowed(ctx, t, c.Param("id")) {
-			return false
+			return scopeHidden
 		}
 	}
 	if id := c.Param("deviceId"); id != "" && !devicescope.Allowed(ctx, t, id) {
-		return false
+		return scopeHidden
 	}
 	alarmID := c.Param("alarmId")
 	if strings.HasPrefix(path, "/api/v1/alarms/:id") {
@@ -82,25 +94,25 @@ func (s *Server) allowScopedRequest(c *gin.Context, v devicescope.Scope) bool {
 	}
 	if alarmID != "" {
 		if _, e := s.engine.Repo.GetAlarm(ctx, t, alarmID); e != nil {
-			return false
+			return scopeHidden
 		}
 	}
 	if !v.All {
 		if strings.Contains(path, "/products/:id/preparation") || path == "/api/v1/products/:id/verification" {
-			return false
+			return scopeForbidden
 		}
 		// Tenant-wide jobs and configuration can expose other devices. Their menus
 		// are also removed from the effective permission list.
 		// Adding devices is limited to users who can see every device.
 		if strings.HasPrefix(path, "/api/v1/onboarding") {
-			return false
+			return scopeForbidden
 		}
 		if strings.HasPrefix(path, "/api/v1/replays") || strings.HasSuffix(path, "/replay") {
-			return false
+			return scopeForbidden
 		}
 		if c.Request.Method != "GET" && (path == "/api/v1/device-registry" || path == "/api/v1/device-states" || path == "/api/v1/raw-messages") {
-			return false
+			return scopeForbidden
 		}
 	}
-	return true
+	return scopeAllowed
 }

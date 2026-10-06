@@ -69,7 +69,7 @@ func attachmentName(name, ext string) string {
 func (s *Server) attachmentProblem(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, devicescope.ErrDenied):
-		problemCode(w, 403, codeDeviceScopeDenied, "无权处置该设备的告警")
+		scopeDenied(w, r, "无权处置该设备的告警")
 	case errors.Is(err, model.ErrNotFound):
 		problem(w, 404, "告警不存在")
 	case errors.Is(err, model.ErrAttachmentNotFound):

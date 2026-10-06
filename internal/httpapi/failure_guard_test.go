@@ -80,7 +80,7 @@ func TestFailMapsErrorCategories(t *testing.T) {
 		status int
 		detail string
 	}{
-		{"GET", fmt.Errorf("load device: %w", devicescope.ErrDenied), 404, devicescope.ErrDenied.Error()},
+		{"GET", fmt.Errorf("load device: %w", devicescope.ErrDenied), 404, "资源不存在或无访问权限"},
 		{"PUT", devicescope.ErrDenied, 403, devicescope.ErrDenied.Error()},
 		{"POST", &onboarding.EnrollError{Status: 409, Message: "地址已被占用"}, 409, "地址已被占用"},
 		{"POST", fmt.Errorf("save: %w", model.Invalid("巡检周期须为正整数")), 422, "巡检周期须为正整数"},

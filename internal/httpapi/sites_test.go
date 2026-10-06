@@ -95,7 +95,7 @@ func TestSitesUnitGrantsPlansAndAlarmLocation(t *testing.T) {
 	if location["pointName"] != "消防主机" || location["floorName"] != "3F" || location["current"] != true {
 		t.Fatalf("alarm raised before placement shows the current location: %v", location)
 	}
-	req("GET", "/api/v1/alarms/a-pump", token, nil, 403)
+	req("GET", "/api/v1/alarms/a-pump", token, nil, 404)
 	r, _ := http.NewRequest("GET", srv.URL+"/api/v1/alarms/a-panel/location-plan", nil)
 	r.Header.Set("Authorization", "Bearer "+token)
 	resp, err := srv.Client().Do(r)
@@ -128,7 +128,7 @@ func TestSitesUnitGrantsPlansAndAlarmLocation(t *testing.T) {
 	if ids := alarmIDs(roleToken); !slices.Equal(ids, []string{"a-panel", "a-pump"}) {
 		t.Fatalf("role unit grant alarm list: %v", ids)
 	}
-	req("GET", "/api/v1/alarms/a-other", roleToken, nil, 403)
+	req("GET", "/api/v1/alarms/a-other", roleToken, nil, 404)
 	listed := req("GET", "/api/v1/sites", token, nil, 200)
 	if points := listed["points"].([]any); len(points) != 2 || points[0].(map[string]any)["deviceName"] != "panel 设备" {
 		t.Fatalf("unit user points: %v", points)
@@ -136,7 +136,7 @@ func TestSitesUnitGrantsPlansAndAlarmLocation(t *testing.T) {
 	// The user cannot place a device outside their scope.
 	req("POST", "/api/v1/sites/points", token, map[string]any{"unitId": unit["id"], "deviceId": "other"}, 403)
 	req("DELETE", "/api/v1/sites/points/"+pump["id"].(string)+"?version=1", root, nil, 200)
-	req("GET", "/api/v1/alarms/a-pump", token, nil, 403)
+	req("GET", "/api/v1/alarms/a-pump", token, nil, 404)
 	// Unit grants require the selected scope and existing units.
 	user["unitIds"] = []string{"missing"}
 	req("PUT", "/api/v1/access/users/unit-user", root, user, 422)

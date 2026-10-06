@@ -203,7 +203,7 @@ func TestDeviceSignalsFollowDeviceScope(t *testing.T) {
 	if items := mine["items"].([]any); len(items) != 1 || items[0].(map[string]any)["deviceId"] != "mine" {
 		t.Fatalf("signals %v", mine)
 	}
-	requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/device-registry/hidden/signals", token, nil, 403)
+	requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/device-registry/hidden/signals", token, nil, 404)
 }
 
 type notLocalCommander struct{}

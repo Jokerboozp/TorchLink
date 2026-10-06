@@ -153,7 +153,7 @@ func TestOpenAPIKeyScopesReportsAndAlarms(t *testing.T) {
 		t.Fatal("custom alarm was not recovered", recovered)
 	}
 	req("GET", "/api/open/v1/devices/dev_a/latest", key, nil, 200)
-	req("GET", "/api/open/v1/devices/dev_b/latest", key, nil, 403)
+	req("GET", "/api/open/v1/devices/dev_b/latest", key, nil, 404)
 	devices := req("GET", "/api/open/v1/devices", key, nil, 200)
 	if devices["total"].(float64) != 1 {
 		t.Fatal("device list exceeded the bound user's scope", devices)

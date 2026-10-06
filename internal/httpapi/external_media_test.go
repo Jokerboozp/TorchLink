@@ -95,7 +95,7 @@ func TestExternalAlarmMediaDownloadRangeAndPermissions(t *testing.T) {
 		t.Fatalf("invalid range response %s %v", body, headers)
 	}
 	download(path+"snapshot", "", "", 401)
-	download("/api/v1/alarms/other-alarm/media/snapshot", users["media-viewer"], "", 403)
+	download("/api/v1/alarms/other-alarm/media/snapshot", users["media-viewer"], "", 404)
 	req("POST", path+"retry", users["media-viewer"], nil, 403)
 	// Persisted media is newer than a stale alarm attachment; retry must preserve
 	// the archived object rather than copying the stale external URL back.

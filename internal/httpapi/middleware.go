@@ -65,10 +65,16 @@ func (s *Server) authorize(role string) gin.HandlerFunc {
 			c.Request = c.Request.WithContext(devicescope.With(c.Request.Context(), scope))
 			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), permissionsKey{}, permissions))
 			if allowed {
-				// The status stays 403 (the established contract); the code tells
-				// a scope denial from a missing permission.
-				if !s.allowScopedRequest(c, scope) {
-					ginProblemCode(c, http.StatusForbidden, codeDeviceScopeDenied, "该资源或操作超出当前账户的设备范围")
+				// Reads of out-of-scope devices and alarms answer 404, changes 403
+				// with DEVICE_SCOPE_DENIED (see scopeDenied); operations that need
+				// every device answer 403.
+				switch s.scopeRequest(c, scope) {
+				case scopeHidden:
+					scopeDenied(c.Writer, c.Request, "该资源或操作超出当前账户的设备范围")
+					c.Abort()
+					return
+				case scopeForbidden:
+					ginProblemCode(c, http.StatusForbidden, codeDeviceScopeDenied, "该操作需要可访问全部设备的账户")
 					c.Abort()
 					return
 				}
