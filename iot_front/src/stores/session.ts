@@ -7,6 +7,8 @@ export interface Identity {
   tenant: string
   user: string
   role: string
+  /** Names of a platform user's roles; empty for the built-in administrator. */
+  roleNames: string[]
 }
 
 function savedPermissions(): string[] | null {
@@ -29,7 +31,7 @@ const resetHandlers = new Set<() => void>()
  */
 export const useSessionStore = defineStore('session', () => {
   const authenticated = ref(Boolean(storage.token))
-  const identity = ref<Identity>({ tenant: storage.tenant, user: storage.user, role: storage.role })
+  const identity = ref<Identity>({ tenant: storage.tenant, user: storage.user, role: storage.role, roleNames: [] })
   const items = ref<string[]>(savedPermissions() || (storage.role === 'admin' ? ['*'] : []))
   /** True once permissions were confirmed by the server for this session. */
   const ready = ref(false)
@@ -58,7 +60,7 @@ export const useSessionStore = defineStore('session', () => {
   /** Starts a session from a login or password-change response. */
   function start(data: LoginResult & { platformVersion?: string }, username: string) {
     storage.save(data, username)
-    identity.value = { tenant: data.tenantId || '', user: username, role: data.role || '' }
+    identity.value = { tenant: data.tenantId || '', user: username, role: data.role || '', roleNames: data.roleNames || [] }
     platformVersion.value = data.platformVersion || ''
     authenticated.value = true
     accessVersion.value = String(data.accessVersion || '')
@@ -70,6 +72,7 @@ export const useSessionStore = defineStore('session', () => {
     const me = await api('/api/v1/auth/me')
     applyAccessVersion(String(me.accessVersion ?? ''))
     setPermissions(me.permissions || [])
+    identity.value = { ...identity.value, roleNames: Array.isArray(me.roleNames) ? me.roleNames : [] }
     platformVersion.value = me.platformVersion || ''
     return me
   }
@@ -79,7 +82,7 @@ export const useSessionStore = defineStore('session', () => {
     for (const reset of resetHandlers) reset()
     storage.clear()
     authenticated.value = false
-    identity.value = { tenant: '', user: '', role: '' }
+    identity.value = { tenant: '', user: '', role: '', roleNames: [] }
     items.value = []
     ready.value = false
     accessVersion.value = ''

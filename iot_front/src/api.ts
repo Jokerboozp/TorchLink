@@ -10,6 +10,8 @@ export interface LoginResult {
   accessToken: string
   tenantId?: string
   role?: string
+  /** Names of a platform user's roles, for display. */
+  roleNames?: string[]
   permissions?: string[]
   accessVersion?: string | number
 }

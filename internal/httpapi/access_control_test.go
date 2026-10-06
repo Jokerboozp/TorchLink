@@ -59,7 +59,12 @@ func TestAccessControlLifecycleAndIsolation(t *testing.T) {
 	req("POST", "/api/v1/access/roles", root, role, 200)
 	user := map[string]any{"username": "demo_user", "displayName": "演示用户", "password": "initial-password-test", "enabled": true, "roleIds": []string{"device_reader"}, "permissions": []string{}, "deviceScope": "all"}
 	req("POST", "/api/v1/access/users", root, user, 200)
-	token := login("demo_user", "initial-password-test", "tenant_a", 200)["accessToken"].(string)
+	session := login("demo_user", "initial-password-test", "tenant_a", 200)
+	token := session["accessToken"].(string)
+	// The header shows the user's own roles; every managed token says "operator".
+	if fmt.Sprint(session["roleNames"]) != "[设备查看]" || fmt.Sprint(req("GET", "/api/v1/auth/me", token, nil, 200)["roleNames"]) != "[设备查看]" {
+		t.Fatalf("role names missing: %v", session["roleNames"])
+	}
 	login("demo_user", "initial-password-test", "tenant_b", 401)
 	req("GET", "/api/v1/device-registry", token, nil, 200)
 	req("GET", "/api/v1/products", token, nil, 200) // Read-only lookup for device editor.

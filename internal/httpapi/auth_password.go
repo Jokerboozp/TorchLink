@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"slices"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -22,7 +23,19 @@ func (s *Server) writeManagedSession(w http.ResponseWriter, r *http.Request, sta
 	}
 	permissions := effectivePermissions(state, u)
 	s.stripOpsPermissions(tenant, permissions)
-	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": tenant, "role": "operator", "permissions": permissionList(permissions), "displayName": u.DisplayName, "accessVersion": s.accessVersion(resolveUserDeviceScope(state, u), permissions, tenant), "platformVersion": version.Version})
+	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": tenant, "role": "operator", "roleNames": roleNames(state, u), "permissions": permissionList(permissions), "displayName": u.DisplayName, "accessVersion": s.accessVersion(resolveUserDeviceScope(state, u), permissions, tenant), "platformVersion": version.Version})
+}
+
+// roleNames lists the names of the roles assigned to u, for display; the
+// token role of every managed user is "operator" and says nothing about them.
+func roleNames(state model.AccessState, u model.PlatformUser) []string {
+	names := []string{}
+	for _, role := range state.Roles {
+		if slices.Contains(u.RoleIDs, role.ID) {
+			names = append(names, role.Name)
+		}
+	}
+	return names
 }
 
 // changeOwnPassword lets a managed user change the password with the current

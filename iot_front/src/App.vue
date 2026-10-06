@@ -147,7 +147,10 @@ const lastTenant = () => {
 }
 const loginForm = ref({ tenantId: lastTenant(), username: '', password: '' })
 const currentUser = computed(() => identity.value.user || loginForm.value.username || '账户')
-const currentRole = computed(() => ({ admin: '管理员', operator: '运维人员', viewer: '访客' })[identity.value.role] || '平台用户')
+// 平台用户显示自己被分配的角色名称；登录凭据里的角色对所有平台用户都相同，不能用于显示。
+const currentRole = computed(() =>
+  identity.value.role === 'admin' ? '管理员' : identity.value.roleNames?.length ? identity.value.roleNames.join('、') : '平台用户'
+)
 
 // layout=full 的页面占满内容高度；header=false 的页面使用自己的介绍区。
 const pages = {
@@ -698,7 +701,7 @@ onBeforeUnmount(() => {
                 <span class="account__avatar" aria-hidden="true">{{ currentRole.slice(0, 1) }}</span>
                 <span class="account__copy"
                   ><strong>{{ currentUser === 'admin' ? '管理员' : currentUser }}</strong
-                  ><small>{{ currentRole }}</small></span
+                  ><small :title="currentRole">{{ currentRole }}</small></span
                 >
                 <ChevronDown class="account__chevron" />
               </button>

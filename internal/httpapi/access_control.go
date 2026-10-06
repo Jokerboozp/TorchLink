@@ -426,6 +426,7 @@ func (s *Server) currentIdentity(w http.ResponseWriter, r *http.Request) {
 	c := claims(r)
 	perms := []string{"*"}
 	name := c.Username
+	var roles []string
 	if c.TokenUse == "user" {
 		u, p, err := s.managedIdentity(r.Context(), c)
 		if err != nil {
@@ -434,8 +435,12 @@ func (s *Server) currentIdentity(w http.ResponseWriter, r *http.Request) {
 		}
 		perms = permissionList(p)
 		name = u.DisplayName
+		// The access state was just loaded by managedIdentity and is cached.
+		if state, err := s.authorizationAccess(r.Context(), c.TenantID); err == nil {
+			roles = roleNames(state, u)
+		}
 	}
-	write(w, 200, map[string]any{"username": c.Username, "displayName": name, "tenantId": c.TenantID, "role": c.Role, "permissions": perms, "accessVersion": requestAccessVersion(r.Context(), c), "platformVersion": version.Version})
+	write(w, 200, map[string]any{"username": c.Username, "displayName": name, "tenantId": c.TenantID, "role": c.Role, "roleNames": roles, "permissions": perms, "accessVersion": requestAccessVersion(r.Context(), c), "platformVersion": version.Version})
 }
 
 func (s *Server) canConfigureAI(r *http.Request) bool {

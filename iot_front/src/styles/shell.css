@@ -517,9 +517,13 @@
   line-height: 1.2;
 }
 .account__copy small {
+  max-width: 12em;
+  overflow: hidden;
   color: var(--text-muted);
   font-size: var(--font-size-xs);
   line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .account__chevron {
   width: 14px;
