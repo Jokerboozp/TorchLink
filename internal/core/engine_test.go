@@ -10,6 +10,7 @@ import (
 	"iot-platform/internal/metrics"
 	"log/slog"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,14 +24,25 @@ import (
 	"iot-platform/internal/sites"
 )
 
+// recordingBus records published topics; the engine's background outbox
+// publishes concurrently with the test's own ingest.
 type recordingBus struct {
 	*local.Bus
+	mu     sync.Mutex
 	topics []string
 }
 
 func (b *recordingBus) Publish(ctx context.Context, topic, key string, payload []byte) error {
+	b.mu.Lock()
 	b.topics = append(b.topics, topic)
+	b.mu.Unlock()
 	return b.Bus.Publish(ctx, topic, key, payload)
+}
+
+func (b *recordingBus) seen() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.topics...)
 }
 
 func hasTopic(topics []string, wanted string) bool {
@@ -59,8 +71,8 @@ func TestParsedMessageFanoutRequiresSuccessfulParsing(t *testing.T) {
 	if _, _, err = e.IngestRaw(ctx, normal); err != nil {
 		t.Fatal(err)
 	}
-	if !hasTopic(bus.topics, model.TopicRaw) || !hasTopic(bus.topics, model.TopicPropertyReport) {
-		t.Fatalf("normal parsed message did not reach Kafka topics: %#v", bus.topics)
+	if !hasTopic(bus.seen(), model.TopicRaw) || !hasTopic(bus.seen(), model.TopicPropertyReport) {
+		t.Fatalf("normal parsed message did not reach Kafka topics: %#v", bus.seen())
 	}
 	foundParsedMQTT := false
 	for _, published := range realtime.Messages {
@@ -76,8 +88,8 @@ func TestParsedMessageFanoutRequiresSuccessfulParsing(t *testing.T) {
 	if _, _, err = e.IngestRaw(ctx, event); err != nil {
 		t.Fatal(err)
 	}
-	if !hasTopic(bus.topics, model.TopicEventReport) {
-		t.Fatalf("event parsed message did not reach Kafka event topic: %#v", bus.topics)
+	if !hasTopic(bus.seen(), model.TopicEventReport) {
+		t.Fatalf("event parsed message did not reach Kafka event topic: %#v", bus.seen())
 	}
 	failure := model.RawMessage{MessageID: "raw_fanout_failure", TenantID: "t1", ProductID: "json_sensor", DeviceID: "device_fanout", Protocol: "json", PayloadFormat: "json", ReceivedAt: 1002, Payload: json.RawMessage(`[]`)}
 	// Device state updates of the earlier messages may still be published
@@ -99,8 +111,8 @@ func TestParsedMessageFanoutRequiresSuccessfulParsing(t *testing.T) {
 	if indexErr != nil || idx.ParseError == "" || idx.ParseAttemptedAt == 0 {
 		t.Fatal("parse failure not persisted", idx, indexErr)
 	}
-	if parsedTopics() != before || hasTopic(bus.topics, model.TopicParseFailed) {
-		t.Fatalf("parse failure was forwarded: topics=%#v realtime=%#v", bus.topics, realtime.Snapshot())
+	if parsedTopics() != before || hasTopic(bus.seen(), model.TopicParseFailed) {
+		t.Fatalf("parse failure was forwarded: topics=%#v realtime=%#v", bus.seen(), realtime.Snapshot())
 	}
 	// Query topics are evaluated on the actual parsing path, while the
 	// business stream still persists and processes every message.
@@ -134,11 +146,11 @@ func TestParsedMessageFanoutRequiresSuccessfulParsing(t *testing.T) {
 	} {
 		normal.MessageID, normal.DeviceID, normal.Payload = "query_"+tc.id, tc.device, json.RawMessage(tc.payload)
 		normal.ReceivedAt++
-		busBefore, mqttBefore = len(bus.topics), len(realtime.Messages)
+		busBefore, mqttBefore = len(bus.seen()), len(realtime.Messages)
 		if _, _, err := e.IngestRaw(ctx, normal); err != nil {
 			t.Fatal(tc.id, err)
 		}
-		if got := hasTopic(bus.topics[busBefore:], settings.Topics[0].Topic); got != tc.want {
+		if got := hasTopic(bus.seen()[busBefore:], settings.Topics[0].Topic); got != tc.want {
 			t.Fatalf("%s Kafka query match=%t", tc.id, got)
 		}
 		count := 0
