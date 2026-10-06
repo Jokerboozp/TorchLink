@@ -28,6 +28,10 @@ const defaultPages = [
 ]
 // IOT_VISUAL_PAGES（逗号分隔的菜单名称）可改为检查其他页面。
 const pages = process.env.IOT_VISUAL_PAGES ? process.env.IOT_VISUAL_PAGES.split(',') : defaultPages
+// IOT_VISUAL_ACTIONS 另外采集弹窗与抽屉：分号分隔，每项为“菜单>按钮|按钮”，依次点击文字完全相同的按钮或页签，
+// 例如 '排班>批量排班;排班>换班申请|审批'。只设置它而不设置 IOT_VISUAL_PAGES 时不采集页面。
+const actions = (process.env.IOT_VISUAL_ACTIONS || '').split(';').filter(Boolean)
+const pageList = process.env.IOT_VISUAL_ACTIONS && !process.env.IOT_VISUAL_PAGES ? [] : pages
 const variants = [
   { name: 'light', theme: 'light', width: 1440, height: 900, mobile: false },
   { name: 'dark', theme: 'dark', width: 1440, height: 900, mobile: false },
@@ -43,7 +47,11 @@ const normalize = html =>
     .replace(/ (id|for|aria-controls|aria-labelledby|aria-describedby)="[^"]*\d[^"]*"/g, ' $1="#"')
     .replace(/></g, '>\n<')
 
+// An open dialog with edits would block the next navigation with a beforeunload prompt; accept it.
 const browser = await startBrowser({
+  onEvent: message => {
+    if (message.method === 'Page.javascriptDialogOpening') browser.call('Page.handleJavaScriptDialog', { accept: true }).catch(() => {})
+  },
   args: [
     '--use-mock-keychain',
     '--password-store=basic',
@@ -75,6 +83,51 @@ async function settle() {
   }
 }
 
+async function login(theme) {
+  await call('Page.navigate', { url: origin })
+  await until(() => evaluate("Boolean(document.querySelector('.login-form input[type=password]'))"), 'login form')
+  await evaluate(
+    "(() => { const fill = (s, v) => { const i = document.querySelector(s); i.value = v; i.dispatchEvent(new Event('input', { bubbles: true })) }; fill('.login-form #tenant-id input, .login-form input#tenant-id', 'fixture'); fill('.login-form #username input, .login-form input#username', 'admin'); fill('.login-form input[type=password]', 'fixture'); document.querySelector('.login-form button[type=submit]').click() })()"
+  )
+  await until(() => evaluate("document.querySelectorAll('.nav-item').length >= 15"), 'menu')
+}
+
+async function openPage(page) {
+  if (await evaluate("document.querySelector('.app-topbar__toggle')?.getAttribute('aria-label')==='打开菜单'")) {
+    await evaluate("document.querySelector('.app-topbar__toggle').click()")
+    await delay(200)
+  }
+  await evaluate(`document.querySelector('.nav-item[aria-label=${JSON.stringify(page)}]').click()`)
+  await until(() => evaluate(`document.querySelector('.app-breadcrumb strong')?.innerText === ${JSON.stringify(page)}`))
+  await evaluate('document.activeElement?.blur(); window.scrollTo(0, 0)')
+  await settle()
+}
+
+// Clicks the first visible, enabled button or tab whose text is exactly the label.
+async function clickText(label) {
+  await until(
+    () =>
+      evaluate(`(() => {
+      const el = [...document.querySelectorAll('button,.n-tabs-tab,.n-radio-button,[role=tab]')].find(e =>
+        e.innerText.trim() === ${JSON.stringify(label)} && e.getClientRects().length && !e.disabled && !e.classList.contains('n-button--disabled'))
+      if (!el) return false
+      el.click()
+      return true
+    })()`),
+    label
+  )
+  await settle()
+}
+
+async function shoot(dir, file, selector) {
+  // Inner panels (chat history, tables) scroll on their own timing; capture them from the top.
+  await evaluate('document.querySelectorAll("*").forEach(e => { if (e.scrollTop) e.scrollTop = 0; if (e.scrollLeft) e.scrollLeft = 0 })')
+  await delay(100)
+  const shot = await call('Page.captureScreenshot', { format: 'png' })
+  await writeFile(join(dir, `${file}.png`), Buffer.from(shot.data, 'base64'))
+  await writeFile(join(dir, `${file}.html`), normalize(await evaluate(`document.querySelector(${JSON.stringify(selector)}).outerHTML`)))
+}
+
 async function capture(dir) {
   await mkdir(dir, { recursive: true })
   for (const v of variants) {
@@ -82,6 +135,7 @@ async function capture(dir) {
     const { identifier } = await call('Page.addScriptToEvaluateOnNewDocument', {
       source: `
         localStorage.clear();
+        sessionStorage.clear();
         localStorage.setItem('iot:theme', ${JSON.stringify(v.theme)});
         const RealDate = Date;
         class FixedDate extends RealDate { constructor(...a) { super(...(a.length ? a : [${fixedNow}])) } static now() { return ${fixedNow} } }
@@ -92,34 +146,30 @@ async function capture(dir) {
           document.head.appendChild(style);
         });`
     })
-    await call('Page.navigate', { url: origin })
-    await until(() => evaluate("Boolean(document.querySelector('.login-form input[type=password]'))"))
-    await evaluate(
-      "(() => { const fill = (s, v) => { const i = document.querySelector(s); i.value = v; i.dispatchEvent(new Event('input', { bubbles: true })) }; fill('.login-form #tenant-id input, .login-form input#tenant-id', 'fixture'); fill('.login-form #username input, .login-form input#username', 'admin'); fill('.login-form input[type=password]', 'fixture'); document.querySelector('.login-form button[type=submit]').click() })()"
-    )
-    await until(() => evaluate("document.querySelectorAll('.nav-item').length >= 15"))
-    for (const page of pages) {
-      if (await evaluate("document.querySelector('.app-topbar__toggle')?.getAttribute('aria-label')==='打开菜单'")) {
-        await evaluate("document.querySelector('.app-topbar__toggle').click()")
-        await delay(200)
+    if (pageList.length) await login(v.theme)
+    for (const page of pageList) {
+      await openPage(page)
+      await shoot(dir, `${v.name}-${pages.indexOf(page).toString().padStart(2, '0')}-${page}`, '#app')
+    }
+    for (const [index, action] of actions.entries()) {
+      // Each overlay starts from a fresh session so earlier dialogs leave nothing behind.
+      const [page, steps] = action.split('>')
+      await login(v.theme)
+      await openPage(page)
+      try {
+        for (const step of steps.split('|')) await clickText(step)
+      } catch (error) {
+        await shoot(dir, `failed-${v.name}-${index}`, 'body')
+        throw error
       }
-      await evaluate(`document.querySelector('.nav-item[aria-label=${JSON.stringify(page)}]').click()`)
-      await until(() => evaluate(`document.querySelector('.app-breadcrumb strong')?.innerText === ${JSON.stringify(page)}`))
-      await evaluate('document.activeElement?.blur(); window.scrollTo(0, 0)')
+      await until(() => evaluate("[...document.querySelectorAll('.n-modal,.n-drawer')].some(e => e.getClientRects().length)"), 'overlay')
+      await evaluate('document.activeElement?.blur()')
       await settle()
-      // Inner panels (chat history, tables) scroll on their own timing; capture them from the top.
-      await evaluate(
-        'document.querySelectorAll("*").forEach(e => { if (e.scrollTop) e.scrollTop = 0; if (e.scrollLeft) e.scrollLeft = 0 })'
-      )
-      await delay(100)
-      const shot = await call('Page.captureScreenshot', { format: 'png' })
-      const file = `${v.name}-${pages.indexOf(page).toString().padStart(2, '0')}-${page}`
-      await writeFile(join(dir, `${file}.png`), Buffer.from(shot.data, 'base64'))
-      await writeFile(join(dir, `${file}.html`), normalize(await evaluate("document.querySelector('#app').outerHTML")))
+      await shoot(dir, `${v.name}-action-${index.toString().padStart(2, '0')}-${action.replace(/[>|/]/g, '-')}`, 'body')
     }
     await call('Page.removeScriptToEvaluateOnNewDocument', { identifier })
   }
-  console.log(`已采集 ${variants.length * pages.length} 个画面到 ${dir}`)
+  console.log(`已采集 ${variants.length * (pageList.length + actions.length)} 个画面到 ${dir}`)
 }
 
 async function compare(a, b) {

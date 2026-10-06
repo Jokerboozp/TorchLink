@@ -46,6 +46,42 @@ const alarms = [
     lastTriggeredAt: now
   }
 ]
+// 排班页面的消防站、人员、班次与排班样例，供弹窗与日历截图对比。
+const dayStart = new Date(now).setHours(8, 0, 0, 0) + 86400e3 // 次日白班，可以申请换班。
+const fireOptions = {
+  stations: [{ id: 'station-demo', name: '城东消防站', enabled: true }],
+  personnel: [
+    { id: 'person-a', name: '张伟', stationId: 'station-demo', enabled: true },
+    { id: 'person-b', name: '李娜', stationId: 'station-demo', enabled: true },
+    { id: 'person-c', name: '王强', stationId: 'station-demo', enabled: true }
+  ],
+  shifts: [
+    { id: 'shift-day', version: 1, name: '白班', startTime: '08:00', endTime: '17:00' },
+    { id: 'shift-night', version: 1, name: '夜班', startTime: '20:00', endTime: '08:00' }
+  ]
+}
+const dutyAssignment = {
+  id: 'assignment-demo',
+  version: 1,
+  stationId: 'station-demo',
+  shiftId: 'shift-day',
+  personnelIds: ['person-a', 'person-b'],
+  startAt: dayStart,
+  endAt: dayStart + 9 * 3600e3,
+  notes: '节前加强值守'
+}
+const dutySwap = {
+  id: 'swap-demo',
+  version: 1,
+  assignmentId: dutyAssignment.id,
+  assignment: dutyAssignment,
+  fromPersonnelId: 'person-b',
+  toPersonnelId: 'person-c',
+  reason: '家中有事',
+  status: 'pending',
+  requestedBy: 'zhangwei',
+  createdAt: now
+}
 const list = items => ({ items, total: items.length, count: items.length, page: 1, pageSize: 20 })
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://localhost')
@@ -99,6 +135,10 @@ const server = http.createServer(async (req, res) => {
       data = { ...list([]), total: u.searchParams.has('unregistered') ? 0 : 1, online: 1, offline: 0 }
     else if (u.pathname === '/api/v1/alarms') data = list(alarms)
     else if (u.pathname === '/api/v1/alarms/alarm-demo') data = alarms[0]
+    else if (u.pathname === '/api/v1/fire-safety/options') data = fireOptions
+    else if (u.pathname === '/api/v1/duty/assignments') data = list([dutyAssignment])
+    else if (u.pathname === '/api/v1/duty/shifts') data = list(fireOptions.shifts)
+    else if (u.pathname === '/api/v1/duty/swaps') data = list([dutySwap])
     else if (u.pathname === '/api/v1/ai/providers')
       data = {
         ...list([]),
