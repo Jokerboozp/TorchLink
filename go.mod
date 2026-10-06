@@ -12,7 +12,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/ledongthuc/pdf v0.0.0-20250511090121-5959a4027728
-	github.com/mark3labs/mcp-go v0.58.0
+	github.com/mark3labs/mcp-go v1.1.1
 	github.com/minio/minio-go/v7 v7.3.0
 	github.com/redis/go-redis/v9 v9.23.0
 	github.com/segmentio/kafka-go v0.4.51

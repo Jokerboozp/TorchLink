@@ -516,6 +516,21 @@ func testAssistantDeviceScope(t *testing.T, inherited bool) {
 		return content[0].(map[string]any)["text"].(string)
 	}
 	first := chat(token)
+	// Harness opens each run with the MCP handshake before calling tools.
+	handshake := req("POST", "/mcp/harness", first.MCPToken, map[string]any{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": map[string]any{"protocolVersion": "2025-03-26", "capabilities": map[string]any{}, "clientInfo": map[string]any{"name": "harness-test", "version": "1"}}}, 200)
+	if info, _ := handshake["result"].(map[string]any)["serverInfo"].(map[string]any); info == nil {
+		t.Fatalf("invalid MCP initialize reply: %v", handshake)
+	}
+	listed := req("POST", "/mcp/harness", first.MCPToken, map[string]any{"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": map[string]any{}}, 200)
+	tools, _ := listed["result"].(map[string]any)["tools"].([]any)
+	if len(tools) == 0 {
+		t.Fatalf("MCP tools/list returned no tools: %v", listed)
+	}
+	for _, item := range tools {
+		if name := item.(map[string]any)["name"].(string); strings.Contains(name, "shell") || strings.Contains(name, "command") {
+			t.Fatalf("harness exposes an unsafe tool %s", name)
+		}
+	}
 	streamReq, err := http.NewRequest("POST", srv.URL+"/api/v1/ai/chat/stream", strings.NewReader(`{"question":"查询告警","workflowId":"system-observer","conversationId":"stream-conversation"}`))
 	must(err)
 	streamReq.Header.Set("Authorization", "Bearer "+token)
