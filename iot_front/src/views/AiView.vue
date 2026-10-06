@@ -21,6 +21,14 @@ const conversation = useAIConversation(
   { storage: localStorage, stream: apiStream }
 )
 const { messages, runs, conversationId, selectedWorkflowId, sending } = conversation
+// 浏览器存储写满时只提示一次（对话已在服务端保存）。
+watch(
+  conversation.historyWarning,
+  value => {
+    if (value) UiMessage.warning(value)
+  },
+  { immediate: true }
+)
 // 每轮结束后刷新历史对话列表。
 const conversationsVersion = ref(0)
 watch(sending, value => {

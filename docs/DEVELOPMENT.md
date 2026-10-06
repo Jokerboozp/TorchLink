@@ -27,7 +27,7 @@
 | 仓库根目录 | `golangci-lint run ./cmd/... ./internal/... ./deploy/toolaccounts` | 静态检查，规则见 `.golangci.yml`；需 golangci-lint v2 且以 Go 1.26 构建 |
 | `protocol-packages/gb26875-dahua` | `go test ./...` | 独立协议及模拟器 |
 | `dev/` 下各协议 module 目录 | `go test ./...` | 对应厂商协议；与根 module 分开执行 |
-| `iot_front` | `npm run lint`、`npm run format:check`、`npm test`、`npm run build` | ESLint、Prettier 格式、前端测试及构建；`npm run format` 自动格式化 |
+| `iot_front` | `npm run lint`、`npm run format:check`、`npm test`、`npm run build` | ESLint、Prettier 格式、前端测试及构建（构建前先执行 `vue-tsc` 类型检查，也可单独 `npm run typecheck`）；`npm run format` 自动格式化 |
 | 仓库根目录 | `git diff --check` | 空白错误 |
 
 本地集成入口：`go run scripts/tests/local-runtime-smoke.go --env-file .env.local` 检查依赖读写；前端、API 和备份启动后，`node scripts/tests/local-business-smoke.mjs` 检查登录、接入、归档、规则及回放。业务冒烟会创建唯一测试数据，结束停用本次规则与凭据并保留记录；仅在测试环境运行。
@@ -145,9 +145,10 @@ PostgreSQL 与备份集成测试沿用 `IOT_TEST_POSTGRES_DSN`，使用隔离 sc
 
 ## 管理端开发
 
-Vue 3 + Vite，沿用 Naive UI、Tailwind CSS 和 Lucide；依赖与 Node 版本以 `iot_front/package.json` 和锁文件为准。`npm --prefix iot_front ci` 安装依赖，`npm --prefix iot_front run dev` 启动。页面通过 `src/api.js` 调用同源接口；Vite 默认代理到 `localhost:8081`，可用 `VITE_API_PROXY_TARGET` 覆盖。生产镜像以 `iot_front` 为构建上下文。
+Vue 3 + Vite，沿用 Naive UI、Tailwind CSS 和 Lucide；依赖与 Node 版本以 `iot_front/package.json` 和锁文件为准。`npm --prefix iot_front ci` 安装依赖，`npm --prefix iot_front run dev` 启动。页面通过 `src/api.ts` 调用同源接口；Vite 默认代理到 `localhost:8081`，可用 `VITE_API_PROXY_TARGET` 覆盖。生产镜像以 `iot_front` 为构建上下文。
 
 - 页面在 `iot_front/src/views/`，共享业务组件在 `src/components/`，控件适配在 `src/ui/`；运维页面与数据适配见 [运维中心](PLATFORM.md#运维中心)。
+- TypeScript 只检查 `.ts` 文件与 `<script lang="ts">`（`tsconfig.json` 开启 strict，JavaScript 不检查），新写或改动较大的模块用 TypeScript；接口响应的字段类型在 `src/types/api.ts`，与后端处理函数逐字段对应。`node --test` 直接运行 `.ts` 源码（Node 类型剥离），因此只用可擦除语法（不用 enum、namespace、参数属性），导入写明 `.ts` 扩展名。
 - 颜色、字号、间距、圆角与阴影集中在 `src/theme/tokens.css`；`naiveTheme.js` 解析变量生成 Naive UI 主题，不用散落的颜色值或 `!important` 覆盖组件。
 - 元素布局在 `styles/base.css`，应用框架在 `shell.css`，减少动态效果在 `motion.css`，共用业务样式在 `patterns.css`；页面专用样式留在对应 Vue 文件。
 - 列表复用 `FilterBar`、`DataTableCard`、`StatusDot`、`RowActions`，窄屏侧栏为抽屉，长弹窗正文独立滚动。权限控制使用 `src/permissions.js`，实际授权仍由服务端校验。
@@ -169,6 +170,7 @@ Vue 3 + Vite，沿用 Naive UI、Tailwind CSS 和 Lucide；依赖与 Node 版本
 | 用户管理与设备范围 | 仓库根目录运行 `node iot_front/tests/browser/access-management-check.mjs` 或 `device-scope-check.mjs`；先启动前后端并按脚本配置管理员环境，创建后清理临时账户；设备范围用例需至少两台设备，且一个独立设备已有告警 |
 | 接入、通信与命令 | 根目录运行 `go test ./internal/httpapi -run 'Test(OnboardingBrowser\|DeviceOnboardingBrowser\|GoFunctionsUploadAndListener\|TCPParentChildSourceChain)$' -count=1`；Go 用例负责隔离 API 与浏览器生命周期 |
 | 摄像头真实播放 | `node iot_front/tests/browser/camera-live-check.mjs`；需 API、前端、媒体服务与已配置的摄像头，见 [摄像头](PLATFORM.md#摄像头) |
+| 重构前后样式不变 | 以 `IOT_UI_PREVIEW_NOW=1790000000000` 启动 `ui-preview.mjs`，改动前后各运行 `node tests/browser/visual-baseline.mjs capture <目录>`，再 `compare <目录A> <目录B>`；15 个主页面的浅色、深色与窄屏截图逐像素比较（16 像素以内视为渲染噪声），并比较去掉作用域样式哈希后的 DOM |
 
 macOS 若提前结束无头 Chrome，检查系统的后台运行授权；浏览器脚本可用 `IOT_TEST_HEADFUL=1`。源码测试、合成浏览器和真实设备验证分别记录，跳过项不算通过。
 

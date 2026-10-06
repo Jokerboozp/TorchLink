@@ -1,10 +1,11 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import fs from 'node:fs'
+import { stripTypeScriptTypes } from 'node:module'
 
-// liveVideo.js imports the API client; load only the pure helpers here.
+// liveVideo.ts imports the API client; load only the pure helpers here.
 // Normalize CRLF first so the block removal below also matches core.autocrlf=true checkouts.
-const source = fs.readFileSync(new URL('../src/liveVideo.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+const source = stripTypeScriptTypes(fs.readFileSync(new URL('../src/liveVideo.ts', import.meta.url), 'utf8').replace(/\r\n/g, '\n'))
 const pure = source
   .replace(/^import\s[^'"]*['"][^'"]+['"];?$/gm, '')
   .replace(/export const liveState[\s\S]*?export function resetLiveState\(\) \{[\s\S]*?\n\}\n/, '')

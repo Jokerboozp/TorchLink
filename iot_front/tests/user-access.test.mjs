@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { stripTypeScriptTypes } from 'node:module'
 import { userAccessPayload } from '../src/userAccess.js'
 import { applyFeatureLevel, featureLevel, roleDeviceScope } from '../src/permissionPresets.js'
 import fs from 'node:fs'
@@ -87,8 +88,7 @@ function realtime(api, options = {}) {
     timers = [],
     messages = [],
     permissionState = { items: [] }
-  const source = fs
-    .readFileSync(new URL('../src/realtime.js', import.meta.url), 'utf8')
+  const source = stripTypeScriptTypes(fs.readFileSync(new URL('../src/realtime.ts', import.meta.url), 'utf8'))
     .replace(/^import\s[^'"]*['"][^'"]+['"];?$/gm, '')
     .replace("import('mqtt')", 'Promise.resolve({ default: mqtt })')
     .replace(/export /g, '')
@@ -282,6 +282,50 @@ test('MQTT 续期保留告警快照，旧连接及退出后的消息不可继续
   assert.equal(connections[1].ended, true)
   connections[1].handlers.message('/iot/parsed/tenant/device', 'after-logout')
   assert.equal(r.messages.length, 2)
+})
+
+test('MQTT 凭据续签失败先断开旧连接再退避重试，4xx 不再重试', async () => {
+  const snapshot = { alarms: [], devices: [], permissions: ['*'] }
+  let tokenStatus = 0
+  const connections = []
+  const r = realtime(
+    async path => {
+      if (!path.includes('mqtt/token')) return snapshot
+      if (tokenStatus) throw Object.assign(new Error('token'), { status: tokenStatus })
+      return { websocketUrl: 'ws://server/mqtt', subscriptions: [] }
+    },
+    {
+      role: 'admin',
+      mqtt: {
+        connect() {
+          const connection = {
+            ended: false,
+            on() {},
+            subscribe() {},
+            end() {
+              this.ended = true
+            }
+          }
+          connections.push(connection)
+          return connection
+        }
+      }
+    }
+  )
+  await r.start()
+  await settle()
+  const renew = r.timers.splice(0).at(-1)
+  tokenStatus = 503
+  r.delays.length = 0
+  await renew()
+  assert.equal(connections[0].ended, true, 'the client on the expiring credential is closed')
+  await r.timers.at(-1)()
+  assert.deepEqual(r.delays, [10000, 20000])
+  tokenStatus = 403
+  r.delays.length = 0
+  await r.timers.at(-1)()
+  assert.deepEqual(r.delays, [], 'a rejected credential request is not retried')
+  r.stopRealtime()
 })
 
 test('管理员 MQTT 消息与下一次 HTTP 快照只触发一次告警刷新', async () => {

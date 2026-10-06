@@ -59,24 +59,32 @@ export function clearAIHistory(storage, session) {
   return keys.length
 }
 
+// 返回 'saved'（完整保存）、'reduced'（浏览器存储已满，只保留最近 10 条消息、不含运行轨迹）或 'failed'。
 export function saveAIHistory(storage, session, state, workflowId = '') {
-  if (!storage) return false
+  if (!storage) return 'failed'
+  const payload = {
+    version: 1,
+    conversationId: typeof state?.conversationId === 'string' ? state.conversationId : '',
+    selectedWorkflowId: typeof state?.selectedWorkflowId === 'string' ? state.selectedWorkflowId : '',
+    messages: Array.isArray(state?.messages) ? state.messages.slice(-50) : [],
+    runs: Array.isArray(state?.runs) ? state.runs.slice(0, 30) : [],
+    savedAt: Date.now()
+  }
+  const key = aiHistoryStorageKey(session, workflowId)
   try {
-    const payload = {
-      version: 1,
-      conversationId: typeof state?.conversationId === 'string' ? state.conversationId : '',
-      selectedWorkflowId: typeof state?.selectedWorkflowId === 'string' ? state.selectedWorkflowId : '',
-      messages: Array.isArray(state?.messages) ? state.messages.slice(-50) : [],
-      runs: Array.isArray(state?.runs) ? state.runs.slice(0, 30) : [],
-      savedAt: Date.now()
-    }
     let encoded = JSON.stringify(payload)
     if (encoded.length > 512000)
       encoded = JSON.stringify({ ...payload, messages: payload.messages.slice(-20), runs: payload.runs.slice(0, 10) })
-    storage.setItem(aiHistoryStorageKey(session, workflowId), encoded)
-    return true
+    storage.setItem(key, encoded)
+    return 'saved'
   } catch {
-    return false
+    // Usually the storage quota: keep the latest exchange rather than nothing.
+    try {
+      storage.setItem(key, JSON.stringify({ ...payload, messages: payload.messages.slice(-10), runs: [] }))
+      return 'reduced'
+    } catch {
+      return 'failed'
+    }
   }
 }
 

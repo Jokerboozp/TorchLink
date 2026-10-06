@@ -3,6 +3,19 @@ import { UiMessage } from './ui/feedback.js'
 
 import { consumeSSE } from './sse'
 import { loadAllPages } from './listPagination.js'
+import type { AIWorkflowEvent, ProblemBody } from './types/api.ts'
+
+/** Login response fields kept in the session (POST /api/v1/auth/login). */
+export interface LoginResult {
+  accessToken: string
+  tenantId?: string
+  role?: string
+  permissions?: string[]
+  accessVersion?: string | number
+}
+
+/** fetch options plus a timeout in milliseconds (0 disables it). */
+export type ApiOptions = RequestInit & { timeout?: number }
 
 export const session = {
   get token() {
@@ -20,8 +33,8 @@ export const session = {
   get role() {
     return localStorage.getItem('iot_role') || ''
   },
-  save(data, username = '') {
-    localStorage.setItem('iot_access_version', data.accessVersion || '')
+  save(data: LoginResult, username = '') {
+    localStorage.setItem('iot_access_version', String(data.accessVersion || ''))
     localStorage.setItem('iot_token', data.accessToken)
     localStorage.setItem('iot_tenant', data.tenantId || '')
     localStorage.setItem('iot_user', username)
@@ -34,8 +47,34 @@ export const session = {
   }
 }
 
+/** Error body fields beyond the problem document that some endpoints add. */
+export interface ApiErrorDetails extends ProblemBody {
+  message?: string
+  errorCode?: string
+  success?: boolean
+  runId?: string
+  stage?: string
+  retryable?: boolean
+  retryAfterMs?: number
+  fieldErrors?: unknown[]
+  [key: string]: unknown
+}
+
 export class ApiError extends Error {
-  constructor(message, details = {}) {
+  status: number
+  code: string
+  testResult: ApiErrorDetails | null
+  originalMessage: string
+  traceId: string
+  runId: string
+  stage: string
+  retryable: boolean
+  retryAfterMs: number
+  fieldErrors: unknown[]
+  details: ApiErrorDetails
+  sessionExpired = false
+
+  constructor(message: string, details: ApiErrorDetails = {}) {
     super(message)
     this.name = 'ApiError'
     this.status = details.status || 0
@@ -52,23 +91,26 @@ export class ApiError extends Error {
   }
 }
 
-function headersFor(options, accept = '') {
+function headersFor(options: RequestInit, accept = ''): Record<string, string> {
   const isForm = typeof FormData !== 'undefined' && options.body instanceof FormData
-  const headers = { ...(!isForm && options.body != null ? { 'Content-Type': 'application/json' } : {}), ...(options.headers || {}) }
+  const headers: Record<string, string> = {
+    ...(!isForm && options.body != null ? { 'Content-Type': 'application/json' } : {}),
+    ...((options.headers as Record<string, string> | undefined) || {})
+  }
   if (accept && !headers.Accept) headers.Accept = accept
   if (session.token && !headers.Authorization) headers.Authorization = `Bearer ${session.token}`
   return headers
 }
 
 // 返回是否按登录过期处理（登录接口本身的 401 是账户或密码错误，不算过期）。
-function dispatchUnauthorized(path, status) {
+function dispatchUnauthorized(path: string, status: number): boolean {
   if (status !== 401 || path === '/api/v1/auth/login') return false
   if (typeof window !== 'undefined') window.dispatchEvent(new Event('iot:unauthorized'))
   return true
 }
 
-async function responseError(path, response) {
-  const data = await response.json().catch(() => ({}))
+async function responseError(path: string, response: Response): Promise<ApiError> {
+  const data: ApiErrorDetails = await response.json().catch(() => ({}))
   const sessionExpired = dispatchUnauthorized(path, response.status)
   const error = new ApiError(errorMessage({ message: data.detail || data.message || '', status: response.status }), {
     ...data,
@@ -82,17 +124,17 @@ async function responseError(path, response) {
 // 触发编译、报告等长任务，只有调用方传入 timeout 时才设上限。
 const DEFAULT_READ_TIMEOUT_MS = 60000
 
-function withTimeout(signal, timeout) {
-  if (!timeout || typeof AbortSignal?.timeout !== 'function') return signal
+function withTimeout(signal: AbortSignal | null | undefined, timeout: number | undefined): AbortSignal | undefined {
+  if (!timeout || typeof AbortSignal?.timeout !== 'function') return signal ?? undefined
   const limit = AbortSignal.timeout(timeout)
   if (!signal) return limit
   return typeof AbortSignal.any === 'function' ? AbortSignal.any([signal, limit]) : signal
 }
 
-async function send(path, init) {
+async function send(path: string, init: RequestInit): Promise<Response> {
   try {
     return await fetch(path, init)
-  } catch (error) {
+  } catch (error: any) {
     if (error?.name === 'TimeoutError') throw new ApiError('请求超时，请稍后重试', { code: 'REQUEST_TIMEOUT', retryable: true })
     if (error?.name === 'AbortError') throw error
     // 浏览器的网络错误为英文（Failed to fetch 等），统一换成中文，页面直接展示 message 也不会出现英文。
@@ -100,10 +142,16 @@ async function send(path, init) {
   }
 }
 
-export async function api(path, options = {}) {
+// The JSON body is returned as any: page code reads response fields directly,
+// and typed shapes live in types/api.ts for the modules that use them.
+export async function api<T = any>(path: string, options: ApiOptions = {}): Promise<T> {
   const { timeout, ...rest } = options
   const read = String(rest.method || 'GET').toUpperCase() === 'GET'
-  const request = { ...rest, headers: headersFor(rest), signal: withTimeout(rest.signal, timeout ?? (read ? DEFAULT_READ_TIMEOUT_MS : 0)) }
+  const request: RequestInit = {
+    ...rest,
+    headers: headersFor(rest),
+    signal: withTimeout(rest.signal, timeout ?? (read ? DEFAULT_READ_TIMEOUT_MS : 0))
+  }
   // API responses are tenant-scoped and frequently change while an operator
   // is managing devices, rules, or workflow plugins. Do not let the browser
   // reuse an older GET response after a mutation followed by a refresh.
@@ -117,7 +165,7 @@ export async function api(path, options = {}) {
 export { isAbort, latest } from './latest.js'
 
 // 浏览器下载由接口返回的文件或本地生成的内容。
-export function saveBlob(blob, filename) {
+export function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
   const anchor = document.createElement('a')
   anchor.href = url
@@ -127,7 +175,7 @@ export function saveBlob(blob, filename) {
 }
 
 // 带登录凭据的原始请求：供 SSE 与需要读取响应头的下载使用，错误处理与 api() 一致。
-export async function apiResponse(path, options = {}, accept = '') {
+export async function apiResponse(path: string, options: RequestInit = {}, accept = ''): Promise<Response> {
   const response = await send(path, { cache: 'no-store', ...options, headers: headersFor(options, accept) })
   if (!response.ok) throw await responseError(path, response)
   return response
@@ -135,14 +183,14 @@ export async function apiResponse(path, options = {}, accept = '') {
 
 // Protected attachments use the same session/error handling as JSON requests.
 // Callers own object URL lifetime and only request attachments after user action.
-export async function apiBlob(path, options = {}) {
+export async function apiBlob(path: string, options: RequestInit = {}): Promise<Blob> {
   const response = await send(path, { cache: 'no-store', ...options, headers: headersFor(options) })
   if (!response.ok) throw await responseError(path, response)
   return response.blob()
 }
 
 // Conditional GET for polled views: an unchanged response is 304 without a body.
-export async function apiIfChanged(path, etag = '') {
+export async function apiIfChanged<T = any>(path: string, etag = ''): Promise<{ changed: boolean; etag: string; data?: T }> {
   const response = await send(path, {
     cache: 'no-store',
     headers: headersFor({ headers: etag ? { 'If-None-Match': etag } : {} }),
@@ -153,15 +201,15 @@ export async function apiIfChanged(path, etag = '') {
   return { changed: true, etag: response.headers.get('ETag') || '', data: await response.json().catch(() => ({})) }
 }
 
-export function apiAll(path, options = {}) {
+export function apiAll(path: string, options: Record<string, unknown> = {}) {
   return loadAllPages(api, path, options)
 }
 
-export async function apiStream(path, options = {}, onEvent = () => {}) {
-  let response
+export async function apiStream(path: string, options: RequestInit = {}, onEvent: (event: AIWorkflowEvent) => void = () => {}) {
+  let response: Response
   try {
     response = await send(path, { ...options, headers: headersFor(options, 'text/event-stream') })
-  } catch (error) {
+  } catch (error: any) {
     if (error?.name === 'AbortError' || error instanceof ApiError) throw error
     throw new ApiError('无法连接智能流服务，请检查网络后重试', { code: 'AI_STREAM_NETWORK_ERROR', retryable: true })
   }
@@ -169,26 +217,26 @@ export async function apiStream(path, options = {}, onEvent = () => {}) {
   if (!response.body) throw new ApiError('智能流响应不可用', { status: response.status, code: 'AI_STREAM_UNAVAILABLE', retryable: true })
   try {
     await consumeSSE(response.body, onEvent)
-  } catch (error) {
+  } catch (error: any) {
     if (error?.name === 'AbortError' || error instanceof ApiError) throw error
     throw new ApiError(error?.message || '智能流解析失败', { code: error?.code || 'AI_STREAM_PARSE_ERROR', retryable: true })
   }
 }
 
-export async function download(path, filename, options = {}) {
+export async function download(path: string, filename: string, options: RequestInit = {}) {
   const response = await send(path, { cache: 'no-store', ...options, headers: headersFor({ ...options, body: null }) })
   if (!response.ok) throw await responseError(path, response)
   saveBlob(await response.blob(), filename)
 }
 
-export function notifyError(error) {
+export function notifyError(error: unknown) {
   // 登录过期由外壳统一提示一次并返回登录页，页面不再各自重复提示。
-  if (error?.sessionExpired) return
+  if ((error as ApiError | undefined)?.sessionExpired) return
   UiMessage.error(errorMessage(error))
 }
-export const formatTime = value => (value ? new Date(Number(value)).toLocaleString('zh-CN', { hour12: false }) : '—')
-export const pretty = value => JSON.stringify(value, null, 2)
-export function parseJSON(value, label = '结构化数据') {
+export const formatTime = (value: unknown) => (value ? new Date(Number(value)).toLocaleString('zh-CN', { hour12: false }) : '—')
+export const pretty = (value: unknown) => JSON.stringify(value, null, 2)
+export function parseJSON(value: string, label = '结构化数据') {
   try {
     return JSON.parse(value || '{}')
   } catch {

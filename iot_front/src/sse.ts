@@ -1,11 +1,24 @@
-function normalizeBuffer(value) {
+import type { AIWorkflowEvent } from './types/api.ts'
+
+/** A parsed server-sent event: the JSON payload plus the SSE event name and id. */
+export type StreamEvent = AIWorkflowEvent & { eventId?: string; [key: string]: unknown }
+
+class StreamError extends Error {
+  code: string
+  constructor(message: string, code: string) {
+    super(message)
+    this.code = code
+  }
+}
+
+function normalizeBuffer(value: string) {
   return value.replace(/\r\n/g, '\n')
 }
 
-function eventFromBlock(block) {
+function eventFromBlock(block: string): StreamEvent | null {
   let eventName = ''
   let eventID = ''
-  const data = []
+  const data: string[] = []
   for (const line of block.split('\n')) {
     if (!line || line.startsWith(':')) continue
     const separator = line.indexOf(':')
@@ -21,24 +34,21 @@ function eventFromBlock(block) {
   // The workflow contract has explicit run.completed/run.failed events. A legacy
   // sentinel must not turn a failed run into a successful one.
   if (raw === '[DONE]') return null
-  let payload
+  let payload: any
   try {
     payload = JSON.parse(raw)
   } catch {
-    const error = new Error('AI stream returned invalid JSON')
-    error.code = 'AI_STREAM_INVALID_EVENT'
-    throw error
+    throw new StreamError('AI stream returned invalid JSON', 'AI_STREAM_INVALID_EVENT')
   }
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) payload = { data: payload }
   return { ...payload, type: payload.type || eventName || 'message', eventId: payload.eventId || eventID || undefined }
 }
 
-export async function consumeSSE(stream, onEvent = () => {}) {
-  if (!stream?.getReader) {
-    const error = new Error('AI stream is unavailable')
-    error.code = 'AI_STREAM_UNAVAILABLE'
-    throw error
-  }
+export async function consumeSSE(
+  stream: ReadableStream<Uint8Array> | null | undefined,
+  onEvent: (event: StreamEvent) => void | Promise<void> = () => {}
+) {
+  if (!stream?.getReader) throw new StreamError('AI stream is unavailable', 'AI_STREAM_UNAVAILABLE')
   const reader = stream.getReader()
   const decoder = new TextDecoder()
   let buffer = ''

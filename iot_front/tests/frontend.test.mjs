@@ -5,10 +5,10 @@ import vm from 'node:vm'
 import { computed, effectScope, nextTick, reactive, ref, watch } from 'vue'
 import { errorMessage, formatLabel, platformLabel, statusLabel, toolName, transportLabel } from '../src/presentation.js'
 import { createThemeOverrides, parseTokens, resolveToken } from '../src/theme/naiveTheme.js'
-import { consumeSSE } from '../src/sse.js'
+import { consumeSSE } from '../src/sse.ts'
 import { createClientId } from '../src/clientId.js'
 import { loadAIHistory } from '../src/aiHistory.js'
-import { resetAIConversation, useAIConversation } from '../src/aiConversation.js'
+import { resetAIConversation, useAIConversation } from '../src/aiConversation.ts'
 import { setupScript } from './helpers/vue.mjs'
 import { loadAllPages } from '../src/listPagination.js'
 
@@ -139,6 +139,30 @@ test('alarm acknowledgement action is unavailable after the alarm is acknowledge
   assert.equal(actions.canCloseAlarm('ACKED'), true)
 })
 
+test('AI history keeps the latest messages when the browser storage is full', async () => {
+  const { loadAIHistory, saveAIHistory } = await import('../src/aiHistory.js')
+  const values = new Map()
+  let limit = 2000
+  const storage = {
+    getItem: key => values.get(key) ?? null,
+    setItem: (key, value) => {
+      if (value.length > limit) throw new DOMException('quota', 'QuotaExceededError')
+      values.set(key, value)
+    },
+    removeItem: key => values.delete(key)
+  }
+  const session = { tenant: 't', user: 'u' }
+  const messages = Array.from({ length: 30 }, (_, i) => ({ id: `m${i}`, role: 'user', status: 'succeeded', text: `第 ${i} 条` }))
+  const runs = [{ id: 'r1', status: 'succeeded', events: Array.from({ length: 50 }, (_, i) => ({ id: `e${i}`, detail: 'x'.repeat(40) })) }]
+  assert.equal(saveAIHistory(storage, session, { conversationId: 'c', selectedWorkflowId: 'w', messages, runs }), 'reduced')
+  const kept = loadAIHistory(storage, session)
+  assert.equal(kept.messages.length, 10)
+  assert.equal(kept.messages.at(-1).text, '第 29 条')
+  assert.deepEqual(kept.runs, [])
+  limit = 10
+  assert.equal(saveAIHistory(storage, session, { conversationId: 'c', selectedWorkflowId: 'w', messages, runs }), 'failed')
+})
+
 test('AI conversation history survives view recreation and stays tenant scoped', async () => {
   const { AI_HISTORY_STORAGE_PREFIX, loadAIHistory, saveAIHistory } = await import('../src/aiHistory.js')
   const values = new Map()
@@ -158,7 +182,7 @@ test('AI conversation history survives view recreation and stays tenant scoped',
       ],
       runs: [{ id: 'r1', status: 'running' }]
     }),
-    true
+    'saved'
   )
   assert.ok([...values.keys()][0].startsWith(AI_HISTORY_STORAGE_PREFIX))
   const restored = loadAIHistory(storage, session, 123456)

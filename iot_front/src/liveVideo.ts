@@ -1,24 +1,42 @@
 import { reactive } from 'vue'
 import { api, session } from './api'
+import type { LiveVideoStatus, LiveVideoStatusResponse } from './types/api.ts'
+
+/** The module status, or 'unknown' when the status request failed. */
+type ModuleStatus = LiveVideoStatus | { state: 'unknown'; message: string }
+
+/** The live video fields of a camera mapping that the camera list shows. */
+interface CameraLive {
+  configured?: boolean
+  enabled?: boolean
+  lastPlayableAt?: number
+  testStatus?: string
+}
 
 // 直播模块状态按“租户 + 用户”缓存在内存中，不写入浏览器存储；切换身份时清空。
-export const liveState = reactive({ key: '', status: null, canWatch: false, canManageModule: false, loading: false })
+export const liveState = reactive({
+  key: '',
+  status: null as ModuleStatus | null,
+  canWatch: false,
+  canManageModule: false,
+  loading: false
+})
 
 function identityKey() {
   return `${session.tenant}\u0000${session.user}`
 }
 
-let pending = null
-export async function loadLiveStatus(force = false) {
+let pending: Promise<typeof liveState> | null = null
+export async function loadLiveStatus(force = false): Promise<typeof liveState> {
   const key = identityKey()
   if (!force && liveState.key === key && liveState.status) return liveState
   if (pending && !force) return pending
   liveState.loading = true
-  pending = api('/api/v1/video/status')
+  pending = api<LiveVideoStatusResponse>('/api/v1/video/status')
     .then(data => {
       if (key !== identityKey()) return liveState // 请求期间已切换身份，丢弃旧结果。
       liveState.key = key
-      liveState.status = data.status || data
+      liveState.status = data.status
       liveState.canWatch = Boolean(data.canWatch)
       liveState.canManageModule = Boolean(data.canManageModule)
       return liveState
@@ -48,7 +66,7 @@ export function resetLiveState() {
 const liveEnabled = () => liveState.status?.state === 'enabled'
 export const liveUsable = () => liveEnabled() && liveState.canWatch
 
-export const moduleStateText = {
+export const moduleStateText: Record<string, string> = {
   not_deployed: '未部署',
   misconfigured: '部署配置无效',
   disabled: '已部署，未启用',
@@ -56,7 +74,7 @@ export const moduleStateText = {
   degraded: '已启用，媒体服务异常',
   unknown: '状态未知'
 }
-export const moduleStateTone = {
+export const moduleStateTone: Record<string, string> = {
   not_deployed: 'neutral',
   misconfigured: 'danger',
   disabled: 'neutral',
@@ -65,7 +83,7 @@ export const moduleStateTone = {
   unknown: 'neutral'
 }
 
-export const testStatusText = {
+export const testStatusText: Record<string, string> = {
   PLAYABLE: '可播放',
   TRANSCODE_REQUIRED: '需转码播放',
   CODEC_INCOMPATIBLE: '编码不兼容',
@@ -78,10 +96,10 @@ export const testStatusText = {
   TARGET_DENIED: '地址未通过校验',
   UNSUPPORTED: '不支持的设备'
 }
-export const testStatusTone = { PLAYABLE: 'success', TRANSCODE_REQUIRED: 'info', CODEC_INCOMPATIBLE: 'warning' }
+export const testStatusTone: Record<string, string> = { PLAYABLE: 'success', TRANSCODE_REQUIRED: 'info', CODEC_INCOMPATIBLE: 'warning' }
 
 // 摄像头列表中的直播状态：未配置、未启用、未检测、可播放、失败等。
-export function cameraLiveBadge(live) {
+export function cameraLiveBadge(live: CameraLive | null | undefined): { label: string; tone: string } {
   if (!live?.configured) return { label: '未配置', tone: 'neutral' }
   if (!live.enabled) return { label: '未启用', tone: 'neutral' }
   if (live.lastPlayableAt) return { label: '可播放', tone: 'success' }
@@ -91,7 +109,7 @@ export function cameraLiveBadge(live) {
 
 // 浏览器对 H.265 的支持需要实际探测，不能按浏览器名称推断。
 export function browserCaps() {
-  let webrtcH265
+  let webrtcH265: boolean
   try {
     const codecs = globalThis.RTCRtpReceiver?.getCapabilities?.('video')?.codecs || []
     webrtcH265 = codecs.some(codec => /h265|hevc/i.test(codec.mimeType || ''))
@@ -104,6 +122,6 @@ export function browserCaps() {
 
 export const supportsWebRTC = () => typeof globalThis.RTCPeerConnection === 'function'
 
-export function cameraLocation(camera) {
+export function cameraLocation(camera: { building?: string; floor?: string; room?: string; cameraPoint?: string } | null | undefined) {
   return [camera?.building, camera?.floor, camera?.room, camera?.cameraPoint].filter(Boolean).join(' / ')
 }

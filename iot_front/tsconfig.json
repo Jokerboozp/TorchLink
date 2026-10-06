@@ -1,0 +1,24 @@
+{
+  // TypeScript checks only .ts files and <script lang="ts"> blocks; existing
+  // JavaScript keeps running unchecked until it is migrated.
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
+    "strict": true,
+    "noEmit": true,
+    "allowJs": true,
+    "checkJs": false,
+    "allowImportingTsExtensions": true,
+    // node --test runs the .ts sources directly with type stripping.
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "jsx": "preserve"
+  },
+  "include": ["env.d.ts", "src/**/*.ts", "src/**/*.js", "src/**/*.vue"]
+}
