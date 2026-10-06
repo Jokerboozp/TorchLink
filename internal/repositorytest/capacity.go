@@ -122,7 +122,7 @@ func CapacityFixtureCleanup(t *testing.T, r CapacityRepository) {
 	if _, err := r.CleanupCapacityData(ctx, "t", q); !errors.Is(err, model.ErrResourceInUse) {
 		t.Fatal("cleanup accepted unprocessed data", err)
 	}
-	if err := r.MarkRawParseResult(ctx, "t", "raw", 1, ""); err != nil {
+	if err := r.MarkRawParseResult(ctx, "t", "raw", 0, 1, ""); err != nil {
 		t.Fatal(err)
 	}
 	msg := model.StandardMessage{TenantID: "t", ProductID: p.ID, DeviceID: "d1", MessageID: "standard", RawMessageID: "raw", MessageType: model.PropertyReport}

@@ -424,7 +424,7 @@ func (r *Repository) GetRawMessage(_ context.Context, tenant, messageID string) 
 	return clone(v), nil
 }
 
-func (r *Repository) MarkRawPublished(_ context.Context, tenant, messageID string, publishedAt int64, lastError string) error {
+func (r *Repository) MarkRawPublished(_ context.Context, tenant, messageID string, _, publishedAt int64, lastError string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := key(tenant, messageID)
@@ -1460,7 +1460,7 @@ func cloneManaged(v model.ManagedDevice) model.ManagedDevice {
 
 var _ = fmt.Sprintf
 
-func (r *Repository) MarkRawParseResult(_ context.Context, tenant, id string, at int64, message string) error {
+func (r *Repository) MarkRawParseResult(_ context.Context, tenant, id string, _, at int64, message string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := key(tenant, id)

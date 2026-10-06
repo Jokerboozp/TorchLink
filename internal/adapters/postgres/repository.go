@@ -568,12 +568,14 @@ func (r *Repository) GetRawMessage(ctx context.Context, tenant, messageID string
 	return value, err
 }
 
-func (r *Repository) MarkRawPublished(ctx context.Context, tenant, messageID string, publishedAt int64, lastError string) error {
+func (r *Repository) MarkRawPublished(ctx context.Context, tenant, messageID string, receivedAt, publishedAt int64, lastError string) error {
 	if r.marks != nil && lastError == "" && publishedAt > 0 {
-		r.marks.addPublished(tenant, messageID, publishedAt)
+		r.marks.addPublished(tenant, messageID, receivedAt, publishedAt)
 		return nil
 	}
-	_, err := r.pool.Exec(ctx, `UPDATE raw_archive_index SET publish_attempts=publish_attempts+1,last_publish_error=$4,published_at=CASE WHEN $4='' THEN $3 ELSE published_at END WHERE tenant_id=$1 AND message_id=$2`, tenant, messageID, publishedAt, lastError)
+	q, args := `UPDATE raw_archive_index SET publish_attempts=publish_attempts+1,last_publish_error=$4,published_at=CASE WHEN $4='' THEN $3 ELSE published_at END WHERE tenant_id=$1 AND message_id=$2`, []any{tenant, messageID, publishedAt, lastError}
+	q, args = withReceivedAt(q, args, receivedAt)
+	_, err := r.pool.Exec(ctx, q, args...)
 	return err
 }
 func (r *Repository) ListPendingRawIndexes(ctx context.Context, limit int) ([]model.RawArchiveIndex, error) {
@@ -1809,13 +1811,24 @@ func (r *Repository) Close() error {
 var _ = fmt.Sprintf
 var _ = strings.Builder{}
 
-func (r *Repository) MarkRawParseResult(ctx context.Context, tenant, id string, at int64, message string) error {
+func (r *Repository) MarkRawParseResult(ctx context.Context, tenant, id string, receivedAt, at int64, message string) error {
 	if r.marks != nil {
-		r.marks.addParsed(tenant, id, at, message)
+		r.marks.addParsed(tenant, id, receivedAt, at, message)
 		return nil
 	}
-	_, err := r.pool.Exec(ctx, `UPDATE raw_archive_index SET parse_attempted_at=$3,parse_error=$4 WHERE tenant_id=$1 AND message_id=$2`, tenant, id, at, message)
+	q, args := withReceivedAt(`UPDATE raw_archive_index SET parse_attempted_at=$3,parse_error=$4 WHERE tenant_id=$1 AND message_id=$2`, []any{tenant, id, at, message}, receivedAt)
+	_, err := r.pool.Exec(ctx, q, args...)
 	return err
+}
+
+// withReceivedAt adds the partition key when it is known, so the statement
+// touches one monthly partition of raw_archive_index instead of all.
+func withReceivedAt(q string, args []any, receivedAt int64) (string, []any) {
+	if receivedAt <= 0 {
+		return q, args
+	}
+	args = append(args, receivedAt)
+	return q + fmt.Sprintf(" AND received_at=$%d", len(args)), args
 }
 
 func (r *Repository) UpdateDeviceAccessStatus(ctx context.Context, expected model.DeviceAccessProfile, status, message string, at int64) (bool, error) {

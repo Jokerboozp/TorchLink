@@ -167,16 +167,19 @@ func TestBatchedRawMarks(t *testing.T) {
 	r := testRepository(t)
 	r.marks = newRawMarks(r)
 	now := time.Now().UnixMilli()
-	for _, id := range []string{"m1", "m2"} {
-		if _, err := r.pool.Exec(ctx, `INSERT INTO raw_archive_index(tenant_id,product_id,device_id,message_id,object_bucket,object_key,payload_hash,payload_size,received_at,archived_at) VALUES('t','p','d',$1,'postgres','k','h',1,$2,$2)`, id, now); err != nil {
+	// m3 lies in an earlier month: marks are written per partition month.
+	earlier := time.Now().AddDate(0, -2, 0).UnixMilli()
+	for id, received := range map[string]int64{"m1": now, "m2": now, "m3": earlier} {
+		if _, err := r.pool.Exec(ctx, `INSERT INTO raw_archive_index(tenant_id,product_id,device_id,message_id,object_bucket,object_key,payload_hash,payload_size,received_at,archived_at) VALUES('t','p','d',$1,'postgres','k','h',1,$2,$2)`, id, received); err != nil {
 			t.Fatal(err)
 		}
 	}
-	_ = r.MarkRawPublished(ctx, "t", "m1", now+1, "")
-	_ = r.MarkRawParseResult(ctx, "t", "m1", now+2, "")
-	_ = r.MarkRawParseResult(ctx, "t", "m2", now+3, "bad frame")
+	_ = r.MarkRawPublished(ctx, "t", "m1", now, now+1, "")
+	_ = r.MarkRawParseResult(ctx, "t", "m1", now, now+2, "")
+	_ = r.MarkRawPublished(ctx, "t", "m3", earlier, now+4, "")
+	_ = r.MarkRawParseResult(ctx, "t", "m2", 0, now+3, "bad frame")
 	// A failed publish is written at once.
-	if err := r.MarkRawPublished(ctx, "t", "m2", 0, "broker down"); err != nil {
+	if err := r.MarkRawPublished(ctx, "t", "m2", 0, 0, "broker down"); err != nil {
 		t.Fatal(err)
 	}
 	r.marks.close()
@@ -187,6 +190,9 @@ func TestBatchedRawMarks(t *testing.T) {
 	}
 	if err := r.pool.QueryRow(ctx, `SELECT parse_error,last_publish_error,published_at FROM raw_archive_index WHERE message_id='m2'`).Scan(&parseError, &publishError, &published); err != nil || parseError != "bad frame" || publishError != "broker down" || published != 0 {
 		t.Fatalf("m2 %q %q %d %v", parseError, publishError, published, err)
+	}
+	if err := r.pool.QueryRow(ctx, `SELECT published_at FROM raw_archive_index WHERE message_id='m3'`).Scan(&published); err != nil || published != now+4 {
+		t.Fatalf("m3 in an earlier month published=%d %v", published, err)
 	}
 	// Freshly archived unpublished messages are left to the normal path.
 	if pending, err := r.ListPendingRawIndexes(ctx, 10); err != nil || len(pending) != 0 {

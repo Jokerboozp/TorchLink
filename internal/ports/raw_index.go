@@ -13,8 +13,12 @@ type RawIndexStore interface {
 	// this call created the reservation.
 	ReserveRawMessage(context.Context, model.RawMessage) (model.RawMessage, bool, error)
 	SaveRawIndex(context.Context, model.RawArchiveIndex) (bool, error)
-	MarkRawParseResult(context.Context, string, string, int64, string) error
-	MarkRawPublished(context.Context, string, string, int64, string) error
+	// MarkRawParseResult(ctx, tenant, messageID, receivedAt, attemptedAt, error)
+	// and MarkRawPublished(ctx, tenant, messageID, receivedAt, publishedAt,
+	// error) take the message's receivedAt so the update reaches only its
+	// monthly partition; 0 means unknown.
+	MarkRawParseResult(context.Context, string, string, int64, int64, string) error
+	MarkRawPublished(context.Context, string, string, int64, int64, string) error
 	// ListPendingRawIndexes returns archived messages still waiting for the
 	// queue, with exponential backoff per failed attempt, newest failures
 	// first; messages at model.MaxRawPublishAttempts are left out.

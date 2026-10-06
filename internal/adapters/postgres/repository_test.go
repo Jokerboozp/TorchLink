@@ -248,7 +248,7 @@ func verifyOnboardingAndParseMigration(t *testing.T, r *Repository) {
 	if _, e := r.SaveRawIndex(ctx, idx); e != nil {
 		t.Fatal(e)
 	}
-	if e := r.MarkRawParseResult(ctx, "t", idx.MessageID, 123, "invalid frame"); e != nil {
+	if e := r.MarkRawParseResult(ctx, "t", idx.MessageID, idx.ReceivedAt, 123, "invalid frame"); e != nil {
 		t.Fatal(e)
 	}
 	if e := r.Migrate(ctx); e != nil {
@@ -258,7 +258,7 @@ func verifyOnboardingAndParseMigration(t *testing.T, r *Repository) {
 	if e != nil || saved.ParseError != "invalid frame" || saved.ParseAttemptedAt != 123 {
 		t.Fatal("parse migration lost evidence", saved, e)
 	}
-	if e := r.MarkRawParseResult(ctx, "other", idx.MessageID, 456, ""); e != nil {
+	if e := r.MarkRawParseResult(ctx, "other", idx.MessageID, idx.ReceivedAt, 456, ""); e != nil {
 		t.Fatal(e)
 	}
 	saved, _ = r.GetRawIndex(ctx, "t", idx.MessageID)

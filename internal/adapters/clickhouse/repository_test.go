@@ -130,7 +130,7 @@ func TestCapacityCleanupMutationsAndRetry(t *testing.T) {
 			if err = base.MarkStandardMessageProcessed(ctx, "t", "standard", claim.Token); err != nil {
 				t.Fatal(err)
 			}
-			if err = base.MarkRawParseResult(ctx, "t", "raw", time.Now().UnixMilli(), ""); err != nil {
+			if err = base.MarkRawParseResult(ctx, "t", "raw", 0, time.Now().UnixMilli(), ""); err != nil {
 				t.Fatal(err)
 			}
 			var fail atomic.Bool

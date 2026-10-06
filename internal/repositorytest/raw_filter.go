@@ -22,7 +22,7 @@ func RawFilters(t *testing.T, repo ports.Repository) {
 			t.Fatal(err)
 		}
 		if row.ParseError != "" {
-			if err := repo.MarkRawParseResult(ctx, row.TenantID, row.MessageID, row.ReceivedAt, row.ParseError); err != nil {
+			if err := repo.MarkRawParseResult(ctx, row.TenantID, row.MessageID, row.ReceivedAt, row.ReceivedAt, row.ParseError); err != nil {
 				t.Fatal(err)
 			}
 		}

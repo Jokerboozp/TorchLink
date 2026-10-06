@@ -146,7 +146,7 @@ VALUES('t','old-msg','old-raw','p','d','PROPERTY_REPORT',$1,'{"messageId":"old-m
 	if dropped, err := r.DropPartition(ctx, "raw_archive_index", expired[0].Name); err != nil || dropped {
 		t.Fatalf("partition with an unpublished message dropped: %v %v", dropped, err)
 	}
-	if err = r.MarkRawPublished(ctx, "t", "future", cutover.UnixMilli(), ""); err != nil {
+	if err = r.MarkRawPublished(ctx, "t", "future", 0, cutover.UnixMilli(), ""); err != nil {
 		t.Fatal(err)
 	}
 	if dropped, err := r.DropPartition(ctx, "raw_archive_index", expired[0].Name); err != nil || !dropped {

@@ -203,13 +203,13 @@ func (e *Engine) IngestRaw(ctx context.Context, raw model.RawMessage) (model.Raw
 func (e *Engine) publishArchivedRaw(ctx context.Context, idx model.RawArchiveIndex, raw model.RawMessage) error {
 	b, _ := json.Marshal(raw)
 	if err := e.Bus.Publish(ctx, model.TopicRaw, model.DeviceKey(raw.TenantID, raw.DeviceID), b); err != nil {
-		_ = e.Repo.MarkRawPublished(ctx, idx.TenantID, idx.MessageID, 0, err.Error())
+		_ = e.Repo.MarkRawPublished(ctx, idx.TenantID, idx.MessageID, idx.ReceivedAt, 0, err.Error())
 		if e.Metrics != nil {
 			e.Metrics.Inc("raw_publish_failed_total")
 		}
 		return fmt.Errorf("publish archived raw: %w", err)
 	}
-	if err := e.Repo.MarkRawPublished(ctx, idx.TenantID, idx.MessageID, e.Clock.Now().UnixMilli(), ""); err != nil {
+	if err := e.Repo.MarkRawPublished(ctx, idx.TenantID, idx.MessageID, idx.ReceivedAt, e.Clock.Now().UnixMilli(), ""); err != nil {
 		return fmt.Errorf("mark raw published: %w", err)
 	}
 	return nil
@@ -232,7 +232,7 @@ func (e *Engine) retryPendingRawOnce(ctx context.Context) error {
 	for _, idx := range indexes {
 		raw, readErr := e.GetRaw(ctx, idx)
 		if readErr != nil {
-			_ = e.Repo.MarkRawPublished(ctx, idx.TenantID, idx.MessageID, 0, readErr.Error())
+			_ = e.Repo.MarkRawPublished(ctx, idx.TenantID, idx.MessageID, idx.ReceivedAt, 0, readErr.Error())
 			continue
 		}
 		if publishErr := e.publishArchivedRaw(ctx, idx, raw); publishErr != nil && e.Log != nil {
@@ -396,7 +396,7 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 			parseError = parseError[:512]
 		}
 	}
-	if storeErr := e.Repo.MarkRawParseResult(ctx, raw.TenantID, raw.MessageID, e.Clock.Now().UnixMilli(), parseError); storeErr != nil {
+	if storeErr := e.Repo.MarkRawParseResult(ctx, raw.TenantID, raw.MessageID, raw.ReceivedAt, e.Clock.Now().UnixMilli(), parseError); storeErr != nil {
 		return storeErr
 	}
 	if err != nil {

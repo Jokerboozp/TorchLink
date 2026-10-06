@@ -313,9 +313,9 @@ func (r *releaseOutageRepository) GetProtocolRelease(context.Context, string, st
 	return model.ProtocolRelease{}, errors.New("failed to connect: too many clients already")
 }
 
-func (r *releaseOutageRepository) MarkRawParseResult(ctx context.Context, tenant, id string, at int64, parseError string) error {
+func (r *releaseOutageRepository) MarkRawParseResult(ctx context.Context, tenant, id string, receivedAt, at int64, parseError string) error {
 	r.marked++
-	return r.Repository.MarkRawParseResult(ctx, tenant, id, at, parseError)
+	return r.Repository.MarkRawParseResult(ctx, tenant, id, receivedAt, at, parseError)
 }
 
 // A database outage while loading the protocol version is retried through the
