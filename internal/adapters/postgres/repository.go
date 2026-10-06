@@ -1179,6 +1179,9 @@ func alarmFilterSQL(f ports.AlarmFilter) (string, []any) {
 	if f.DeviceIDs != nil {
 		add("device_id=ANY($%d)", f.DeviceIDs)
 	}
+	if f.AlarmType != "" {
+		add("body->>'alarmType'=$%d", f.AlarmType)
+	}
 	if len(conditions) == 0 {
 		return "", args
 	}

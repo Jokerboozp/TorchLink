@@ -106,7 +106,7 @@ func (e *Service) buildAlarmContext(ctx context.Context, alarm model.Alarm) alar
 	if history := e.alarmDispositionHistory(ctx, alarm); history != nil {
 		c.blocks["dispositionHistory"] = history
 	}
-	if similar, err := e.engine.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: alarm.TenantID, DeviceID: alarm.DeviceID, Summary: true, Limit: alarmContextSimilarAlarms + 1}); err == nil {
+	if similar, err := e.engine.Repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: alarm.TenantID, DeviceID: alarm.DeviceID, AlarmType: alarm.AlarmType, Summary: true, Limit: alarmContextSimilarAlarms + 1}); err == nil {
 		items := []map[string]any{}
 		for _, item := range similar {
 			if item.ID != alarm.ID && item.AlarmType == alarm.AlarmType && len(items) < alarmContextSimilarAlarms {

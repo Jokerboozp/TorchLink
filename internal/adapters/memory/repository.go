@@ -931,7 +931,8 @@ func (r *Repository) CountAlarms(_ context.Context, f ports.AlarmFilter) (int, e
 func matchesAlarmFilter(v model.Alarm, f ports.AlarmFilter) bool {
 	return (f.TenantID == "" || v.TenantID == f.TenantID) && (f.DeviceID == "" || v.DeviceID == f.DeviceID) && (f.DeviceIDs == nil || slices.Contains(f.DeviceIDs, v.DeviceID)) &&
 		(f.Status == "" || v.Status == f.Status) && (f.Level == "" || v.AlarmLevel == f.Level) && (f.Source == "" || v.Source == f.Source) &&
-		(f.Start <= 0 || v.LastTriggeredAt >= f.Start) && (f.End <= 0 || v.LastTriggeredAt <= f.End)
+		(f.Start <= 0 || v.LastTriggeredAt >= f.Start) && (f.End <= 0 || v.LastTriggeredAt <= f.End) &&
+		(f.AlarmType == "" || v.AlarmType == f.AlarmType)
 }
 func (r *Repository) UpdateAlarm(_ context.Context, v model.Alarm) error {
 	r.mu.Lock()

@@ -127,12 +127,13 @@ func TestBoundedLimit(t *testing.T) {
 func TestAlarmToolsReturnSummaryPages(t *testing.T) {
 	repo := memory.NewRepository()
 	ctx := context.Background()
+	now := time.Now().UnixMilli()
 	for i := range 30 {
 		alarmType := "SMOKE_DETECTED"
 		if i%3 == 0 {
 			alarmType = "HIGH_TEMPERATURE"
 		}
-		a := model.Alarm{ID: fmt.Sprintf("alarm-%02d", i), RuleID: fmt.Sprintf("rule-%02d", i), TenantID: "tenant-a", DeviceID: "device-1", AlarmType: alarmType, Status: "ACTIVE", LastTriggeredAt: int64(1000 + i),
+		a := model.Alarm{ID: fmt.Sprintf("alarm-%02d", i), RuleID: fmt.Sprintf("rule-%02d", i), TenantID: "tenant-a", DeviceID: "device-1", AlarmType: alarmType, Status: "ACTIVE", LastTriggeredAt: now - int64(30-i)*1000,
 			Details: map[string]any{"telemetry": strings.Repeat("x", 100)}, Cameras: []model.CameraSummary{{CameraID: "cam"}}}
 		if _, _, err := repo.UpsertAlarm(ctx, a); err != nil {
 			t.Fatal(err)
@@ -177,6 +178,13 @@ func TestAlarmToolsReturnSummaryPages(t *testing.T) {
 	similar := call("query_similar_alarms", map[string]any{"deviceId": "device-1", "alarmType": "high_temperature", "limit": 4, "offset": 4})
 	if similar["total"] != float64(10) || len(similar["items"].([]any)) != 4 || similar["nextOffset"] != float64(8) {
 		t.Fatalf("similar page: %v", similar)
+	}
+	old := model.Alarm{ID: "alarm-old", RuleID: "rule-old", TenantID: "tenant-a", DeviceID: "device-1", AlarmType: "HIGH_TEMPERATURE", Status: "CLOSED", LastTriggeredAt: now - int64(200*24*time.Hour/time.Millisecond)}
+	if _, _, err := repo.UpsertAlarm(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	if again := call("query_similar_alarms", map[string]any{"deviceId": "device-1", "alarmType": "high_temperature"}); again["total"] != float64(10) {
+		t.Fatalf("type lookups default to the last 90 days: %v", again)
 	}
 	for _, item := range similar["items"].([]any) {
 		if item.(map[string]any)["alarmType"] != "HIGH_TEMPERATURE" {

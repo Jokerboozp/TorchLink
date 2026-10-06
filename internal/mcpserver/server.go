@@ -331,32 +331,21 @@ func alarmPage(ctx context.Context, engine *core.Engine, filter ports.AlarmFilte
 	filter.Summary = true
 	items := []model.Alarm{}
 	total := 0
-	if alarmType == "" {
-		filter.Limit, filter.Offset = limit, offset
-		page, err := engine.Repo.ListAlarms(ctx, filter)
-		if err != nil {
-			return nil, err
-		}
-		if total, err = engine.Repo.CountAlarms(ctx, filter); err != nil {
-			return nil, err
-		}
-		items = page
-	} else {
-		// The alarm filter has no type column, so matching summaries are
-		// streamed and paged here.
-		err := engine.Repo.EachAlarm(ctx, filter, func(a model.Alarm) error {
-			if a.AlarmType == alarmType {
-				if total >= offset && len(items) < limit {
-					items = append(items, a)
-				}
-				total++
-			}
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
+	filter.AlarmType = alarmType
+	if alarmType != "" && filter.Start == 0 {
+		// Type lookups compare history; without an explicit window they read
+		// the last 90 days, not a device's whole alarm table.
+		filter.Start = time.Now().Add(-90 * 24 * time.Hour).UnixMilli()
 	}
+	filter.Limit, filter.Offset = limit, offset
+	page, err := engine.Repo.ListAlarms(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	if total, err = engine.Repo.CountAlarms(ctx, filter); err != nil {
+		return nil, err
+	}
+	items = page
 	next := offset + len(items)
 	if next >= total {
 		next = -1

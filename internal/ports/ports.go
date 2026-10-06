@@ -27,6 +27,8 @@ type AlarmFilter struct {
 	Limit, Offset                             int
 	// DeviceIDs, when non-nil, restricts results to these devices.
 	DeviceIDs []string
+	// AlarmType, when set, restricts results to one alarm type.
+	AlarmType string
 }
 
 // ObjectCleanupStore queues object storage files whose records are gone,
