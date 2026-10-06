@@ -97,6 +97,11 @@ groups:
         for: 0m
         labels: {severity: critical}
         annotations: {summary: "依赖故障导致设备消息暂停处理超过 1 分钟，恢复后自动继续"}
+      - alert: KafkaLagObservationMissing
+        expr: (min(kafka_lag_observation_ok) == 0) or (min(pipeline_backlog_observation_ok) == 0)
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "无法读取消息队列积压，积压告警与接入背压可能失效"}
       - alert: KafkaConsumerLagHigh
         expr: kafka_lag > 10000
         for: 5m

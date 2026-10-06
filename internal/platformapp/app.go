@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/google/uuid"
 	"log/slog"
+	"math"
 	"net/http"
 	"os"
 	"os/signal"
@@ -295,13 +296,18 @@ func (a *app) openMessaging() {
 	if a.kafkaBus != nil {
 		a.kafkaBus.SetMetrics(a.registry)
 		// kafka_lag is the total backlog of this process's consumer groups;
-		// kafka_lag_<group> breaks it down. Sampling errors keep the last value.
+		// kafka_lag_<group> breaks it down. A failed sample exports NaN and
+		// kafka_lag_observation_ok 0 rather than a stale value that would
+		// keep the lag alert quiet while the backlog grows.
 		a.every(15*time.Second, func() {
 			lags, err := a.kafkaBus.ConsumerLag(a.ctx)
 			if err != nil {
 				log.Warn("sample kafka consumer lag", "error", err)
+				a.registry.Set("kafka_lag", math.NaN())
+				a.registry.Set("kafka_lag_observation_ok", 0)
 				return
 			}
+			a.registry.Set("kafka_lag_observation_ok", 1)
 			var total int64
 			for group, lag := range lags {
 				total += lag
@@ -423,15 +429,28 @@ func (a *app) buildEngine() {
 func (a *app) watchBacklog() {
 	limit := a.cfg.IngestMaxBacklog
 	paused := false
+	var lastWarn time.Time
+	failed := func(err error) {
+		// Backpressure keeps its last decision while the backlog cannot be
+		// read; the gauge and a warning every 5 minutes make that visible.
+		a.registry.Set("pipeline_backlog_observation_ok", 0)
+		if time.Since(lastWarn) >= 5*time.Minute {
+			lastWarn = time.Now()
+			a.log.Warn("sample processing backlog for backpressure", "error", err, "paused", paused)
+		}
+	}
 	a.every(15*time.Second, func() {
 		parserLag, err := a.kafkaBus.GroupLag(a.ctx, "parser", model.TopicRaw)
 		if err != nil {
+			failed(err)
 			return
 		}
 		processorLag, err := a.kafkaBus.GroupLag(a.ctx, core.GroupProcessor, model.TopicDeviceBusiness)
 		if err != nil {
+			failed(err)
 			return
 		}
+		a.registry.Set("pipeline_backlog_observation_ok", 1)
 		backlog := parserLag + processorLag
 		a.registry.Set("pipeline_backlog", float64(backlog))
 		next := paused
