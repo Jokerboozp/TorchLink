@@ -1,12 +1,19 @@
 <script setup>
 import { computed } from 'vue'
-import { renderMarkdown } from '../markdown'
+import { escapeHtml, renderMarkdown } from '../markdown'
 
 const props = defineProps({
   source: { type: [String, Number], default: '' }
 })
 
-const html = computed(() => renderMarkdown(props.source))
+// 渲染异常时退回转义后的纯文本，回答仍可阅读，不会注入任何标记。
+const html = computed(() => {
+  try {
+    return renderMarkdown(props.source)
+  } catch {
+    return `<p>${escapeHtml(props.source).replace(/\n/g, '<br>')}</p>`
+  }
+})
 </script>
 
 <template>

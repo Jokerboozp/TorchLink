@@ -92,6 +92,10 @@ test('AI answers render safe Markdown in chat and health inspection', async () =
   assert.match(html, /<h1>标题<\/h1>/)
   assert.match(html, /<ul>[\s\S]*<strong>重点<\/strong>[\s\S]*<\/ul>/)
   assert.match(html, /<code>code<\/code>/)
+  // Deeply nested quotes stop recursing and keep the rest as escaped text.
+  const nested = markdown.renderMarkdown('>'.repeat(5000) + ' <b>深层</b>')
+  assert.equal((nested.match(/<blockquote>/g) || []).length, 33)
+  assert.match(nested, /&lt;b&gt;深层&lt;\/b&gt;/)
   const unsafeHtml = markdown.renderMarkdown('<script>alert(1)</script>')
   assert.match(unsafeHtml, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/)
   assert.doesNotMatch(unsafeHtml, /<script>/)

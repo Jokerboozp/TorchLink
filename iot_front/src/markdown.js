@@ -6,7 +6,7 @@ const htmlEntities = {
   "'": '&#39;'
 }
 
-function escapeHtml(value) {
+export function escapeHtml(value) {
   return String(value ?? '').replace(/[&<>"']/g, character => htmlEntities[character])
 }
 
@@ -120,7 +120,10 @@ function renderList(lines, start, ordered) {
   return { html: `<${ordered ? 'ol' : 'ul'}>${items.join('')}</${ordered ? 'ol' : 'ul'}>`, next: index }
 }
 
-export function renderMarkdown(source) {
+// 引用块逐层递归渲染；超过此深度的引用内容按转义后的纯文本显示，避免恶意深层嵌套耗尽调用栈。
+const MAX_QUOTE_DEPTH = 32
+
+export function renderMarkdown(source, depth = 0) {
   const lines = String(source ?? '')
     .replace(/\r\n?/g, '\n')
     .split('\n')
@@ -181,7 +184,12 @@ export function renderMarkdown(source) {
         quoteLines.push(lines[index].replace(/^ {0,3}>\s?/, ''))
         index += 1
       }
-      html.push(`<blockquote>${renderMarkdown(quoteLines.join('\n'))}</blockquote>`)
+      const quoted = quoteLines.join('\n')
+      html.push(
+        depth < MAX_QUOTE_DEPTH
+          ? `<blockquote>${renderMarkdown(quoted, depth + 1)}</blockquote>`
+          : `<blockquote><p>${escapeHtml(quoted).replace(/\n/g, '<br>')}</p></blockquote>`
+      )
       continue
     }
 

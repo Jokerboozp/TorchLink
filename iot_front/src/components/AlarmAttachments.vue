@@ -1,7 +1,7 @@
 <script setup>
 // 告警附件：现场照片（PNG / JPEG）、处置文档（PDF）与短视频（MP4），每条告警最多 10 个、单个 20 MiB。
 // 告警关闭后附件只读；文件只在用户点击时下载。
-import { computed, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { api, apiBlob, download, formatTime, notifyError } from '../api'
 import { confirmDelete } from '../deleteAction'
 import { UiMessage } from '../ui/feedback.js'
@@ -38,15 +38,29 @@ async function upload(event) {
   }
 }
 
+// 图片在页内预览：关闭预览或离开页面时立即释放 Blob 地址，不留在新标签页里。
+const preview = ref({ visible: false, url: '', name: '', loading: false })
+let previewRequest = 0
+function releasePreview() {
+  previewRequest++
+  if (preview.value.url) URL.revokeObjectURL(preview.value.url)
+  preview.value = { visible: false, url: '', name: '', loading: false }
+}
 async function view(att) {
+  releasePreview()
+  const request = previewRequest
+  preview.value = { visible: true, url: '', name: att.name, loading: true }
   try {
-    const url = URL.createObjectURL(await apiBlob(`${base.value}/${encodeURIComponent(att.id)}?inline=1`))
-    window.open(url, '_blank', 'noopener')
-    setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    const blob = await apiBlob(`${base.value}/${encodeURIComponent(att.id)}?inline=1`)
+    if (request !== previewRequest) return
+    preview.value = { ...preview.value, url: URL.createObjectURL(blob), loading: false }
   } catch (error) {
+    if (request !== previewRequest) return
+    releasePreview()
     notifyError(error)
   }
 }
+onBeforeUnmount(releasePreview)
 
 function save(att) {
   download(`${base.value}/${encodeURIComponent(att.id)}`, att.name).catch(notifyError)
@@ -98,10 +112,32 @@ function remove(att) {
         /></ui-button>
       </li>
     </ul>
+    <ui-dialog
+      :model-value="preview.visible"
+      :title="preview.name"
+      width="min(960px, 94vw)"
+      @update:model-value="value => !value && releasePreview()"
+    >
+      <div v-loading="preview.loading" class="attachment-preview">
+        <img v-if="preview.url" :src="preview.url" :alt="preview.name" />
+      </div>
+    </ui-dialog>
   </ui-card>
 </template>
 
 <style scoped>
+.attachment-preview {
+  min-height: 160px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.attachment-preview img {
+  display: block;
+  max-width: 100%;
+  max-height: 72vh;
+  object-fit: contain;
+}
 .attachment-list {
   list-style: none;
   margin: 0;
