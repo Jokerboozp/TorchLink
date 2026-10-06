@@ -534,6 +534,7 @@
 
 | 方法 | 路径 | 菜单 | 单独授权的操作 |
 | --- | --- | --- | --- |
+| `POST` | `/api/v1/replays/:id/cancel` | 原始报文 | 回放报文 |
 | `GET` | `/api/v1/replays/:id` | 原始报文 | — |
 
 ## `/api/v1/rules`

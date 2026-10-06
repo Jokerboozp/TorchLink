@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -327,5 +328,46 @@ func TestRuleDraftFieldsComeFromThingModel(t *testing.T) {
 	fields := RuleFields(model.Product{ThingModel: &model.ThingModel{Properties: []model.ThingField{{Identifier: "temperature", DataType: "number", Unit: "℃"}}}})
 	if len(fields) != 1 || fields[0].Kind != "property" || fields[0].Unit != "℃" {
 		t.Fatalf("rule fields %+v", fields)
+	}
+}
+
+// One tenant runs one replay at a time, and a running replay can be
+// cancelled; it is then saved as CANCELLED.
+func TestReplaysAreBoundedAndCancellable(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	e := New(repo, nil, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for i := range 5 {
+		if _, err := repo.SaveRawIndex(ctx, model.RawArchiveIndex{MessageID: fmt.Sprintf("replay-%d", i), TenantID: "t1", ProductID: "p", DeviceID: "d", Protocol: "json", PayloadFormat: "json", ObjectKey: "missing", ReceivedAt: int64(1000 + i), ArchivedAt: int64(1000 + i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := model.ReplayRequest{TenantID: "t1", Start: 1, End: 1_000_000, Mode: "DRY_RUN", RatePerSecond: 1}
+	first, err := e.StartReplay(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = e.StartReplay(ctx, req); !errors.Is(err, ErrReplayBusy) {
+		t.Fatalf("a second replay of the same tenant must wait, got %v", err)
+	}
+	if err = e.CancelReplay("other-tenant", first.ID); !errors.Is(err, ErrReplayNotRunning) {
+		t.Fatalf("another tenant cancelled the replay: %v", err)
+	}
+	if err = e.CancelReplay("t1", first.ID); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		got, getErr := repo.GetReplay(ctx, first.ID)
+		if getErr == nil && got.Status == "CANCELLED" && got.CompletedAt > 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("replay was not cancelled: %+v err=%v", got, getErr)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err = e.StartReplay(ctx, req); err != nil {
+		t.Fatalf("a finished replay must free its slot: %v", err)
 	}
 }

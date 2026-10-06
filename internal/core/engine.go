@@ -63,8 +63,12 @@ type Engine struct {
 	Log              *slog.Logger
 	Metrics          interface{ Inc(string) }
 	ingestPaused     atomic.Bool
-	identity         string
-	identityOnce     sync.Once
+	// replays tracks running replays of this process; runCtx ends them when
+	// the engine stops.
+	replays      replayRegistry
+	runCtx       context.Context
+	identity     string
+	identityOnce sync.Once
 	// PublishExternalTopics keeps publishing parsed messages to the
 	// property/event/parsed topics for external subscribers.
 	PublishExternalTopics bool

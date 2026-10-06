@@ -346,6 +346,7 @@ POST /api/v1/protocol-packages/:id/test
 POST /api/v1/raw-messages
 POST /api/v1/raw-messages/download
 POST /api/v1/raw-messages/replay
+POST /api/v1/replays/:id/cancel
 POST /api/v1/rules
 POST /api/v1/sites/buildings
 POST /api/v1/sites/floors

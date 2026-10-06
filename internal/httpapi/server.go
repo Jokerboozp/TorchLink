@@ -1173,11 +1173,30 @@ func (s *Server) startReplay(w http.ResponseWriter, r *http.Request) {
 	v.CreatedBy = c.Username
 	v.CapacityRunID = capacityRequestRunID(r)
 	task, err := s.engine.StartReplay(r.Context(), v)
+	if errors.Is(err, core.ErrReplayBusy) {
+		problem(w, http.StatusConflict, err.Error())
+		return
+	}
 	if err != nil {
 		problem(w, 422, err.Error())
 		return
 	}
 	write(w, 202, task)
+}
+
+// cancelReplay stops a running replay; it must reach the API instance that
+// runs it, which a single-replica deployment always does.
+func (s *Server) cancelReplay(w http.ResponseWriter, r *http.Request) {
+	if limited(r.Context()) {
+		problem(w, 404, "replay not found")
+		return
+	}
+	if err := s.engine.CancelReplay(claims(r).TenantID, r.PathValue("id")); err != nil {
+		problem(w, http.StatusConflict, err.Error())
+		return
+	}
+	s.audit(r, "replay.cancel", "replay", r.PathValue("id"), nil)
+	write(w, http.StatusAccepted, map[string]any{"cancelling": true})
 }
 func (s *Server) getReplay(w http.ResponseWriter, r *http.Request) {
 	v, err := s.engine.Repo.GetReplay(r.Context(), r.PathValue("id"))

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"time"
 
 	"iot-platform/internal/model"
@@ -14,6 +15,75 @@ import (
 
 // MaxReplayRatePerSecond bounds requested pacing, not guaranteed throughput.
 const MaxReplayRatePerSecond = 10000
+
+// Running replays are limited per process: one per tenant and a few in all,
+// so replays cannot flood the raw queue past what live devices need.
+const (
+	maxReplaysPerTenant = 1
+	maxReplaysTotal     = 4
+)
+
+// ErrReplayBusy rejects a replay while the tenant or the process already runs
+// the maximum number of replays.
+var ErrReplayBusy = errors.New("已有回放任务在运行，请等待其完成或先取消")
+
+// ErrReplayNotRunning rejects cancelling a replay this process is not running.
+var ErrReplayNotRunning = errors.New("回放任务不在本实例运行或已结束")
+
+type replayRegistry struct {
+	mu      sync.Mutex
+	running map[string]runningReplay
+}
+
+type runningReplay struct {
+	tenant string
+	cancel context.CancelFunc
+}
+
+func (r *replayRegistry) begin(tenant, id string, cancel context.CancelFunc) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.running == nil {
+		r.running = map[string]runningReplay{}
+	}
+	sameTenant := 0
+	for _, v := range r.running {
+		if v.tenant == tenant {
+			sameTenant++
+		}
+	}
+	if sameTenant >= maxReplaysPerTenant || len(r.running) >= maxReplaysTotal {
+		return false
+	}
+	r.running[id] = runningReplay{tenant: tenant, cancel: cancel}
+	return true
+}
+
+func (r *replayRegistry) end(id string) {
+	r.mu.Lock()
+	delete(r.running, id)
+	r.mu.Unlock()
+}
+
+func (r *replayRegistry) cancel(tenant, id string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.running[id]
+	if !ok || v.tenant != tenant {
+		return false
+	}
+	v.cancel()
+	return true
+}
+
+// CancelReplay stops a replay running in this process; the task is saved as
+// CANCELLED with the counts reached so far.
+func (e *Engine) CancelReplay(tenant, id string) error {
+	if !e.replays.cancel(tenant, id) {
+		return ErrReplayNotRunning
+	}
+	return nil
+}
 
 func (e *Engine) StartReplay(ctx context.Context, req model.ReplayRequest) (model.ReplayRequest, error) {
 	if req.TenantID == "" || req.Start <= 0 || req.End <= req.Start {
@@ -33,11 +103,27 @@ func (e *Engine) StartReplay(ctx context.Context, req model.ReplayRequest) (mode
 	req.ID = id("replay")
 	req.Status = "PENDING"
 	req.CreatedAt = e.Clock.Now().UnixMilli()
+	// The replay belongs to the engine, not the request, and stops with it.
+	base := e.runCtx
+	if base == nil {
+		base = context.Background()
+	}
+	runCtx, cancel := context.WithCancel(base)
+	if !e.replays.begin(req.TenantID, req.ID, cancel) {
+		cancel()
+		return req, ErrReplayBusy
+	}
 	if err := e.Repo.SaveReplay(ctx, req); err != nil {
+		e.replays.end(req.ID)
+		cancel()
 		return req, err
 	}
 	e.RecordAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: req.TenantID, Actor: req.CreatedBy, Action: "replay.create", TargetType: "replay", TargetID: req.ID, Details: map[string]any{"mode": req.Mode, "start": req.Start, "end": req.End}, CreatedAt: req.CreatedAt})
-	go e.runReplay(context.Background(), req)
+	go func() {
+		defer cancel()
+		defer e.replays.end(req.ID)
+		e.runReplay(runCtx, req)
+	}()
 	return req, nil
 }
 
@@ -66,14 +152,16 @@ func (e *Engine) RefreshReplay(ctx context.Context, req model.ReplayRequest) mod
 }
 
 func (e *Engine) runReplay(ctx context.Context, req model.ReplayRequest) {
+	// Status writes outlive cancellation so a stopped replay is still saved.
+	store := context.WithoutCancel(ctx)
 	req.Status = "RUNNING"
 	req.Owner = e.Identity()
 	req.HeartbeatAt = e.Clock.Now().UnixMilli()
-	_ = e.Repo.UpdateReplay(ctx, req)
+	_ = e.Repo.UpdateReplay(store, req)
 	beat := func() {
 		if now := e.Clock.Now().UnixMilli(); now-req.HeartbeatAt >= replayHeartbeat.Milliseconds() {
 			req.HeartbeatAt = now
-			_ = e.Repo.UpdateReplay(ctx, req)
+			_ = e.Repo.UpdateReplay(store, req)
 		}
 	}
 	ticker := time.NewTicker(time.Second / time.Duration(req.RatePerSecond))
@@ -92,8 +180,16 @@ func (e *Engine) runReplay(ctx context.Context, req model.ReplayRequest) {
 			req.Status = "COMPLETED"
 			break
 		}
+		cancelled := false
 		for _, idx := range indexes {
-			<-ticker.C
+			select {
+			case <-ticker.C:
+			case <-ctx.Done():
+			}
+			if ctx.Err() != nil {
+				cancelled = true
+				break
+			}
 			beat()
 			raw, err := e.GetRaw(ctx, idx)
 			if err != nil {
@@ -103,6 +199,12 @@ func (e *Engine) runReplay(ctx context.Context, req model.ReplayRequest) {
 			}
 			switch req.Mode {
 			case "REINGEST":
+				// Reingested messages join the live raw queue; while ingest is
+				// paused for backpressure the replay waits instead of adding load.
+				if err = e.waitIngestResumed(ctx); err != nil {
+					cancelled = true
+					break
+				}
 				raw, _, err = e.prepareReplayRaw(ctx, raw, req.ParserVersion)
 				if err == nil {
 					var b []byte
@@ -142,6 +244,9 @@ func (e *Engine) runReplay(ctx context.Context, req model.ReplayRequest) {
 					req.Diffs = append(req.Diffs, diff)
 				}
 			}
+			if cancelled {
+				break
+			}
 			if err != nil {
 				e.Log.Error("process replay message", "replayId", req.ID, "messageId", idx.MessageID, "mode", req.Mode, "error", err)
 				req.Failed++
@@ -149,16 +254,32 @@ func (e *Engine) runReplay(ctx context.Context, req model.ReplayRequest) {
 				req.Processed++
 			}
 		}
+		if cancelled {
+			req.Status = "CANCELLED"
+			break
+		}
 		offset += len(indexes)
 		req.HeartbeatAt = e.Clock.Now().UnixMilli()
-		_ = e.Repo.UpdateReplay(ctx, req)
+		_ = e.Repo.UpdateReplay(store, req)
 		if len(indexes) < 500 {
 			req.Status = "COMPLETED"
 			break
 		}
 	}
 	req.CompletedAt = e.Clock.Now().UnixMilli()
-	_ = e.Repo.UpdateReplay(ctx, req)
+	_ = e.Repo.UpdateReplay(store, req)
+}
+
+// waitIngestResumed blocks while raw ingest is paused for backpressure.
+func (e *Engine) waitIngestResumed(ctx context.Context) error {
+	for e.ingestPaused.Load() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(time.Second):
+		}
+	}
+	return ctx.Err()
 }
 
 func (e *Engine) parseReplay(ctx context.Context, raw model.RawMessage, version string) (*model.StandardMessage, error) {

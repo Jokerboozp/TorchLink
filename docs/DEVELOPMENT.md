@@ -202,7 +202,7 @@ macOS 若提前结束无头 Chrome，检查系统的后台运行授权；浏览�
 
 ### 原文回放
 
-`POST /api/v1/raw-messages/replay` 的 `ratePerSecond` 省略或非正时沿用默认 100，正值上限为 10000；超限在创建任务前返回 422。该参数是请求的发送节奏，不是系统吞吐保证。
+`POST /api/v1/raw-messages/replay` 的 `ratePerSecond` 省略或非正时沿用默认 100，正值上限为 10000；超限在创建任务前返回 422。该参数是请求的发送节奏，不是系统吞吐保证。每个 API 实例同时最多运行 4 个回放、同一租户 1 个，超出返回 409；`POST /api/v1/replays/:id/cancel` 取消本实例正在运行的回放，任务记为 `CANCELLED` 并保留已处理计数。回放随进程停止而结束；`REINGEST` 在接入因积压暂停期间等待，不继续向原始队列投递。
 
 `DRY_RUN`、`DIFF` 和 `REINGEST` 共用协议版本选择逻辑。默认使用原文归档的协议、点表版本及 `metadata.protocolState` 帧前快照；显式指定 `parserVersion` 时，对已绑定协议的原文选择该协议的新版本及其点表版本。不存在或已撤销的版本计为失败，不发布到原始消息队列。回放不修改原始归档。
 

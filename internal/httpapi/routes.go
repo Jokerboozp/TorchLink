@@ -169,6 +169,7 @@ func (s *Server) rawMessageRoutes() {
 	s.router.GET("/api/v1/raw-messages/:id/download", s.authorize("viewer"), s.endpoint(s.downloadRaw, "id"))
 	s.router.POST("/api/v1/raw-messages/replay", s.authorize("admin"), s.endpoint(s.startReplay))
 	s.router.GET("/api/v1/replays/:id", s.authorize("viewer"), s.endpoint(s.getReplay, "id"))
+	s.router.POST("/api/v1/replays/:id/cancel", s.authorize("operator"), s.endpoint(s.cancelReplay, "id"))
 }
 
 // dashboardRoutes registers dashboard, device lists, latest data and history.

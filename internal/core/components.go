@@ -32,6 +32,7 @@ func (e *Engine) Start(ctx context.Context) error { return e.StartWith(ctx, AllC
 // Jobs run as cluster-wide singletons: every jobs process competes for a
 // lease per job, so adding jobs replicas adds standbys, not duplicate work.
 func (e *Engine) StartWith(ctx context.Context, c Components) error {
+	e.runCtx = ctx
 	type sub struct {
 		topic, group string
 		handler      func(context.Context, []byte) error
