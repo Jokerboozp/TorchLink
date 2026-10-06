@@ -35,8 +35,5 @@ func Invalid(message string) *Error { return &Error{Category: ErrInvalid, Messag
 // Conflict is an ErrConflict error with message.
 func Conflict(message string) *Error { return &Error{Category: ErrConflict, Message: message} }
 
-// Forbidden is an ErrForbidden error with message.
-func Forbidden(message string) *Error { return &Error{Category: ErrForbidden, Message: message} }
-
 // Unavailable is an ErrUnavailable error with message.
 func Unavailable(message string) *Error { return &Error{Category: ErrUnavailable, Message: message} }

@@ -67,13 +67,8 @@ func normalizePage(limit, offset int) (int, int) {
 	return limit, offset
 }
 
-func New(ctx context.Context, dsn string) (*Repository, error) { return NewWithMaxConns(ctx, dsn, 0) }
-
-// NewWithMaxConns sizes the pool to maxConns unless the DSN sets
-// pool_max_conns. pgx's own default (max(4, CPU count)) serializes the
-// ingest and consumer paths on small machines.
-func NewWithMaxConns(ctx context.Context, dsn string, maxConns int32) (*Repository, error) {
-	return NewWithOptions(ctx, dsn, PoolOptions{MaxConns: maxConns})
+func New(ctx context.Context, dsn string) (*Repository, error) {
+	return NewWithOptions(ctx, dsn, PoolOptions{})
 }
 
 func NewWithOptions(ctx context.Context, dsn string, o PoolOptions) (*Repository, error) {

@@ -281,11 +281,6 @@ func (k *KnowledgeRuntime) applyActiveConfig(ctx context.Context, cfg ports.Embe
 // rebuilds are still noticed while a long queue drains.
 const knowledgeDocumentsPerTick = 20
 
-func (k *KnowledgeRuntime) processDocument(ctx context.Context) error {
-	_, err := k.processNextDocument(ctx, true)
-	return err
-}
-
 // processNextDocument runs one queued document job and reports whether one was
 // claimed. Document jobs on different replicas run in parallel; the shared
 // lock only keeps them out of a running index rebuild.

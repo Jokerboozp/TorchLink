@@ -133,3 +133,10 @@ func TestKnowledgeIndexingRetriesTransientFailuresBeforeFailing(t *testing.T) {
 		})
 	}
 }
+
+// processDocument runs one queued document job as a tick would after the
+// first one: with the configuration resync.
+func (k *KnowledgeRuntime) processDocument(ctx context.Context) error {
+	_, err := k.processNextDocument(ctx, true)
+	return err
+}

@@ -9,7 +9,6 @@ const linkKeys = ['deviceId', 'rawMessageId', 'messageId', 'productId', 'tab'] a
 const linkValue = (value: unknown): value is string => typeof value === 'string' && value.length > 0 && value.length <= 200
 
 export const pathOf = (page: string) => '/' + page.replace(/[A-Z]/g, c => '-' + c.toLowerCase())
-export const pageOf = (segment: string) => segment.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase())
 
 /** The address of a page with the detail fields that may appear in it. */
 export function locationFor(page: string, detail?: Detail | null): { path: string; query: Record<string, string> } {

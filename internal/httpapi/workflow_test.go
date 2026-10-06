@@ -647,7 +647,7 @@ func TestEventSnapshotIsSharedPerTenantWindow(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if _, _, err := cache.get(context.Background(), repo, "t1"); err != nil {
+			if _, err := cache.snapshot(context.Background(), repo, "t1"); err != nil {
 				t.Error(err)
 			}
 		}()
@@ -656,11 +656,11 @@ func TestEventSnapshotIsSharedPerTenantWindow(t *testing.T) {
 	if repo.alarmReads.Load() != 1 || repo.stateReads.Load() != 1 {
 		t.Fatalf("20 polls read alarms %d and states %d times, want once", repo.alarmReads.Load(), repo.stateReads.Load())
 	}
-	if _, _, err := cache.get(context.Background(), repo, "t2"); err != nil || repo.stateReads.Load() != 2 {
+	if _, err := cache.snapshot(context.Background(), repo, "t2"); err != nil || repo.stateReads.Load() != 2 {
 		t.Fatalf("tenants must not share snapshots: reads=%d err=%v", repo.stateReads.Load(), err)
 	}
 	now = now.Add(eventSnapshotTTL)
-	if _, _, err := cache.get(context.Background(), repo, "t1"); err != nil || repo.stateReads.Load() != 3 {
+	if _, err := cache.snapshot(context.Background(), repo, "t1"); err != nil || repo.stateReads.Load() != 3 {
 		t.Fatalf("expired snapshot must be reloaded: reads=%d err=%v", repo.stateReads.Load(), err)
 	}
 }

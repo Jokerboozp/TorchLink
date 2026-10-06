@@ -57,14 +57,6 @@ type eventSnapshotStore interface {
 	ports.DeviceStateStore
 }
 
-func (c *eventSnapshots) get(ctx context.Context, repo eventSnapshotStore, tenant string) ([]model.Alarm, []model.DeviceState, error) {
-	entry, err := c.snapshot(ctx, repo, tenant)
-	if err != nil {
-		return nil, nil, err
-	}
-	return entry.alarms, entry.states, nil
-}
-
 // snapshot returns the tenant's shared snapshot with row revisions.
 func (c *eventSnapshots) snapshot(ctx context.Context, repo eventSnapshotStore, tenant string, view ...string) (*eventSnapshot, error) {
 	key := tenant

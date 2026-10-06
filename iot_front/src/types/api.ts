@@ -1,19 +1,6 @@
 // Response shapes of the platform API, field for field as the Go handlers
 // write them. Only fields the front end reads are listed.
 
-/** A paged list (internal/httpapi/pagination.go writeList). */
-export interface ListResponse<T> {
-  items: T[]
-  total: number
-  page: number
-  pageSize: number
-  pagination: { page: number; pageSize: number; total: number }
-  /** Raw message listing only: the total stopped at 10001. */
-  totalCapped?: boolean
-  /** Raw message listing only: an unfiltered query read the last 7 days. */
-  window?: { start: number; defaulted: boolean }
-}
-
 /** Token usage reported on run.completed / run.failed (model.AIUsage). */
 export interface AIUsage {
   inputTokens: number

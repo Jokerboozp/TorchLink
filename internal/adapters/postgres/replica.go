@@ -11,6 +11,9 @@ import (
 
 // PoolOptions tune the primary pool and an optional read replica.
 type PoolOptions struct {
+	// MaxConns sizes the pool unless the DSN sets pool_max_conns. pgx's own
+	// default (max(4, CPU count)) serializes the ingest and consumer paths on
+	// small machines.
 	MaxConns          int32
 	MaxConnLifetime   time.Duration
 	HealthCheckPeriod time.Duration
