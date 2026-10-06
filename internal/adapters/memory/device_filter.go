@@ -29,5 +29,6 @@ func (r *Repository) ListManagedDevicesFiltered(_ context.Context, f ports.Devic
 		}
 		return out[i].ID > out[j].ID
 	})
+	limit, offset = normalizePage(limit, offset)
 	return page(out, offset, limit), len(out), nil
 }

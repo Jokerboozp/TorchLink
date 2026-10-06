@@ -138,7 +138,7 @@ func (r *Repository) GetProduct(ctx context.Context, tenant, id string) (model.P
 	return v, err
 }
 func (r *Repository) ListProducts(ctx context.Context, tenant string) ([]model.Product, error) {
-	rows, err := r.pool.Query(ctx, `SELECT body FROM iot_product WHERE tenant_id=$1 ORDER BY updated_at DESC`, tenant)
+	rows, err := r.pool.Query(ctx, `SELECT body FROM iot_product WHERE tenant_id=$1 ORDER BY updated_at DESC,id`, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +200,7 @@ func (r *Repository) GetProtocolPackage(ctx context.Context, tenant, id string) 
 	return v, err
 }
 func (r *Repository) ListProtocolPackages(ctx context.Context, tenant string) ([]model.ProtocolPackage, error) {
-	rows, err := r.pool.Query(ctx, `SELECT body FROM protocol_package WHERE tenant_id=$1 ORDER BY updated_at DESC`, tenant)
+	rows, err := r.pool.Query(ctx, `SELECT body FROM protocol_package WHERE tenant_id=$1 ORDER BY updated_at DESC,id`, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -460,7 +460,7 @@ func (r *Repository) GetManagedDeviceByAccessKey(ctx context.Context, accessKey 
 	return r.scanManagedDevice(r.pool.QueryRow(ctx, `SELECT body,secret_hash FROM device_registry WHERE access_key=$1`, accessKey))
 }
 func (r *Repository) ListManagedDevices(ctx context.Context, tenant string) ([]model.ManagedDevice, error) {
-	rows, err := r.pool.Query(ctx, `SELECT body,secret_hash FROM device_registry WHERE tenant_id=$1 ORDER BY updated_at DESC`, tenant)
+	rows, err := r.pool.Query(ctx, `SELECT body,secret_hash FROM device_registry WHERE tenant_id=$1 ORDER BY updated_at DESC,id DESC`, tenant)
 	if err != nil {
 		return nil, err
 	}
@@ -963,7 +963,7 @@ func (r *Repository) SaveRule(ctx context.Context, v model.AlarmRule) error {
 	return err
 }
 func (r *Repository) ListRules(ctx context.Context, tenant string) ([]model.AlarmRule, error) {
-	rows, err := r.pool.Query(ctx, `SELECT body FROM alarm_rule WHERE ($1='' OR tenant_id=$1) ORDER BY updated_at DESC`, tenant)
+	rows, err := r.pool.Query(ctx, `SELECT body FROM alarm_rule WHERE ($1='' OR tenant_id=$1) ORDER BY updated_at DESC,id DESC`, tenant)
 	if err != nil {
 		return nil, err
 	}

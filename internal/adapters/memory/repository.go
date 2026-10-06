@@ -99,11 +99,11 @@ func (r *Repository) ListProducts(_ context.Context, tenant string) ([]model.Pro
 	defer r.mu.RUnlock()
 	out := []model.Product{}
 	for _, v := range r.products {
-		if tenant == "" || v.TenantID == tenant {
+		if v.TenantID == tenant {
 			out = append(out, clone(v))
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt > out[j].UpdatedAt })
+	sort.Slice(out, func(i, j int) bool { return newerFirst(out[i].UpdatedAt, out[j].UpdatedAt, out[i].ID, out[j].ID) })
 	return out, nil
 }
 func (r *Repository) ListProductsPage(ctx context.Context, tenant string, limit, offset int) ([]model.Product, int, error) {
@@ -133,11 +133,11 @@ func (r *Repository) ListProtocolPackages(_ context.Context, tenant string) ([]m
 	defer r.mu.RUnlock()
 	out := []model.ProtocolPackage{}
 	for _, v := range r.protocols {
-		if tenant == "" || v.TenantID == tenant {
+		if v.TenantID == tenant {
 			out = append(out, clone(v))
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt > out[j].UpdatedAt })
+	sort.Slice(out, func(i, j int) bool { return newerFirst(out[i].UpdatedAt, out[j].UpdatedAt, out[i].ID, out[j].ID) })
 	return out, nil
 }
 func (r *Repository) ListProtocolPackagesPage(ctx context.Context, tenant string, limit, offset int) ([]model.ProtocolPackage, int, error) {
@@ -172,7 +172,7 @@ func (r *Repository) ListProtocolDefinitions(_ context.Context, tenant string) (
 			out = append(out, clone(v))
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt > out[j].UpdatedAt })
+	sort.Slice(out, func(i, j int) bool { return newerFirst(out[i].UpdatedAt, out[j].UpdatedAt, out[i].ID, out[j].ID) })
 	return out, nil
 }
 func (r *Repository) CreateProtocolRelease(_ context.Context, v model.ProtocolRelease) error {
@@ -305,7 +305,7 @@ func (r *Repository) ListDeviceAccessProfiles(_ context.Context, tenant string) 
 			out = append(out, clone(v))
 		}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].UpdatedAt > out[j].UpdatedAt })
+	sort.Slice(out, func(i, j int) bool { return newerFirst(out[i].UpdatedAt, out[j].UpdatedAt, out[i].ID, out[j].ID) })
 	return out, nil
 }
 func (r *Repository) SaveManagedDevice(_ context.Context, v model.ManagedDevice) error {
@@ -343,7 +343,7 @@ func (r *Repository) ListManagedDevices(_ context.Context, tenant string) ([]mod
 	defer r.mu.RUnlock()
 	out := []model.ManagedDevice{}
 	for _, v := range r.devices {
-		if tenant == "" || v.TenantID == tenant {
+		if v.TenantID == tenant {
 			out = append(out, cloneManaged(v))
 		}
 	}
@@ -358,6 +358,7 @@ func (r *Repository) ListManagedDevicesPage(ctx context.Context, tenant string, 
 	if err != nil {
 		return nil, 0, err
 	}
+	limit, offset = normalizePage(limit, offset)
 	return page(items, offset, limit), len(items), nil
 }
 func (r *Repository) CountManagedDeviceChildren(ctx context.Context, tenant string, ids []string) (map[string]int, error) {
@@ -512,6 +513,22 @@ func (r *Repository) CountRawIndexes(_ context.Context, f ports.RawFilter) (int,
 	}
 	return count, nil
 }
+
+// newerFirst orders by update time, newest first, then by ID ascending, as
+// PostgreSQL's "ORDER BY updated_at DESC,id" does.
+func newerFirst(a, b int64, idA, idB string) bool {
+	return a > b || a == b && idA < idB
+}
+
+// normalizePage applies the device list page bounds of the PostgreSQL store:
+// 20 rows by default and at most 100.
+func normalizePage(limit, offset int) (int, int) {
+	if limit <= 0 {
+		limit = 20
+	}
+	return min(limit, 100), max(offset, 0)
+}
+
 func page[T any](v []T, offset, limit int) []T {
 	if offset < 0 {
 		offset = 0
@@ -784,6 +801,10 @@ func (r *Repository) ListRules(_ context.Context, tenant string) ([]model.AlarmR
 			out = append(out, v)
 		}
 	}
+	// Same order as PostgreSQL: newest first, then by ID descending.
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].UpdatedAt > out[j].UpdatedAt || out[i].UpdatedAt == out[j].UpdatedAt && out[i].ID > out[j].ID
+	})
 	return out, nil
 }
 func (r *Repository) ListRulesPage(ctx context.Context, tenant string, limit, offset int) ([]model.AlarmRule, int, error) {
@@ -1060,7 +1081,7 @@ func (r *Repository) ListVideoCameraMappings(_ context.Context, tenant string) (
 	defer r.mu.RUnlock()
 	out := []model.VideoCameraMapping{}
 	for _, v := range r.videoMappings {
-		if tenant == "" || v.TenantID == tenant {
+		if v.TenantID == tenant {
 			out = append(out, clone(v))
 		}
 	}

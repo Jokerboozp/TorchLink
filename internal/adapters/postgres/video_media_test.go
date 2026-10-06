@@ -22,3 +22,5 @@ func TestRuleDeleteRemovesDurationTimers(t *testing.T) {
 func TestKnowledgeDocLookupStaysInTenant(t *testing.T) {
 	repositorytest.KnowledgeDocLookupStaysInTenant(t, testRepository(t))
 }
+
+func TestListContract(t *testing.T) { repositorytest.ListContract(t, testRepository(t)) }

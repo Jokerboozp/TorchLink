@@ -339,3 +339,5 @@ func TestRuleDeleteRemovesDurationTimers(t *testing.T) {
 func TestKnowledgeDocLookupStaysInTenant(t *testing.T) {
 	repositorytest.KnowledgeDocLookupStaysInTenant(t, NewRepository())
 }
+
+func TestListContract(t *testing.T) { repositorytest.ListContract(t, NewRepository()) }
