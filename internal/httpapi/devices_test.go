@@ -207,16 +207,12 @@ func TestProtocolDevicesHaveNoPlatformCredentials(t *testing.T) {
 func TestDeviceRegistryFiltersBeforePagination(t *testing.T) {
 	ctx := context.Background()
 	repo := memory.NewRepository()
-	cfg := config.Load()
-	cfg.AdminUser, cfg.AdminPassword = "root", "root-password-test"
-	cfg.AdminTenants = []string{"tenant_a"}
-	cfg.JWTSecret = "test-only-secret-for-device-filters"
-	cfg.DevMode = true
-	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	server := httptest.NewServer(api.Handler())
-	defer server.Close()
+	api := newTestAPI(t, repo, func(cfg *config.Config) {
+		cfg.JWTSecret = "test-only-secret-for-device-filters"
+	})
+	cfg := api.cfg
 	req := func(method, path, token string, body any, status int) map[string]any {
-		return requestJSON(t, server.Client(), method, server.URL+path, token, body, status)
+		return api.request(t, method, path, token, body, status)
 	}
 	for _, p := range []model.Product{{ID: "gw-product", Category: "gateway"}, {ID: "smoke-product", Category: "smoke"}, {ID: "bare"}} {
 		p.TenantID, p.Name, p.Status = "tenant_a", p.ID, "ENABLED"

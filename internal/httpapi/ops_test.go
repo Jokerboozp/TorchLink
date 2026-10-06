@@ -31,13 +31,13 @@ import (
 func TestCapacityCleanupThroughPlatformAndController(t *testing.T) {
 	ctx := context.Background()
 	repo := memory.NewRepository()
-	cfg := config.Load()
-	cfg.JWTSecret = "capacity-cleanup-integration-key-32"
-	cfg.AdminUser, cfg.AdminTenants = "root", []string{"t"}
-	cfg.Ops.Tenants, cfg.Ops.CapacityToken = []string{"t"}, "integration-controller-secret"
-	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	server := httptest.NewServer(api.Handler())
-	defer server.Close()
+	api := newTestAPI(t, repo, func(cfg *config.Config) {
+		cfg.JWTSecret = "capacity-cleanup-integration-key-32"
+		cfg.AdminUser, cfg.AdminTenants = "root", []string{"t"}
+		cfg.Ops.Tenants, cfg.Ops.CapacityToken = []string{"t"}, "integration-controller-secret"
+	})
+	cfg := api.cfg
+	server := api.server
 	root := t.TempDir()
 	id := "cap-20260930-142131-3911da"
 	service := capacity.NewService(capacity.ServeOptions{ResultsDir: root, Token: cfg.Ops.CapacityToken, Self: &capacity.SelfEnvironment{API: server.URL, PostgresDSN: "unused", Metrics: []capacity.MetricsTarget{{Role: "combined", Instance: "a", URL: server.URL + "/metrics"}}}})
@@ -374,18 +374,16 @@ func TestCapacityProxyFollowsOpsBoundaryAndAudits(t *testing.T) {
 	}))
 	defer upstream.Close()
 	repo := &auditingRepo{Repository: memory.NewRepository()}
-	cfg := config.Load()
-	cfg.AdminUser, cfg.AdminPassword = "root", "root-password-test"
-	cfg.AdminTenants = []string{"tenant_ops", "tenant_biz"}
-	cfg.JWTSecret = "test-only-secret-for-ops-at-least-32"
-	cfg.DevMode = true
-	cfg.Ops.Tenants = []string{"tenant_ops"}
-	cfg.Ops.CapacityURL, cfg.Ops.CapacityToken = upstream.URL, "capacity-service-token-for-tests-000"
-	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	server := httptest.NewServer(api.Handler())
-	defer server.Close()
+	api := newTestAPI(t, repo, func(cfg *config.Config) {
+		cfg.AdminTenants = []string{"tenant_ops", "tenant_biz"}
+		cfg.JWTSecret = "test-only-secret-for-ops-at-least-32"
+		cfg.Ops.Tenants = []string{"tenant_ops"}
+		cfg.Ops.CapacityURL, cfg.Ops.CapacityToken = upstream.URL, "capacity-service-token-for-tests-000"
+	})
+	cfg := api.cfg
+	server := api.server
 	req := func(method, path, token string, body any, status int) map[string]any {
-		return requestJSON(t, server.Client(), method, server.URL+path, token, body, status)
+		return api.request(t, method, path, token, body, status)
 	}
 	login := func(user, password, tenant string) string {
 		return req("POST", "/api/v1/auth/login", "", map[string]any{"username": user, "password": password, "tenantId": tenant}, 200)["accessToken"].(string)
@@ -542,13 +540,13 @@ func TestCapacityCleanupDataProtectsTenantsAndBusinessDevices(t *testing.T) {
 func TestCapacityCleanAllThroughPlatformAndController(t *testing.T) {
 	ctx := context.Background()
 	repo := memory.NewRepository()
-	cfg := config.Load()
-	cfg.JWTSecret = "capacity-clean-all-integration-key-32"
-	cfg.AdminUser, cfg.AdminTenants = "root", []string{"t"}
-	cfg.Ops.Tenants, cfg.Ops.CapacityToken = []string{"t"}, "clean-all-controller-secret"
-	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	server := httptest.NewServer(api.Handler())
-	defer server.Close()
+	api := newTestAPI(t, repo, func(cfg *config.Config) {
+		cfg.JWTSecret = "capacity-clean-all-integration-key-32"
+		cfg.AdminUser, cfg.AdminTenants = "root", []string{"t"}
+		cfg.Ops.Tenants, cfg.Ops.CapacityToken = []string{"t"}, "clean-all-controller-secret"
+	})
+	cfg := api.cfg
+	server := api.server
 	root := t.TempDir()
 	service := capacity.NewService(capacity.ServeOptions{ResultsDir: root, Token: cfg.Ops.CapacityToken, Self: &capacity.SelfEnvironment{API: server.URL, PostgresDSN: "unused", Metrics: []capacity.MetricsTarget{{Role: "combined", Instance: "a", URL: server.URL + "/metrics"}}}})
 	controller := httptest.NewServer(service.Handler())

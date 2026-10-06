@@ -854,12 +854,11 @@ func TestRawFiltersHTTP(t *testing.T) {
 	if err := repo.SaveStandardMessage(ctx, model.StandardMessage{TenantID: "t", MessageID: "s", RawMessageID: "parsed", DeviceID: "d", MessageType: model.AlarmReport, Parser: "json_parser"}); err != nil {
 		t.Fatal(err)
 	}
-	cfg := config.Load()
-	cfg.JWTSecret = "raw-filter-http-test"
-	cfg.AdminTenants = []string{"t"}
-	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	srv := httptest.NewServer(api.Handler())
-	defer srv.Close()
+	api := newTestAPI(t, repo, func(cfg *config.Config) {
+		cfg.JWTSecret = "raw-filter-http-test"
+		cfg.AdminTenants = []string{"t"}
+	})
+	srv := api.server
 	token, err := api.auth.IssueWithVersion("admin", "t", "admin", api.adminSessionVersion(), time.Hour)
 	if err != nil {
 		t.Fatal(err)
