@@ -72,7 +72,7 @@ func (s *Server) siteRoutes() {
 func (s *Server) siteError(w http.ResponseWriter, r *http.Request, err error) {
 	switch {
 	case errors.Is(err, errDeviceScope):
-		problem(w, 403, err.Error())
+		problemCode(w, 403, codeDeviceScopeDenied, err.Error())
 	case errors.Is(err, sites.ErrValidation):
 		problem(w, 422, err.Error())
 	case errors.Is(err, sites.ErrNotFound):

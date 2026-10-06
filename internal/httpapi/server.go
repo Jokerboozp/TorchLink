@@ -1758,11 +1758,17 @@ func (s *Server) authorize(role string) gin.HandlerFunc {
 			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), deviceScopeKey{}, scope))
 			c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), permissionsKey{}, permissions))
 			if allowed {
-				allowed = s.allowScopedRequest(c, scope)
+				// The status stays 403 (the established contract); the code tells
+				// a scope denial from a missing permission.
+				if !s.allowScopedRequest(c, scope) {
+					ginProblemCode(c, http.StatusForbidden, codeDeviceScopeDenied, "该资源或操作超出当前账户的设备范围")
+					c.Abort()
+					return
+				}
 			}
 		}
 		if !allowed {
-			ginProblem(c, http.StatusForbidden, "insufficient role")
+			ginProblemCode(c, http.StatusForbidden, codeRoleDenied, "insufficient role")
 			c.Abort()
 			return
 		}
@@ -1951,6 +1957,21 @@ func (s *Server) recovery() gin.HandlerFunc {
 		}()
 		c.Next()
 	}
+}
+
+// Machine-readable error codes in problem responses. Callers decide by code
+// rather than by the Chinese detail text, which may change.
+const (
+	codeRoleDenied        = "ROLE_DENIED"
+	codeDeviceScopeDenied = "DEVICE_SCOPE_DENIED"
+)
+
+func ginProblemCode(c *gin.Context, status int, code, detail string) {
+	c.JSON(status, gin.H{"type": "about:blank", "title": http.StatusText(status), "status": status, "code": code, "detail": detail})
+}
+
+func problemCode(w http.ResponseWriter, status int, code, detail string) {
+	write(w, status, map[string]any{"type": "about:blank", "title": http.StatusText(status), "status": status, "code": code, "detail": detail})
 }
 
 func ginProblem(c *gin.Context, status int, detail string) {

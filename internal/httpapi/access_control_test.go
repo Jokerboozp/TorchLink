@@ -274,7 +274,9 @@ func TestDeviceScopeHTTPIsolation(t *testing.T) {
 			t.Fatalf("%s total=%v", path, v["total"])
 		}
 	}
-	req("GET", "/api/v1/device-registry/device-01/connection", token, nil, 403)
+	if v := req("GET", "/api/v1/device-registry/device-01/connection", token, nil, 403); v["code"] != "DEVICE_SCOPE_DENIED" {
+		t.Fatalf("scope denial must be distinguishable: %v", v)
+	}
 	req("GET", "/api/v1/devices/device-01/properties/history?property=x", token, nil, 403)
 	req("GET", "/api/v1/alarms/alarm-device-01", token, nil, 403)
 	req("POST", "/api/v1/alarms/alarm-device-01/actions", token, map[string]string{"action": "ACK"}, 403)
@@ -294,7 +296,9 @@ func TestDeviceScopeHTTPIsolation(t *testing.T) {
 	}
 	req("POST", "/api/v1/mqtt/token", token, nil, 403)
 	req("POST", "/api/v1/mqtt/load-token", token, nil, 403)
-	req("GET", "/api/v1/backups", token, nil, 403)
+	if v := req("GET", "/api/v1/backups", token, nil, 403); v["code"] != "ROLE_DENIED" {
+		t.Fatalf("permission denial must be distinguishable: %v", v)
+	}
 	req("POST", "/api/v1/ai/chat", token, map[string]string{"question": "列出所有设备"}, 403)
 	// Conversations follow the assistant permission, not the menu alone.
 	req("GET", "/api/v1/ai/conversations?workflowId=ops-assistant", token, nil, 403)

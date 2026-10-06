@@ -367,7 +367,7 @@ func (s *Server) alarmNotifications(w http.ResponseWriter, r *http.Request) {
 	tenant := claims(r).TenantID
 	if _, err := s.engine.Repo.GetAlarm(r.Context(), tenant, r.PathValue("id")); err != nil {
 		if errors.Is(err, errDeviceScope) {
-			problem(w, 403, "无权查看该设备的告警")
+			problemCode(w, 403, codeDeviceScopeDenied, "无权查看该设备的告警")
 			return
 		}
 		problem(w, 404, "告警不存在")
