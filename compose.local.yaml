@@ -377,6 +377,12 @@ services:
       - {source: prometheus-local-alerts, target: /etc/prometheus/alerts.yml}
     volumes: ["prometheus-data:/prometheus", "${IOT_LOCAL_OPS_DIR:-./data/ops}/prometheus-rules:/etc/prometheus/rules:ro"]
     extra_hosts: ["host.docker.internal:host-gateway"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:9090/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   loki:
     <<: *service-defaults
@@ -388,6 +394,12 @@ services:
     configs:
       - {source: loki-local, target: /etc/loki/local-config.yaml}
     volumes: ["loki-data:/loki", "${IOT_LOCAL_OPS_DIR:-./data/ops}/loki:/etc/loki/ops:ro"]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   grafana:
     <<: *service-defaults
@@ -406,6 +418,12 @@ services:
     depends_on:
       prometheus: {condition: service_started}
       loki: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   alertmanager:
     <<: *service-defaults
@@ -431,6 +449,13 @@ services:
     volumes: ["/var/run/docker.sock:/var/run/docker.sock:ro", "alloy-data:/var/lib/alloy/data"]
     depends_on:
       loki: {condition: service_started}
+    # The image has no HTTP client; bash reads /-/ready over /dev/tcp.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/12345 && printf 'GET /-/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   node-exporter:
     <<: *service-defaults

@@ -4,13 +4,17 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	clickhouseadapter "iot-platform/internal/adapters/clickhouse"
 	"iot-platform/internal/adapters/memory"
 	redisadapter "iot-platform/internal/adapters/redis"
 	"iot-platform/internal/ports"
+	"iot-platform/internal/protocolrunner"
 )
 
 // Online and cluster deployments decorate the primary repository with
@@ -55,5 +59,30 @@ func TestHealthcheckExitCode(t *testing.T) {
 		if got := healthcheck(addr); got != want {
 			t.Fatalf("healthcheck(%q) = %d, want %d", addr, got, want)
 		}
+	}
+}
+
+func TestRunnerHealthcheckProbesTheSocket(t *testing.T) {
+	// Unix socket paths are limited to about 100 bytes.
+	dir, err := os.MkdirTemp("/tmp", "runner-hc-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	socket := filepath.Join(dir, "runner.sock")
+	if code := runnerHealthcheck(socket); code != 1 {
+		t.Fatalf("missing runner reported healthy: %d", code)
+	}
+	if code := runnerHealthcheck(""); code != 1 {
+		t.Fatalf("unset socket reported healthy: %d", code)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	go func() { _ = (&protocolrunner.Server{Dir: filepath.Join(dir, "work")}).Serve(ctx, socket) }()
+	for i := 0; runnerHealthcheck(socket) != 0; i++ {
+		if i == 100 {
+			t.Fatal("running runner reported unhealthy")
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 }

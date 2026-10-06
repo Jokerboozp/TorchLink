@@ -24,6 +24,7 @@ services:
       nofile: {soft: 1048576, hard: 1048576}
     image: ${IOT_PLATFORM_API_IMAGE:-iot-platform-api:local}
     mem_limit: ${IOT_PLATFORM_API_MEMORY:-4g}
+    cpus: ${IOT_PLATFORM_API_CPUS:-0}
     build:
       context: .
       dockerfile: Dockerfile
@@ -181,7 +182,7 @@ services:
       retries: 4
       start_period: 60s
     depends_on:
-      protocol-runner: {condition: service_started}
+      protocol-runner: {condition: service_healthy}
       ops-init: {condition: service_completed_successfully}
       postgres: {condition: service_healthy}
       postgres-tool-admin: {condition: service_completed_successfully}
@@ -215,6 +216,13 @@ services:
       IOT_PROTOCOL_RUNNER_SOCKET: /run/torchlink/runner.sock
       IOT_PROTOCOL_RUNNER_DIR: /tmp/protocol-runner
     volumes: ["protocol-runner-socket:/run/torchlink"]
+    # The runner has no network; the binary asks its own socket for /health.
+    healthcheck:
+      test: ["CMD", "/app/iot-platform", "runner-healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 4
+      start_period: 20s
 
   platform-web:
     <<: *service-defaults
@@ -311,6 +319,7 @@ services:
     <<: *service-defaults
     image: ${IOT_POSTGRES_IMAGE:-iot-platform-postgres:17-pgvector-0.8.1}
     mem_limit: ${IOT_POSTGRES_MEMORY:-4g}
+    cpus: ${IOT_POSTGRES_CPUS:-0}
     build:
       context: ./deploy/postgres
       args:
@@ -378,6 +387,7 @@ services:
     <<: *service-defaults
     image: redis:7.4-alpine
     mem_limit: ${IOT_REDIS_MEMORY:-2g}
+    cpus: ${IOT_REDIS_CPUS:-0}
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-admin123}", "--user", "${SERVICE_ADMIN_USER:-admin}", "on", ">${SERVICE_ADMIN_PASSWORD:-admin123}", "~*", "&*", "+@all"]
     volumes: ["redis-data:/data"]
     healthcheck:
@@ -426,6 +436,7 @@ services:
     <<: *service-defaults
     image: redpandadata/redpanda:v25.2.11
     mem_limit: ${IOT_REDPANDA_MEMORY:-2g}
+    cpus: ${IOT_REDPANDA_CPUS:-0}
     ports:
       - "${KAFKA_BIND_ADDRESS:-127.0.0.1}:${KAFKA_PORT:-19092}:19092"
     command: ["redpanda", "start", "--overprovisioned", "--smp", "1", "--memory", "1G", "--reserve-memory", "0M", "--node-id", "0", "--check=false", "--kafka-addr", "internal://0.0.0.0:9092,external://0.0.0.0:19092", "--advertise-kafka-addr", "internal://redpanda:9092,external://${IOT_KAFKA_ADVERTISED_HOST:-127.0.0.1}:${KAFKA_PORT:-19092}", "--set", "redpanda.enable_sasl=true", "--set", "redpanda.admin_api_require_auth=true", "--set", 'redpanda.superusers=["${IOT_KAFKA_ADMIN_USERNAME:-admin}"]']
@@ -468,6 +479,7 @@ services:
     profiles: [clickhouse]
     image: clickhouse/clickhouse-server:25.7-alpine
     mem_limit: ${IOT_CLICKHOUSE_MEMORY:-4g}
+    cpus: ${IOT_CLICKHOUSE_CPUS:-0}
     environment:
       CLICKHOUSE_DB: iot
       CLICKHOUSE_USER: iot
@@ -488,6 +500,7 @@ services:
       nofile: {soft: 1048576, hard: 1048576}
     image: emqx/emqx:5.8.8
     mem_limit: ${IOT_EMQX_MEMORY:-2g}
+    cpus: ${IOT_EMQX_CPUS:-0}
     entrypoint: ["/bin/sh", "-ec"]
     command:
       - |
@@ -585,6 +598,12 @@ services:
     ports: ["${PROMETHEUS_BIND_ADDRESS:-127.0.0.1}:${PROMETHEUS_PORT:-9090}:9090"]
     depends_on:
       ops-init: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:9090/-/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   grafana:
     profiles: [ops]
@@ -604,6 +623,12 @@ services:
     depends_on:
       prometheus: {condition: service_started}
       loki: {condition: service_started}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   loki:
     profiles: [ops]
@@ -616,6 +641,12 @@ services:
     volumes: ["loki-data:/loki", "loki-ops:/etc/loki/ops:ro"]
     depends_on:
       ops-init: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://127.0.0.1:3100/ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   alertmanager:
     profiles: [ops]
@@ -645,6 +676,13 @@ services:
     volumes: ["/var/run/docker.sock:/var/run/docker.sock:ro", "alloy-data:/var/lib/alloy/data"]
     depends_on:
       loki: {condition: service_started}
+    # The image has no HTTP client; bash reads /-/ready over /dev/tcp.
+    healthcheck:
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/12345 && printf 'GET /-/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
 
   node-exporter:
     profiles: [ops]

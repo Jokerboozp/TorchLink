@@ -228,7 +228,7 @@ docker compose -p iot-platform-local --env-file .env.local -f compose.local.yaml
 
 单机在线与离线部署的长驻容器使用 json-file 日志并轮转，默认每个容器 `IOT_CONTAINER_LOG_MAX_SIZE=50m` × `IOT_CONTAINER_LOG_MAX_FILE=5`，在环境文件中修改后重新部署生效；更早的标准输出以 Loki 保留为准。
 
-**内存上限**：单机在线与离线部署为每个长驻容器设置内存上限，避免单个服务耗尽主机内存；默认值偏宽松，可在环境文件中按服务覆盖后重新部署：`IOT_PLATFORM_API_MEMORY`（4g）、`IOT_POSTGRES_MEMORY`（4g）、`IOT_CLICKHOUSE_MEMORY`（4g）、`IOT_REDIS_MEMORY`、`IOT_REDPANDA_MEMORY`、`IOT_EMQX_MEMORY`、`IOT_RUSTFS_MEMORY`、`IOT_HARNESS_MEMORY`、`IOT_EMBEDDING_MEMORY`、`IOT_RERANKER_MEMORY`、`IOT_PROMETHEUS_MEMORY`、`IOT_BACKUP_MEMORY`、`IOT_CAPACITY_MEMORY`（均为 2g）、`IOT_RUSTFS_DR_MEMORY`、`IOT_LOKI_MEMORY`（1g）、`IOT_GRAFANA_MEMORY`、`IOT_ALLOY_MEMORY`（512m）、`IOT_PLATFORM_WEB_MEMORY`、`IOT_ALERTMANAGER_MEMORY`（256m）、`IOT_NODE_EXPORTER_MEMORY`（128m）。超过上限的容器会被重启，`docker stats` 可查看实际用量。CPU 不设默认上限（Docker 拒绝超过主机核数的值），协议运行器与媒体服务保留原有的 CPU 限制。集群节点按清单规划独占资源，不渲染这些上限。
+**内存上限**：单机在线与离线部署为每个长驻容器设置内存上限，避免单个服务耗尽主机内存；默认值偏宽松，可在环境文件中按服务覆盖后重新部署：`IOT_PLATFORM_API_MEMORY`（4g）、`IOT_POSTGRES_MEMORY`（4g）、`IOT_CLICKHOUSE_MEMORY`（4g）、`IOT_REDIS_MEMORY`、`IOT_REDPANDA_MEMORY`、`IOT_EMQX_MEMORY`、`IOT_RUSTFS_MEMORY`、`IOT_HARNESS_MEMORY`、`IOT_EMBEDDING_MEMORY`、`IOT_RERANKER_MEMORY`、`IOT_PROMETHEUS_MEMORY`、`IOT_BACKUP_MEMORY`、`IOT_CAPACITY_MEMORY`（均为 2g）、`IOT_RUSTFS_DR_MEMORY`、`IOT_LOKI_MEMORY`（1g）、`IOT_GRAFANA_MEMORY`、`IOT_ALLOY_MEMORY`（512m）、`IOT_PLATFORM_WEB_MEMORY`、`IOT_ALERTMANAGER_MEMORY`（256m）、`IOT_NODE_EXPORTER_MEMORY`（128m）。超过上限的容器会被重启，`docker stats` 可查看实际用量。CPU 不设默认上限（Docker 拒绝超过主机核数的值），需要时用 `IOT_PLATFORM_API_CPUS`、`IOT_POSTGRES_CPUS`、`IOT_CLICKHOUSE_CPUS`、`IOT_REDIS_CPUS`、`IOT_REDPANDA_CPUS`、`IOT_EMQX_CPUS` 设置（默认 0 表示不限制）；协议运行器与媒体服务保留原有的 CPU 限制。集群节点按清单规划独占资源，不渲染这些上限。
 
 **运行用户与基础镜像**：平台 API、协议运行器以 distroless `nonroot` 运行；Web 使用 `nginx-unprivileged`（uid 101），挂载的 `tls.key` 须对其可读（`scripts/generate-tls-cert` 生成的证书已是 0644），不可读时日志提示并只提供 HTTP；备份服务启动时把暂存卷交给 uid 65532 后降权运行，旧版本创建的数据卷会自动修正属主。各 Dockerfile 的基础镜像以“标签@摘要”固定，升级基础镜像时同时更新摘要；Compose 中直接运行的第三方镜像保留版本标签，离线包按标签导出与导入。
 
@@ -316,7 +316,7 @@ go run ./cmd/capacity-check -env-file .env.local -replicas 3 -postgres-reserve 3
 
 ## 协议运行器
 
-`protocol-runner` 与平台使用同一镜像（`IOT_PROCESS_ROLE=protocol-runner`），在线/离线 Compose 默认部署，集群为每个运行 api、gateway 或 parser 的节点渲染一个。平台进程设置 `IOT_PROTOCOL_SANDBOX=runner` 与 `IOT_PROTOCOL_RUNNER_SOCKET=/run/torchlink/runner.sock`，运行器未就绪时协议上传、试跑与 Go 协议解析返回错误，不会退回进程内执行。资源上限用 `IOT_PROTOCOL_RUNNER_MEMORY`（默认 2g）、`IOT_PROTOCOL_RUNNER_CPUS`（2）、`IOT_PROTOCOL_RUNNER_PIDS`（512）调整。隔离与依赖限制见 [Go 协议](INTEGRATION.md#上传与发布)。
+`protocol-runner` 与平台使用同一镜像（`IOT_PROCESS_ROLE=protocol-runner`），在线/离线 Compose 默认部署，集群为每个运行 api、gateway 或 parser 的节点渲染一个。平台进程设置 `IOT_PROTOCOL_SANDBOX=runner` 与 `IOT_PROTOCOL_RUNNER_SOCKET=/run/torchlink/runner.sock`，运行器未就绪时协议上传、试跑与 Go 协议解析返回错误，不会退回进程内执行。容器健康检查调用 `iot-platform runner-healthcheck` 经套接字探测运行器，平台 API 在运行器健康后才启动。资源上限用 `IOT_PROTOCOL_RUNNER_MEMORY`（默认 2g）、`IOT_PROTOCOL_RUNNER_CPUS`（2）、`IOT_PROTOCOL_RUNNER_PIDS`（512）调整。隔离与依赖限制见 [Go 协议](INTEGRATION.md#上传与发布)。
 
 ## HTTPS 与 MQTTS
 

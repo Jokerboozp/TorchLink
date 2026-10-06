@@ -99,6 +99,9 @@ func Run(forcedRole string) {
 	if flag.Arg(0) == "healthcheck" {
 		os.Exit(healthcheck(os.Getenv("IOT_HTTP_ADDR")))
 	}
+	if flag.Arg(0) == "runner-healthcheck" {
+		os.Exit(runnerHealthcheck(os.Getenv("IOT_PROTOCOL_RUNNER_SOCKET")))
+	}
 	if flag.Arg(0) == "migrate" {
 		os.Exit(migrateCommand(flag.Args()[1:]))
 	}

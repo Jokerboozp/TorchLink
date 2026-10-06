@@ -756,6 +756,7 @@ func (r renderer) nodeCompose(node string, services []string, files map[string][
 						"pids_limit": 512, "mem_limit": "2g", "tmpfs": []string{"/tmp:size=2g,mode=1777,exec"},
 						"environment": map[string]string{"IOT_PROCESS_ROLE": "protocol-runner", "IOT_PROTOCOL_RUNNER_SOCKET": "/run/torchlink/runner.sock", "IOT_PROTOCOL_RUNNER_DIR": "/tmp/protocol-runner"},
 						"volumes":     []string{"protocol-runner-socket:/run/torchlink"},
+						"healthcheck": map[string]any{"test": []string{"CMD", "/app/iot-platform", "runner-healthcheck"}, "interval": "15s", "timeout": "5s", "retries": 4, "start_period": "20s"},
 					}), "protocol-runner-socket")
 				}
 			}
