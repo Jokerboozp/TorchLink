@@ -872,6 +872,20 @@ func TestRawFiltersHTTP(t *testing.T) {
 		}
 	}
 	requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/raw-messages?start=no", token, nil, 400)
+
+	// Without a time, device or message filter only the last 7 days are read.
+	recent := time.Now().UnixMilli()
+	if _, err = repo.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: "t", MessageID: "recent", DeviceID: "d", ProductID: "p", ReceivedAt: recent}); err != nil {
+		t.Fatal(err)
+	}
+	result := requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/raw-messages", token, nil, 200)
+	window, _ := result["window"].(map[string]any)
+	if result["total"].(float64) != 1 || window["defaulted"] != true || result["totalCapped"] != false {
+		t.Fatalf("unfiltered listing must default to the recent window: %+v", result)
+	}
+	if device := requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/raw-messages?deviceId=d", token, nil, 200); device["total"].(float64) != 3 || device["window"] != nil {
+		t.Fatalf("a device listing keeps its full history: %+v", device)
+	}
 }
 
 func TestDeleteResourceRoutesReturnConflictAndNotFound(t *testing.T) {

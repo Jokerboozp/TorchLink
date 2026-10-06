@@ -507,6 +507,9 @@ func (r *Repository) CountRawIndexes(_ context.Context, f ports.RawFilter) (int,
 		}
 		count++
 	}
+	if f.CountLimit > 0 {
+		count = min(count, f.CountLimit)
+	}
 	return count, nil
 }
 func page[T any](v []T, offset, limit int) []T {

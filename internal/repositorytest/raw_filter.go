@@ -78,6 +78,11 @@ func RawFilters(t *testing.T, repo ports.Repository) {
 			if !reflect.DeepEqual(got, tc.want) {
 				t.Fatalf("paged IDs %v want %v", got, tc.want)
 			}
+			// A count limit caps the total without changing smaller counts.
+			tc.f.CountLimit = 2
+			if count, err = repo.CountRawIndexes(ctx, tc.f); err != nil || count != min(len(tc.want), 2) {
+				t.Fatalf("capped count %d %v want %d", count, err, min(len(tc.want), 2))
+			}
 		})
 	}
 }

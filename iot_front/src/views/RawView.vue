@@ -47,6 +47,10 @@ const detailTab = ref('parsed') /* 每次查看报文都从解析结果开始，
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
+// 总数超过一万条时后端只计到 10001；未选时间、设备和消息时只查最近 7 天。
+const totalCapped = ref(false)
+const defaultWindow = ref(false)
+const totalLabel = computed(() => (totalCapped.value ? '10000+' : String(total.value)))
 const selectedIds = computed(() => selection.value.map(item => item.messageId))
 const loader = useListLoader(loading)
 // 已应用的筛选、页码和每页条数在刷新或切换菜单后恢复；输入框同步为已应用的条件。
@@ -114,7 +118,9 @@ async function load() {
     }
     const data = await loader.run(signal => api(`/api/v1/raw-messages?${params.toString()}`, { signal }))
     items.value = data.items || []
-    total.value = Number(data.total ?? data.count ?? items.value.length)
+    total.value = Number(data.total ?? items.value.length)
+    totalCapped.value = data.totalCapped === true
+    defaultWindow.value = data.window?.defaulted === true
     selection.value = []
     void resolveNames(items.value)
   } catch (error) {
@@ -122,6 +128,8 @@ async function load() {
     if (isAbort(error)) return
     items.value = []
     total.value = 0
+    totalCapped.value = false
+    defaultWindow.value = false
     loadError.value = error?.status === 401 ? '' : errorMessage(error) || '原始报文查询失败'
   }
 }
@@ -322,7 +330,7 @@ function rowActions(row) {
     </FilterBar>
   </form>
   <DataTableCard
-    :title="`原始报文 · ${total} 条`"
+    :title="`原始报文 · ${totalLabel} 条`"
     :page="page"
     :page-size="pageSize"
     :total="total"
@@ -331,7 +339,10 @@ function rowActions(row) {
     @update:page-size="changePageSize"
     @retry="load"
   >
-    <p class="raw-hint">{{ activeFilterCount ? `已应用 ${activeFilterCount} 项筛选；` : '' }}保留原文证据链；详情同时展示标准解析结果。</p>
+    <p class="raw-hint">
+      {{ activeFilterCount ? `已应用 ${activeFilterCount} 项筛选；` : ''
+      }}{{ defaultWindow ? '已限定为最近 7 天，查看更早的报文请选择接收时间或设备；' : '' }}保留原文证据链；详情同时展示标准解析结果。
+    </p>
     <ui-table
       v-loading="loading"
       :data="items"

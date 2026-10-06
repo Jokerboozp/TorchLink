@@ -985,6 +985,15 @@ func (s *Server) listRaw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filter.TenantID, filter.Limit, filter.Offset = c.TenantID, pagination.PageSize, pagination.Offset
+	extra := map[string]any{}
+	// An unfiltered listing reads only the recent partitions; device, message
+	// and time filters keep their full range.
+	if filter.Start == 0 && filter.End == 0 && filter.MessageID == "" && filter.DeviceID == "" {
+		filter.Start = time.Now().Add(-rawDefaultWindow).UnixMilli()
+		extra["window"] = map[string]any{"start": filter.Start, "defaulted": true}
+	}
+	// Counting stops past rawCountCap; the page shows "10000+".
+	filter.CountLimit = rawCountCap + 1
 	items, err := s.engine.Repo.ListRawIndexes(r.Context(), filter)
 	if err != nil {
 		s.internalError(w, r, err)
@@ -1015,8 +1024,15 @@ func (s *Server) listRaw(w http.ResponseWriter, r *http.Request) {
 			items[i].Parser = message.Parser
 		}
 	}
-	writeList(w, 200, items, total, pagination, nil)
+	extra["totalCapped"] = total > rawCountCap
+	writeList(w, 200, items, total, pagination, extra)
 }
+
+const (
+	rawCountCap      = 10000
+	rawDefaultWindow = 7 * 24 * time.Hour
+)
+
 func (s *Server) rawDetail(w http.ResponseWriter, r *http.Request) {
 	idx, err := s.engine.Repo.GetRawIndex(r.Context(), claims(r).TenantID, r.PathValue("id"))
 	if err != nil {

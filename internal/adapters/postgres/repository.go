@@ -642,6 +642,11 @@ func (r *Repository) ListRawIndexes(ctx context.Context, f ports.RawFilter) ([]m
 func (r *Repository) CountRawIndexes(ctx context.Context, f ports.RawFilter) (int, error) {
 	from, args := rawFilterSQL(f)
 	var total int
+	if f.CountLimit > 0 {
+		args = append(args, f.CountLimit)
+		err := r.reader().QueryRow(ctx, fmt.Sprintf("SELECT count(*) FROM (SELECT 1 FROM %s LIMIT $%d) capped", from, len(args)), args...).Scan(&total)
+		return total, err
+	}
 	err := r.reader().QueryRow(ctx, "SELECT count(*) FROM "+from, args...).Scan(&total)
 	return total, err
 }

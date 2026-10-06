@@ -18,6 +18,8 @@ type RawFilter struct {
 	Limit, Offset                                                        int
 	// DeviceIDs, when non-nil, restricts results to these devices.
 	DeviceIDs []string
+	// CountLimit, when positive, stops CountRawIndexes at this many rows.
+	CountLimit int
 }
 
 type AlarmFilter struct {
