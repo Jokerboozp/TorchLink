@@ -97,14 +97,8 @@ func (e *Service) runBusinessWorkflow(ctx context.Context, tenantID, workflowID,
 	if binding.TenantID != tenantID || binding.WorkflowID != workflowID {
 		return ports.AIWorkflowResult{}, errors.New("知识策略与当前租户或工作流不符，拒绝执行")
 	}
-	knowledgeScope := ports.MCPToolScope("query_knowledge_base")
-	knowledgeToolRequested := false
-	for _, scope := range scopes {
-		if scope == knowledgeScope {
-			knowledgeToolRequested = true
-			break
-		}
-	}
+	knowledgeScope := knowledgeToolScope
+	knowledgeToolRequested := hasScope(scopes, knowledgeScope)
 	// Platform prefetch does not add tools to the Agent manifest. In particular,
 	// rule drafts may receive authorized evidence without gaining a knowledge tool.
 	useKnowledge := binding.RetrievalMode != "disabled" && allowed[knowledgeScope] && (workflowID != WorkflowAlarmAnalysis || knowledgeToolRequested)
@@ -235,14 +229,7 @@ func (e *Service) runAlarmAnalysisWorkflow(ctx context.Context, alarm model.Alar
 		if !ok {
 			return model.AIAnalysis{}, errors.New("缺少 AI 运行身份，拒绝执行")
 		}
-		allowed := false
-		for _, scope := range identity.Scopes {
-			if scope == ports.MCPToolScope("query_knowledge_base") {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
+		if !hasScope(identity.Scopes, knowledgeToolScope) {
 			return model.AIAnalysis{}, errors.New("当前用户无知识库访问权限，拒绝发送知识内容")
 		}
 	}
@@ -371,14 +358,7 @@ func (e *Service) AnalyzeAlarm(ctx context.Context, tenantID, alarmID string, wi
 	var documents []string
 	if withKnowledge {
 		identity, hasIdentity := ports.AIRunIdentityFrom(ctx)
-		authorized := false
-		for _, permission := range identity.Scopes {
-			if permission == ports.MCPToolScope("query_knowledge_base") {
-				authorized = true
-				break
-			}
-		}
-		if !hasIdentity || !authorized {
+		if !hasIdentity || !hasScope(identity.Scopes, knowledgeToolScope) {
 			return model.AIAnalysis{}, errors.New("当前运行身份无知识库访问权限")
 		}
 		scope = model.AlarmAnalysisWorkflowID

@@ -93,7 +93,7 @@ func (e *Service) RunChat(ctx context.Context, req ChatRequest, emit func(ports.
 	if binding.TenantID != tenantID || binding.WorkflowID != workflowID {
 		return failed(ports.AIRejected(http.StatusForbidden, "知识策略与当前租户或智能体不符，拒绝执行"))
 	}
-	knowledgeScope := ports.MCPToolScope("query_knowledge_base")
+	knowledgeScope := knowledgeToolScope
 	scopes := append([]string(nil), identity.Scopes...)
 	if !hasScope(scopes, knowledgeScope) {
 		if binding.RetrievalMode != "disabled" && binding.NoMatchPolicy == "require-evidence" {
@@ -252,14 +252,10 @@ func KnowledgeSources(hits []ports.KnowledgeHit) []any {
 	return sources
 }
 
-func hasScope(scopes []string, scope string) bool {
-	for _, value := range scopes {
-		if value == scope {
-			return true
-		}
-	}
-	return false
-}
+// knowledgeToolScope is the run scope that grants the knowledge tool.
+var knowledgeToolScope = ports.MCPToolScope("query_knowledge_base")
+
+func hasScope(scopes []string, scope string) bool { return slices.Contains(scopes, scope) }
 
 func withoutScope(scopes []string, scope string) []string {
 	out := make([]string, 0, len(scopes))
