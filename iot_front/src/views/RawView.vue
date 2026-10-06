@@ -122,11 +122,18 @@ watch(
 const canPickDevice = computed(() => can('GET /api/v1/device-registry'))
 const canPickProduct = computed(() => can('GET /api/v1/products'))
 
+// 向后翻页时沿用上一页末行的位置（服务端返回的 nextCursor），不必再跳过前面的行；
+// 跳页或刷新页面后没有记录，仍按页码读取。回到第一页时重新开始记录。
+const pageCursors = new Map()
+
 async function load() {
   loadError.value = ''
   selection.value = []
   try {
+    if (page.value === 1) pageCursors.clear()
     const params = new URLSearchParams({ page: String(page.value), pageSize: String(pageSize.value) })
+    const after = pageCursors.get(page.value)
+    if (after) params.set('after', after)
     for (const [key, value] of Object.entries(appliedFilters.value)) {
       if (key !== 'range' && value) params.set(key, value)
     }
@@ -139,6 +146,8 @@ async function load() {
     total.value = Number(data.total ?? items.value.length)
     totalCapped.value = data.totalCapped === true
     defaultWindow.value = data.window?.defaulted === true
+    if (data.nextCursor) pageCursors.set(page.value + 1, data.nextCursor)
+    else pageCursors.delete(page.value + 1)
     selection.value = []
     void resolveNames(items.value)
   } catch (error) {

@@ -586,6 +586,8 @@ func TestRawFiltersPostgres(t *testing.T) {
 	repositorytest.RawFilters(t, testRepository(t))
 }
 
+func TestRawCursorPaging(t *testing.T) { repositorytest.RawCursorPaging(t, testRepository(t)) }
+
 func TestRawIndexLookupByReceiveTime(t *testing.T) {
 	repositorytest.RawIndexLookupByReceiveTime(t, testRepository(t))
 }

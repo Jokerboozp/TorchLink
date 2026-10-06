@@ -638,12 +638,19 @@ func (r *Repository) GetRawIndexAt(ctx context.Context, tenant, messageID string
 }
 func (r *Repository) ListRawIndexes(ctx context.Context, f ports.RawFilter) ([]model.RawArchiveIndex, error) {
 	from, args := rawFilterSQL(f)
+	offset := f.Offset
+	if f.After != nil {
+		// Same order as below: newer first, then the larger message ID.
+		args = append(args, f.After.ReceivedAt, f.After.MessageID)
+		from += fmt.Sprintf(" AND (r.received_at, r.message_id) < ($%d, $%d)", len(args)-1, len(args))
+		offset = 0
+	}
 	q := `SELECT r.message_id,r.tenant_id,r.product_id,r.device_id,r.protocol,r.payload_format,r.object_bucket,r.object_key,r.object_offset,r.payload_hash,r.payload_size,r.received_at,r.archived_at,r.published_at,r.publish_attempts,r.last_publish_error,r.parse_attempted_at,r.parse_error FROM ` + from
 	limit := f.Limit
 	if limit <= 0 {
 		limit = 100
 	}
-	args = append(args, limit, f.Offset)
+	args = append(args, limit, offset)
 	q += fmt.Sprintf(" ORDER BY r.received_at DESC,r.message_id DESC LIMIT $%d OFFSET $%d", len(args)-1, len(args))
 	rows, err := r.reader().Query(ctx, q, args...)
 	if err != nil {

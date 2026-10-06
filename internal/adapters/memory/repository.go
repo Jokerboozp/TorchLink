@@ -508,6 +508,12 @@ func (r *Repository) ListRawIndexes(_ context.Context, f ports.RawFilter) ([]mod
 		}
 		return out[i].ReceivedAt > out[j].ReceivedAt
 	})
+	if a := f.After; a != nil {
+		start := sort.Search(len(out), func(i int) bool {
+			return out[i].ReceivedAt < a.ReceivedAt || out[i].ReceivedAt == a.ReceivedAt && out[i].MessageID < a.MessageID
+		})
+		return page(out[start:], 0, f.Limit), nil
+	}
 	return page(out, f.Offset, f.Limit), nil
 }
 func (r *Repository) CountRawIndexes(_ context.Context, f ports.RawFilter) (int, error) {

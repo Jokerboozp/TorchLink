@@ -845,6 +845,22 @@ func TestRawFiltersHTTP(t *testing.T) {
 	if device := requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/raw-messages?deviceId=d", token, nil, 200); device["total"].(float64) != 3 || device["window"] != nil {
 		t.Fatalf("a device listing keeps its full history: %+v", device)
 	}
+
+	// A full page returns the cursor of the next one; following it gives the
+	// same rows as the next offset page and keeps the total.
+	first := requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/raw-messages?deviceId=d&pageSize=2", token, nil, 200)
+	cursor, _ := first["nextCursor"].(string)
+	if cursor == "" {
+		t.Fatalf("a full page must return nextCursor: %+v", first)
+	}
+	byCursor := requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/raw-messages?deviceId=d&pageSize=2&page=2&after="+url.QueryEscape(cursor), token, nil, 200)
+	byOffset := requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/raw-messages?deviceId=d&pageSize=2&page=2", token, nil, 200)
+	if fmt.Sprint(byCursor["items"]) != fmt.Sprint(byOffset["items"]) || byCursor["total"] != byOffset["total"] || byCursor["nextCursor"] != nil {
+		t.Fatalf("cursor page %+v, offset page %+v", byCursor, byOffset)
+	}
+	for _, bad := range []string{"x", "12", "-1:id", "12:"} {
+		requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/raw-messages?after="+url.QueryEscape(bad), token, nil, 400)
+	}
 }
 
 func TestDeleteResourceRoutesReturnConflictAndNotFound(t *testing.T) {

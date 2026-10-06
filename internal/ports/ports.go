@@ -20,6 +20,16 @@ type RawFilter struct {
 	DeviceIDs []string
 	// CountLimit, when positive, stops CountRawIndexes at this many rows.
 	CountLimit int
+	// After, when set, makes ListRawIndexes return the rows that follow this
+	// one in the listing order (newest first) and ignore Offset, so paging
+	// forward does not rescan the skipped rows. It does not affect counts.
+	After *RawCursor
+}
+
+// RawCursor marks a row of the raw message listing by its sort key.
+type RawCursor struct {
+	ReceivedAt int64
+	MessageID  string
 }
 
 type AlarmFilter struct {

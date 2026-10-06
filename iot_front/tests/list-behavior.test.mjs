@@ -711,6 +711,30 @@ test('raw filters combine criteria, preserve applied filters on pagination and r
   assert.equal(Number(requests.at(-1).get('end')) - Number(requests.at(-1).get('start')), 86400000)
 })
 
+test('raw paging continues after the previous page and falls back to page numbers for jumps', async () => {
+  const requests = []
+  const f = fixture(async url => {
+    const q = new URL(url, 'http://test').searchParams
+    requests.push(q)
+    return { items: [{ messageId: `m${q.get('page')}` }], total: 100, nextCursor: `cursor-after-${q.get('page')}` }
+  })
+  await f.search()
+  assert.equal(requests.at(-1).get('after'), null)
+  await f.changePage(2)
+  assert.equal(requests.at(-1).get('after'), 'cursor-after-1')
+  await f.changePage(3)
+  assert.equal(requests.at(-1).get('after'), 'cursor-after-2')
+  await f.changePage(5)
+  assert.equal(requests.at(-1).get('after'), null, '跳页时没有上一页的位置，按页码读取')
+  await f.changePage(2)
+  assert.equal(requests.at(-1).get('after'), 'cursor-after-1', '已读过的页沿用记录的位置')
+  f.filters.value.deviceId = 'd'
+  await f.search()
+  await f.changePage(2)
+  assert.equal(requests.at(-1).get('after'), 'cursor-after-1', '换筛选后从第一页重新记录')
+  assert.equal(requests.at(-1).get('deviceId'), 'd')
+})
+
 test('late raw responses cannot overwrite a newer filter result; failed queries clear stale rows', async () => {
   const pending = []
   const f = fixture(() => new Promise((resolve, reject) => pending.push({ resolve, reject })))

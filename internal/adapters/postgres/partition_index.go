@@ -77,3 +77,12 @@ func init() {
 		return createPartitionedIndex(ctx, conn, "raw_archive_index", "raw_archive_index_pending_idx", "(archived_at) WHERE published_at = 0")
 	})
 }
+
+// The raw message listing pages newest first by (received_at, message_id)
+// within a tenant, and its cursor continues after one such key; this index
+// serves both without sorting the tenant's rows.
+func init() {
+	registerConnMigration(23, "raw_listing_index", func(ctx context.Context, conn *pgx.Conn) error {
+		return createPartitionedIndex(ctx, conn, "raw_archive_index", "raw_archive_index_listing_idx", "(tenant_id, received_at DESC, message_id DESC)")
+	})
+}

@@ -113,3 +113,51 @@ func RawIndexLookupByReceiveTime(t *testing.T, repo rawLookupRepository) {
 		t.Fatalf("a missing message = %v, want ErrNotFound", err)
 	}
 }
+
+type rawPagingRepository interface {
+	SaveRawIndex(context.Context, model.RawArchiveIndex) (bool, error)
+	ListRawIndexes(context.Context, ports.RawFilter) ([]model.RawArchiveIndex, error)
+}
+
+// RawCursorPaging checks that continuing after the last row of a page gives
+// the same rows as the offset of the next page, including rows that share a
+// receive time.
+func RawCursorPaging(t *testing.T, repo rawPagingRepository) {
+	t.Helper()
+	ctx := context.Background()
+	for i, at := range []int64{5000, 4000, 4000, 4000, 3000, 2000} {
+		id := string(rune('a' + i))
+		if _, err := repo.SaveRawIndex(ctx, model.RawArchiveIndex{MessageID: "cursor-" + id, TenantID: "raw-cursor", ProductID: "p", DeviceID: "d", Protocol: "json", PayloadFormat: "json", ObjectKey: id, PayloadHash: "h", PayloadSize: 1, ReceivedAt: at, ArchivedAt: at}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	all, err := repo.ListRawIndexes(ctx, ports.RawFilter{TenantID: "raw-cursor", Limit: 10})
+	if err != nil || len(all) != 6 {
+		t.Fatalf("listing = %v, %v", all, err)
+	}
+	var cursor *ports.RawCursor
+	var walked []string
+	for range 3 {
+		page, err := repo.ListRawIndexes(ctx, ports.RawFilter{TenantID: "raw-cursor", Limit: 2, Offset: 99, After: cursor})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if cursor == nil {
+			// The first page has no cursor and uses the offset.
+			page, _ = repo.ListRawIndexes(ctx, ports.RawFilter{TenantID: "raw-cursor", Limit: 2})
+		}
+		for _, v := range page {
+			walked = append(walked, v.MessageID)
+		}
+		last := page[len(page)-1]
+		cursor = &ports.RawCursor{ReceivedAt: last.ReceivedAt, MessageID: last.MessageID}
+	}
+	for i, v := range all {
+		if walked[i] != v.MessageID {
+			t.Fatalf("cursor pages %v, want the offset order %v", walked, all)
+		}
+	}
+	if rest, _ := repo.ListRawIndexes(ctx, ports.RawFilter{TenantID: "raw-cursor", Limit: 2, After: cursor}); len(rest) != 0 {
+		t.Fatalf("after the last row: %v", rest)
+	}
+}

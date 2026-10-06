@@ -172,6 +172,8 @@ func TestSwitchProductProtocolIsAtomicAndDetectsChanges(t *testing.T) {
 
 func TestRawFilters(t *testing.T) { repositorytest.RawFilters(t, NewRepository()) }
 
+func TestRawCursorPaging(t *testing.T) { repositorytest.RawCursorPaging(t, NewRepository()) }
+
 func TestRawIndexLookupByReceiveTime(t *testing.T) {
 	repositorytest.RawIndexLookupByReceiveTime(t, NewRepository())
 }

@@ -15,6 +15,7 @@ import (
 
 	"iot-platform/internal/core"
 	"iot-platform/internal/model"
+	"iot-platform/internal/ports"
 )
 
 func (s *Server) listRaw(w http.ResponseWriter, r *http.Request) {
@@ -27,6 +28,14 @@ func (s *Server) listRaw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	filter.TenantID, filter.Limit, filter.Offset = c.TenantID, pagination.PageSize, pagination.Offset
+	if after := strings.TrimSpace(q.Get("after")); after != "" {
+		cursor, ok := parseRawCursor(after)
+		if !ok {
+			problem(w, http.StatusBadRequest, "after 须为上一页返回的 nextCursor")
+			return
+		}
+		filter.After = &cursor
+	}
 	extra := map[string]any{}
 	// An unfiltered listing reads only the recent partitions; device, message
 	// and time filters keep their full range.
@@ -67,7 +76,22 @@ func (s *Server) listRaw(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	extra["totalCapped"] = total > rawCountCap
+	// A full page hands out the cursor of the page that follows it.
+	if len(items) == pagination.PageSize && len(items) > 0 {
+		last := items[len(items)-1]
+		extra["nextCursor"] = strconv.FormatInt(last.ReceivedAt, 10) + ":" + last.MessageID
+	}
 	writeList(w, 200, items, total, pagination, extra)
+}
+
+// parseRawCursor reads "<receivedAt>:<messageId>" as returned in nextCursor.
+func parseRawCursor(text string) (ports.RawCursor, bool) {
+	at, id, ok := strings.Cut(text, ":")
+	receivedAt, err := strconv.ParseInt(at, 10, 64)
+	if !ok || err != nil || receivedAt < 0 || id == "" || len(id) > 256 {
+		return ports.RawCursor{}, false
+	}
+	return ports.RawCursor{ReceivedAt: receivedAt, MessageID: id}, true
 }
 
 const (
