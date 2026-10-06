@@ -176,7 +176,7 @@ func TestPendingPublishIndexCoversEveryPartition(t *testing.T) {
 	}
 	for _, leaf := range leaves {
 		var covered bool
-		if err = r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_indexes WHERE tablename=$1 AND indexdef LIKE '%published_at = 0%')`, leaf).Scan(&covered); err != nil || !covered {
+		if err = r.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM pg_index i WHERE i.indrelid=to_regclass($1) AND pg_get_expr(i.indpred, i.indrelid) LIKE '%published_at = 0%')`, leaf).Scan(&covered); err != nil || !covered {
 			t.Fatalf("partition %s has no pending-publish index (err=%v)", leaf, err)
 		}
 	}
