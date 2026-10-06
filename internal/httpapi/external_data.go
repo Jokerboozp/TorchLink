@@ -57,7 +57,7 @@ func (s *Server) externalDataRoutes() {
 }
 
 func (s *Server) externalError(w http.ResponseWriter, r *http.Request, err error) {
-	status := 500
+	var status int
 	detail := "外部数据处理失败，请稍后重试"
 	switch {
 	case errors.Is(err, externaldata.ErrNotFound):
