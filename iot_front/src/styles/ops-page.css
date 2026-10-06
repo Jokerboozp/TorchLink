@@ -1,0 +1,7 @@
+/* 运维中心各页面的根容器布局。以 <style scoped src> 引入，仍按组件作用域生效。 */
+.ops-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+  min-width: 0;
+}

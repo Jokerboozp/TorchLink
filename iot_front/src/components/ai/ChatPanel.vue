@@ -152,17 +152,7 @@ defineExpose({ follow, scheduleScroll })
   height: 100%;
   min-height: 520px;
 }
-.chat-log {
-  flex: 1;
-  padding: 10px var(--space-2);
-  overflow: auto;
-}
-.chat-compose {
-  display: flex;
-  gap: 9px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border);
-}
+
 .chat-compose .ui-input {
   flex: 1;
 }
@@ -171,29 +161,9 @@ defineExpose({ follow, scheduleScroll })
     min-height: 440px;
   }
 }
-.ai-chat-card :deep(.n-card-content) {
-  flex: 1 1 auto;
-  min-height: 0;
-  overflow: hidden;
-} /* Naive UI 卡片正文承接内部滚动区域。 */
-.ai-chat-card :deep(.n-card-content) {
-  display: flex;
-  flex-direction: column;
-} /* 对话记录可在固定高度卡片内独立滚动。 */
-.ai-chat-card {
-  height: 100%;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.ai-chat-card :deep(.n-card-header) {
-  flex: none;
-}
-.ai-chat-card :deep(.n-card-content) {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-}
+/* Naive UI 卡片正文承接内部滚动区域。 */
+/* 对话记录可在固定高度卡片内独立滚动。 */
+
 .card-header > div {
   display: grid;
   gap: 3px;
@@ -201,10 +171,7 @@ defineExpose({ follow, scheduleScroll })
 .card-header small {
   display: block;
 }
-.ai-chat-card :deep(.n-card-content) {
-  display: flex;
-  flex-direction: column;
-}
+
 .chat-header > div:last-child {
   display: flex;
   align-items: center;
@@ -235,29 +202,11 @@ defineExpose({ follow, scheduleScroll })
   opacity: 0.5;
   cursor: not-allowed;
 }
-.chat-log {
-  min-height: 0;
-  flex: 1;
-  padding: 15px 3px 6px;
-  overflow: auto;
-  overscroll-behavior: contain;
-}
-.chat-compose {
-  flex: none;
-  display: flex;
-  align-items: flex-end;
-  gap: 9px;
-  padding-top: 11px;
-  border-top: 1px solid var(--border);
-}
+
 .chat-compose .ui-button {
   min-width: 72px;
 }
-.chat-notice {
-  margin-top: 8px;
-  color: var(--text-muted);
-  text-align: center;
-}
+
 @media (max-width: 1120px) {
   .quick-prompts {
     flex-wrap: nowrap;
@@ -300,6 +249,11 @@ defineExpose({ follow, scheduleScroll })
   }
 }
 .ai-chat-card :deep(.n-card-content) {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
   position: relative;
 }
 .chat-back-bottom {
@@ -310,9 +264,14 @@ defineExpose({ follow, scheduleScroll })
   box-shadow: var(--shadow-sm);
 }
 .ai-chat-card {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   min-width: 0;
 }
 .ai-chat-card :deep(.n-card-header) {
+  flex: none;
   padding: 14px 20px;
   border-bottom: 1px solid var(--border);
 }
@@ -414,7 +373,9 @@ defineExpose({ follow, scheduleScroll })
   }
 }
 .chat-notice {
+  margin-top: 8px;
   color: var(--text);
+  text-align: center;
 }
 .quick-prompts button {
   font-size: 13px;
@@ -426,7 +387,11 @@ defineExpose({ follow, scheduleScroll })
   background: var(--primary-soft);
 }
 .chat-log {
+  flex: 1;
   padding: 20px 4px 8px;
+  overflow: auto;
+  min-height: 0;
+  overscroll-behavior: contain;
 }
 .quick-prompts button,
 .quick-prompts button:disabled {
@@ -442,6 +407,11 @@ defineExpose({ follow, scheduleScroll })
   border-color: var(--border-hover);
 }
 .chat-compose {
+  display: flex;
+  gap: 9px;
+  padding-top: 11px;
+  border-top: 1px solid var(--border);
+  flex: none;
   align-items: flex-end;
   margin-top: 4px;
   padding: 10px 10px 10px 6px;

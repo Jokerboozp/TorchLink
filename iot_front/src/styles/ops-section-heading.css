@@ -1,0 +1,7 @@
+/* 运维中心分区标题行。以 <style scoped src> 引入，仍按组件作用域生效。 */
+.section-heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}

@@ -588,13 +588,9 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
+<style scoped src="../styles/ops-page.css"></style>
+<style scoped src="../styles/ops-muted.css"></style>
 <style scoped>
-.ops-page {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-4);
-  min-width: 0;
-}
 .alert-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -668,11 +664,6 @@ onBeforeUnmount(() => {
   border-bottom: 1px solid var(--border);
 }
 .group-alert small,
-.muted {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-}
 .expr {
   display: block;
   max-height: 64px;

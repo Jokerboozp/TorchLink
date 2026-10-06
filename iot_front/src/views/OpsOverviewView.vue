@@ -299,13 +299,9 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
+<style scoped src="../styles/ops-page.css"></style>
+<style scoped src="../styles/ops-section-heading.css"></style>
 <style scoped>
-.ops-page {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-4);
-  min-width: 0;
-}
 .ops-toolbar {
   display: flex;
   align-items: center;
@@ -353,12 +349,6 @@ onBeforeUnmount(() => {
   display: grid;
   gap: var(--space-3);
   min-width: 0;
-}
-.section-heading {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--space-3);
 }
 .section-heading h2 {
   margin: 0;

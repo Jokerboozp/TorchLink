@@ -630,13 +630,9 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
+<style scoped src="../styles/ops-page.css"></style>
+<style scoped src="../styles/ops-muted.css"></style>
 <style scoped>
-.ops-page {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-4);
-  min-width: 0;
-}
 .log-search {
   display: grid;
   gap: var(--space-3);
@@ -737,11 +733,6 @@ onBeforeUnmount(() => {
   display: flex;
   justify-content: center;
   margin: 0;
-}
-.muted {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
 }
 .save-form {
   display: grid;

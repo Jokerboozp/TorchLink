@@ -107,17 +107,12 @@ defineExpose({ reload: load })
   </section>
 </template>
 
+<style scoped src="../../styles/ops-section-heading.css"></style>
 <style scoped>
 .kpi-section {
   display: grid;
   gap: var(--space-3);
   min-width: 0;
-}
-.section-heading {
-  display: flex;
-  align-items: baseline;
-  flex-wrap: wrap;
-  gap: var(--space-3);
 }
 .section-heading h2 {
   margin: 0;

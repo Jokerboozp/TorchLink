@@ -9,7 +9,7 @@ import { join } from 'node:path'
 const origin = process.env.IOT_UI_PREVIEW_ORIGIN || 'http://127.0.0.1:4173'
 const fixedNow = 1790000000000
 const noisePixels = 16
-const pages = [
+const defaultPages = [
   '运行总览',
   '协议开发',
   '设备模板',
@@ -26,6 +26,8 @@ const pages = [
   '备份中心',
   '用户与权限'
 ]
+// IOT_VISUAL_PAGES（逗号分隔的菜单名称）可改为检查其他页面。
+const pages = process.env.IOT_VISUAL_PAGES ? process.env.IOT_VISUAL_PAGES.split(',') : defaultPages
 const variants = [
   { name: 'light', theme: 'light', width: 1440, height: 900, mobile: false },
   { name: 'dark', theme: 'dark', width: 1440, height: 900, mobile: false },

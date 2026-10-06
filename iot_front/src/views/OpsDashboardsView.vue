@@ -347,13 +347,8 @@ onBeforeUnmount(() => {
   </div>
 </template>
 
+<style scoped src="../styles/ops-page.css"></style>
 <style scoped>
-.ops-page {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-4);
-  min-width: 0;
-}
 .dash-list {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);

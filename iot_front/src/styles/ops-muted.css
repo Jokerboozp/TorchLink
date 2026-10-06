@@ -1,0 +1,6 @@
+/* 运维中心的次要说明文字。以 <style scoped src> 引入，仍按组件作用域生效。 */
+.muted {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}

@@ -337,19 +337,7 @@ onBeforeUnmount(() => {
 .runtime-status i.online {
   background: var(--success);
 } /* 状态说明使用可读的前景色变量。 */
-.ai-workbench {
-  flex: 1;
-  min-height: 0;
-  overflow: hidden;
-  display: grid;
-  grid-template-rows: minmax(0, 1fr);
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
-  gap: 16px;
-  align-items: stretch;
-}
-.ai-workbench {
-  grid-template-columns: minmax(250px, 286px) minmax(0, 1fr);
-}
+
 .runtime-warning {
   margin-top: 10px;
 }
@@ -393,7 +381,14 @@ onBeforeUnmount(() => {
 }
 
 .ai-workbench {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr);
   grid-template-columns: minmax(200px, 250px) minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
 }
 @media (max-width: 900px) {
   .ai-workbench {

@@ -334,6 +334,7 @@ onMounted(load)
   </div>
 </template>
 
+<style scoped src="../../styles/ops-muted.css"></style>
 <style scoped>
 .notify {
   display: grid;
@@ -348,11 +349,6 @@ onMounted(load)
   gap: var(--space-3);
 }
 .notify__toolbar p,
-.muted {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-}
 .notify__toolbar > div {
   display: flex;
   flex-wrap: wrap;

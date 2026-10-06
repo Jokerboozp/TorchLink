@@ -397,6 +397,7 @@ function close() {
   </ui-drawer>
 </template>
 
+<style scoped src="../../styles/ops-muted.css"></style>
 <style scoped>
 .panel-editor {
   display: grid;
@@ -503,11 +504,6 @@ function close() {
   grid-template-columns: 120px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
-}
-.muted {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
 }
 .panel-editor__footer {
   display: flex;
