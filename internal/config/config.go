@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"iot-platform/internal/ports"
@@ -165,6 +166,13 @@ type Config struct {
 }
 
 func Load() Config {
+	parse := beginParse()
+	cfg := load()
+	cfg.loadErr = errors.Join(cfg.loadErr, parse.end())
+	return cfg
+}
+
+func load() Config {
 	externalAllowed, externalAllowedErr := netguard.ParsePrefixes(get("IOT_EXTERNAL_DATA_ALLOWED_CIDRS", ""))
 	if externalAllowedErr != nil {
 		externalAllowedErr = fmt.Errorf("IOT_EXTERNAL_DATA_ALLOWED_CIDRS: %w", externalAllowedErr)
@@ -225,7 +233,7 @@ func Load() Config {
 		PostgresMaxConns:            int64Value("IOT_POSTGRES_MAX_CONNS", 64),
 		ProtocolListenerMaxSessions: int64Value("IOT_PROTOCOL_LISTENER_MAX_SESSIONS", 20000),
 		MQTTDeviceTokenTTL:          duration("IOT_MQTT_DEVICE_TOKEN_TTL", 24*time.Hour),
-		IngestMaxBacklog:            int64Value("IOT_INGEST_MAX_BACKLOG", 50000),
+		IngestMaxBacklog:            int64ValueOrZero("IOT_INGEST_MAX_BACKLOG", 50000),
 		MinIOEndpoint:               os.Getenv("IOT_MINIO_ENDPOINT"),
 		MinIOAccessKey:              os.Getenv("IOT_MINIO_ACCESS_KEY"),
 		MinIOSecretKey:              os.Getenv("IOT_MINIO_SECRET_KEY"),
@@ -458,23 +466,97 @@ func split(v string) []string {
 	}
 	return out
 }
+
+// Typed configuration values: an unset (empty) variable takes the default;
+// a value that cannot be parsed is reported by Validate instead of silently
+// falling back, so a typo such as "yes" or "90" (no unit) stops the start.
+type parseErrors struct {
+	mu   sync.Mutex
+	errs []error
+}
+
+var (
+	parseMu      sync.Mutex
+	activeParser *parseErrors
+)
+
+// beginParse collects the parse errors of one Load; Loads are serialized.
+func beginParse() *parseErrors {
+	parseMu.Lock()
+	activeParser = &parseErrors{}
+	return activeParser
+}
+
+func (p *parseErrors) end() error {
+	activeParser = nil
+	parseMu.Unlock()
+	return errors.Join(p.errs...)
+}
+
+func invalidValue(name, value, want string) {
+	if p := activeParser; p != nil {
+		p.mu.Lock()
+		p.errs = append(p.errs, fmt.Errorf("%s=%q: %s", name, value, want))
+		p.mu.Unlock()
+	}
+}
+
 func boolValue(name string, fallback bool) bool {
-	v, err := strconv.ParseBool(os.Getenv(name))
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.ParseBool(raw)
 	if err != nil {
+		invalidValue(name, raw, "must be true or false")
 		return fallback
 	}
 	return v
 }
+
+// int64Value reads a positive integer; zero keeps the default.
 func int64Value(name string, fallback int64) int64 {
-	v, err := strconv.ParseInt(strings.TrimSpace(os.Getenv(name)), 10, 64)
-	if err != nil || v <= 0 {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || v < 0 {
+		invalidValue(name, raw, "must be a non-negative integer")
+		return fallback
+	}
+	if v == 0 {
 		return fallback
 	}
 	return v
 }
+
+// int64ValueOrZero is int64Value for settings where 0 means "off".
+func int64ValueOrZero(name string, fallback int64) int64 {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || v < 0 {
+		invalidValue(name, raw, "must be a non-negative integer")
+		return fallback
+	}
+	return v
+}
+
 func duration(name string, fallback time.Duration) time.Duration {
-	v, err := time.ParseDuration(os.Getenv(name))
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	v, err := time.ParseDuration(raw)
 	if err != nil {
+		if _, numeric := strconv.ParseFloat(raw, 64); numeric == nil {
+			invalidValue(name, raw, "needs a unit, such as 90s or 5m")
+		} else {
+			invalidValue(name, raw, "must be a duration such as 90s or 5m")
+		}
 		return fallback
 	}
 	return v

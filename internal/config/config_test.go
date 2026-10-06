@@ -472,3 +472,36 @@ func TestUnsetDevModeMeansProduction(t *testing.T) {
 		t.Fatalf("invalid value must be rejected and named: %v", err)
 	}
 }
+
+// A typed setting with an unreadable value stops the start and names the
+// variable instead of silently running with the default.
+func TestInvalidTypedValuesAreReported(t *testing.T) {
+	cases := map[string]string{
+		"IOT_API_EMBEDDED_WORKERS": "no",
+		"IOT_NOTIFY_ENABLED":       "off",
+		"IOT_AI_HARNESS_TIMEOUT":   "90",
+		"IOT_CLUSTER_INSTANCES":    "two",
+		"IOT_INGEST_MAX_BACKLOG":   "-1",
+	}
+	for name, value := range cases {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("IOT_DEV_MODE", "true")
+			t.Setenv(name, value)
+			err := Load().Validate()
+			if err == nil || !strings.Contains(err.Error(), name) {
+				t.Fatalf("%s=%s: expected an error naming the variable, got %v", name, value, err)
+			}
+		})
+	}
+}
+
+func TestIngestBacklogZeroDisablesThePause(t *testing.T) {
+	t.Setenv("IOT_INGEST_MAX_BACKLOG", "0")
+	if got := Load().IngestMaxBacklog; got != 0 {
+		t.Fatalf("IOT_INGEST_MAX_BACKLOG=0 must disable the pause, got %d", got)
+	}
+	t.Setenv("IOT_INGEST_MAX_BACKLOG", "")
+	if got := Load().IngestMaxBacklog; got != 50000 {
+		t.Fatalf("unset backlog keeps the default, got %d", got)
+	}
+}

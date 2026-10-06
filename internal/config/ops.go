@@ -149,9 +149,18 @@ func trimURL(value string) string {
 	return strings.TrimRight(strings.TrimSpace(value), "/")
 }
 
+// intValue reads a positive integer; zero keeps the default.
 func intValue(name string, fallback int) int {
-	v, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name)))
-	if err != nil || v <= 0 {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil || v < 0 {
+		invalidValue(name, raw, "must be a non-negative integer")
+		return fallback
+	}
+	if v == 0 {
 		return fallback
 	}
 	return v
