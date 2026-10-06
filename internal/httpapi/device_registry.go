@@ -107,147 +107,23 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 	if id := r.PathValue("id"); id != "" {
 		v.ID = id
 	}
-	if v.ID == "" {
-		v.ID = "device_" + randomHex(6)
-	}
-	if v.Name == "" || v.ProductID == "" {
-		problem(w, 422, "name and productId are required")
-		return
-	}
-	if err := model.ValidateDeviceTiming(v.ReportIntervalSec, v.OfflineToleranceSec); err != nil {
-		problem(w, 422, err.Error())
-		return
-	}
-	product, err := s.engine.Repo.GetProduct(r.Context(), c.TenantID, v.ProductID)
+	saved, err := s.onboarding.SaveDevice(r.Context(), v)
 	if err != nil {
-		problem(w, 422, "product not found")
+		s.fail(w, r, err, "保存设备失败")
 		return
 	}
-	now := time.Now().UnixMilli()
-	created, timingChanged := false, false
-	if old, err := s.engine.Repo.GetManagedDevice(r.Context(), c.TenantID, v.ID); err == nil {
-		timingChanged = old.ReportIntervalSec != v.ReportIntervalSec || old.OfflineToleranceSec != v.OfflineToleranceSec
-		if old.RegistrationSource == "PROTOCOL_CHILD_AUTO" {
-			if v.ProductID != old.ProductID || v.GatewayID != old.GatewayID || v.DeviceRole != "CHILD" {
-				problem(w, 422, "自动注册子设备的产品与主设备归属不可直接改写")
-				return
-			}
-		}
-		if v.ProductID != old.ProductID {
-			problem(w, 409, "已登记设备不能直接更换设备模板，请从目标模板重新接入")
-			return
-		}
-		v.AccessKey, v.SecretHash, v.SecretHint, v.CreatedAt = old.AccessKey, old.SecretHash, old.SecretHint, old.CreatedAt
-		if v.Tags == nil {
-			v.Tags = map[string]string{}
-		}
-		// Platform connection fields keep their stored values; the connection and
-		// child address may be re-selected but are not cleared by an edit.
-		v.Connector, v.ChildType, v.OnboardingRequestHash = old.Connector, old.ChildType, old.OnboardingRequestHash
-		if v.ConnectorProfileID == "" {
-			v.ConnectorProfileID = old.ConnectorProfileID
-		}
-		if v.ChildAddress == "" {
-			v.ChildAddress = old.ChildAddress
-		}
-		if v.RegistrationSource == "" {
-			v.RegistrationSource = old.RegistrationSource
-		}
-		if old.AutoRegistered {
-			v.AutoRegistered = true
-		}
-	} else if errors.Is(err, model.ErrNotFound) {
-		created = true
-		v.CreatedAt = now
-	} else {
-		s.fail(w, r, err, "读取设备登记信息失败")
+	v = saved.Device
+	if saved.Created {
+		s.enrollCompatibleDevice(w, r, v, saved.Product, input.Trial, "device.save")
 		return
 	}
-	if v.Status == "" {
-		v.Status = "ENABLED"
-	}
-	if v.DeviceRole == "" {
-		if product.Category == "gateway" {
-			v.DeviceRole = "GATEWAY"
-		} else {
-			v.DeviceRole = "DIRECT"
-		}
-	}
-	if v.DeviceRole != "DIRECT" && v.DeviceRole != "GATEWAY" && v.DeviceRole != "CHILD" {
-		problem(w, 422, "deviceRole must be DIRECT, GATEWAY or CHILD")
-		return
-	}
-	if v.RegistrationSource == "" {
-		v.RegistrationSource = "MANUAL"
-	}
-	if v.DeviceRole == "CHILD" {
-		if v.GatewayID == "" || v.GatewayID == v.ID {
-			problem(w, 422, "a child device must reference a different gateway")
-			return
-		}
-		gateway, gatewayErr := s.engine.Repo.GetManagedDevice(r.Context(), c.TenantID, v.GatewayID)
-		if gatewayErr != nil {
-			problem(w, 422, "gateway not found")
-			return
-		}
-		// The parent must be registered as a gateway; the template category alone does not grant it.
-		if gateway.DeviceRole != "GATEWAY" {
-			problem(w, 422, "selected parent device is not a gateway")
-			return
-		}
-	} else {
-		v.GatewayID = ""
-	}
-	if v.Tags == nil {
-		v.Tags = map[string]string{}
-	}
-	if v.DeviceRole == "CHILD" {
-		parent, parentErr := s.engine.Repo.GetManagedDevice(r.Context(), c.TenantID, v.GatewayID)
-		if parentErr != nil {
-			problem(w, 422, "所属主设备已不存在")
-			return
-		}
-		// A child uses its parent's physical connection; the caller cannot bind
-		// it to an unrelated tenant-wide listener.
-		if requested := v.ConnectorProfileID; requested != "" && requested != parent.ConnectorProfileID {
-			problem(w, 422, "子设备只能继承所属主设备的连接")
-			return
-		}
-		v.ConnectorProfileID = parent.ConnectorProfileID
-	} else if requested := v.ConnectorProfileID; requested != "" {
-		profiles, profileErr := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), c.TenantID)
-		if profileErr != nil {
-			s.fail(w, r, profileErr, "")
-			return
-		}
-		valid := false
-		for _, candidate := range profiles {
-			if candidate.ID == requested && candidate.ProductID == v.ProductID && (candidate.DeviceID == "" || candidate.DeviceID == v.ID) {
-				valid = true
-				break
-			}
-		}
-		if !valid {
-			problem(w, 422, "接入点不可用，请重新选择当前设备模板的接入点")
-			return
-		}
-	}
-	if created {
-		s.enrollCompatibleDevice(w, r, v, product, input.Trial, "device.save")
-		return
-	}
-	v.UpdatedAt = now
-	if err := s.engine.Repo.SaveManagedDevice(r.Context(), v); err != nil {
-		s.fail(w, r, err, "")
-		return
-	}
-	if timingChanged {
+	if saved.TimingChanged {
 		if _, err := s.engine.ApplyDeviceTiming(r.Context(), c.TenantID, v.ProductID, v.ID); err != nil {
 			s.log.ErrorContext(r.Context(), "apply device reporting timing failed", logkey.Device, v.ID, "error", err)
 		}
 	}
 	s.audit(r, "device.save", "device", v.ID, map[string]any{"productId": v.ProductID, "status": v.Status})
-	write(w, 201, map[string]any{"device": v.Public(product)})
+	write(w, 201, map[string]any{"device": v.Public(saved.Product)})
 }
 
 func (s *Server) registerDiscoveredDevice(w http.ResponseWriter, r *http.Request) {

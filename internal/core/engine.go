@@ -255,7 +255,7 @@ func (e *Engine) ensureGatewayChild(ctx context.Context, raw model.RawMessage) e
 	if err != nil {
 		return fmt.Errorf("load gateway %s: %w", raw.GatewayID, err)
 	}
-	if gateway.DeviceRole != "GATEWAY" {
+	if !gateway.IsGateway() {
 		return model.Permanent(fmt.Errorf("device %s is not configured as a gateway", gateway.ID))
 	}
 	if raw.ProductID == "" {

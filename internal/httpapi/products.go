@@ -2,15 +2,12 @@ package httpapi
 
 import (
 	"context"
-	"errors"
 	"iot-platform/internal/logkey"
 	"net/http"
 	"time"
 
 	"iot-platform/internal/model"
-	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
-	"iot-platform/internal/ports"
 )
 
 func (s *Server) products(w http.ResponseWriter, r *http.Request) {
@@ -49,87 +46,15 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	c := claims(r)
 	v.TenantID = c.TenantID
-	v.PreparationStatus = ""
-	v.Reusable = false
 	if id := r.PathValue("id"); id != "" {
 		v.ID = id
 	}
-	if v.ID == "" {
-		v.ID = "product_" + randomHex(6)
-	}
-	if v.Name == "" || v.ProtocolPackageID == "" {
-		problem(w, 422, "name and protocolPackageId are required")
-		return
-	}
-	if err := onboarding.ValidateThingModel(v.ThingModel); err != nil {
-		problem(w, 422, err.Error())
-		return
-	}
-	if err := model.ValidateDeviceTiming(v.ReportIntervalSec, v.OfflineToleranceSec); err != nil {
-		problem(w, 422, err.Error())
-		return
-	}
-	if v.VerificationRules != nil {
-		rules, e := onboarding.NormalizeVerificationRules(*v.VerificationRules)
-		if e != nil {
-			s.enrollProblem(w, r, e)
-			return
-		}
-		v.VerificationRules = &rules
-	}
-	pkg, err := s.productProtocol(r.Context(), c.TenantID, v.ProtocolPackageID)
+	saved, err := s.onboarding.SaveProduct(r.Context(), v, s.productProtocol)
 	if err != nil {
-		problem(w, 422, "协议不可用，请选择内置标准上报或已发布的协议版本")
+		s.fail(w, r, err, "保存设备模板失败")
 		return
 	}
-	if v.Transport == "" {
-		v.Transport = pkg.Transport
-	}
-	if v.PayloadFormat == "" {
-		v.PayloadFormat = pkg.PayloadFormat
-	}
-	if v.Status == "" {
-		v.Status = "ENABLED"
-	}
-	now := time.Now().UnixMilli()
-	newProduct, timingChanged := false, false
-	if old, getErr := s.engine.Repo.GetProduct(r.Context(), c.TenantID, v.ID); getErr == nil {
-		v.CreatedAt = old.CreatedAt
-		timingChanged = old.ReportIntervalSec != v.ReportIntervalSec || old.OfflineToleranceSec != v.OfflineToleranceSec
-		if v.ProtocolPackageID != old.ProtocolPackageID {
-			problem(w, 409, "协议版本变更请在模板准备流程中保存候选配置并明确应用")
-			return
-		}
-		if v.VerificationRules == nil {
-			v.VerificationRules = old.VerificationRules
-		}
-		before := model.TemplateCandidate{Product: old, VerificationRules: onboarding.ProductVerificationRules(old)}
-		after := model.TemplateCandidate{Product: v, VerificationRules: onboarding.ProductVerificationRules(v)}
-		if onboarding.CandidateFingerprint(before) != onboarding.CandidateFingerprint(after) {
-			_, count, e := s.engine.Repo.ListManagedDevicesFiltered(r.Context(), ports.DeviceFilter{TenantID: c.TenantID, RestrictProducts: true, ProductIDs: []string{v.ID}}, 1, 0)
-			if e != nil {
-				s.fail(w, r, e, "读取模板使用情况失败")
-				return
-			}
-			if count > 0 {
-				problem(w, 409, "运行中的模板配置请通过模板准备流程联调后应用")
-				return
-			}
-		}
-	} else if errors.Is(getErr, model.ErrNotFound) {
-		newProduct = true
-	} else {
-		s.fail(w, r, getErr, "")
-		return
-	}
-	if v.CreatedAt == 0 {
-		v.CreatedAt = now
-	}
-	v.UpdatedAt = now
-	if err = s.engine.Repo.SaveProduct(r.Context(), v); err != nil {
-		s.fail(w, r, err, "")
-		return
-	}
+	v, pkg, newProduct := saved.Product, saved.Protocol, saved.Created
 	s.engine.ProtocolsChanged(c.TenantID)
 	// Versioned protocols are parsed by the bound release; the binding is their single source.
 	_, releaseErr := s.engine.Repo.GetProtocolRelease(r.Context(), c.TenantID, pkg.Protocol, pkg.Version)
@@ -144,7 +69,7 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if timingChanged {
+	if saved.TimingChanged {
 		s.applyTemplateTiming(c.TenantID, v.ID)
 	}
 	s.audit(r, "product.save", "product", v.ID, map[string]any{"status": v.Status, "reportIntervalSec": v.ReportIntervalSec, "offlineToleranceSec": v.OfflineToleranceSec})
