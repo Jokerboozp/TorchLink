@@ -9,7 +9,7 @@ import (
 // protocol connections. A device's explicit connector takes precedence over
 // the product transport. Inventory without either uses the managed HTTP API.
 func (d ManagedDevice) UsesPlatformCredentials(product Product) bool {
-	if d.DeviceRole == "CHILD" || d.GatewayID != "" {
+	if d.IsChild() {
 		return false
 	}
 	transport := d.Connector
@@ -71,3 +71,11 @@ func (d *ManagedDevice) NormalizeConnectionTags() {
 		}
 	}
 }
+
+// IsChild reports whether the device is reached through a gateway: it has the
+// child role or is attached to a gateway.
+func (d ManagedDevice) IsChild() bool { return d.DeviceRole == "CHILD" || d.GatewayID != "" }
+
+// IsGateway reports whether the device is a top-level gateway that may own
+// child devices.
+func (d ManagedDevice) IsGateway() bool { return d.DeviceRole == "GATEWAY" && d.GatewayID == "" }

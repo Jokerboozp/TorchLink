@@ -99,3 +99,28 @@ func TestProtocolAccessPublicHostSeparatesListenAndDeviceAddress(t *testing.T) {
 		t.Fatal("dial-only profile accepted a device-facing listener host")
 	}
 }
+
+func TestDeviceRoles(t *testing.T) {
+	for _, tc := range []struct {
+		device         ManagedDevice
+		child, gateway bool
+	}{
+		{ManagedDevice{DeviceRole: "DIRECT"}, false, false},
+		{ManagedDevice{DeviceRole: "GATEWAY"}, false, true},
+		{ManagedDevice{DeviceRole: "CHILD", GatewayID: "gw"}, true, false},
+		// Attached to a gateway counts as a child whatever the stored role says.
+		{ManagedDevice{DeviceRole: "GATEWAY", GatewayID: "gw"}, true, false},
+	} {
+		if tc.device.IsChild() != tc.child || tc.device.IsGateway() != tc.gateway {
+			t.Errorf("%+v: IsChild=%v IsGateway=%v", tc.device, tc.device.IsChild(), tc.device.IsGateway())
+		}
+	}
+}
+
+func TestClearLegacyStreamFieldsKeepsCameraMetadata(t *testing.T) {
+	v := VideoCameraMapping{CameraID: "c", CameraName: "门厅", DeviceID: "d", StreamURL: "rtsp://10.0.0.1/live", StreamType: "rtsp", SDKEndpoint: "https://sdk", SDKCameraID: "1", SDKCredentialRef: "ref"}
+	v.ClearLegacyStreamFields()
+	if v.StreamURL != "" || v.StreamType != "" || v.SDKEndpoint != "" || v.SDKCameraID != "" || v.SDKCredentialRef != "" || v.CameraName != "门厅" || v.DeviceID != "d" {
+		t.Fatalf("unexpected camera after clearing: %+v", v)
+	}
+}

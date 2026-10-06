@@ -112,7 +112,7 @@ func (s *Server) deviceConnection(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, productErr := s.engine.Repo.GetProduct(r.Context(), tenant, d.ProductID)
-	isChild := d.GatewayID != "" || d.DeviceRole == "CHILD"
+	isChild := d.IsChild()
 	state, _ := s.engine.Repo.GetDeviceState(r.Context(), tenant, d.ID)
 	latest, _ := s.engine.Repo.GetLatestMessage(r.Context(), tenant, d.ID)
 	properties, _, err := s.engine.Repo.ListDeviceMessages(r.Context(), tenant, d.ID, model.PropertyReport, 1, 0)

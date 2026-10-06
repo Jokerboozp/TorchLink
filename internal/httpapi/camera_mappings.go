@@ -28,11 +28,7 @@ func (s *Server) videoCameras(w http.ResponseWriter, r *http.Request) {
 		items[index].RelatedFloorIDs = nil
 		items[index].RelatedRoomIDs = nil
 		items[index].VideoPlatformID = ""
-		items[index].StreamURL = ""
-		items[index].StreamType = ""
-		items[index].SDKEndpoint = ""
-		items[index].SDKCameraID = ""
-		items[index].SDKCredentialRef = ""
+		items[index].ClearLegacyStreamFields()
 		items[index].StreamConfigured = false
 		items[index].PreviewEligible = false
 	}
@@ -110,11 +106,7 @@ func (s *Server) saveVideoCamera(w http.ResponseWriter, r *http.Request) {
 			v.VideoPlatformID = previous.VideoPlatformID
 		}
 	}
-	v.StreamURL = ""
-	v.StreamType = ""
-	v.SDKEndpoint = ""
-	v.SDKCameraID = ""
-	v.SDKCredentialRef = ""
+	v.ClearLegacyStreamFields()
 	v.UpdatedAt = time.Now().UnixMilli()
 	if err := s.engine.Repo.SaveVideoCameraMapping(r.Context(), v); err != nil {
 		s.fail(w, r, err, "")

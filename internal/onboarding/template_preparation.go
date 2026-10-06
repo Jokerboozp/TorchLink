@@ -327,7 +327,7 @@ func (s *Service) VerifyDevice(ctx context.Context, tenant, deviceID string) (mo
 	for _, key := range rules.RequiredEvents {
 		add("event:"+key, "指定事件", events[key], key)
 	}
-	if rules.Mode == "child" || d.GatewayID != "" || d.DeviceRole == "CHILD" {
+	if rules.Mode == "child" || d.IsChild() {
 		parent, pe := s.Repo.GetManagedDevice(ctx, tenant, d.GatewayID)
 		valid := pe == nil && parent.Status == "ENABLED" && d.GatewayID != ""
 		if valid {
@@ -352,7 +352,7 @@ func (s *Service) verifyParentEvidence(ctx context.Context, tenant, id string, s
 	if err != nil {
 		return false, err
 	}
-	if d.Status != "ENABLED" || d.DeviceRole != "GATEWAY" || d.GatewayID != "" {
+	if d.Status != "ENABLED" || !d.IsGateway() {
 		return false, nil
 	}
 	candidate, err := s.CurrentCandidate(ctx, tenant, d.ProductID)

@@ -22,7 +22,7 @@ func (s *Server) enrollCompatibleDevice(w http.ResponseWriter, r *http.Request, 
 		problem(w, 403, "首台验证需要设备模板配置权限")
 		return
 	}
-	if device.DeviceRole == "CHILD" || device.GatewayID != "" || device.ChildAddress != "" || device.ChildType != "" {
+	if device.IsChild() || device.ChildAddress != "" || device.ChildType != "" {
 		problem(w, 422, "子设备请从主设备详情添加，并填写稳定的子设备地址")
 		return
 	}

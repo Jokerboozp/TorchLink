@@ -948,6 +948,13 @@ type VideoCameraMapping struct {
 	UpdatedAt        int64    `json:"updatedAt"`
 }
 
+// ClearLegacyStreamFields drops the stream address and vendor SDK settings of
+// the removed direct-stream scheme. Camera records keep only metadata and the
+// device link; live viewing is configured in the live video module.
+func (v *VideoCameraMapping) ClearLegacyStreamFields() {
+	v.StreamURL, v.StreamType, v.SDKEndpoint, v.SDKCameraID, v.SDKCredentialRef = "", "", "", "", ""
+}
+
 // CameraSummary is the safe camera metadata attached to an alarm. It
 // deliberately has no stream URL or vendor credential fields: live playback
 // remains an external camera-platform concern.
