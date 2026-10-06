@@ -333,7 +333,7 @@ func (s *Server) topicSubscribers(r *http.Request, route model.MessageTopicRoute
 }
 
 func (s *Server) createBrokerMessageTopic(w http.ResponseWriter, r *http.Request, topic string) bool {
-	admin, ok := s.messageTopicKafka.(messageTopicKafkaTopicAdmin)
+	admin, ok := s.topicBrokers.kafka.(messageTopicKafkaTopicAdmin)
 	if !ok || len(s.cfg.KafkaBrokers) == 0 {
 		problem(w, 503, "Kafka 主题管理未就绪，请配置 Broker 和管理服务")
 		return false

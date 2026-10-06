@@ -20,6 +20,13 @@ import (
 	"iot-platform/internal/parser"
 )
 
+// inspectionReports limits concurrent inspection report requests and caches
+// rendered PDF reports.
+type inspectionReports struct {
+	pdfs     *inspectionPDFCache
+	requests chan struct{}
+}
+
 func (s *Server) runAIAlarmAnalysis(w http.ResponseWriter, r *http.Request) {
 	job, err := s.startAIAnalysisJob(capacityJobContext(r), claims(r).TenantID, r.PathValue("alarmId"), claims(r).Username, alarmAnalysisRunScope(r.Context()), aiRunIdentity(r.Context(), claims(r))) /* 按发起人角色决定是否引用知识库。 */
 	if err != nil {
@@ -49,13 +56,13 @@ func (s *Server) healthInspection(w http.ResponseWriter, r *http.Request) {
 // A PDF download never starts a new inspection or loads all device rows.
 func (s *Server) healthInspectionPDF(w http.ResponseWriter, r *http.Request) {
 	select {
-	case s.inspectionRequests <- struct{}{}:
+	case s.inspection.requests <- struct{}{}:
 	default:
 		w.Header().Set("Retry-After", "3")
 		problem(w, 429, "巡检报告下载繁忙，请稍后重试")
 		return
 	}
-	defer func() { <-s.inspectionRequests }()
+	defer func() { <-s.inspection.requests }()
 	ctx := r.Context()
 	tenant := claims(r).TenantID
 	var job model.HealthInspectionJob
@@ -77,7 +84,7 @@ func (s *Server) healthInspectionPDF(w http.ResponseWriter, r *http.Request) {
 		problem(w, 409, "智能巡检尚未完成")
 		return
 	}
-	data, err := s.inspectionPDFs.load(ctx, tenant, job.ID, func(loadCtx context.Context) (model.DeviceHealthReport, error) {
+	data, err := s.inspection.pdfs.load(ctx, tenant, job.ID, func(loadCtx context.Context) (model.DeviceHealthReport, error) {
 		page, e := s.engine.Repo.HealthInspectionPage(loadCtx, tenant, job.ID, core.InspectionPDFMaxDevices, 0)
 		if e == nil && page.Report.TotalItems > len(page.Report.Items) {
 			page.Report.Warnings = append(page.Report.Warnings, fmt.Sprintf("PDF 仅展示前 %d 台设备明细，完整 %d 台设备请在巡检页面分页查看。", len(page.Report.Items), page.Report.TotalItems))

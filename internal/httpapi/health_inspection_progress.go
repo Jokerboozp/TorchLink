@@ -36,7 +36,7 @@ func (s *Server) startHealthInspectionJob(ctx context.Context, tenantID, actor s
 		return existing, err
 	}
 	now := time.Now()
-	estimate := s.healthInspectionEstimate()
+	estimate := s.inspectionRuns.get()
 	job := model.HealthInspectionJob{
 		CapacityRunID:        ports.CapacityRunID(ctx),
 		ID:                   "inspection_job_" + randomHex(10),
@@ -115,12 +115,12 @@ func (s *Server) runHealthInspectionJob(job model.HealthInspectionJob, identity 
 		select {
 		case result := <-resultCh:
 			elapsed := time.Since(started).Milliseconds()
-			s.updateHealthInspectionEstimate(elapsed)
+			s.inspectionRuns.observe(elapsed)
 			s.finishHealthInspectionJob(job, result.report, result.err)
 			return
 		case now := <-ticker.C:
 			elapsed := now.Sub(started).Milliseconds()
-			estimate := s.healthInspectionEstimate()
+			estimate := s.inspectionRuns.get()
 			progress := 12 + int(float64(elapsed)/float64(estimate)*76)
 			if progress > 88 {
 				progress = 88
@@ -166,35 +166,6 @@ func (s *Server) finishHealthInspectionJob(job model.HealthInspectionJob, report
 		job.Status, job.Stage, job.Message = "succeeded", "completed", "智能巡检已完成"
 	}
 	s.storeRunningHealthInspectionJob(job)
-}
-
-func (s *Server) healthInspectionEstimate() int64 {
-	s.healthInspectionMu.RLock()
-	defer s.healthInspectionMu.RUnlock()
-	if s.healthInspectionEstimateMs <= 0 {
-		return healthInspectionEstimateDefault.Milliseconds()
-	}
-	return s.healthInspectionEstimateMs
-}
-
-func (s *Server) updateHealthInspectionEstimate(elapsed int64) {
-	if elapsed <= 0 {
-		return
-	}
-	s.healthInspectionMu.Lock()
-	defer s.healthInspectionMu.Unlock()
-	current := s.healthInspectionEstimateMs
-	if current <= 0 {
-		current = healthInspectionEstimateDefault.Milliseconds()
-	}
-	updated := (current*3 + elapsed) / 4
-	if updated < 5000 {
-		updated = 5000
-	}
-	if updated > 180000 {
-		updated = 180000
-	}
-	s.healthInspectionEstimateMs = updated
 }
 
 func (s *Server) healthInspectionProgress(w http.ResponseWriter, r *http.Request) {

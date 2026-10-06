@@ -41,7 +41,7 @@ func (s *Server) startAIAnalysisJob(ctx context.Context, tenantID, alarmID, acto
 		Stage:                "preparing",
 		Message:              "正在准备告警上下文",
 		Progress:             8,
-		EstimatedRemainingMs: s.aiAnalysisEstimate(),
+		EstimatedRemainingMs: s.analysisRuns.get(),
 		StartedAt:            now,
 		UpdatedAt:            now,
 	}
@@ -108,12 +108,12 @@ func (s *Server) runAIAnalysisJob(job model.AlarmAnalysisJob, identity ports.AIR
 	for {
 		select {
 		case result := <-resultCh:
-			s.updateAIAnalysisEstimate(time.Since(started).Milliseconds())
+			s.analysisRuns.observe(time.Since(started).Milliseconds())
 			s.finishAIAnalysisJob(job, result.analysis, result.err)
 			return
 		case now := <-ticker.C:
 			elapsed := now.Sub(started).Milliseconds()
-			estimate := s.aiAnalysisEstimate()
+			estimate := s.analysisRuns.get()
 			job.Progress = min(88, 12+int(float64(elapsed)/float64(estimate)*76))
 			job.Stage, job.Message = "preparing", "正在准备告警上下文"
 			if elapsed >= 1500 {
@@ -167,35 +167,6 @@ func (s *Server) finishAIAnalysisJob(job model.AlarmAnalysisJob, analysis model.
 			CreatedAt:  job.FinishedAt,
 		})
 	}
-}
-
-func (s *Server) aiAnalysisEstimate() int64 {
-	s.aiAnalysisMu.RLock()
-	defer s.aiAnalysisMu.RUnlock()
-	if s.aiAnalysisEstimateMs <= 0 {
-		return aiAnalysisEstimateDefault.Milliseconds()
-	}
-	return s.aiAnalysisEstimateMs
-}
-
-func (s *Server) updateAIAnalysisEstimate(elapsed int64) {
-	if elapsed <= 0 {
-		return
-	}
-	s.aiAnalysisMu.Lock()
-	defer s.aiAnalysisMu.Unlock()
-	current := s.aiAnalysisEstimateMs
-	if current <= 0 {
-		current = aiAnalysisEstimateDefault.Milliseconds()
-	}
-	updated := (current*3 + elapsed) / 4
-	if updated < 5000 {
-		updated = 5000
-	}
-	if updated > 180000 {
-		updated = 180000
-	}
-	s.aiAnalysisEstimateMs = updated
 }
 
 func (s *Server) aiAlarmAnalysisProgress(w http.ResponseWriter, r *http.Request) {

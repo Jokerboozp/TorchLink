@@ -376,3 +376,30 @@ func (s *Server) aiProblem(w http.ResponseWriter, r *http.Request, err error) {
 	}
 	write(w, failure.status, map[string]any{"type": "about:blank", "title": http.StatusText(failure.status), "status": failure.status, "code": failure.code, "detail": failure.message, "retryable": failure.retryable})
 }
+
+// The chat workbench only exposes interactive assistants. These workflows are
+// invoked by their dedicated business pages/services and must not be treated
+// as user-selectable chatbots or configurable chat Agents.
+func isChatWorkflowID(id string) bool {
+	return !oneOf(strings.TrimSpace(id), aiworkflow.BusinessWorkflowIDs()...)
+}
+
+func chatWorkflowPlugins(items []ports.AIWorkflowPlugin) []ports.AIWorkflowPlugin {
+	visible := make([]ports.AIWorkflowPlugin, 0, len(items))
+	for _, item := range items {
+		if isChatWorkflowID(item.ID) {
+			visible = append(visible, item)
+		}
+	}
+	return visible
+}
+
+func chatWorkflowManifests(items []ports.AIWorkflowManifest) []ports.AIWorkflowManifest {
+	visible := make([]ports.AIWorkflowManifest, 0, len(items))
+	for _, item := range items {
+		if isChatWorkflowID(item.ID) {
+			visible = append(visible, item)
+		}
+	}
+	return visible
+}

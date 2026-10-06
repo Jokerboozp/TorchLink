@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"iot-platform/internal/messagetopics"
@@ -29,9 +30,19 @@ type messageTopicKafkaAdmin interface {
 
 // Configure before serving requests. Publishing uses the separately locked
 // identity resolver and never relies on mutable request-wide scope.
-func (s *Server) SetMessageTopicKafkaAdmin(admin messageTopicKafkaAdmin) { s.messageTopicKafka = admin }
+// topicBrokers are the broker administration hooks for message topic
+// credentials; credentialsMu serialises provisioning in this process.
+type topicBrokers struct {
+	kafka         messageTopicKafkaAdmin
+	mqttReady     func(context.Context) error
+	credentialsMu sync.Mutex
+}
+
+func (s *Server) SetMessageTopicKafkaAdmin(admin messageTopicKafkaAdmin) {
+	s.topicBrokers.kafka = admin
+}
 func (s *Server) SetMessageTopicMQTTReadiness(ready func(context.Context) error) {
-	s.messageTopicMQTTReady = ready
+	s.topicBrokers.mqttReady = ready
 }
 
 // messageTopicIdentity resolves an open API key for topic subscription. The
@@ -75,10 +86,10 @@ func (s *Server) messageTopicAuthorizationReady(ctx context.Context, protocol st
 		if strings.TrimSpace(s.cfg.MQTTPublicURL) == "" {
 			return errors.New("请配置 MQTT 对外连接地址 IOT_DEVICE_MQTT_PUBLIC_URL")
 		}
-		if s.messageTopicMQTTReady == nil || s.onboarding.RevokeUsername == nil {
+		if s.topicBrokers.mqttReady == nil || s.onboarding.RevokeUsername == nil {
 			return errors.New("未配置 MQTT 授权检查与凭据撤销服务")
 		}
-		if err := s.messageTopicMQTTReady(ctx); err != nil {
+		if err := s.topicBrokers.mqttReady(ctx); err != nil {
 			return fmt.Errorf("MQTT 授权未就绪：%w", err)
 		}
 	case "kafka":
@@ -88,10 +99,10 @@ func (s *Server) messageTopicAuthorizationReady(ctx context.Context, protocol st
 		if len(s.cfg.KafkaPublicBrokers) == 0 {
 			return errors.New("请配置 Kafka 对外连接地址 IOT_KAFKA_PUBLIC_BROKERS")
 		}
-		if s.messageTopicKafka == nil {
+		if s.topicBrokers.kafka == nil {
 			return errors.New("未配置 Kafka SASL 与授权管理服务")
 		}
-		if err := s.messageTopicKafka.Ready(ctx); err != nil {
+		if err := s.topicBrokers.kafka.Ready(ctx); err != nil {
 			return fmt.Errorf("Kafka 授权未就绪：%w", err)
 		}
 	default:
@@ -164,8 +175,8 @@ func (s *Server) issueTopicCredential(ctx context.Context, tenant, keyID, protoc
 	if protocol != "mqtt" && protocol != "kafka" {
 		return nil, 422, errors.New("请选择 MQTT 或 Kafka")
 	}
-	s.messageTopicCredentialsMu.Lock()
-	defer s.messageTopicCredentialsMu.Unlock()
+	s.topicBrokers.credentialsMu.Lock()
+	defer s.topicBrokers.credentialsMu.Unlock()
 	identity, err := s.messageTopicIdentity(ctx, tenant, keyID)
 	if err != nil {
 		return nil, 403, err
@@ -237,7 +248,7 @@ func (s *Server) issueTopicCredential(ctx context.Context, tenant, keyID, protoc
 	// Record before side effects; a crash leaves a durable revocation target.
 	if protocol == "kafka" {
 		operationCtx, operationCancel := context.WithTimeout(ctx, 20*time.Second)
-		err = s.messageTopicKafka.Provision(operationCtx, credential.Username, s.topicBrokerPassword(tenant, credential.ID), credential.GroupID, credential.Topics)
+		err = s.topicBrokers.kafka.Provision(operationCtx, credential.Username, s.topicBrokerPassword(tenant, credential.ID), credential.GroupID, credential.Topics)
 		operationCancel()
 		if err != nil {
 			s.markTopicCredentialRevoking(context.WithoutCancel(ctx), tenant, credential.ID, true)
@@ -313,10 +324,10 @@ func (s *Server) revokeTopicBrokerCredential(ctx context.Context, c model.Messag
 		}
 		return s.onboarding.RevokeUsername(ctx, c.Username)
 	}
-	if s.messageTopicKafka == nil {
+	if s.topicBrokers.kafka == nil {
 		return errors.New("Kafka 撤销服务不可用")
 	}
-	return s.messageTopicKafka.Revoke(ctx, c.Username)
+	return s.topicBrokers.kafka.Revoke(ctx, c.Username)
 }
 
 // RetryMessageTopicRevocationsOnce uses persisted tenant records; it survives

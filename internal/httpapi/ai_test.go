@@ -1301,7 +1301,7 @@ func TestInspectionDownloadReadsMetadataBeforePDFCache(t *testing.T) {
 	_, _ = repo.CreateHealthInspectionJob(context.Background(), model.HealthInspectionJob{ID: "stable-report", TenantID: "t", Status: "succeeded", StartedAt: now, FinishedAt: now, Report: model.DeviceHealthReport{GeneratedAt: now, Items: items}})
 	e := &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}}
 	api := New(config.Config{DevMode: true}, e, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	api.inspectionPDFs.renderPDF = func(model.DeviceHealthReport) ([]byte, error) { return []byte("%PDF-test"), nil }
+	api.inspection.pdfs.renderPDF = func(model.DeviceHealthReport) ([]byte, error) { return []byte("%PDF-test"), nil }
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 	token, _ := api.auth.IssueWithVersion("admin", "t", "admin", api.adminSessionVersion(), time.Hour)
