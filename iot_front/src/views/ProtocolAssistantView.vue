@@ -302,7 +302,7 @@ onMounted(() => {
       <section class="generator-section">
         <div class="generator-section-heading">
           <h3>提供协议资料</h3>
-          <p>选择报文或点表，上传文件或直接粘贴内容。</p>
+          <p>选择报文或点表，上传文件或直接粘贴内容。模型一次最多阅读约 1 万汉字，过长的资料会截断并在草稿中提示。</p>
         </div>
         <ui-radio-group v-model="form.inputKind" @change="changeKind" class="bottom-gap segmented-choice-group" aria-label="上传类型"
           ><ui-radio-button value="sample">报文</ui-radio-button><ui-radio-button value="point-table">点表</ui-radio-button></ui-radio-group

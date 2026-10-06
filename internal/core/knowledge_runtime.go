@@ -422,10 +422,20 @@ func AppendKnowledgeEvidence(prompt string, hits []ports.KnowledgeHit, maxBytes 
 	return prompt + KnowledgeEvidence(hits, low), nil
 }
 
+// ErrAIInputTooLarge marks an AI input over the character or JSON budget; the
+// caller should narrow the input rather than retry.
+var ErrAIInputTooLarge = errors.New("AI 输入超过字符或 JSON 请求预算，请缩小范围后重试")
+
 // ValidateAIInput shares the gateway's UTF-16 character limit and leaves JSON
 // wire space for request metadata. Escaped control characters count as bytes.
 func ValidateAIInput(prompt string, maxBytes int) error {
 	return validateAIInput(prompt, maxBytes, 20000)
+}
+
+// WithinAIInputBudget reports whether prompt fits maxBytes of JSON and
+// maxUnits UTF-16 characters, for callers that shrink their own material.
+func WithinAIInputBudget(prompt string, maxBytes, maxUnits int) bool {
+	return validateAIInput(prompt, maxBytes, maxUnits) == nil
 }
 
 func validateAIInput(prompt string, maxBytes, maxUnits int) error {
@@ -441,7 +451,7 @@ func validateAIInput(prompt string, maxBytes, maxUnits int) error {
 	}
 	encoded, err := json.Marshal(prompt)
 	if err != nil || units > maxUnits || len(encoded) > maxBytes {
-		return errors.New("AI 输入超过字符或 JSON 请求预算，请缩小范围后重试")
+		return ErrAIInputTooLarge
 	}
 	return nil
 }

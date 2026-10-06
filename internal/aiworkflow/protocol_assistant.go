@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"iot-platform/internal/aiprompt"
+	"iot-platform/internal/core"
 	"path/filepath"
 	"strings"
 
@@ -52,7 +53,10 @@ func (e *Service) GenerateProtocolAssistant(ctx context.Context, tenant string, 
 	if strings.TrimSpace(in.DocumentText) == "" && strings.TrimSpace(in.PointTable) == "" && strings.TrimSpace(in.SamplePayload) == "" {
 		return model.ProtocolAssistantDraft{}, errors.New("protocol document or point table is required")
 	}
-	prompt := aiprompt.ProtocolAssistant(buildProtocolAssistantPrompt(in))
+	prompt, fitWarnings, err := fitProtocolAssistantPrompt(in)
+	if err != nil {
+		return model.ProtocolAssistantDraft{}, err
+	}
 	query := retrievalQuery("协议接入 点表 报文解析", []string{in.Name, in.Protocol, in.Transport, in.PayloadFormat})
 	result, err := e.runBusinessWorkflow(ctx, tenant, WorkflowProtocolAssist, aiprompt.ProtocolAssistVersion, prompt, query, []string{"query_knowledge_base"}, 8192)
 	if err != nil {
@@ -63,6 +67,7 @@ func (e *Service) GenerateProtocolAssistant(ctx context.Context, tenant string, 
 	if err != nil {
 		return model.ProtocolAssistantDraft{}, err
 	}
+	draft.Warnings = append(fitWarnings, draft.Warnings...)
 	if draft.Name == "" {
 		draft.Name = strings.TrimSpace(in.Name)
 	}
@@ -123,7 +128,62 @@ func (e *Service) GenerateProtocolAssistant(ctx context.Context, tenant string, 
 	return draft, nil
 }
 
-func buildProtocolAssistantPrompt(in ProtocolAssistantInput) string {
+// Protocol material is fitted below the business input limit with room left
+// for knowledge evidence, which runBusinessWorkflow appends within the same
+// overall budget.
+const (
+	protocolPromptBytes = 22 << 10
+	protocolPromptUnits = 15000
+)
+
+type protocolMaterialLimits struct{ sample, points, document int }
+
+var protocolMaterialMaximum = protocolMaterialLimits{sample: 12000, points: 24000, document: 48000}
+
+// fitProtocolAssistantPrompt shortens the material until the prompt fits:
+// the document first, then the point table, then the sample, which matters
+// most for a correct draft. Warnings tell the user what was cut.
+func fitProtocolAssistantPrompt(in ProtocolAssistantInput) (string, []string, error) {
+	limits := protocolMaterialMaximum
+	build := func() string { return aiprompt.ProtocolAssistant(buildProtocolAssistantPrompt(in, limits)) }
+	fits := func() bool { return core.WithinAIInputBudget(build(), protocolPromptBytes, protocolPromptUnits) }
+	shrink := func(field *int) {
+		if fits() {
+			return
+		}
+		low, high := 0, *field
+		for low < high {
+			*field = (low + high + 1) / 2
+			if fits() {
+				low = *field
+			} else {
+				high = *field - 1
+			}
+		}
+		*field = low
+	}
+	shrink(&limits.document)
+	shrink(&limits.points)
+	shrink(&limits.sample)
+	if !fits() {
+		return "", nil, fmt.Errorf("%w: %v", ErrProtocolInput, core.ErrAIInputTooLarge)
+	}
+	var warnings []string
+	for _, cut := range []struct {
+		name   string
+		text   string
+		kept   int
+		maxima int
+	}{{"协议文档", in.DocumentText, limits.document, protocolMaterialMaximum.document}, {"点表", in.PointTable, limits.points, protocolMaterialMaximum.points}, {"样本报文", in.SamplePayload, limits.sample, protocolMaterialMaximum.sample}} {
+		total := len([]rune(strings.TrimSpace(cut.text)))
+		if total > cut.kept {
+			warnings = append(warnings, fmt.Sprintf("%s过长，仅使用前 %d 字（共 %d 字，约 %d%%），请核对草稿是否遗漏后半部分内容", cut.name, cut.kept, total, cut.kept*100/total))
+		}
+	}
+	return build(), warnings, nil
+}
+
+func buildProtocolAssistantPrompt(in ProtocolAssistantInput, limits protocolMaterialLimits) string {
 	var b strings.Builder
 	b.WriteString("用户补充的协议名称：")
 	b.WriteString(limitAssistantText(in.Name, 256))
@@ -134,11 +194,11 @@ func buildProtocolAssistantPrompt(in ProtocolAssistantInput) string {
 	b.WriteString("\n载荷格式：")
 	b.WriteString(limitAssistantText(in.PayloadFormat, 32))
 	b.WriteString("\n样本报文：\n")
-	b.WriteString(limitAssistantText(in.SamplePayload, 12000))
+	b.WriteString(limitAssistantText(in.SamplePayload, limits.sample))
 	b.WriteString("\n点表文本：\n")
-	b.WriteString(limitAssistantText(in.PointTable, 24000))
+	b.WriteString(limitAssistantText(in.PointTable, limits.points))
 	b.WriteString("\n协议文档提取文本：\n")
-	b.WriteString(limitAssistantText(in.DocumentText, 48000))
+	b.WriteString(limitAssistantText(in.DocumentText, limits.document))
 	b.WriteString("\n请严格按指定 JSON 结构返回，并把无法确认的内容放入 warnings。")
 	return b.String()
 }

@@ -221,3 +221,26 @@ type hexMappingAI struct{}
 func (hexMappingAI) GenerateJSON(context.Context, string, string, string) (string, error) {
 	return `{"name":"HEX temperature","protocol":"temp","transport":"MQTT","payloadFormat":"hex","parserType":"configurable_hex_parser","messageType":"PROPERTY_REPORT","config":{"startHex":"AA","fields":[{"name":"temperature","offset":1,"length":2,"type":"uint16","endian":"big","scale":0.1}]},"fields":[{"name":"temperature"}]}`, nil
 }
+
+// A long protocol manual is shortened to the AI input budget instead of being
+// rejected, and the draft tells the user how much of it was read.
+func TestProtocolAssistantFitsLongDocumentsIntoTheInputBudget(t *testing.T) {
+	in := ProtocolAssistantInput{Name: "长手册", PointTable: "地址 0x01 温度", SamplePayload: "01 02 03", DocumentText: strings.Repeat("寄存器说明：温度、湿度与报警状态。", 3000)}
+	prompt, warnings, err := fitProtocolAssistantPrompt(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = core.ValidateAIInput(prompt, 30<<10); err != nil {
+		t.Fatalf("fitted prompt exceeds the business input limit: %v", err)
+	}
+	if !strings.Contains(prompt, "[内容已截断]") || !strings.Contains(prompt, "01 02 03") || !strings.Contains(prompt, "地址 0x01 温度") {
+		t.Fatal("the document must be cut first while sample and point table stay complete")
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "协议文档过长") {
+		t.Fatalf("warnings = %v", warnings)
+	}
+	short, warnings, err := fitProtocolAssistantPrompt(ProtocolAssistantInput{PointTable: "地址 0x01 温度"})
+	if err != nil || len(warnings) != 0 || strings.Contains(short, "[内容已截断]") {
+		t.Fatalf("short input must pass unchanged: %v %v", warnings, err)
+	}
+}
