@@ -216,3 +216,52 @@ IOT_PROTOCOL_RUNNER_PIDS	协议运行器容器进程数上限，默认 512
 IOT_CLICKHOUSE_MODULE	ClickHouse 高频原文与遥测存储开关（on/off，部署脚本 --clickhouse 管理）；off 时全部写 PostgreSQL
 IOT_AI_RUNS_PER_MINUTE	每个租户每分钟最多发起的 AI 任务数，0 为不限
 IOT_AI_DAILY_TOKEN_BUDGET	每个租户每日 AI 输入加输出词元上限，0 为不限
+IOT_AI_HARNESS_BUSINESS_TIMEOUT	单次业务 AI 运行（告警研判、巡检、报告、协议助手、规则草稿）的时限，默认 4m
+IOT_API_EMBEDDED_WORKERS	api 角色是否内嵌解析、业务处理与后台任务，默认 true；设为 false 时须另行部署各 Worker 角色
+IOT_CLICKHOUSE_CLUSTER	ClickHouse 集群名；设置后使用各分片复制表与同名 Distributed 表，默认空（单节点）
+IOT_CLICKHOUSE_INSERT_QUORUM	ClickHouse 集群插入的法定副本数，如 2 或 auto，默认空
+IOT_CLUSTER_INSTANCES	共享限额存储（Redis）不可用时按“额度 ÷ 实例数”退化执行的实例数，默认 1
+IOT_DEVICE_SIGNAL_ALARM	设备健康信号是否同时产生告警，默认 false
+IOT_DEVICE_SIGNAL_INTERVAL	设备健康信号的计算间隔，默认 10m
+IOT_DEVICE_SIGNAL_WINDOW	设备健康信号统计的数据时间窗，默认 24h
+IOT_EMBEDDING_TIMEOUT	向量服务单次请求超时，默认 1m
+IOT_GB28181_MEDIA_STANDBY_IPS	备用媒体服务器各自的国标媒体地址，逗号分隔，与 IOT_VIDEO_MEDIA_STANDBY_URLS 等长
+IOT_HARNESS_JWT_SECRET	Harness MCP 运行凭据的独立签名密钥；留空时由 IOT_JWT_SECRET 派生
+IOT_INSTANCE_ID	进程实例编号；多实例同机运行时区分 MQTT 收件箱等本地目录，默认按进程角色
+IOT_KAFKA_AUTO_CREATE_TOPICS	是否允许自动创建 Kafka 主题，默认 true；集群设为 false，由 cmd/cluster-init 建主题
+IOT_KAFKA_TLS	连接 Kafka 是否使用 TLS，默认 false
+IOT_KAFKA_TLS_CA_FILE	Kafka TLS 的 CA 证书文件路径，留空使用系统证书
+IOT_LOG_LEVEL	日志级别：debug、info、warn 或 error，默认 info（debug 记录每个 HTTP 请求）
+IOT_LOG_LOKI_TENANT	源码运行时直接推送日志使用的 Loki 租户，默认空
+IOT_LOG_SERVICE_NAME	直接推送日志时的服务名标签，默认 platform-api
+IOT_MINIO_USE_TLS	连接对象存储（RustFS / MinIO）是否使用 HTTPS，默认 false
+IOT_MQTT_PASSWORD	平台连接 MQTT Broker 的密码；配置 EMQX JWT 认证时可留空
+IOT_MQTT_USERNAME	平台连接 MQTT Broker 的用户名；配置 EMQX JWT 认证时可留空
+IOT_NODE_URL	本实例可被其他 API 实例访问的 HTTP 地址；多实例时用于选出运行直播模块的实例并转发请求
+IOT_OFFLINE_SCAN_INTERVAL	设备离线扫描间隔，默认 30s
+IOT_OPS_LOKI_TENANT	运维中心查询 Loki 使用的租户，默认空
+IOT_OPS_MAX_EXPORT_LINES	运维中心日志导出的最大行数，默认 5000
+IOT_OPS_MAX_LOG_LINES	运维中心单次日志查询的最大行数，默认 1000
+IOT_OPS_MAX_LOG_RANGE	运维中心单次日志查询的最大时间范围，默认 168h
+IOT_OPS_MAX_METRIC_RANGE	运维中心单次指标查询的最大时间范围，默认 744h
+IOT_OPS_MAX_SERIES	运维中心单次指标查询返回的最大序列数，默认 500
+IOT_OPS_QUERY_TIMEOUT	运维中心查询 Prometheus 与 Loki 的超时，默认 30s
+IOT_OPS_RELOAD_TIMEOUT	运维中心写入组件配置后等待重新加载确认的超时，默认 45s
+IOT_POSTGRES_CONNECT_TIMEOUT	PostgreSQL 建立连接的超时，默认 5s
+IOT_POSTGRES_HEALTH_CHECK_PERIOD	PostgreSQL 连接池探活间隔，默认 15s
+IOT_POSTGRES_MAX_CONN_LIFETIME	PostgreSQL 连接的最长存活时间，到期后回收重建，默认 30m
+IOT_POSTGRES_MAX_REPLICA_LAG	只读副本可接受的最大复制延迟，超过时改读主库，默认 5s
+IOT_POSTGRES_PASSWORD	PostgreSQL 密码；单独提供时合并进 IOT_POSTGRES_DSN，可配合 IOT_POSTGRES_PASSWORD_FILE 使用
+IOT_POSTGRES_READ_DSN	可选的 PostgreSQL 只读副本连接串，仅用于原文列表、历史曲线、设备消息与总览统计
+IOT_PROTOCOL_RUNNER_SOCKET	协议运行器的 Unix 套接字路径，部署时为 /run/torchlink/runner.sock
+IOT_PROTOCOL_SANDBOX	协议编译与执行位置：runner 表示在独立 protocol-runner 容器中，留空时在本进程内（仅源码调试）
+IOT_PUBLISH_EXTERNAL_TOPICS	是否继续向外部订阅主题发布解析后的属性、事件与解析消息，默认 true
+IOT_REDIS_MASTER_NAME	Redis Sentinel 的主节点名；与 IOT_REDIS_SENTINELS 一起使用
+IOT_REDIS_SENTINELS	Redis Sentinel 地址，逗号分隔；配置后经 Sentinel 发现主节点
+IOT_RERANK_TIMEOUT	检索重排服务单次请求超时，默认 8s
+IOT_RETENTION_BATCH_PAUSE	过期数据清理每批之间的暂停，默认 200ms
+IOT_RETENTION_BATCH_SIZE	过期数据清理每批删除的行数，默认 5000
+IOT_VIDEO_HLS_PUBLIC_PATH	浏览器访问 HLS 播放地址使用的路径前缀，默认 /media/hls
+IOT_VIDEO_MEDIA_STANDBY_IDS	备用媒体服务器编号，逗号分隔，与 IOT_VIDEO_MEDIA_STANDBY_URLS 等长且互不重复
+IOT_VIDEO_MEDIA_STANDBY_URLS	备用媒体服务器的 HTTP API 地址，逗号分隔
+IOT_VIDEO_START_TIMEOUT	开始播放时等待媒体服务器拉流成功的超时，默认 15s

@@ -216,6 +216,331 @@ PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数
 
 单机在线与离线部署默认带 ClickHouse（Compose profile `clickhouse`），承载高频原文与遥测。`--clickhouse off`（PowerShell `-ClickHouse off`）移除 `clickhouse` 与 `clickhouse-tool-admin` 服务并把 `IOT_CLICKHOUSE_URL` 置空，平台改为把原文与遥测全部写 PostgreSQL（属性历史改用 PostgreSQL 查询）；之后不带参数的部署保持关闭，`--clickhouse on` 删除空地址并恢复内置服务地址（手工填写的外部地址保留）。开关写入 `IOT_CLICKHOUSE_MODULE`，离线包始终包含 ClickHouse 镜像。关闭只停止服务、不删除数据卷，已存入 ClickHouse 的高频原文、遥测历史与属性上报的属性在关闭期间不可读，重新开启后恢复。设备量小、上报频率低的场景可关闭以节省内存；高频接入或长期遥测查询建议保留。升级旧部署须重跑部署脚本，让 `COMPOSE_PROFILES` 加上 `clickhouse`，直接执行 `docker compose up` 会因缺少 ClickHouse 服务而使 API 启动失败。
 
+### 配置参考
+
+下表按用途列出环境文件可能包含的全部配置项，说明与部署脚本写入环境文件的注释相同；默认值、取值约束和操作步骤以各专题章节为准。表格由 `go test ./internal/config` 根据 `scripts/lib/env-comments.tsv` 核对，新增配置须先在该文件补说明，再以 `IOT_UPDATE_CONFIG_DOCS=1 go test ./internal/config -run TestDeploymentConfigReferenceIsCurrent` 重新生成。
+
+<!-- config-reference:start -->
+
+#### 平台进程与访问
+
+| 变量 | 说明 |
+| --- | --- |
+| `IOT_ACCESS_COORDINATION` | 使用共享数据库协调多接入实例 |
+| `IOT_ACCESS_GATEWAY_URL` | 独立接入网关的 HTTP(S) 内网地址 |
+| `IOT_ACCESS_NODE_URL` | 其他实例可直达当前实例的固定 HTTP(S) 地址 |
+| `IOT_ADMIN_PASSWORD` | 平台内置管理员密码，默认 admin123，可自定义，无长度或复杂度限制 |
+| `IOT_ADMIN_TENANTS` | 内置管理员可访问的租户，多个值用逗号分隔 |
+| `IOT_ADMIN_USER` | 平台内置管理员用户名 |
+| `IOT_API_EMBEDDED_WORKERS` | api 角色是否内嵌解析、业务处理与后台任务，默认 true；设为 false 时须另行部署各 Worker 角色 |
+| `IOT_API_PORT` | Docker 部署时 API 对外端口 |
+| `IOT_CAPACITY_MODULE` | 容量测试模块部署开关：on 部署，off 关闭；正式部署新环境默认关闭，后续部署沿用上次选择 |
+| `IOT_CLUSTER_INSTANCES` | 共享限额存储（Redis）不可用时按“额度 ÷ 实例数”退化执行的实例数，默认 1 |
+| `IOT_CORS_ALLOWED_ORIGINS` | 允许访问 API 的浏览器来源，多个值用逗号分隔 |
+| `IOT_DATA_DIR` | 本地运行数据目录 |
+| `IOT_DEV_MODE` | 开发模式开关，未设置即生产模式；设为 true 跳过密钥校验，仅用于本机调试 |
+| `IOT_HTTP_ADDR` | Go API 监听地址和端口 |
+| `IOT_INSTANCE_ID` | 进程实例编号；多实例同机运行时区分 MQTT 收件箱等本地目录，默认按进程角色 |
+| `IOT_JWT_SECRET` | 平台登录令牌签名密钥，首次部署自动生成 |
+| `IOT_METRICS_TOKEN` | Prometheus 抓取平台 /metrics 的令牌，部署时自动生成；置空则不校验 |
+| `IOT_NODE_URL` | 本实例可被其他 API 实例访问的 HTTP 地址；多实例时用于选出运行直播模块的实例并转发请求 |
+| `IOT_PLATFORM_API_CPUS` | 平台 API 容器 CPU 上限，默认 0 表示不限制 |
+| `IOT_PLATFORM_API_IMAGE` | 离线部署使用的平台 API 镜像 |
+| `IOT_PLATFORM_WEB_IMAGE` | 离线部署使用的平台 Web 镜像 |
+| `IOT_PROCESS_ROLE` | 进程职责：combined、api 或 gateway |
+| `IOT_PUBLIC_WEB_URL` | 管理端对外访问地址，告警通知中的详情链接使用，可留空 |
+| `IOT_TLS_DIR` | 证书目录（含 tls.crt、tls.key），存在时启用 HTTPS（8443）与 MQTTS/WSS（8883/8084），默认 ./tls |
+| `IOT_WEB_HTTPS_PORT` | Web HTTPS 对外端口，默认 8443 |
+| `IOT_WEB_PORT` | Docker 部署时 Web 对外端口 |
+| `IOT_WEB_TLS_REDIRECT` | 启用 HTTPS 后是否把 HTTP 访问重定向到 HTTPS，默认 true |
+
+#### 接收与处理
+
+| 变量 | 说明 |
+| --- | --- |
+| `IOT_CONSUMER_MAX_BLOCK` | 依赖故障时一条设备消息最长暂停等待时间，超过后转入死信，默认 30m |
+| `IOT_DEVICE_HTTP_PUBLIC_URL` | 设备可访问的 HTTP/HTTPS 对外地址，留空使用相对路径 |
+| `IOT_DEVICE_MQTT_PUBLIC_URL` | 设备可访问的 MQTT/TLS 对外地址，留空显示未配置 |
+| `IOT_DEVICE_SIGNAL_ALARM` | 设备健康信号是否同时产生告警，默认 false |
+| `IOT_DEVICE_SIGNAL_INTERVAL` | 设备健康信号的计算间隔，默认 10m |
+| `IOT_DEVICE_SIGNAL_WINDOW` | 设备健康信号统计的数据时间窗，默认 24h |
+| `IOT_EXTERNAL_DATA_ALLOWED_CIDRS` | 外部数据拉取与媒体下载允许访问的内网网段（逗号分隔 CIDR）；默认只允许公网地址，云元数据地址始终拒绝 |
+| `IOT_INGEST_MAX_BACKLOG` | 解析与存储积压超过该条数时暂停接收新原始报文（HTTP 返回 429，MQTT 留在磁盘队列，TCP 不应答），降到 80% 以下恢复；0 关闭 |
+| `IOT_MODBUS_ALLOWED_CIDRS` | 允许主动 Modbus 采集访问的网段 |
+| `IOT_OFFLINE_SCAN_INTERVAL` | 设备离线扫描间隔，默认 30s |
+| `IOT_PROTOCOL_LISTENER_MAX_SESSIONS` | 每个 TCP / UDP 接入监听同时在线的设备会话上限；超出时拒绝并计入 protocol_listener_rejected_total |
+| `IOT_PROTOCOL_PORTS` | 通用 TCP/UDP 协议监听端口或端口范围 |
+| `IOT_PROTOCOL_RUNNER_CPUS` | 协议运行器容器 CPU 上限，默认 2 |
+| `IOT_PROTOCOL_RUNNER_MEMORY` | 协议运行器容器内存上限，默认 2g |
+| `IOT_PROTOCOL_RUNNER_PIDS` | 协议运行器容器进程数上限，默认 512 |
+| `IOT_PROTOCOL_RUNNER_SOCKET` | 协议运行器的 Unix 套接字路径，部署时为 /run/torchlink/runner.sock |
+| `IOT_PROTOCOL_SANDBOX` | 协议编译与执行位置：runner 表示在独立 protocol-runner 容器中，留空时在本进程内（仅源码调试） |
+| `IOT_PUBLISH_EXTERNAL_TOPICS` | 是否继续向外部订阅主题发布解析后的属性、事件与解析消息，默认 true |
+| `IOT_RAW_HIGH_FREQUENCY_INTERVAL_SEC` | 高频设备判断阈值，单位为秒 |
+
+#### 存储
+
+| 变量 | 说明 |
+| --- | --- |
+| `CLICKHOUSE_PASSWORD` | ClickHouse 数据库密码，默认 admin123；已有配置保留 |
+| `IOT_CLICKHOUSE_CLUSTER` | ClickHouse 集群名；设置后使用各分片复制表与同名 Distributed 表，默认空（单节点） |
+| `IOT_CLICKHOUSE_CPUS` | ClickHouse 容器 CPU 上限，默认 0 表示不限制 |
+| `IOT_CLICKHOUSE_INSERT_QUORUM` | ClickHouse 集群插入的法定副本数，如 2 或 auto，默认空 |
+| `IOT_CLICKHOUSE_MODULE` | ClickHouse 高频原文与遥测存储开关（on/off，部署脚本 --clickhouse 管理）；off 时全部写 PostgreSQL |
+| `IOT_CLICKHOUSE_URL` | Go API 访问 ClickHouse 的地址 |
+| `IOT_MINIO_ACCESS_KEY` | Go API 访问对象存储（RustFS，S3 兼容）的用户名 |
+| `IOT_MINIO_ENDPOINT` | Go API 访问对象存储（RustFS，S3 兼容）的地址 |
+| `IOT_MINIO_SECRET_KEY` | Go API 访问对象存储（RustFS，S3 兼容）的密码 |
+| `IOT_MINIO_USE_TLS` | 连接对象存储（RustFS / MinIO）是否使用 HTTPS，默认 false |
+| `IOT_POSTGRES_CONNECT_TIMEOUT` | PostgreSQL 建立连接的超时，默认 5s |
+| `IOT_POSTGRES_CPUS` | PostgreSQL 容器 CPU 上限，默认 0 表示不限制 |
+| `IOT_POSTGRES_DSN` | Go API 访问 PostgreSQL 的连接地址 |
+| `IOT_POSTGRES_HEALTH_CHECK_PERIOD` | PostgreSQL 连接池探活间隔，默认 15s |
+| `IOT_POSTGRES_IMAGE` | 包含固定pgvector扩展的PostgreSQL17镜像 |
+| `IOT_POSTGRES_MAX_CONNS` | 本进程 PostgreSQL 连接池上限；所有 API / 网关进程之和须小于 PostgreSQL max_connections |
+| `IOT_POSTGRES_MAX_CONN_LIFETIME` | PostgreSQL 连接的最长存活时间，到期后回收重建，默认 30m |
+| `IOT_POSTGRES_MAX_REPLICA_LAG` | 只读副本可接受的最大复制延迟，超过时改读主库，默认 5s |
+| `IOT_POSTGRES_PASSWORD` | PostgreSQL 密码；单独提供时合并进 IOT_POSTGRES_DSN，可配合 IOT_POSTGRES_PASSWORD_FILE 使用 |
+| `IOT_POSTGRES_READ_DSN` | 可选的 PostgreSQL 只读副本连接串，仅用于原文列表、历史曲线、设备消息与总览统计 |
+| `IOT_POSTGRES_SHM_SIZE` | PostgreSQL 容器共享内存 /dev/shm 大小，默认 1g |
+| `IOT_REDIS_ADDR` | Go API 访问 Redis 的地址 |
+| `IOT_REDIS_CPUS` | Redis 容器 CPU 上限，默认 0 表示不限制 |
+| `IOT_REDIS_MASTER_NAME` | Redis Sentinel 的主节点名；与 IOT_REDIS_SENTINELS 一起使用 |
+| `IOT_REDIS_PASSWORD` | Go API 访问 Redis 的密码 |
+| `IOT_REDIS_SENTINELS` | Redis Sentinel 地址，逗号分隔；配置后经 Sentinel 发现主节点 |
+| `MINIO_CONSOLE_BIND_ADDRESS` | RustFS 控制台绑定地址，默认仅本机 127.0.0.1 |
+| `MINIO_DR_ROOT_PASSWORD` | RustFS 对象存储（灾备）管理员密码，默认 admin123；已有配置保留 |
+| `MINIO_DR_ROOT_USER` | RustFS 对象存储（灾备）管理员用户名 |
+| `MINIO_ROOT_PASSWORD` | RustFS 对象存储（主）管理员密码，默认 admin123；已有配置保留 |
+| `MINIO_ROOT_USER` | RustFS 对象存储（主）管理员用户名 |
+| `POSTGRES_MAX_CONNECTIONS` | PostgreSQL 服务端最大连接数（Compose 部署的 postgres 容器） |
+| `POSTGRES_PASSWORD` | PostgreSQL 数据库密码，默认 admin123；已有配置保留 |
+| `REDIS_PASSWORD` | Redis 密码，默认 admin123；已有配置保留 |
+
+#### 消息
+
+| 变量 | 说明 |
+| --- | --- |
+| `EMQX_DASHBOARD_BIND_ADDRESS` | EMQX 控制台绑定地址，默认仅本机 127.0.0.1 |
+| `EMQX_DASHBOARD_PASSWORD` | EMQX 管理页面密码，默认 admin123；已有配置保留 |
+| `EMQX_DASHBOARD_USER` | EMQX 管理页面用户名 |
+| `IOT_EMQX_API_KEY` | 平台专用 EMQX 管理 API Key，首次部署自动生成，后续保留 |
+| `IOT_EMQX_API_SECRET` | 平台专用 EMQX 管理 API Secret，仅后端读取，不发送给浏览器 |
+| `IOT_EMQX_API_URL` | EMQX 管理 API 根地址（不含 /api/v5），用于队列丢弃观测及设备凭据撤销 |
+| `IOT_EMQX_CPUS` | EMQX 容器 CPU 上限，默认 0 表示不限制 |
+| `IOT_KAFKA_ADMIN_PASSWORD` | Redpanda 管理密码，默认 admin123 |
+| `IOT_KAFKA_ADMIN_URL` | Redpanda 管理 API 根地址 |
+| `IOT_KAFKA_ADMIN_USERNAME` | Redpanda 管理用户名，默认 admin |
+| `IOT_KAFKA_ADVERTISED_HOST` | Kafka 外部监听器公告主机，填写工具可访问的依赖机地址 |
+| `IOT_KAFKA_AUTO_CREATE_TOPICS` | 是否允许自动创建 Kafka 主题，默认 true；集群设为 false，由 cmd/cluster-init 建主题 |
+| `IOT_KAFKA_BROKERS` | Go API 访问 Kafka 的地址，多个值用逗号分隔 |
+| `IOT_KAFKA_CONSUMER_CONCURRENCY` | 每个 Kafka 订阅的并行通道数（同一设备保持顺序），1 至 64 |
+| `IOT_KAFKA_PUBLIC_BROKERS` | 外部工具可访问的 Kafka 地址，逗号分隔 host:port |
+| `IOT_KAFKA_SASL_MECHANISM` | Kafka 认证机制，默认 SCRAM-SHA-256 |
+| `IOT_KAFKA_SASL_PASSWORD` | Kafka 服务与工具连接密码，默认 admin123 |
+| `IOT_KAFKA_SASL_USERNAME` | Kafka 服务与工具连接用户名，默认 admin |
+| `IOT_KAFKA_TLS` | 连接 Kafka 是否使用 TLS，默认 false |
+| `IOT_KAFKA_TLS_CA_FILE` | Kafka TLS 的 CA 证书文件路径，留空使用系统证书 |
+| `IOT_MQTT_BROKER` | Go API 访问 MQTT 的 TCP 地址 |
+| `IOT_MQTT_DEVICE_TOKEN_TTL` | 标准 MQTT / HTTP 设备令牌有效期；仅在配置 EMQX 管理 API（可即时封禁）时生效，否则固定 5 分钟 |
+| `IOT_MQTT_PASSWORD` | 平台连接 MQTT Broker 的密码；配置 EMQX JWT 认证时可留空 |
+| `IOT_MQTT_TOOL_PASSWORD` | MQTT 工具连接密码，默认 admin123 |
+| `IOT_MQTT_TOOL_USERNAME` | MQTT 工具连接用户名，默认 admin |
+| `IOT_MQTT_USERNAME` | 平台连接 MQTT Broker 的用户名；配置 EMQX JWT 认证时可留空 |
+| `IOT_MQTT_WEBSOCKET_PUBLIC_URL` | 浏览器访问 MQTT WebSocket 的公开地址 |
+| `IOT_REDPANDA_CPUS` | Redpanda 容器 CPU 上限，默认 0 表示不限制 |
+| `KAFKA_BIND_ADDRESS` | Kafka 外部监听绑定地址，默认仅本机 127.0.0.1；对外提供 Kafka 订阅时设为 0.0.0.0 |
+| `MQTTS_PORT` | MQTT over TLS 端口，默认 8883 |
+| `MQTT_WSS_PORT` | MQTT over WebSocket TLS 端口，默认 8084 |
+
+#### AI 与知识库
+
+| 变量 | 说明 |
+| --- | --- |
+| `DEEPSEEK_API_KEY` | 填写用户自己的 DeepSeek API Key；也可启动后在模型管理中填写并保存（连接测试可选） |
+| `DEEPSEEK_BASE_URL` | DeepSeek Harness 调用的模型 API 地址 |
+| `IOT_AI_API_KEY` | 兼容外部 Provider 的密钥；标准部署留空，仅填写 DEEPSEEK_API_KEY |
+| `IOT_AI_BASE_URL` | DeepSeek API 根地址，默认 https://api.deepseek.com |
+| `IOT_AI_DAILY_TOKEN_BUDGET` | 每个租户每日 AI 输入加输出词元上限，0 为不限 |
+| `IOT_AI_HARNESS_BUSINESS_TIMEOUT` | 单次业务 AI 运行（告警研判、巡检、报告、协议助手、规则草稿）的时限，默认 4m |
+| `IOT_AI_HARNESS_MCP_URL` | DeepSeek Harness 回调平台 MCP 接口的地址 |
+| `IOT_AI_HARNESS_MODEL` | AI 工作流的默认模型；“模型管理”中保存的模型优先 |
+| `IOT_AI_HARNESS_PROVIDER` | AI 工作流提供方，标准部署为 deepseek-official |
+| `IOT_AI_HARNESS_TIMEOUT` | AI 工作流请求超时时间 |
+| `IOT_AI_HARNESS_TOKEN` | 平台与 DeepSeek Harness 之间的内部令牌 |
+| `IOT_AI_HARNESS_URL` | Go API 访问 DeepSeek Harness 的地址 |
+| `IOT_AI_MODEL` | AI 模型名称，默认 deepseek-flash |
+| `IOT_AI_PROVIDER` | 模型提供方；本地、在线和离线部署统一使用 deepseek |
+| `IOT_AI_RUNS_PER_MINUTE` | 每个租户每分钟最多发起的 AI 任务数，0 为不限 |
+| `IOT_DEEPSEEK_HARNESS_IMAGE` | 离线部署使用的 DeepSeek Harness 镜像 |
+| `IOT_EMBEDDING_API_KEY` | 外部 Embedding API 密钥；本地向量服务无需填写 |
+| `IOT_EMBEDDING_BATCH_SIZE` | 向量服务单次文本数量，默认10 |
+| `IOT_EMBEDDING_DIMENSIONS` | 向量输出维度，默认1024；切换后重建知识索引 |
+| `IOT_EMBEDDING_MODEL` | 向量模型；更换后知识库会按原始文档自动重建索引 |
+| `IOT_EMBEDDING_QUERY_INSTRUCTION` | 检索问题的指令前缀；留空表示不加前缀 |
+| `IOT_EMBEDDING_TIMEOUT` | 向量服务单次请求超时，默认 1m |
+| `IOT_EMBEDDING_URL` | 向量服务地址；默认随平台部署的 embedding 服务（bge-m3），也可填外部 HTTPS API 的 /v1 地址 |
+| `IOT_HARNESS_JWT_SECRET` | Harness MCP 运行凭据的独立签名密钥；留空时由 IOT_JWT_SECRET 派生 |
+| `IOT_HARNESS_MCP_ALLOWED_ORIGINS` | 允许 Harness MCP 请求使用的来源地址 |
+| `IOT_HF_ENDPOINT` | 构建模型镜像时的模型下载地址，默认 https://huggingface.co，可改用 https://hf-mirror.com |
+| `IOT_LLAMA_CPP_IMAGE` | 模型镜像的 llama.cpp 基础镜像；ghcr.io 受限时可指向镜像仓库中的同一镜像（保留 digest） |
+| `IOT_LOCAL_ADVERTISED_HOST` | Kafka 等依赖向源码机公布的地址 |
+| `IOT_LOCAL_AI_HOSTS` | 随平台部署的模型服务主机名、IP 或网段；仅这些地址允许 HTTP 且无需密钥 |
+| `IOT_LOCAL_AI_THREADS` | 本地向量/重排服务推理线程数，-1 为全部 CPU 核 |
+| `IOT_LOCAL_API_HOST` | 本地依赖容器访问源码机 API 的主机名，供 Prometheus 采集平台指标 |
+| `IOT_LOCAL_BACKUP_METRICS_TARGET` | 本地 Prometheus 的备份指标目标，容器模式为 backup-service:8090，源码模式为源码机地址:8092 |
+| `IOT_LOCAL_BIND_ADDRESS` | 本地依赖容器绑定地址，跨机器使用时为 0.0.0.0 |
+| `IOT_LOCAL_OPS_DIR` | 本地运维组件共享配置目录，默认 ./data/ops；Compose 挂载与本机 API 使用同一目录 |
+| `IOT_RERANK_TIMEOUT` | 检索重排服务单次请求超时，默认 8s |
+| `IOT_RERANK_URL` | 检索结果重排服务地址；默认随平台部署的 reranker 服务，置空则不重排 |
+
+#### 摄像头直播
+
+| 变量 | 说明 |
+| --- | --- |
+| `IOT_GB28181_DOMAIN` | SIP 域（10 位），为空时取服务器编号前 10 位 |
+| `IOT_GB28181_ENABLED` | 是否启用 GB28181 接入（平台作为 SIP 服务器），false 不影响 ONVIF / RTSP |
+| `IOT_GB28181_MEDIA_IP` | 设备发送 RTP 的媒体服务地址；为空时取 IOT_VIDEO_RTC_EXTERN_IP 的第一个地址 |
+| `IOT_GB28181_MEDIA_STANDBY_IPS` | 备用媒体服务器各自的国标媒体地址，逗号分隔，与 IOT_VIDEO_MEDIA_STANDBY_URLS 等长 |
+| `IOT_GB28181_SERVER_ID` | 平台 SIP 服务器编号（20 位），填写到设备的平台接入配置 |
+| `IOT_GB28181_SIP_HOST` | 设备回连平台 SIP 的地址；为空时在线/离线取 IOT_VIDEO_RTC_EXTERN_IP，本地按路由自动选择 |
+| `IOT_GB28181_SIP_PORT` | SIP 信令端口（UDP/TCP），需对摄像头网络开放 |
+| `IOT_VIDEO_ALLOWED_CIDRS` | 允许平台访问的摄像头网段，逗号分隔；云元数据与链路本地地址始终禁止，生产环境应收窄为实际摄像头网段 |
+| `IOT_VIDEO_ALLOWED_PORTS` | 允许访问的摄像头 RTSP / ONVIF 端口，逗号分隔 |
+| `IOT_VIDEO_CREDENTIAL_KEY` | 摄像头密码加密密钥（32 字节 base64）；生成后不要更换，否则已保存的摄像头密码需重新填写 |
+| `IOT_VIDEO_DENIED_CIDRS` | 从允许网段中排除的网段（如容器网络），逗号分隔；优先于 IOT_VIDEO_ALLOWED_CIDRS |
+| `IOT_VIDEO_HLS_PUBLIC_PATH` | 浏览器访问 HLS 播放地址使用的路径前缀，默认 /media/hls |
+| `IOT_VIDEO_HLS_TMPFS_SIZE` | HLS 临时分片内存盘大小 |
+| `IOT_VIDEO_HOOK_SECRET` | 媒体服务回调平台时携带的密钥，首次启用直播时自动生成 |
+| `IOT_VIDEO_IDLE_GRACE` | 最后一位观看者离开后保留拉流和转码的宽限期 |
+| `IOT_VIDEO_MAX_SESSIONS` | 同时存在的播放会话上限 |
+| `IOT_VIDEO_MAX_SOURCE_STREAMS` | 同时拉流的摄像头码流上限 |
+| `IOT_VIDEO_MEDIA_API_URL` | 摄像头直播媒体服务 API 地址；为空表示直播模块未部署，其余业务不受影响 |
+| `IOT_VIDEO_MEDIA_CPUS` | 媒体服务容器 CPU 上限 |
+| `IOT_VIDEO_MEDIA_MEMORY` | 媒体服务容器内存上限 |
+| `IOT_VIDEO_MEDIA_SECRET` | 媒体服务管理 API 密钥，仅服务端使用，首次启用直播时自动生成 |
+| `IOT_VIDEO_MEDIA_SERVER_ID` | 媒体服务节点标识，回调时用于校验来源 |
+| `IOT_VIDEO_MEDIA_STANDBY_IDS` | 备用媒体服务器编号，逗号分隔，与 IOT_VIDEO_MEDIA_STANDBY_URLS 等长且互不重复 |
+| `IOT_VIDEO_MEDIA_STANDBY_URLS` | 备用媒体服务器的 HTTP API 地址，逗号分隔 |
+| `IOT_VIDEO_MODULE` | 摄像头直播媒体服务部署开关：on 默认部署，off 表示显式关闭且后续部署保持关闭 |
+| `IOT_VIDEO_RTC_BIND_ADDRESS` | WebRTC 媒体端口监听地址，默认 0.0.0.0 |
+| `IOT_VIDEO_RTC_EXTERN_IP` | 浏览器访问媒体服务使用的主机 IP（WebRTC 候选地址），多个用逗号分隔 |
+| `IOT_VIDEO_RTC_PORT` | WebRTC 媒体 UDP/TCP 端口，需对浏览器所在网络开放 |
+| `IOT_VIDEO_RTP_BIND_ADDRESS` | GB28181 RTP 端口监听地址 |
+| `IOT_VIDEO_RTP_PORT_MAX` | GB28181 RTP 接收端口范围终点，每路国标流占用两个端口 |
+| `IOT_VIDEO_RTP_PORT_MIN` | GB28181 RTP 接收端口范围起点（UDP/TCP），需对摄像头网络开放 |
+| `IOT_VIDEO_SESSION_LEASE` | 播放会话租约，浏览器按约三分之一间隔续期；超时自动回收 |
+| `IOT_VIDEO_START_TIMEOUT` | 开始播放时等待媒体服务器拉流成功的超时，默认 15s |
+| `IOT_VIDEO_TRANSCODE_ENABLED` | 是否允许转码（H.265 转 H.264 等），默认 false |
+| `IOT_VIDEO_TRANSCODE_MAX` | 同时运行的转码任务上限 |
+| `IOT_VIDEO_TRANSCODE_THREADS` | 每个转码任务使用的编码线程数 |
+| `IOT_ZLMEDIAKIT_IMAGE` | 媒体服务镜像名称 |
+
+#### 运维中心与日志
+
+| 变量 | 说明 |
+| --- | --- |
+| `GRAFANA_ADMIN_PASSWORD` | Grafana 管理员密码，默认 admin123；已有配置保留 |
+| `GRAFANA_ADMIN_USER` | Grafana 管理员用户名 |
+| `GRAFANA_BIND_ADDRESS` | Grafana 绑定地址，默认仅本机 127.0.0.1 |
+| `IOT_LOG_LEVEL` | 日志级别：debug、info、warn 或 error，默认 info（debug 记录每个 HTTP 请求） |
+| `IOT_LOG_LOKI_TENANT` | 源码运行时直接推送日志使用的 Loki 租户，默认空 |
+| `IOT_LOG_LOKI_URL` | 源码运行时 API 直接推送自身日志的 Loki 地址；容器部署留空由采集器收集 |
+| `IOT_LOG_SERVICE_NAME` | 直接推送日志时的服务名标签，默认 platform-api |
+| `IOT_OPS_ALERTMANAGER_CONFIG_FILE` | 平台维护的 Alertmanager 配置文件，为空时通知渠道只读 |
+| `IOT_OPS_ALERTMANAGER_URL` | 运维中心访问 Alertmanager 的地址（仅服务端使用） |
+| `IOT_OPS_CAPACITY_LOCAL` | 本地源码调试随 combined API 启停容量控制器；仅监听本机，复用当前依赖配置，不自动开始测试 |
+| `IOT_OPS_CAPACITY_TOKEN` | 平台访问容量测试服务的令牌，启用模块时自动生成 |
+| `IOT_OPS_CAPACITY_URL` | 容量测试服务地址，由 capacity-module 自动设置（模块内为 http://capacity:7080）；为空表示模块未部署，页面隐藏 |
+| `IOT_OPS_CONFIG_FILE_MODE` | 平台写入 Alertmanager 配置文件的权限，源码本地调试为 0644 |
+| `IOT_OPS_GRAFANA_PASSWORD` | 运维中心访问 Grafana 的密码 |
+| `IOT_OPS_GRAFANA_TOKEN` | 运维中心访问 Grafana 的服务账号令牌（推荐） |
+| `IOT_OPS_GRAFANA_URL` | 运维中心访问 Grafana 的地址（仅服务端使用） |
+| `IOT_OPS_GRAFANA_USER` | 运维中心访问 Grafana 的账号；设置 IOT_OPS_GRAFANA_TOKEN 时优先使用令牌 |
+| `IOT_OPS_LOKI_RULES_DIR` | 平台写入 Loki 日志规则的共享目录，为空时日志规则只读 |
+| `IOT_OPS_LOKI_RUNTIME_FILE` | 平台维护 Loki 保留策略的运行时配置文件，为空时保留策略只读 |
+| `IOT_OPS_LOKI_TENANT` | 运维中心查询 Loki 使用的租户，默认空 |
+| `IOT_OPS_LOKI_URL` | 运维中心访问 Loki 的地址（仅服务端使用） |
+| `IOT_OPS_MAX_EXPORT_LINES` | 运维中心日志导出的最大行数，默认 5000 |
+| `IOT_OPS_MAX_LOG_LINES` | 运维中心单次日志查询的最大行数，默认 1000 |
+| `IOT_OPS_MAX_LOG_RANGE` | 运维中心单次日志查询的最大时间范围，默认 168h |
+| `IOT_OPS_MAX_METRIC_RANGE` | 运维中心单次指标查询的最大时间范围，默认 744h |
+| `IOT_OPS_MAX_SERIES` | 运维中心单次指标查询返回的最大序列数，默认 500 |
+| `IOT_OPS_MODULE` | 监控组件（Prometheus、Loki、Grafana、Alertmanager、Alloy、node-exporter）部署开关：on 默认部署，off 关闭且清空运维中心组件地址，后续部署沿用 |
+| `IOT_OPS_PROMETHEUS_RULES_DIR` | 平台写入 Prometheus 规则文件的共享目录，为空时规则只读 |
+| `IOT_OPS_PROMETHEUS_URL` | 运维中心访问 Prometheus 的地址（仅服务端使用） |
+| `IOT_OPS_QUERY_TIMEOUT` | 运维中心查询 Prometheus 与 Loki 的超时，默认 30s |
+| `IOT_OPS_RELOAD_TIMEOUT` | 运维中心写入组件配置后等待重新加载确认的超时，默认 45s |
+| `IOT_OPS_TENANTS` | 可授予运维中心权限的平台运维租户，多个值用逗号分隔；为空时仅内置管理员可用 |
+| `PROMETHEUS_BIND_ADDRESS` | Prometheus 端口绑定地址，默认仅本机 127.0.0.1 |
+
+#### 备份与数据保留
+
+| 变量 | 说明 |
+| --- | --- |
+| `IOT_BACKUP_ADMIN_TOKEN` | 备份服务管理令牌 |
+| `IOT_BACKUP_DATABASE_KEEP` | 保留最近几份整库备份，默认 7 |
+| `IOT_BACKUP_DATABASE_TIME` | 每日整库备份时间（HH:MM），留空关闭，默认 01:30 |
+| `IOT_BACKUP_DIR` | 备份临时文件目录，源码运行默认 ./data/backups |
+| `IOT_BACKUP_ENABLED` | 是否启用每日自动设备数据备份；true 开启、false 关闭，手动备份不受影响 |
+| `IOT_BACKUP_HARNESS_DATA_DIR` | 可选 Harness 只读数据目录回退，仅包含 Agent 清单及会话 |
+| `IOT_BACKUP_HARNESS_SNAPSHOT_URLS` | 全部 Harness 实例的快照 endpoint，逗号分隔，使用服务端 Harness 令牌 |
+| `IOT_BACKUP_HTTP_ADDR` | 备份服务源码调试时的监听地址 |
+| `IOT_BACKUP_HTTP_PORT` | 备份服务对外管理端口 |
+| `IOT_BACKUP_IMAGE` | 离线部署使用的备份服务镜像 |
+| `IOT_BACKUP_OFFSITE_ACCESS_KEY` | 异地备份访问密钥 |
+| `IOT_BACKUP_OFFSITE_BUCKET` | 异地备份桶名，默认 iot-backups |
+| `IOT_BACKUP_OFFSITE_ENDPOINT` | 异地备份 S3 兼容存储地址（host:port），留空不写异地副本 |
+| `IOT_BACKUP_OFFSITE_REGION` | 异地备份区域，可留空 |
+| `IOT_BACKUP_OFFSITE_SECRET_KEY` | 异地备份私有密钥 |
+| `IOT_BACKUP_OFFSITE_USE_TLS` | 异地备份是否使用 HTTPS，默认 true |
+| `IOT_BACKUP_RESTORE_DATABASE_DSN` | 整库备份恢复验证使用的专用演练库，会被清空，须与业务库不同 |
+| `IOT_BACKUP_RESTORE_HARNESS_DIR` | 独立Agent恢复目录，每次恢复创建新目录，不能指向运行目录 |
+| `IOT_BACKUP_RESTORE_MINIO_ACCESS_KEY` | 独立对象存储（RustFS）灾备恢复访问账号，仅服务端使用 |
+| `IOT_BACKUP_RESTORE_MINIO_ENDPOINT` | 知识原件恢复使用的独立对象存储（RustFS）灾备服务地址 |
+| `IOT_BACKUP_RESTORE_MINIO_SECRET_KEY` | 独立对象存储（RustFS）灾备恢复密钥，仅服务端使用 |
+| `IOT_BACKUP_RESTORE_MINIO_USE_TLS` | 独立对象存储（RustFS）灾备恢复服务是否使用TLS |
+| `IOT_BACKUP_RESTORE_TARGET_DSN` | 恢复验证使用的独立 PostgreSQL 库连接串，不能与业务库相同；留空时不提供恢复到独立库 |
+| `IOT_BACKUP_TIME` | 每天设备数据备份时间（HH:mm），备份前一天原始报文及解析数据 |
+| `IOT_BACKUP_TIMEZONE` | 每日备份使用的时区 |
+| `IOT_BACKUP_URL` | Go API 访问备份服务的地址 |
+| `IOT_RETENTION_AI_LOG_DAYS` | AI 工具调用日志保留天数，默认 180 |
+| `IOT_RETENTION_ALARM_DAYS` | 已关闭/已恢复告警保留天数，默认 1095，0 表示永久保留 |
+| `IOT_RETENTION_AUDIT_DAYS` | 审计日志保留天数，默认 1095，0 表示永久保留 |
+| `IOT_RETENTION_BATCH_PAUSE` | 过期数据清理每批之间的暂停，默认 200ms |
+| `IOT_RETENTION_BATCH_SIZE` | 过期数据清理每批删除的行数，默认 5000 |
+| `IOT_RETENTION_CLICKHOUSE_RAW_DAYS` | ClickHouse 高频原文保留天数（表 TTL），默认 180 |
+| `IOT_RETENTION_ENABLED` | 是否每日清理超过保留期的历史数据，默认 true |
+| `IOT_RETENTION_RAW_DAYS` | 原始报文索引与低频原文保留天数，默认 180 |
+| `IOT_RETENTION_REQUIRE_BACKUP` | 设为 true 时设备消息只清理已有成功日备份或全量备份覆盖的日期 |
+| `IOT_RETENTION_RESERVATION_DAYS` | 原文去重预约保留天数，默认 7，须不大于原文保留天数 |
+| `IOT_RETENTION_STANDARD_DAYS` | 已处理标准消息在 PostgreSQL 的保留天数，默认 90 |
+| `IOT_RETENTION_STATE_EVENT_DAYS` | 设备状态变更事件保留天数，默认 90 |
+| `IOT_RETENTION_TASK_DAYS` | 已结束的设备命令、批量接入、回放、失败备份与巡检任务保留天数，默认 180 |
+| `IOT_RETENTION_TELEMETRY_DAYS` | ClickHouse 遥测保留天数（表 TTL），默认 365 |
+| `IOT_RETENTION_TIME` | 每日清理时间（HH:MM），默认 03:30 |
+| `IOT_RETENTION_TIMEZONE` | 清理时间与备份覆盖日期使用的时区，默认沿用 IOT_BACKUP_TIMEZONE |
+| `IOT_RETENTION_VIDEO_EVENT_DAYS` | 视频平台告警事件保留天数，默认 1095 |
+
+#### 告警通知
+
+| 变量 | 说明 |
+| --- | --- |
+| `IOT_NOTIFY_ALLOWED_CIDRS` | 告警通知允许访问的内网网段（逗号分隔 CIDR），如内网 SMTP 中继；公网地址始终允许 |
+| `IOT_NOTIFY_ENABLED` | 是否启用告警通知（机器人、Webhook、邮件），默认 true |
+
+#### 其他
+
+| 变量 | 说明 |
+| --- | --- |
+| `COMPOSE_PROFILES` | 启用的可选 Compose 组件，多个值用逗号分隔；包含 video 时部署摄像头直播媒体服务 |
+| `GB26875_CONTROL_TOKEN` | GB/T 26875 网关控制令牌 |
+| `IOT_ALPINE_MIRROR` | 构建 PostgreSQL 镜像时的 Alpine 软件源，默认 https://dl-cdn.alpinelinux.org/alpine，可改用 https://mirrors.aliyun.com/alpine |
+| `SERVICE_ADMIN_PASSWORD` | 基础服务工具连接密码，默认 admin123，已有配置保留 |
+| `SERVICE_ADMIN_USER` | PostgreSQL、Redis、ClickHouse 工具连接用户名，默认 admin，保留原应用账号 |
+
+<!-- config-reference:end -->
+
 ## 查看状态、日志与停止
 
 本地依赖：
