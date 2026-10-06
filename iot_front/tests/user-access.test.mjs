@@ -5,6 +5,8 @@ import { userAccessPayload } from '../src/userAccess.js'
 import { applyFeatureLevel, featureLevel, roleDeviceScope } from '../src/permissionPresets.js'
 import fs from 'node:fs'
 import vm from 'node:vm'
+import { createPinia } from 'pinia'
+import { useRealtimeStore } from '../src/stores/realtime.ts'
 
 test('editing a fetched user excludes server-owned fields rejected by the save endpoint', () => {
   const stored = {
@@ -102,7 +104,9 @@ function realtime(api, options = {}) {
     return { changed: true, etag: tag, data }
   }
   const context = vm.createContext({
-    reactive: value => value,
+    // Each harness gets its own store, as a fresh page would.
+    pinia: createPinia(),
+    useRealtimeStore,
     api,
     apiIfChanged,
     session: { role: options.role || 'operator', tenant: 'tenant' },

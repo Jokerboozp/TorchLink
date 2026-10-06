@@ -1,9 +1,9 @@
-import { reactive } from 'vue'
 import { api, session } from './api'
-import type { LiveVideoStatus, LiveVideoStatusResponse } from './types/api.ts'
+import type { LiveVideoStatusResponse } from './types/api.ts'
+import { pinia } from './stores/index.ts'
+import { useLiveVideoStore } from './stores/liveVideo.ts'
 
 /** The module status, or 'unknown' when the status request failed. */
-type ModuleStatus = LiveVideoStatus | { state: 'unknown'; message: string }
 
 /** The live video fields of a camera mapping that the camera list shows. */
 interface CameraLive {
@@ -13,14 +13,8 @@ interface CameraLive {
   testStatus?: string
 }
 
-// 直播模块状态按“租户 + 用户”缓存在内存中，不写入浏览器存储；切换身份时清空。
-export const liveState = reactive({
-  key: '',
-  status: null as ModuleStatus | null,
-  canWatch: false,
-  canManageModule: false,
-  loading: false
-})
+// 直播模块状态按“租户 + 用户”缓存在内存中，不写入浏览器存储；切换身份时清空。状态保存在 Pinia 仓库。
+export const liveState = useLiveVideoStore(pinia)
 
 function identityKey() {
   return `${session.tenant}\u0000${session.user}`
@@ -59,7 +53,7 @@ export async function loadLiveStatus(force = false): Promise<typeof liveState> {
 }
 
 export function resetLiveState() {
-  Object.assign(liveState, { key: '', status: null, canWatch: false, canManageModule: false, loading: false })
+  liveState.reset()
   pending = null
 }
 

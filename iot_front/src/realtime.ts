@@ -1,7 +1,8 @@
-import { reactive } from 'vue'
 import { api, apiIfChanged, session } from './api'
 import { permissionState, refreshPermissions, applyAccessVersion } from './permissions'
 import type { EventSnapshot } from './types/api.ts'
+import { pinia } from './stores/index.ts'
+import { useRealtimeStore } from './stores/realtime.ts'
 import type { MqttClient } from 'mqtt'
 
 /** Receives each changed alarm or device state as an MQTT-style topic and JSON body. */
@@ -22,11 +23,8 @@ let generation = 0
 let wakePoll: (() => void) | null = null
 
 // 实时通道状态供外壳显示：connecting 首次连接中，ok 正常，retrying 连续失败正在退避重试，stopped 已停止。
-export const realtimeStatus = reactive({
-  state: 'idle' as 'idle' | 'connecting' | 'ok' | 'retrying' | 'stopped',
-  failures: 0,
-  lastOk: 0
-})
+// 状态保存在 Pinia 仓库，字段可直接读写。
+export const realtimeStatus = useRealtimeStore(pinia)
 
 // 立即重试一次，不等退避间隔。
 export function retryRealtime() {
@@ -46,7 +44,7 @@ export function stopRealtime() {
   wakePoll = null
   client?.end(true)
   client = undefined
-  Object.assign(realtimeStatus, { state: 'idle', failures: 0, lastOk: 0 })
+  realtimeStatus.reset()
 }
 
 export async function startRealtime(onMessage?: RealtimeHandler) {

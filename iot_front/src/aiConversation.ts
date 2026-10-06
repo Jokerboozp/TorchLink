@@ -1,4 +1,6 @@
 import { effectScope, ref, watch } from 'vue'
+import { pinia } from './stores/index.ts'
+import { useAIConversationStore } from './stores/aiConversation.ts'
 import type { Ref } from 'vue'
 import { loadAIHistory, saveAIHistory } from './aiHistory.js'
 import type { AIUsage } from './types/api.ts'
@@ -541,21 +543,24 @@ function createAIConversation({ identity, storage, stream }: ConversationOptions
 
 export type AIConversation = ReturnType<typeof createAIConversation>
 
-let active: AIConversation | null = null
+// 当前身份的对话保存在 Pinia 仓库，重新进入智能助手时复用。
+const conversations = () => useAIConversationStore(pinia)
 const sameIdentity = (left: Partial<Identity> | undefined, right: Partial<Identity> | undefined) =>
   (['tenant', 'user', 'accessVersion'] as const).every(key => (left?.[key] || '') === (right?.[key] || ''))
 
 // 同一身份在页面重新进入时复用正在运行的对话；身份或授权版本不同则先停止旧对话。
 export function useAIConversation(identity: Partial<Identity>, options: { storage: Storage | null; stream: Stream }): AIConversation {
-  if (active && !sameIdentity(active.identity, identity)) resetAIConversation()
-  active ||= createAIConversation({
+  const store = conversations()
+  if (store.current && !sameIdentity(store.current.identity, identity)) resetAIConversation()
+  store.current ||= createAIConversation({
     ...options,
     identity: { tenant: identity?.tenant || '', user: identity?.user || '', accessVersion: identity?.accessVersion || '' }
   })
-  return active
+  return store.current
 }
 
 export function resetAIConversation() {
-  active?.dispose()
-  active = null
+  const store = conversations()
+  store.current?.dispose()
+  store.current = null
 }
