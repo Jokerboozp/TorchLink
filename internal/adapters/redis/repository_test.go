@@ -5,8 +5,10 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"path"
+	"os"
+	"strconv"
 	"testing"
+	"time"
 
 	"github.com/redis/go-redis/v9"
 	"iot-platform/internal/adapters/clickhouse"
@@ -18,7 +20,6 @@ import (
 type cleanupRedis struct {
 	redis.UniversalClient
 	keys map[string]bool
-	sets map[string]map[string]bool
 	fail bool
 }
 
@@ -35,37 +36,15 @@ func (c *cleanupRedis) Del(_ context.Context, keys ...string) *redis.IntCmd {
 	}
 	return redis.NewIntResult(n, nil)
 }
-func (c *cleanupRedis) Scan(ctx context.Context, _ uint64, pattern string, _ int64) *redis.ScanCmd {
-	var keys []string
-	for k := range c.keys {
-		if matches, _ := path.Match(pattern, k); matches {
-			keys = append(keys, k)
-		}
-	}
-	cmd := redis.NewScanCmd(ctx, nil)
-	cmd.SetVal(keys, 0)
-	return cmd
-}
-func (c *cleanupRedis) SRem(_ context.Context, key string, members ...interface{}) *redis.IntCmd {
-	var n int64
-	for _, v := range members {
-		if s, ok := v.(string); ok && c.sets[key][s] {
-			delete(c.sets[key], s)
-			n++
-		}
-	}
-	return redis.NewIntResult(n, nil)
-}
-
 func TestCapacityCleanupInvalidatesOnlyScopedCacheAndRetries(t *testing.T) {
 	ctx := context.Background()
 	base := memory.NewRepository()
 	_ = base.SaveProduct(ctx, model.Product{TenantID: "t", ID: "p", Name: model.CapacityFixtureProductName("p"), Description: model.CapacityFixtureDescription, ProtocolPackageID: "iot-standard@1.0.0", Status: "ENABLED"})
 	_ = base.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ProductID: "p", ID: "cap", Name: "容量测试 cap", RegistrationSource: "ONBOARDING", AccessKey: "cap"})
 	_, _ = base.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: "t", ProductID: "p", DeviceID: "cap", MessageID: "raw", ParseAttemptedAt: 1})
-	c := &cleanupRedis{keys: map[string]bool{}, sets: map[string]map[string]bool{"device:online:" + cacheSegment("t"): {"cap": true, "business": true}}, fail: true}
-	removed := []string{stateKey("t", "cap"), latestKey("t", "cap"), "alarm:active:" + cacheSegment("t") + ":" + cacheSegment("cap") + ":alarm"}
-	kept := []string{stateKey("other", "cap"), stateKey("t", "business"), latestKey("t", "business"), "alarm:active:" + cacheSegment("other") + ":" + cacheSegment("cap") + ":alarm", "alarm:active:" + cacheSegment("t") + ":" + cacheSegment("business") + ":alarm"}
+	c := &cleanupRedis{keys: map[string]bool{}, fail: true}
+	removed := []string{stateKey("t", "cap"), latestKey("t", "cap")}
+	kept := []string{stateKey("other", "cap"), stateKey("t", "business"), latestKey("t", "business")}
 	for _, k := range append(removed, kept...) {
 		c.keys[k] = true
 	}
@@ -90,9 +69,6 @@ func TestCapacityCleanupInvalidatesOnlyScopedCacheAndRetries(t *testing.T) {
 		if !c.keys[k] {
 			t.Fatal("unrelated cache deleted", k)
 		}
-	}
-	if c.sets["device:online:"+cacheSegment("t")]["cap"] || !c.sets["device:online:"+cacheSegment("t")]["business"] {
-		t.Fatal("wrong online membership removed")
 	}
 }
 
@@ -140,5 +116,34 @@ func TestCapacityFixtureDiscoveryThroughStorageComposition(t *testing.T) {
 	}
 	if products, err = lister.ListCapacityFixtureProducts(ctx, "other"); err != nil || len(products) != 0 {
 		t.Fatal("decorators expanded tenant scope", products, err)
+	}
+}
+
+func TestDeviceStateCacheExpiresAndFollowsDeletion(t *testing.T) {
+	addr := os.Getenv("IOT_TEST_REDIS_ADDR")
+	if addr == "" {
+		t.Skip("IOT_TEST_REDIS_ADDR is not configured")
+	}
+	ctx := context.Background()
+	client := NewClient(Options{Addr: addr, Password: os.Getenv("IOT_TEST_REDIS_PASSWORD")})
+	defer client.Close()
+	base := memory.NewRepository()
+	tenant := "cache-test-" + strconv.FormatInt(time.Now().UnixNano(), 36)
+	if err := base.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: tenant, ID: "d", ProductID: "p", Name: "d"}); err != nil {
+		t.Fatal(err)
+	}
+	r := New(base, client)
+	if ok, err := r.UpsertDeviceStateIf(ctx, model.DeviceState{TenantID: tenant, DeviceID: "d", BusinessStatus: "ONLINE"}); err != nil || !ok {
+		t.Fatal(ok, err)
+	}
+	ttl, err := client.PTTL(ctx, stateKey(tenant, "d")).Result()
+	if err != nil || ttl <= 0 || ttl > stateTTL {
+		t.Fatalf("cached state ttl %v %v", ttl, err)
+	}
+	if err = r.DeleteResource(ctx, tenant, "device", "d"); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := client.Exists(ctx, stateKey(tenant, "d")).Result(); n != 0 {
+		t.Fatal("deleted device kept its cached state")
 	}
 }
