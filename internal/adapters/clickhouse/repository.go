@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iot-platform/internal/netguard"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -111,7 +112,7 @@ func NewWithOptions(ctx context.Context, base string, repo ports.Repository, opt
 	if opts.InsertQuorum != "" && !quorumPattern.MatchString(opts.InsertQuorum) {
 		return nil, fmt.Errorf("clickhouse insert quorum must be auto or 1-9")
 	}
-	r := &Repository{Repository: repo, base: strings.TrimRight(base, "/"), http: &http.Client{Timeout: 30 * time.Second}, opts: opts}
+	r := &Repository{Repository: repo, base: strings.TrimRight(base, "/"), http: &http.Client{Timeout: 30 * time.Second, Transport: netguard.Direct()}, opts: opts}
 	u, err := url.Parse(r.base)
 	if err != nil {
 		return nil, err

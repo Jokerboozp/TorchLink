@@ -154,6 +154,11 @@ func (s *Sender) ValidateTarget(kind string, cfg ChannelConfig, secret ChannelSe
 	}
 	hosts, official := officialHosts[kind]
 	if !official {
+		// Messages carry alarm details and often a token in the URL; plain
+		// HTTP is accepted only for gateways on the local network.
+		if u.Scheme != "https" && !netguard.LocalHost(u.Hostname()) {
+			return errors.New("自定义 Webhook 须使用 HTTPS，明文 HTTP 只用于局域网内的网关")
+		}
 		return nil
 	}
 	for _, h := range hosts {

@@ -526,6 +526,7 @@ func (a *app) startAI() {
 func (a *app) startKnowledge() {
 	cfg, log, postgresRepo := a.cfg, a.log, a.postgresRepo
 	embedding.SetLocalHosts(cfg.LocalAIHosts)
+	aiadapter.SetLocalHosts(cfg.LocalAIHosts)
 	if !cfg.Runs(config.ComponentManagement) || postgresRepo == nil {
 		a.engine.KB = knowledge.NewLocal()
 		return

@@ -46,10 +46,14 @@ func TestAIProviderURLFormat(t *testing.T) {
 		{name: "fragment rejected", target: "https://models.example.com/#v1", want: false},
 		{name: "markdown rejected", target: "[http://vllm:8000/v1](http://vllm:8000/v1)", want: false},
 		{name: "unsupported scheme", target: "file:///tmp/provider", want: false},
+		{name: "plain HTTP across the internet", target: "http://models.example.com/v1", want: false},
+		{name: "public IP over HTTP", target: "http://8.8.8.8/v1", want: false},
+		{name: "metadata address", target: "http://169.254.169.254/latest", want: false},
 	}
+	s := &Server{}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := validateAIProviderURL(tt.target) == nil; got != tt.want {
+			if got := s.validateAIProviderURL(tt.target) == nil; got != tt.want {
 				t.Fatalf("valid provider URL(%q)=%v want=%v", tt.target, got, tt.want)
 			}
 		})

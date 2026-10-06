@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/netguard"
 	"net"
 	"net/http"
 	"net/url"
@@ -34,7 +35,7 @@ func newClient(base string, timeout time.Duration) *client {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	return &client{base: strings.TrimRight(base, "/"), timeout: timeout, http: &http.Client{Transport: http.DefaultTransport}, headers: map[string]string{}}
+	return &client{base: strings.TrimRight(base, "/"), timeout: timeout, http: &http.Client{Transport: netguard.Direct()}, headers: map[string]string{}}
 }
 
 func (c *client) configured() bool { return c != nil && c.base != "" }

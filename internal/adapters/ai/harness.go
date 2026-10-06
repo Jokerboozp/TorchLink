@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/netguard"
 	"net/http"
 	"net/url"
 	"strings"
@@ -63,8 +64,8 @@ func NewHarness(baseURL, token, mcpURL, model string, timeout time.Duration) (*H
 		mcpURL:  strings.TrimSpace(mcpURL),
 		model:   strings.TrimSpace(model),
 		config:  ports.AIPluginConfig{Provider: "deepseek", Model: strings.TrimSpace(model)},
-		client:  &http.Client{Timeout: timeout},
-		stream:  &http.Client{},
+		client:  &http.Client{Timeout: timeout, Transport: netguard.Direct()},
+		stream:  &http.Client{Transport: netguard.Direct()},
 		timeout: timeout,
 	}, nil
 }

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"iot-platform/internal/netguard"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -187,7 +188,7 @@ func (s *Server) capacityModuleStatus(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 		defer cancel()
 		if req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(cfg.CapacityURL, "/")+"/health", nil); err == nil {
-			if resp, err := http.DefaultClient.Do(req); err == nil {
+			if resp, err := (&http.Client{Transport: netguard.Direct()}).Do(req); err == nil {
 				resp.Body.Close()
 				out["reachable"] = resp.StatusCode == http.StatusOK
 			}
@@ -248,7 +249,7 @@ func (s *Server) callCapacity(w http.ResponseWriter, r *http.Request, method, pa
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := (&http.Client{Timeout: timeout}).Do(req)
+	resp, err := (&http.Client{Timeout: timeout, Transport: netguard.Direct()}).Do(req)
 	if err != nil {
 		if r.Context().Err() == nil {
 			opsProblem(w, http.StatusBadGateway, "CAPACITY_UNAVAILABLE", "容量测试控制服务不可用", nil)

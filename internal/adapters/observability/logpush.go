@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iot-platform/internal/netguard"
 	"log/slog"
 	"net/http"
 	"os"
@@ -46,7 +47,7 @@ func NewLokiPush(baseURL, tenant, service string) *LokiPush {
 		tenant: tenant,
 		labels: map[string]string{"service_name": service, "host": host, "source": "push"},
 		queue:  make(chan pushedLine, 20000),
-		client: &http.Client{Timeout: 10 * time.Second},
+		client: &http.Client{Timeout: 10 * time.Second, Transport: netguard.Direct()},
 		done:   make(chan struct{}),
 	}
 	go p.run()

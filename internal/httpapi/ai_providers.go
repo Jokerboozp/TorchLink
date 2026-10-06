@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"iot-platform/internal/netguard"
 	"net/http"
 	"net/url"
 	"strings"
@@ -131,7 +132,7 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 	if baseURL == "" && provider == "deepseek" {
 		baseURL = "https://api.deepseek.com"
 	}
-	if err := validateAIProviderURL(baseURL); err != nil {
+	if err := s.validateAIProviderURL(baseURL); err != nil {
 		problem(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}
@@ -235,10 +236,13 @@ func (s *Server) rollbackAIProvider(previous ports.AIPluginConfig) {
 	}
 }
 
-func validateAIProviderURL(raw string) error {
+func (s *Server) validateAIProviderURL(raw string) error {
 	u, err := url.Parse(raw)
 	if err != nil || u.Host == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return errors.New("baseUrl 必须是没有凭据、查询参数或片段的 HTTP(S) 地址")
+	}
+	if u.Scheme != "https" && !netguard.LocalHost(u.Hostname()) && !ports.LocalAIEndpoint(raw, s.cfg.LocalAIHosts) {
+		return errors.New("公网模型接口须使用 HTTPS，明文 HTTP 只用于局域网内的模型服务")
 	}
 	return nil
 }
@@ -312,7 +316,7 @@ func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
 			baseURL = "https://api.deepseek.com"
 		}
 	}
-	if err := validateAIProviderURL(baseURL); err != nil {
+	if err := s.validateAIProviderURL(baseURL); err != nil {
 		problem(w, http.StatusUnprocessableEntity, err.Error())
 		return
 	}

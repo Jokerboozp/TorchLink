@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iot-platform/internal/netguard"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -207,7 +208,7 @@ func (s *Server) callBackup(w http.ResponseWriter, r *http.Request, method, path
 	if body != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	client := &http.Client{Timeout: timeout}
+	client := &http.Client{Timeout: timeout, Transport: netguard.Direct()}
 	response, err := client.Do(request)
 	if err != nil {
 		if r.Context().Err() != nil {

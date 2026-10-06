@@ -109,6 +109,19 @@ func (p Policy) Transport() *http.Transport {
 	}
 }
 
+// directTransport is shared by clients of platform components.
+var directTransport = func() *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.Proxy = nil
+	return t
+}()
+
+// Direct returns the transport for platform components (Prometheus, Loki,
+// Grafana, backup and capacity services, Harness, ClickHouse). It ignores
+// HTTP_PROXY and similar variables, which would otherwise receive these
+// requests together with their service credentials.
+func Direct() *http.Transport { return directTransport }
+
 // ParsePrefixes parses a comma-separated CIDR list; empty items are ignored.
 func ParsePrefixes(list string) ([]netip.Prefix, error) {
 	var out []netip.Prefix
@@ -141,6 +154,35 @@ func FromIPNets(networks []*net.IPNet) []netip.Prefix {
 		out = append(out, netip.PrefixFrom(addr.Unmap(), ones).Masked())
 	}
 	return out
+}
+
+// PrivateNetworks allows every internal range (still never metadata or
+// link-local), for clients whose targets are platform administrators' own
+// services, such as a self-hosted model on the LAN.
+var PrivateNetworks = Policy{Allowed: internal}
+
+// LocalHost reports whether host (a name or IP literal) names something on
+// the local network: a loopback or private IP literal, "localhost", or a
+// single-label name such as a Compose service. Plain HTTP to such a host
+// does not cross the internet.
+func LocalHost(host string) bool {
+	host = strings.Trim(strings.ToLower(strings.TrimSpace(host)), "[]")
+	if host == "" {
+		return false
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		addr = addr.Unmap()
+		if Denied(addr) {
+			return false
+		}
+		for _, prefix := range internal {
+			if prefix.Contains(addr) {
+				return true
+			}
+		}
+		return false
+	}
+	return host == "localhost" || !strings.Contains(host, ".")
 }
 
 // Loopback allows only the local host; tests use it for httptest servers.

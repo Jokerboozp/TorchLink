@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"iot-platform/internal/netguard"
 	"net/http"
 	"net/url"
 	"strings"
@@ -35,6 +36,13 @@ type openAIChatResponse struct {
 	} `json:"choices"`
 }
 
+// localHosts lists the model services the deployment runs itself
+// (IOT_LOCAL_AI_HOSTS); set once at startup.
+var localHosts = ports.DefaultLocalAIHosts
+
+// SetLocalHosts replaces the list of self-hosted model services.
+func SetLocalHosts(hosts string) { localHosts = hosts }
+
 func NewOpenAICompatible(providerID, providerName, baseURL, model, apiKey string) (*OpenAICompatible, error) {
 	baseURL = strings.TrimRight(strings.TrimSpace(baseURL), "/")
 	u, err := url.Parse(baseURL)
@@ -44,8 +52,16 @@ func NewOpenAICompatible(providerID, providerName, baseURL, model, apiKey string
 	if strings.TrimSpace(model) == "" {
 		return nil, fmt.Errorf("AI provider model is required")
 	}
+	// The API key travels with every request, so a provider across the
+	// internet must use HTTPS; plain HTTP is for models on the local network
+	// (vLLM, Ollama, IOT_LOCAL_AI_HOSTS). Cloud metadata stays unreachable.
+	if u.Scheme != "https" && !netguard.LocalHost(u.Hostname()) && !ports.LocalAIEndpoint(baseURL, localHosts) {
+		return nil, fmt.Errorf("AI provider base URL must use HTTPS unless it is on the local network")
+	}
+	transport := netguard.PrivateNetworks.Transport()
 	client := &http.Client{
-		Timeout: 2 * time.Minute,
+		Timeout:   2 * time.Minute,
+		Transport: transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 10 {
 				return fmt.Errorf("too many AI provider redirects")
