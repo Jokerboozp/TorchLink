@@ -6,7 +6,7 @@
 
 <p align="center"><strong>连接设备，感知安全。</strong></p>
 
-面向消防与设备运维的独立 IoT 平台，采用 Go API、Vue 3、Naive UI 和 Vite，支持本地开发、在线部署及离线交付。
+面向消防与设备运维的独立 IoT 平台，后端为 Go API，管理端采用 Vue 3、Vite、Naive UI、vue-router、Pinia 和 TypeScript，支持本地开发、在线部署及离线交付。
 
 ## 平台能力
 
@@ -66,7 +66,7 @@ go run ./cmd/backup-service --env-file .env.local
 | --- | --- |
 | `cmd/` | API、独立接入网关、GB26875 专用网关与虚拟设备、备份、负载与容量测试/检查、Harness 模拟、集群渲染/初始化/SSH、ClickHouse 迁移与死信恢复入口 |
 | `internal/` | 业务与授权、消防管理、协议运行时、AI/MCP、视频、存储、运维、容量编排和集群清单实现及回归测试 |
-| `iot_front/` | Vue 管理端、公共组件和前端行为测试 |
+| `iot_front/` | Vue 管理端：页面（`src/views/`）、公共组件、路由（`src/router/`）、Pinia 仓库（`src/stores/`）、接口类型（`src/types/`）与前端行为测试 |
 | `protocol-packages/gb26875-dahua/` | 完整 Go 协议 module 示例 |
 | `dev/` | 六个独立消防协议包源码与样例测试，见 [协议包说明](docs/INTEGRATION.md#内置协议示例) |
 | `scripts/` | 环境准备、部署、打包、演示数据与部署冒烟测试 |
@@ -108,7 +108,7 @@ cd protocol-packages/gb26875-dahua
 go test ./...
 ```
 
-前端在 `iot_front` 中运行 `npm test` 和 `npm run build`；`dev/` 下各协议包需分别运行 `go test ./...`。部署和扩展检查入口见 [开发与测试](docs/DEVELOPMENT.md)。测试与模拟器验证不能替代真实设备和目标环境验收。
+前端在 `iot_front` 中运行 `npm run lint`、`npm test` 和 `npm run build`（构建前执行 `vue-tsc` 类型检查）；`dev/` 下各协议包需分别运行 `go test ./...`。部署和扩展检查入口见 [开发与测试](docs/DEVELOPMENT.md)。测试与模拟器验证不能替代真实设备和目标环境验收。
 
 协作约定见 [AGENTS.md](AGENTS.md)，专项回归和真实依赖测试条件见 [开发与测试](docs/DEVELOPMENT.md#源码与开发检查)。
 
@@ -119,7 +119,7 @@ go test ./...
 | 指南 | 内容 |
 | --- | --- |
 | [部署总览](docs/DEPLOYMENT.md) | 本机/虚拟机、在线/离线、集群与角色拆分的分页入口，以及端口、模块开关、迁移、维护和备份 |
-| [开发与测试](docs/DEVELOPMENT.md) | 源码与脚本入口、前端约定、查询契约、回归、演示工具、容量测试与目标环境验收 |
+| [开发与测试](docs/DEVELOPMENT.md) | 源码与脚本入口、CI 与夜间集成、前端约定、查询契约、回归、演示工具、容量测试与目标环境验收 |
 | [运维手册](docs/OPERATIONS.md) | 部署组合与最小生产组合、升级与回滚、故障切换、恢复、平台告警处置 |
 | [外部数据接入](docs/EXTERNAL_DATA.md) | 外部系统、推送/拉取、字段映射、编号对应、去重恢复、任务与权限 |
 | [设备接入与协议](docs/INTEGRATION.md) | 模板准备与验收、草稿与批量登记、配置更新和回滚、HTTP/MQTT、TCP/Modbus、协议开发、消息主题与开放 API |

@@ -36,7 +36,7 @@ Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交�
 
 真实依赖与浏览器检查按各测试的 `IOT_TEST_*` 环境变量启用（对象存储适配器用 `IOT_TEST_MINIO_ENDPOINT`、`IOT_TEST_MINIO_ACCESS_KEY`、`IOT_TEST_MINIO_SECRET_KEY`，可选 `IOT_TEST_MINIO_TLS=true`，只读写临时桶并在结束时删除）；接入链路见 [接入验证](INTEGRATION.md#验证入口)，知识索引和备份见 [AI 与知识库回归](#ai-与知识库回归)。未配置而跳过的用例不算联调通过。
 
-部署脚本修改使用独立 Compose 可执行文件（不能传 `docker compose` 子命令）：Bash 运行 `bash scripts/tests/deployment-smoke.sh /path/to/docker-compose`，PowerShell 运行 `pwsh -File scripts/tests/deployment-smoke.ps1 -ComposeExe /path/to/docker-compose`。它们使用真实 Compose 解析，模拟 Docker/HTTP 操作，不部署服务。安装器用例集中于 `scripts/tests/docker-bootstrap-smoke.sh`，openEuler 打包用例集中于 `scripts/tests/openeuler-smoke.sh`。
+部署脚本修改使用独立 Compose 可执行文件（不能传 `docker compose` 子命令）：Bash 运行 `bash scripts/tests/deployment-smoke.sh /path/to/docker-compose`，PowerShell 运行 `pwsh -File scripts/tests/deployment-smoke.ps1 -ComposeExe /path/to/docker-compose`。它们使用真实 Compose 解析，模拟 Docker/HTTP 操作，不部署服务。安装器用例集中于 `scripts/tests/docker-bootstrap-smoke.sh`，openEuler 打包用例集中于 `scripts/tests/openeuler-smoke.sh`，PowerShell 对应 `openeuler-packaging-smoke.ps1`。
 
 未设置 `IOT_KAFKA_BROKERS` 时平台使用进程内事件总线（`internal/adapters/local/bus.go`）：发布时按订阅顺序同步调用全部订阅者，第一个订阅者出错即中止本次发布并把错误返回给发布方，不重试、不进入死信，消费组参数被忽略。单元测试和不带 Kafka 的精简运行受此影响；`scripts/setup-local.sh` 生成的 `.env.local` 已配置 Kafka。在精简运行中复现的“消费失败”“重复处理”等现象不能代表线上 Kafka 的重试、死信和分区顺序行为。
 
@@ -89,6 +89,10 @@ go test -race ./internal/adapters/postgres -run 'Test(TemplateSwitch|PreparedEnr
 
 HTTP 路由按业务区域注册：各区域的 `xxxRoutes()` 写在对应处理文件或 `internal/httpapi/routes.go`，`routeModules` 决定注册顺序，`routes()` 只遍历模块并设置兜底处理。`TestRegisteredRoutesMatchSnapshot` 把全部“方法 + 路径”固定在 `internal/httpapi/testdata/routes.txt`；有意新增或删除路由时用 `IOT_UPDATE_ROUTES=1 go test ./internal/httpapi -run TestRegisteredRoutesMatchSnapshot` 更新快照，并同步权限目录（`access_control.go` 的 `routeMenu` / `routeAction` / `protectedRead`）。
 
+### 测试辅助
+
+`internal/httpapi/helpers_test.go` 提供 `newTestAPI`（内置管理员、固定签名密钥、开发模式，测试结束自动关闭服务器；可传入函数调整配置）以及 `adminToken`、`login`、`request`；同一用例需在内存与 PostgreSQL 上各跑一遍时用 `forEachStore`。仓储语义的契约用例写在 `internal/repositorytest/`，由 memory 与 postgres 的测试分别调用。涉及定时器、租约、心跳或提交间隔的用例用 `testing/synctest` 的虚拟时间，不写固定 `time.Sleep`；只有经真实网络确认“某事不应发生”时保留短暂等待。
+
 ### AI 与知识库回归
 
 源码回归使用 `go test ./internal/core ./internal/httpapi ./internal/adapters/embedding ./internal/adapters/knowledge ./internal/backup`，Harness 使用 `node --test deploy/deepseek-harness/gateway.test.mjs`。知识任务测试覆盖进度、失败重试、重启恢复、删除、租户/Agent 范围和向量空间原子切换。
@@ -126,7 +130,7 @@ PostgreSQL 与备份集成测试沿用 `IOT_TEST_POSTGRES_DSN`，使用隔离 sc
 
 ### 消息主题回归
 
-仓库根目录执行 `go test -race ./internal/messagetopics` 和 `go test -race ./internal/adapters/memory ./internal/adapters/postgres ./internal/httpapi -run 'TestMessageTopic|TestSharedTopic'`，验证主题与查询、订阅密钥的原子保存、SQL 与表单往返、字段投影、类型及条件比较、真实数据预览、定时快照完整性、设备范围、历史授权、临时凭据、密钥轮换与删除、撤销重试及并发冲突。解析主链路由 `go test ./internal/core -run 'TestParsedMessageFanoutRequiresSuccessfulParsing|TestProcessorOnlyEngineConsumesBusinessStream'` 验证，包括成功解析后按查询条件向 MQTT / Kafka 发布，以及不匹配或解析失败不发送。PostgreSQL 测试通过私有环境变量 `IOT_TEST_POSTGRES_DSN` 连接现有依赖，自行创建并清理隔离 schema。
+仓库根目录执行 `go test -race ./internal/messagetopics` 和 `go test -race ./internal/adapters/memory ./internal/adapters/postgres ./internal/httpapi -run 'TestMessageTopic'`，验证主题与查询、订阅密钥的原子保存、SQL 与表单往返、字段投影、类型及条件比较、真实数据预览、定时快照完整性、设备范围、历史授权、临时凭据、密钥轮换与删除、撤销重试及并发冲突。解析主链路由 `go test ./internal/core -run 'TestParsedMessageFanoutRequiresSuccessfulParsing|TestProcessorOnlyEngineConsumesBusinessStream'` 验证，包括成功解析后按查询条件向 MQTT / Kafka 发布，以及不匹配或解析失败不发送。PostgreSQL 测试通过私有环境变量 `IOT_TEST_POSTGRES_DSN` 连接现有依赖，自行创建并清理隔离 schema。
 
 真实 Broker 测试为 `go test -race ./internal/messagetopics -run TestMessageTopicsExisting -v`，仅在明确配置以下私有进程环境时执行：
 
@@ -151,13 +155,15 @@ Vue 3 + Vite，沿用 Naive UI、Tailwind CSS 和 Lucide；依赖与 Node 版本
 - TypeScript 只检查 `.ts` 文件与 `<script lang="ts">`（`tsconfig.json` 开启 strict，JavaScript 不检查），新写或改动较大的模块用 TypeScript；接口响应的字段类型在 `src/types/api.ts`，与后端处理函数逐字段对应。`node --test` 直接运行 `.ts` 源码（Node 类型剥离），因此只用可擦除语法（不用 enum、namespace、参数属性），导入写明 `.ts` 扩展名。
 - 颜色、字号、间距、圆角与阴影集中在 `src/theme/tokens.css`；`naiveTheme.js` 解析变量生成 Naive UI 主题，不用散落的颜色值或 `!important` 覆盖组件。
 - 元素布局在 `styles/base.css`，应用框架在 `shell.css`，减少动态效果在 `motion.css`，共用业务样式在 `patterns.css`；页面专用样式留在对应 Vue 文件。
-- 列表复用 `FilterBar`、`DataTableCard`、`StatusDot`、`RowActions`，窄屏侧栏为抽屉，长弹窗正文独立滚动。权限控制使用 `src/permissions.js`，实际授权仍由服务端校验。
-- 列表与详情读取用 `src/composables/useListLoader.js`：新请求中止旧请求，只采用最后一次结果，卸载时 `cancel()`；需要在身份或权限变化后作废结果的场景（如消息主题、批量接入）另用身份版本号判断。
+- 列表复用 `FilterBar`、`DataTableCard`、`StatusDot`、`RowActions`，窄屏侧栏为抽屉，长弹窗正文独立滚动。权限控制使用 `src/permissions.ts`，实际授权仍由服务端校验。
+- 跨页面状态放在 Pinia 仓库（`src/stores/`）：`session` 管身份、令牌与权限（含多标签同步），`realtime` 管实时连接状态，`liveVideo` 管直播模块状态，`aiConversation` 管进行中的助手对话；退出登录统一重置。组件外的模块通过 `src/stores/index.ts` 的同一个 Pinia 实例取用。
+- 实时消息由 App 按主题分类后派发，页面用 `src/composables/useRealtime.ts` 按事件类别订阅（可设防抖），不自行解析主题。
+- 服务端分页列表用 `src/composables/usePagedList.js` 统一翻页与改每页条数；列表与详情读取用 `src/composables/useListLoader.js`：新请求中止旧请求，只采用最后一次结果，卸载时 `cancel()`；需要在身份或权限变化后作废结果的场景（如消息主题、批量接入）另用身份版本号判断。
 - Node 测试保留实际行为、失败分支与隔离边界；不用固定菜单数量、文案、样式写法或复制版本号的断言代替功能检查。
 
 ### 页面地址
 
-每个菜单对应一个地址（`/alarms`、`/ops-overview` 等，菜单键转为短横线形式），告警详情为 `/alarms/<告警编号>`，告警通知中的详情链接即使用该地址；刷新、前进后退和登录前打开的深链接都按地址恢复页面，无权限或未知地址回到首个可用页面。路由由 vue-router 管理：路由表在 `iot_front/src/router/routes.ts`（`linkable` 标记规则联动可打开的页面），地址与跨页定位条件的转换在 `router/paths.ts`；App 的守卫按菜单权限放行，页面组件仍由 App 按需加载并渲染。Web 的 nginx 与 Vite 开发服务器均把未知路径回退到 `index.html`。
+每个菜单对应一个地址（`/alarms`、`/ops-overview` 等，菜单键转为短横线形式），告警详情为 `/alarms/<告警编号>`，告警通知中的详情链接即使用该地址；刷新、前进后退和登录前打开的深链接都按地址恢复页面（前进后退同时恢复内容区的滚动位置，其他跳转回到顶部），无权限或未知地址回到首个可用页面。路由由 vue-router 管理：路由表在 `iot_front/src/router/routes.ts`（`linkable` 标记规则联动可打开的页面），地址与跨页定位条件的转换在 `router/paths.ts`；App 的守卫按菜单权限放行，页面组件仍由 App 按需加载并渲染。Web 的 nginx 与 Vite 开发服务器均把未知路径回退到 `index.html`。
 
 ### 浏览器验证
 
@@ -192,7 +198,7 @@ macOS 若提前结束无头 Chrome，检查系统的后台运行授权；浏览�
 
 采用 `internal/httpapi/pagination.go` 的接口支持 `page/pageSize`，兼容 `limit/offset`，每页默认 20 条、上限 100 条，返回 `items`、`total`、`page`、`pageSize`。正数 `page` 优先于 `offset`；超大参数收敛到整数安全上界，越界页返回空列表并保留实际总数，非数字沿用默认行为。
 
-需要完整目录的关联选项通过 `apiAll` 逐页加载，与表格当前页分开保存；任一页失败则整体失败，不显示不完整目录。摄像头关联设备按关键词向服务端检索，不预先拉取全部设备。列表仅允许最新请求写入数据、总数和加载状态，旧请求不覆盖当前结果。逐页请求不保证数据库快照一致性。
+需要完整目录的关联选项通过 `apiAll` 加载（`src/listPagination.js`）：先读第一页取得总数，其余页每页 100 条、4 页并发，按页序合并，最多读 50 页，超出时返回 `truncated: true` 由页面提示目录不完整；与表格当前页分开保存，任一页失败则整体失败。产品数量可能很大的选择框（如告警规则的所属产品）改用 `ProductFilterSelect` 按关键词向服务端检索。摄像头关联设备按关键词向服务端检索，不预先拉取全部设备。列表仅允许最新请求写入数据、总数和加载状态，旧请求不覆盖当前结果。逐页请求不保证数据库快照一致性。
 
 设备管理将设备分组、类型、关键词与运行状态交给服务端筛选分页，切换条件重置页码。协议目录按协议条目前端分页，版本在条目内展示。服务端设备、状态、告警、原始报文和总览均先按用户范围过滤再计数；具体权限见 [用户权限](PLATFORM.md#权限与设备范围)。
 
