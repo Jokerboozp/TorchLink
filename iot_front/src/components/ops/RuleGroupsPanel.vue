@@ -3,11 +3,12 @@
 import { computed, onMounted, ref } from 'vue'
 import { Plus, RefreshCw } from '@lucide/vue'
 import { can } from '../../permissions'
-import { UiMessage, UiMessageBox } from '../../ui/feedback.js'
+import { UiMessage } from '../../ui/feedback.js'
 import { opsErrorText, opsGet, opsSend } from '../../ops/opsApi.js'
 import { relativeTime } from '../../ops/format.js'
 import StatusDot from '../layout/StatusDot.vue'
 import RuleGroupEditor from './RuleGroupEditor.vue'
+import { confirmed } from '../../deleteAction'
 
 const props = defineProps({ source: { type: String, required: true } })
 const groups = ref([])
@@ -69,13 +70,12 @@ async function toggle(group) {
 }
 
 async function remove(group) {
-  try {
-    await UiMessageBox.confirm(`删除规则组“${group.name}”及其 ${group.rules.length} 条规则？删除后组件将停止评估这些规则。`, '删除规则组', {
+  if (
+    !(await confirmed(`删除规则组“${group.name}”及其 ${group.rules.length} 条规则？删除后组件将停止评估这些规则。`, '删除规则组', {
       confirmButtonText: '删除'
-    })
-  } catch {
+    }))
+  )
     return
-  }
   busy.value = group.name
   try {
     await opsSend('DELETE', `${base.value}/rule-groups/${encodeURIComponent(group.name)}?revision=${encodeURIComponent(group.revision)}`)

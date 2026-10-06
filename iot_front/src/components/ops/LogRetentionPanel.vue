@@ -4,13 +4,14 @@
 import { computed, onMounted, ref } from 'vue'
 import { Plus, RefreshCw, Trash2 } from '@lucide/vue'
 import { can } from '../../permissions'
-import { UiMessage, UiMessageBox } from '../../ui/feedback.js'
+import { UiMessage } from '../../ui/feedback.js'
 import { opsErrorText, opsGet, opsSend } from '../../ops/opsApi.js'
 import { relativeTime } from '../../ops/format.js'
 import StatusDot from '../layout/StatusDot.vue'
 import MatcherEditor from './MatcherEditor.vue'
 import { useUnsavedGuard } from '../../composables/unsavedGuard.js'
 import { formatTime } from '../../format'
+import { confirmed } from '../../deleteAction'
 
 defineProps({
   labels: { type: Array, default: () => [] },
@@ -129,15 +130,14 @@ async function submitDelete() {
     UiMessage.warning('请选择删除的时间范围')
     return
   }
-  try {
-    await UiMessageBox.confirm(
+  if (
+    !(await confirmed(
       `将删除 ${formatTime(start)} 至 ${formatTime(end)} 内匹配条件的日志。删除执行后不可恢复${settings.value?.cancelPeriod ? `，提交后 ${settings.value.cancelPeriod} 内可以取消` : ''}。`,
       '确认删除日志',
       { confirmButtonText: '提交删除请求', type: 'warning' }
-    )
-  } catch {
+    ))
+  )
     return
-  }
   deleting.value = true
   try {
     const result = await opsSend('POST', '/api/v1/ops/logs/delete-requests', {
@@ -155,11 +155,7 @@ async function submitDelete() {
   }
 }
 async function cancelRequest(item) {
-  try {
-    await UiMessageBox.confirm('取消这个删除请求？取消后对应日志不会被删除。', '取消删除请求')
-  } catch {
-    return
-  }
+  if (!(await confirmed('取消这个删除请求？取消后对应日志不会被删除。', '取消删除请求'))) return
   try {
     await opsSend('DELETE', `/api/v1/ops/logs/delete-requests/${encodeURIComponent(item.requestId)}`)
     UiMessage.success('删除请求已取消')

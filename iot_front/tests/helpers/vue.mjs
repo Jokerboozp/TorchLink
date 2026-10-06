@@ -10,7 +10,8 @@ const shared = [
   '../../src/clipboard.js',
   '../../src/router/paths.ts',
   '../../src/transfer.ts',
-  '../../src/composables/usePagedList.js'
+  '../../src/composables/usePagedList.js',
+  '../../src/deleteAction.js'
 ].map(file =>
   (file.endsWith('.ts') ? stripTypeScriptTypes : String)(readFileSync(new URL(file, import.meta.url), 'utf8'))
     .replace(/^import\s[^'"]*['"][^'"]+['"];?$/gm, '')
@@ -26,7 +27,8 @@ const helpers = {
   uploadWithProgress: shared[5],
   downloadWithProgress: shared[5],
   transferText: shared[5],
-  usePagedList: shared[6]
+  usePagedList: shared[6],
+  confirmed: shared[7]
 }
 
 // vm contexts have no AbortController unless a test provides one.

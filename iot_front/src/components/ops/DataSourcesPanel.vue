@@ -4,10 +4,11 @@
 import { computed, onMounted, ref } from 'vue'
 import { Plus, RefreshCw, Trash2 } from '@lucide/vue'
 import { can } from '../../permissions'
-import { UiMessage, UiMessageBox } from '../../ui/feedback.js'
+import { UiMessage } from '../../ui/feedback.js'
 import { opsErrorText, opsGet, opsSend } from '../../ops/opsApi.js'
 import StatusDot from '../layout/StatusDot.vue'
 import SecretField from './SecretField.vue'
+import { confirmed } from '../../deleteAction'
 
 const emit = defineEmits(['changed'])
 const items = ref([])
@@ -130,11 +131,7 @@ async function save() {
   }
 }
 async function remove(ds) {
-  try {
-    await UiMessageBox.confirm(`删除数据源“${ds.name}”？使用它的仪表盘面板将无法查询。`, '删除数据源', { confirmButtonText: '删除' })
-  } catch {
-    return
-  }
+  if (!(await confirmed(`删除数据源“${ds.name}”？使用它的仪表盘面板将无法查询。`, '删除数据源', { confirmButtonText: '删除' }))) return
   try {
     await opsSend('DELETE', `/api/v1/ops/datasources/${encodeURIComponent(ds.uid)}`)
     UiMessage.success('数据源已删除')

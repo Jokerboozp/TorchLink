@@ -41,6 +41,7 @@ import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
+import { confirmed } from '../deleteAction'
 
 const draftStorage = typeof window !== 'undefined' ? window.sessionStorage : null
 const draft = loadDraft(draftStorage, session)
@@ -363,15 +364,14 @@ async function start() {
 
 async function stop(run, force) {
   const text = force ? '强制停止会跳过排空，未完成的消息只能记为未知。' : '将停止新负载，完成已发送消息的排空与核对后生成报告。'
-  try {
-    await UiMessageBox.confirm(`${text}是否停止 ${run.runId}？`, force ? '强制停止' : '停止测试', {
+  if (
+    !(await confirmed(`${text}是否停止 ${run.runId}？`, force ? '强制停止' : '停止测试', {
       type: 'warning',
       confirmButtonText: '停止',
       cancelButtonText: '取消'
-    })
-  } catch {
+    }))
+  )
     return
-  }
   busy.value = `stop:${run.runId}`
   try {
     await opsSend('POST', `/api/v1/ops/capacity/runs/${encodeURIComponent(run.runId)}/stop`, { force })
@@ -438,15 +438,14 @@ async function cleanupRun(run) {
       ...(preview.warnings || []),
       '删除后无法恢复，请先下载需要保留的报告。'
     ]
-    try {
-      await UiMessageBox.confirm(lines.filter(Boolean).join('\n'), '删除测试运行', {
+    if (
+      !(await confirmed(lines.filter(Boolean).join('\n'), '删除测试运行', {
         type: 'warning',
         confirmButtonText: '确认删除',
         cancelButtonText: '取消'
-      })
-    } catch {
+      }))
+    )
       return
-    }
     await opsSend('DELETE', `/api/v1/ops/capacity/runs/${encodeURIComponent(run.runId)}`, {})
     cleaningRunId.value = run.runId
     UiMessage.success('已开始删除，可离开本页；完成后该记录会自动移除')

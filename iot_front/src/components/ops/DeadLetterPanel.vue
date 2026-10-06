@@ -4,9 +4,10 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { RefreshCw } from '@lucide/vue'
 import { can } from '../../permissions'
-import { UiMessage, UiMessageBox } from '../../ui/feedback.js'
+import { UiMessage } from '../../ui/feedback.js'
 import { isAbort, latest, opsErrorText, opsGet, opsSend } from '../../ops/opsApi.js'
 import { formatTime } from '../../format'
+import { confirmed } from '../../deleteAction'
 
 const groupNames = { parser: '解析', processor: '业务处理', state: '设备状态', 'device-alarm-notifications': '告警邮件通知' }
 const groups = ref([])
@@ -36,13 +37,12 @@ async function load() {
 }
 
 async function replay(row) {
-  try {
-    await UiMessageBox.confirm('将这条消息重新投递到原处理主题？处理按消息幂等，重复投递不会重复生成告警；死信记录保留。', '重新投递', {
+  if (
+    !(await confirmed('将这条消息重新投递到原处理主题？处理按消息幂等，重复投递不会重复生成告警；死信记录保留。', '重新投递', {
       confirmButtonText: '重新投递'
-    })
-  } catch {
+    }))
+  )
     return
-  }
   const key = `${row.group}/${row.partition}/${row.offset}`
   replaying.value = key
   try {

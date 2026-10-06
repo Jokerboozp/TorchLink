@@ -258,7 +258,7 @@ test('knowledge accepted deletion keeps polling until the server removes the doc
 test('delete confirmation distinguishes accepted background cleanup from completed deletion', async () => {
   const source = readFileSync(new URL('../src/deleteAction.js', import.meta.url), 'utf8')
     .replace(/^import\s[^'"]*['"][^'"]+['"];?$/gm, '')
-    .replace('export async function', 'async function')
+    .replace(/^export /gm, '')
   for (const result of [{ deleting: true }, { deleted: true }]) {
     const notices = []
     let refreshed = false

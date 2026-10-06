@@ -4,10 +4,10 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { api, isAbort } from '../api'
 import { useListLoader } from '../composables/useListLoader'
-import { confirmDelete } from '../deleteAction'
+import { confirmDelete, confirmed } from '../deleteAction'
 import { can } from '../permissions'
 import { toolName } from '../presentation'
-import { UiMessage, UiMessageBox } from '../ui/feedback.js'
+import { UiMessage } from '../ui/feedback.js'
 import DataTableCard from './layout/DataTableCard.vue'
 import RowActions from './layout/RowActions.vue'
 import { usePagedList } from '../composables/usePagedList'
@@ -172,15 +172,14 @@ const toggling = ref('')
 async function toggle(item) {
   if (toggling.value) return
   if (item.enabled !== false) {
-    try {
-      await UiMessageBox.confirm(
+    if (
+      !(await confirmed(
         `停用后不能再选择“${item.name || item.id}”发起对话，使用它的对话也无法继续提问。已在执行的任务如需中断，请在“运行中的 AI 工作流”中强制停止。确定停用？`,
         '停用智能体',
         { type: 'warning', confirmButtonText: '停用', cancelButtonText: '取消' }
-      )
-    } catch {
+      ))
+    )
       return
-    }
     if (toggling.value) return
   }
   toggling.value = item.id

@@ -13,12 +13,12 @@ import { can } from '../permissions'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { UiMessage, UiMessageBox } from '../ui/feedback.js'
+import { UiMessage } from '../ui/feedback.js'
 import { api, isAbort, notifyError, pretty, session } from '../api'
 import { useListLoader } from '../composables/useListLoader'
 import { formatElapsed } from '../ops/format.js'
 import { downloadWithProgress } from '../ops/opsApi.js'
-import { confirmDelete } from '../deleteAction'
+import { confirmDelete, confirmed } from '../deleteAction'
 import { backupStatuses, backupTypes, backupComponents, label } from '../labels'
 import { RefreshCw } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
@@ -165,15 +165,14 @@ function runBackup(type) {
 
 async function restoreDrill(row) {
   if (busy.value) return
-  try {
-    await UiMessageBox.confirm(`将校验“${row.id}”中的备份文件，是否继续？`, '文件校验', {
+  if (
+    !(await confirmed(`将校验“${row.id}”中的备份文件，是否继续？`, '文件校验', {
       type: 'warning',
       confirmButtonText: '开始校验',
       cancelButtonText: '取消'
-    })
-  } catch {
+    }))
+  )
     return
-  }
   await runTask({ key: `drill:${row.id}`, label: '文件校验' }, async () => {
     try {
       const result = await api(`/api/v1/backups/${idPath(row.id)}/restore-drill`, { method: 'POST' })
@@ -187,15 +186,14 @@ async function restoreDrill(row) {
 
 async function restoreToTarget(row) {
   if (busy.value) return
-  try {
-    await UiMessageBox.confirm(`将把“${row.id}”恢复到备份服务配置的独立恢复库并核对条数，不会写入当前业务库。是否继续？`, '恢复验证', {
+  if (
+    !(await confirmed(`将把“${row.id}”恢复到备份服务配置的独立恢复库并核对条数，不会写入当前业务库。是否继续？`, '恢复验证', {
       type: 'warning',
       confirmButtonText: '开始恢复',
       cancelButtonText: '取消'
-    })
-  } catch {
+    }))
+  )
     return
-  }
   await runTask({ key: `restore:${row.id}`, label: '恢复验证' }, async () => {
     try {
       const result = await api(`/api/v1/backups/${idPath(row.id)}/restore`, { method: 'POST' })

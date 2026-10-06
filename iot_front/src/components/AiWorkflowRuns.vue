@@ -2,8 +2,9 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { api } from '../api'
 import { can } from '../permissions'
-import { UiMessage, UiMessageBox } from '../ui/feedback.js'
+import { UiMessage } from '../ui/feedback.js'
 import DataTableCard from './layout/DataTableCard.vue'
+import { confirmed } from '../deleteAction'
 
 const items = ref([])
 const loading = ref(false)
@@ -70,15 +71,14 @@ async function loadRuns() {
 
 async function stopRun(row) {
   if (!canStop.value || stopping.value.has(row.runId) || ['stopping', 'stop_failed'].includes(row.status)) return
-  try {
-    await UiMessageBox.confirm(
+  if (
+    !(await confirmed(
       `强制停止“${row.workflowName || row.workflowId}”会中断当前执行，尚未完成的结果不会生成。确定停止吗？`,
       '强制停止工作流',
       { type: 'warning', confirmButtonText: '强制停止', cancelButtonText: '取消' }
-    )
-  } catch {
+    ))
+  )
     return
-  }
   if (disposed) return
   stopping.value = new Set([...stopping.value, row.runId])
   try {

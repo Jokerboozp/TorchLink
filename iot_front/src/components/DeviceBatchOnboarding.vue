@@ -6,6 +6,7 @@ import { parseDeviceRows } from '../onboardingPlan'
 import { UiMessage, UiMessageBox } from '../ui/feedback'
 import { copyText } from '../clipboard'
 import { useUnsavedGuard } from '../composables/unsavedGuard.js'
+import { confirmed } from '../deleteAction'
 const props = defineProps({ batchId: { type: String, default: '' } })
 const emit = defineEmits(['close', 'detail'])
 const products = ref([]),
@@ -217,14 +218,13 @@ async function claim() {
 }
 async function clearSecrets() {
   if (!secretsSaved.value && secrets.value?.items?.length) {
-    try {
-      await UiMessageBox.confirm('清除后无法再次查看本次领取的设备密钥，确认已复制或下载保存？', '清除设备密钥', {
+    if (
+      !(await confirmed('清除后无法再次查看本次领取的设备密钥，确认已复制或下载保存？', '清除设备密钥', {
         confirmButtonText: '已保存，清除',
         cancelButtonText: '返回保存'
-      })
-    } catch {
+      }))
+    )
       return
-    }
   }
   secrets.value = null
 }

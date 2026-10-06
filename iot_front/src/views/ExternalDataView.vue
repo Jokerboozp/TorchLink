@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Plus, RefreshCw } from '@lucide/vue'
 import { formatTime, notifyError, pretty, session } from '../api'
 import { can, permissionState } from '../permissions'
-import { UiMessage, UiMessageBox } from '../ui/feedback'
+import { UiMessage } from '../ui/feedback'
 import { externalApi, externalBase } from '../externalDataApi'
 import {
   blankEndpoint,
@@ -24,6 +24,7 @@ import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 import { copyText } from '../clipboard'
 import { usePageState } from '../composables/usePageState.js'
+import { confirmed } from '../deleteAction'
 defineEmits(['navigate'])
 
 // 三个视图：接入配置（来源及其接口）、编号对应、运行记录（接收记录 / 拉取任务）。
@@ -300,15 +301,14 @@ async function toggle(row, kind = tab.value) {
 async function remove(row, kind = tab.value) {
   if (!allowed('DELETE', kind, '/:id')) return
   const current = fence.begin('confirmation')
-  try {
-    await UiMessageBox.confirm(`删除“${row.name || row.externalId}”？存在关联配置或任务时需先解除关联。`, '删除确认', {
+  if (
+    !(await confirmed(`删除“${row.name || row.externalId}”？存在关联配置或任务时需先解除关联。`, '删除确认', {
       type: 'warning',
       confirmButtonText: '删除',
       cancelButtonText: '取消'
-    })
-  } catch {
+    }))
+  )
     return
-  }
   if (!current() || !allowed('DELETE', kind, '/:id')) return
   await mutate(() => externalApi.remove(kind, row), '已删除')
 }
@@ -353,14 +353,13 @@ async function rotateKey(row) {
   if (!allowed('POST', 'endpoints', '/:id/rotate-key')) return
   const current = fence.begin('confirmation')
   if (row.pushKeySet) {
-    try {
-      await UiMessageBox.confirm('生成新密钥后旧密钥立即失效，请同步更新对方回调配置。', '轮换接收密钥', {
+    if (
+      !(await confirmed('生成新密钥后旧密钥立即失效，请同步更新对方回调配置。', '轮换接收密钥', {
         confirmButtonText: '生成新密钥',
         cancelButtonText: '取消'
-      })
-    } catch {
+      }))
+    )
       return
-    }
   }
   if (!current() || !allowed('POST', 'endpoints', '/:id/rotate-key')) return
   const result = await mutate(() => externalApi.action('endpoints', row.id, 'rotate-key', { revision: row.revision }))
@@ -398,14 +397,13 @@ async function retry(row, kind = tab.value, useCurrentMapping = false) {
   if (!allowed('POST', kind, '/:id/retry')) return
   const current = fence.begin('confirmation')
   if (useCurrentMapping) {
-    try {
-      await UiMessageBox.confirm('将使用接口当前的字段规则重新转换此条原文。', '按当前规则重试', {
+    if (
+      !(await confirmed('将使用接口当前的字段规则重新转换此条原文。', '按当前规则重试', {
         confirmButtonText: '重新处理',
         cancelButtonText: '取消'
-      })
-    } catch {
+      }))
+    )
       return
-    }
   }
   if (!current() || !allowed('POST', kind, '/:id/retry')) return
   const result = await mutate(

@@ -4,12 +4,13 @@
 import { computed, onMounted, ref } from 'vue'
 import { Plus, RefreshCw, Send, Trash2 } from '@lucide/vue'
 import { can } from '../../permissions'
-import { UiMessage, UiMessageBox } from '../../ui/feedback.js'
+import { UiMessage } from '../../ui/feedback.js'
 import { opsErrorText, opsGet, opsSend } from '../../ops/opsApi.js'
 import { relativeTime } from '../../ops/format.js'
 import RouteNode from './RouteNode.vue'
 import SecretField from './SecretField.vue'
 import { useUnsavedGuard } from '../../composables/unsavedGuard.js'
+import { confirmed } from '../../deleteAction'
 
 defineProps({ labels: { type: Array, default: () => [] } })
 const config = ref(null)
@@ -155,15 +156,14 @@ async function save() {
   }
 }
 async function test(receiver) {
-  try {
-    await UiMessageBox.confirm(
+  if (
+    !(await confirmed(
       `将通过 Alertmanager 向接收人“${receiver.name}”的真实渠道发送一条测试告警（TorchLinkNotificationTest，5 分钟后自动恢复）。请确认该渠道是测试目标或已获得授权。`,
       '发送测试通知',
       { confirmButtonText: '发送' }
-    )
-  } catch {
+    ))
+  )
     return
-  }
   testing.value = receiver.name
   try {
     await opsSend('POST', `/api/v1/ops/notifications/receivers/${encodeURIComponent(receiver.name)}/test`)

@@ -3,7 +3,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Folder, FolderPlus, Import, LayoutGrid, Pencil, Plus, Star, Trash2 } from '@lucide/vue'
 import { can } from '../permissions'
-import { UiMessage, UiMessageBox } from '../ui/feedback.js'
+import { UiMessage } from '../ui/feedback.js'
 import { emptyDashboard } from '../ops/dashboard.js'
 import { latest, opsErrorText, opsGet, opsSend } from '../ops/opsApi.js'
 import { takeNavigation } from '../router/paths'
@@ -11,6 +11,7 @@ import DashboardImport from '../components/ops/DashboardImport.vue'
 import DashboardViewer from '../components/ops/DashboardViewer.vue'
 import DataSourcesPanel from '../components/ops/DataSourcesPanel.vue'
 import { usePageState } from '../composables/usePageState.js'
+import { confirmed } from '../deleteAction'
 
 const emit = defineEmits(['navigate'])
 const tab = ref('dashboards')
@@ -122,11 +123,7 @@ async function favorite(item) {
   }
 }
 async function removeDashboard(item) {
-  try {
-    await UiMessageBox.confirm(`删除仪表盘“${item.title}”？Grafana 中的仪表盘也会被删除。`, '删除仪表盘', { confirmButtonText: '删除' })
-  } catch {
-    return
-  }
+  if (!(await confirmed(`删除仪表盘“${item.title}”？Grafana 中的仪表盘也会被删除。`, '删除仪表盘', { confirmButtonText: '删除' }))) return
   try {
     await opsSend('DELETE', `/api/v1/ops/dashboards/${encodeURIComponent(item.uid)}`)
     UiMessage.success('仪表盘已删除')
@@ -159,11 +156,7 @@ async function saveFolder() {
   }
 }
 async function removeFolder(folder) {
-  try {
-    await UiMessageBox.confirm(`删除空文件夹“${folder.title}”？文件夹中还有仪表盘时不会删除。`, '删除文件夹')
-  } catch {
-    return
-  }
+  if (!(await confirmed(`删除空文件夹“${folder.title}”？文件夹中还有仪表盘时不会删除。`, '删除文件夹'))) return
   try {
     await opsSend('DELETE', `/api/v1/ops/folders/${encodeURIComponent(folder.uid)}`)
     if (folderFilter.value === folder.uid) folderFilter.value = ''

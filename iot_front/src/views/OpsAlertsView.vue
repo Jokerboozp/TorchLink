@@ -5,7 +5,7 @@ import { computed, onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vu
 import { BellOff, LineChart, RefreshCw } from '@lucide/vue'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import { can } from '../permissions'
-import { UiMessage, UiMessageBox } from '../ui/feedback.js'
+import { UiMessage } from '../ui/feedback.js'
 import { formatDuration, relativeTime } from '../ops/format.js'
 import { isAbort, latest, opsErrorText, opsGet, opsSend } from '../ops/opsApi.js'
 import { takeNavigation } from '../router/paths'
@@ -18,6 +18,7 @@ import NotificationPanel from '../components/ops/NotificationPanel.vue'
 import SilenceDialog from '../components/ops/SilenceDialog.vue'
 import TimeRangeBar from '../components/ops/TimeRangeBar.vue'
 import { formatTime } from '../format'
+import { confirmed } from '../deleteAction'
 
 const emit = defineEmits(['navigate'])
 const tab = ref('current')
@@ -232,11 +233,7 @@ function editSilence(silence, recreate = false) {
   silenceVisible.value = true
 }
 async function expire(silence) {
-  try {
-    await UiMessageBox.confirm('立即解除这个静默？匹配的告警会恢复通知。', '解除静默', { confirmButtonText: '解除' })
-  } catch {
-    return
-  }
+  if (!(await confirmed('立即解除这个静默？匹配的告警会恢复通知。', '解除静默', { confirmButtonText: '解除' }))) return
   try {
     await opsSend('DELETE', `/api/v1/ops/silences/${encodeURIComponent(silence.id)}`)
     UiMessage.success('静默已解除')

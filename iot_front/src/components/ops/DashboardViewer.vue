@@ -5,7 +5,7 @@ import { useMediaQuery } from '../../composables/useMediaQuery'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { ArrowLeft, ChevronDown, ChevronRight, Download, Pencil, Plus, Save, Settings, Star, X } from '@lucide/vue'
 import { can } from '../../permissions'
-import { UiMessage, UiMessageBox } from '../../ui/feedback.js'
+import { UiMessage } from '../../ui/feedback.js'
 import {
   addPanel,
   currentValues,
@@ -34,6 +34,7 @@ import PanelEditor from './PanelEditor.vue'
 import TimeRangeBar from './TimeRangeBar.vue'
 import { usePageState } from '../../composables/usePageState.js'
 import { useUnsavedGuard } from '../../composables/unsavedGuard.js'
+import { confirmed } from '../../deleteAction'
 
 const props = defineProps({
   uid: { type: String, default: '' },
@@ -318,11 +319,7 @@ async function panelCommand(panel, command) {
   if (command === 'edit') openEditor(panel)
   else if (command === 'duplicate') change(d => duplicatePanel(d, panel.id))
   else if (command === 'remove') {
-    try {
-      await UiMessageBox.confirm(`从仪表盘中移除面板“${panel.title || panel.id}”？保存后生效。`, '移除面板')
-    } catch {
-      return
-    }
+    if (!(await confirmed(`从仪表盘中移除面板“${panel.title || panel.id}”？保存后生效。`, '移除面板'))) return
     change(d => removePanel(d, panel.id))
   } else if (['up', 'down', 'left', 'right'].includes(command)) change(d => movePanel(d, panel.id, command))
   else if (command === 'inspect') {
@@ -353,14 +350,13 @@ async function rowCommand(row, command) {
       })
   } else if (command === 'remove') {
     const count = row.collapsed ? (row.panels || []).length : 0
-    try {
-      await UiMessageBox.confirm(
+    if (
+      !(await confirmed(
         count ? `删除分组“${row.title}”及其中 ${count} 个面板？` : `删除分组“${row.title}”？分组下的面板会保留。`,
         '删除分组'
-      )
-    } catch {
+      ))
+    )
       return
-    }
     change(d => removePanel(d, row.id))
   }
 }
@@ -460,11 +456,7 @@ async function save(overwrite = false) {
 }
 async function discard() {
   if (dirty.value) {
-    try {
-      await UiMessageBox.confirm('放弃所有未保存的修改？', '放弃修改')
-    } catch {
-      return
-    }
+    if (!(await confirmed('放弃所有未保存的修改？', '放弃修改'))) return
   }
   if (isNew.value) {
     emit('close')
@@ -478,11 +470,7 @@ async function discard() {
 }
 async function back() {
   if (dirty.value) {
-    try {
-      await UiMessageBox.confirm('仪表盘有未保存的修改，离开将丢失这些修改。', '离开编辑', { confirmButtonText: '离开' })
-    } catch {
-      return
-    }
+    if (!(await confirmed('仪表盘有未保存的修改，离开将丢失这些修改。', '离开编辑', { confirmButtonText: '离开' }))) return
   }
   emit('close')
 }
@@ -519,15 +507,12 @@ async function moreCommand(command) {
       UiMessage.error(opsErrorText(e))
     }
   } else if (command === 'delete') {
-    try {
-      await UiMessageBox.confirm(
-        `删除仪表盘“${working.value.title}”？删除后 Grafana 中的仪表盘也会被删除，无法在平台中恢复。`,
-        '删除仪表盘',
-        { confirmButtonText: '删除' }
-      )
-    } catch {
+    if (
+      !(await confirmed(`删除仪表盘“${working.value.title}”？删除后 Grafana 中的仪表盘也会被删除，无法在平台中恢复。`, '删除仪表盘', {
+        confirmButtonText: '删除'
+      }))
+    )
       return
-    }
     try {
       await opsSend('DELETE', `/api/v1/ops/dashboards/${encodeURIComponent(uid)}`)
       UiMessage.success('仪表盘已删除')
