@@ -82,6 +82,49 @@ const dutySwap = {
   requestedBy: 'zhangwei',
   createdAt: now
 }
+// 灭火器台账与三种处理阶段的巡检任务。
+const extinguisher = {
+  id: 'ext-demo',
+  version: 1,
+  code: 'MHQ-001',
+  stationId: 'station-demo',
+  location: '一号楼一层东侧',
+  type: 'dry_powder',
+  specification: '4 kg',
+  manufacturer: '示例厂家',
+  serialNumber: 'SN-001',
+  manufacturedOn: '2024-03-01',
+  serviceDueOn: '2026-10-01',
+  retireOn: '2030-03-01',
+  inspectionCycleDays: 30,
+  status: 'active',
+  notes: '',
+  lastInspectedAt: now - 20 * 86400e3,
+  nextInspectionOn: '2026-10-01',
+  reminders: [{ kind: 'service', dueOn: '2026-10-01', status: 'soon' }]
+}
+const inspection = (id, status, extra = {}) => ({
+  id,
+  version: 1,
+  extinguisherId: extinguisher.id,
+  assigneeId: 'person-a',
+  dueAt: now + 86400e3,
+  status,
+  notes: '月度巡检',
+  createdBy: 'admin',
+  ...extra
+})
+const inspections = [
+  inspection('inspection-pending', 'pending'),
+  inspection('inspection-rectifying', 'rectifying', { result: 'fail', findings: '压力表指针偏低' }),
+  inspection('inspection-reviewing', 'reviewing', {
+    result: 'fail',
+    findings: '喷管老化',
+    rectifications: [{ action: '已更换喷管', submittedBy: 'zhangwei', submittedAt: now, status: 'pending' }]
+  })
+]
+fireOptions.extinguishers = [extinguisher]
+fireOptions.inspectionChecks = ['外观完好', '压力正常', '喷管完好']
 const list = items => ({ items, total: items.length, count: items.length, page: 1, pageSize: 20 })
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://localhost')
@@ -139,6 +182,24 @@ const server = http.createServer(async (req, res) => {
     else if (u.pathname === '/api/v1/duty/assignments') data = list([dutyAssignment])
     else if (u.pathname === '/api/v1/duty/shifts') data = list(fireOptions.shifts)
     else if (u.pathname === '/api/v1/duty/swaps') data = list([dutySwap])
+    else if (u.pathname === '/api/v1/extinguishers') data = list([extinguisher])
+    else if (u.pathname === '/api/v1/extinguishers/statistics')
+      data = {
+        total: 1,
+        active: 1,
+        maintenance: 0,
+        retired: 0,
+        overdue: 0,
+        soon: 1,
+        pendingInspections: 1,
+        overdueInspections: 0,
+        rectifying: 1,
+        reviewing: 1
+      }
+    else if (u.pathname === `/api/v1/extinguishers/${extinguisher.id}`) data = extinguisher
+    else if (u.pathname === '/api/v1/extinguisher-inspections') data = list(inspections)
+    else if (u.pathname.startsWith('/api/v1/extinguisher-inspections/'))
+      data = inspections.find(item => item.id === u.pathname.split('/').pop()) || inspections[0]
     else if (u.pathname === '/api/v1/ai/providers')
       data = {
         ...list([]),

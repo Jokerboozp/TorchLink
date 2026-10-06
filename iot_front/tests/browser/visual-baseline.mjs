@@ -49,6 +49,7 @@ const normalize = html =>
     .replace(/ data-n-id="[^"]*"/g, '')
     .replace(/ (id|for|aria-controls|aria-labelledby|aria-describedby)="[^"]*\d[^"]*"/g, ' $1="#"')
     .replace(/></g, '>\n<')
+    .replace(/\n\s*(?=\n)/g, '')
 
 // An open dialog with edits would block the next navigation with a beforeunload prompt; accept it.
 const browser = await startBrowser({

@@ -10,6 +10,7 @@ import {
   inspectionPayload,
   canReviewInspection,
   dispatchPayload,
+  extinguisherLabels,
   fireQuery,
   requiredFieldErrors
 } from '../src/fireSafetyManagement.js'
@@ -246,6 +247,7 @@ test('巡检状态筛选不被错误用于灭火器资产统计', async () => {
     },
     fireQuery,
     requiredFieldErrors,
+    extinguisherLabels,
     extinguisherTypes: [],
     inspectionStates: []
   })
@@ -262,4 +264,67 @@ test('巡检状态筛选不被错误用于灭火器资产统计', async () => {
   page.filters.status = 'active'
   await page.loadStatistics()
   assert.equal(new URL(requests[1], 'http://localhost').searchParams.get('status'), 'active')
+})
+
+test('巡检任务处理弹窗：提交人不能复核自己的整改，取消须填写原因，成功后返回最新任务', async () => {
+  const writes = [],
+    emitted = []
+  const source = setupScript(new URL('../src/components/extinguishers/ExtinguisherActionDialog.vue', import.meta.url))
+  const props = reactive({
+    kind: 'review',
+    task: { id: 'task/1', version: 3, status: 'reviewing', rectifications: [{ submittedBy: 'worker', status: 'pending' }] },
+    options: { stations: [], personnel: [], extinguishers: [], inspectionChecks: ['外观'] }
+  })
+  const context = vm.createContext({
+    ...pageStubs,
+    computed,
+    reactive,
+    ref,
+    watch() {},
+    defineModel: () => ref(true),
+    defineProps: () => props,
+    defineEmits:
+      () =>
+      (...args) =>
+        emitted.push(args),
+    session: { user: 'worker' },
+    can: () => true,
+    api: async (path, request) => {
+      writes.push({ path, body: JSON.parse(request.body) })
+      return { id: 'task/1', version: 4 }
+    },
+    UiMessage: { success() {} },
+    errorMessage: error => error.message,
+    dateTimeLabel: String,
+    canReviewInspection,
+    extinguisherLabels,
+    inspectionPayload
+  })
+  vm.runInContext(source + '\nglobalThis.subject={reset,actionForm,actionError,saveAction,visible}', context)
+  const dialog = context.subject
+  dialog.reset()
+  assert.deepEqual(
+    dialog.actionForm.checks.map(item => item.name),
+    ['外观']
+  )
+  dialog.actionForm.note = '已核实'
+  await dialog.saveAction()
+  assert.match(dialog.actionError.value, /不能复核/)
+  props.kind = 'cancel'
+  await dialog.saveAction()
+  assert.match(dialog.actionError.value, /取消原因/)
+  dialog.actionForm.reason = ' 设备已报废 '
+  await dialog.saveAction()
+  assert.deepEqual(writes, [{ path: '/api/v1/extinguisher-inspections/task%2F1/cancel', body: { version: 3, reason: '设备已报废' } }])
+  assert.equal(dialog.visible.value, false)
+  assert.deepEqual(emitted, [['saved', { id: 'task/1', version: 4 }]])
+})
+
+test('灭火器名称查找在资料被删除时给出说明', () => {
+  const labels = extinguisherLabels({ stations: [{ id: 's', name: '一站' }], personnel: [], extinguishers: [] })
+  assert.equal(labels.stationName('s'), '一站')
+  assert.equal(labels.stationName('missing'), '已移除消防站')
+  assert.equal(labels.personName('p'), '已移除人员')
+  assert.equal(labels.assetName('e'), '已移除灭火器')
+  assert.equal(labels.typeName('dry_powder'), '干粉')
 })

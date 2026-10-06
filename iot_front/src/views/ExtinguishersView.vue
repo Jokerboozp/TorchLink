@@ -1,28 +1,24 @@
 <script setup>
-import { computed, onMounted, reactive, ref, toRef, watch } from 'vue'
+import { onMounted, reactive, ref, toRef, watch } from 'vue'
 import { Plus, RefreshCw } from '@lucide/vue'
 import { api, isAbort, notifyError, session } from '../api'
 import { useListLoader } from '../composables/useListLoader'
 import { confirmDelete } from '../deleteAction'
-import { UiMessage } from '../ui/feedback.js'
 import { errorMessage } from '../presentation'
 import { can } from '../permissions'
-import { extinguisherTypes, inspectionStates, statusLabel, statusTone, dateTimeLabel, dateLabel } from '../fireSafety'
-import {
-  managementPayload,
-  localDateTimeInput,
-  inputTimestamp,
-  inspectionPayload,
-  canReviewInspection,
-  fireQuery,
-  requiredFieldErrors
-} from '../fireSafetyManagement'
+import { inspectionStates, statusLabel, statusTone, dateTimeLabel, dateLabel } from '../fireSafety'
+import { canReviewInspection, extinguisherLabels, fireQuery } from '../fireSafetyManagement'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
+import ExtinguisherAssetDialog from '../components/extinguishers/ExtinguisherAssetDialog.vue'
+import ExtinguisherTaskDialog from '../components/extinguishers/ExtinguisherTaskDialog.vue'
+import ExtinguisherActionDialog from '../components/extinguishers/ExtinguisherActionDialog.vue'
+import ExtinguisherBatchDialog from '../components/extinguishers/ExtinguisherBatchDialog.vue'
+import ExtinguisherAssetDrawer from '../components/extinguishers/ExtinguisherAssetDrawer.vue'
+import ExtinguisherTaskDrawer from '../components/extinguishers/ExtinguisherTaskDrawer.vue'
 import { usePageState } from '../composables/usePageState.js'
-import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
 import { usePagedList } from '../composables/usePagedList'
 defineEmits(['navigate'])
 
@@ -49,70 +45,26 @@ const options = reactive({ stations: [], personnel: [], extinguishers: [], inspe
   optionsError = ref('')
 const statistics = ref(null),
   statisticsError = ref('')
-const dialog = ref(false),
-  saving = ref(false),
-  saveError = ref(''),
-  form = reactive({})
+// 弹窗与抽屉：弹窗各自持有表单与保存逻辑，抽屉的打开状态就是详情对象本身。
+const assetOpen = ref(false),
+  assetTarget = ref(null),
+  taskOpen = ref(false),
+  taskAsset = ref(null),
+  actionOpen = ref(false),
+  actionKind = ref(''),
+  actionTask = ref(null),
+  batchOpen = ref(false)
 const assetDetail = ref(null),
   taskDetail = ref(null),
   opening = ref(false),
   deleting = ref(false)
-const taskDialog = ref(false),
-  taskForm = reactive({ extinguisherId: '', assigneeId: '', dueAtInput: '', notes: '' }),
-  taskStationId = ref(''),
-  taskSaving = ref(false),
-  taskError = ref('')
-const action = ref(''),
-  actionTask = ref(null),
-  actionForm = reactive({ checks: [], findings: '', action: '', approved: true, note: '', reason: '' }),
-  actionSaving = ref(false),
-  actionError = ref('')
 const assetStates = [
   { value: 'active', label: '在用' },
   { value: 'maintenance', label: '维护中' },
   { value: 'retired', label: '已报废' }
 ]
 const reminderKinds = { service: '维护到期', retire: '报废到期', inspection: '巡检到期' }
-// 资料、巡检任务、批量创建和任务处理弹窗关闭前检查未保存的修改。
-const assetGuard = trackDialogForm(dialog, () => form)
-const taskGuard = trackDialogForm(taskDialog, () => [taskForm, taskStationId.value])
-const actionGuard = trackDialogForm(
-  computed(() => Boolean(action.value)),
-  () => actionForm
-)
-async function closeGuarded(guard, busy, close) {
-  if (busy) return
-  if (await confirmClose(guard.dirty())) close()
-}
-const closeAsset = () => closeGuarded(assetGuard, saving.value, () => (dialog.value = false))
-const closeTask = () => closeGuarded(taskGuard, taskSaving.value, () => (taskDialog.value = false))
-const closeAction = () => closeGuarded(actionGuard, actionSaving.value, () => (action.value = ''))
-const actionTitles = { inspect: '提交巡检结果', rectify: '提交整改', review: '复核整改', cancel: '取消巡检任务' }
-const taskAssets = computed(() => options.extinguishers.filter(item => item.stationId === taskStationId.value && item.status !== 'retired'))
-const assignees = computed(() => {
-  const asset = options.extinguishers.find(item => item.id === taskForm.extinguisherId)
-  return options.personnel.filter(item => item.stationId === asset?.stationId && item.enabled)
-})
-const blank = () => ({
-  id: '',
-  code: '',
-  stationId: filters.stationId,
-  location: '',
-  type: 'dry_powder',
-  specification: '',
-  manufacturer: '',
-  serialNumber: '',
-  manufacturedOn: '',
-  serviceDueOn: '',
-  retireOn: '',
-  inspectionCycleDays: 30,
-  status: 'active',
-  notes: ''
-})
-const stationName = id => options.stations.find(item => item.id === id)?.name || '已移除消防站'
-const personName = id => options.personnel.find(item => item.id === id)?.name || '已移除人员'
-const assetName = id => options.extinguishers.find(item => item.id === id)?.code || '已移除灭火器'
-const typeName = value => extinguisherTypes.find(item => item.value === value)?.label || value
+const { stationName, personName, assetName, typeName } = extinguisherLabels(options)
 const loader = useListLoader(loading),
   optionsLoader = useListLoader(),
   statisticsLoader = useListLoader()
@@ -186,37 +138,13 @@ watch(tab, () => {
 })
 const { changePage, changePageSize } = usePagedList(() => load(), { page, pageSize })
 function openAsset(row) {
-  for (const key of Object.keys(form)) delete form[key]
-  Object.assign(form, blank(), row ? JSON.parse(JSON.stringify(row)) : {})
-  saveError.value = ''
-  fieldErrors.value = {}
-  dialog.value = true
+  assetTarget.value = row || null
+  assetOpen.value = true
   loadOptions()
 }
-// 必填项逐项标在对应字段下方。
-const fieldErrors = ref({})
-async function saveAsset() {
-  if (saving.value || !can(form.id ? 'PUT /api/v1/extinguishers/:id' : 'POST /api/v1/extinguishers')) return
-  saving.value = true
-  saveError.value = ''
-  try {
-    fieldErrors.value = requiredFieldErrors('extinguishers', form)
-    if (!Number.isInteger(form.inspectionCycleDays) || form.inspectionCycleDays < 1)
-      fieldErrors.value.inspectionCycleDays = '巡检周期须为正整数天数'
-    if (Object.keys(fieldErrors.value).length) return
-    await api(`/api/v1/extinguishers${form.id ? `/${encodeURIComponent(form.id)}` : ''}`, {
-      method: form.id ? 'PUT' : 'POST',
-      body: JSON.stringify(managementPayload('extinguishers', form))
-    })
-    UiMessage.success('灭火器资料已保存')
-    dialog.value = false
-    if (assetDetail.value?.id === form.id) assetDetail.value = null
-    await refresh()
-  } catch (error) {
-    saveError.value = errorMessage(error)
-  } finally {
-    saving.value = false
-  }
+async function assetSaved(id) {
+  if (assetDetail.value?.id === id) assetDetail.value = null
+  await refresh()
 }
 async function removeAsset(row) {
   if (deleting.value || !can('DELETE /api/v1/extinguishers/:id')) return
@@ -248,45 +176,13 @@ async function openAssetDetail(row) {
   }
 }
 function openCreateTask(asset) {
-  taskStationId.value = asset?.stationId || filters.stationId
-  Object.assign(taskForm, {
-    extinguisherId: asset?.id || '',
-    assigneeId: '',
-    dueAtInput: localDateTimeInput(Date.now() + 86400000),
-    notes: ''
-  })
-  taskError.value = ''
-  taskDialog.value = true
+  taskAsset.value = asset || null
+  taskOpen.value = true
   loadOptions()
 }
-function changeTaskStation() {
-  taskForm.extinguisherId = ''
-  taskForm.assigneeId = ''
-}
-async function saveTask() {
-  if (taskSaving.value || !can('POST /api/v1/extinguisher-inspections')) return
-  taskSaving.value = true
-  taskError.value = ''
-  try {
-    if (!taskForm.extinguisherId || !taskForm.assigneeId) throw new Error('请选择灭火器和巡检人员')
-    await api('/api/v1/extinguisher-inspections', {
-      method: 'POST',
-      body: JSON.stringify({
-        extinguisherId: taskForm.extinguisherId,
-        assigneeId: taskForm.assigneeId,
-        dueAt: inputTimestamp(taskForm.dueAtInput, '巡检截止时间'),
-        notes: taskForm.notes.trim()
-      })
-    })
-    UiMessage.success('巡检任务已创建')
-    taskDialog.value = false
-    tab.value = 'inspections'
-    await refresh()
-  } catch (error) {
-    taskError.value = errorMessage(error)
-  } finally {
-    taskSaving.value = false
-  }
+async function taskSaved() {
+  tab.value = 'inspections'
+  await refresh()
 }
 async function openTask(row, kind = '') {
   if (opening.value) return
@@ -300,135 +196,21 @@ async function openTask(row, kind = '') {
     if (kind === 'review' && !canReviewInspection(task, session.user))
       throw new Error('整改提交人不能复核自己的整改，请由其他有权限的用户复核')
     actionTask.value = task
-    action.value = kind
-    actionError.value = ''
-    Object.assign(actionForm, {
-      checks: options.inspectionChecks.map(name => ({ name, passed: null, standard: true })),
-      findings: '',
-      action: '',
-      approved: true,
-      note: '',
-      reason: ''
-    })
+    actionKind.value = kind
+    actionOpen.value = true
   } catch (error) {
     notifyError(error)
   } finally {
     opening.value = false
   }
 }
-async function saveAction() {
-  if (actionSaving.value || !can(`POST /api/v1/extinguisher-inspections/:id/${action.value}`)) return
-  actionSaving.value = true
-  actionError.value = ''
-  try {
-    const version = actionTask.value.version
-    let payload
-    if (action.value === 'inspect') payload = inspectionPayload(actionForm, version)
-    if (action.value === 'rectify') {
-      if (!actionForm.action.trim()) throw new Error('请填写整改措施及完成情况')
-      payload = { version, action: actionForm.action.trim() }
-    }
-    if (action.value === 'review') {
-      if (!canReviewInspection(actionTask.value, session.user)) throw new Error('整改提交人不能复核自己的整改')
-      if (!actionForm.note.trim()) throw new Error('请填写复核意见')
-      payload = { version, approved: actionForm.approved, note: actionForm.note.trim() }
-    }
-    if (action.value === 'cancel') {
-      if (!actionForm.reason.trim()) throw new Error('请填写取消原因')
-      payload = { version, reason: actionForm.reason.trim() }
-    }
-    const result = await api(`/api/v1/extinguisher-inspections/${encodeURIComponent(actionTask.value.id)}/${action.value}`, {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    })
-    UiMessage.success('任务已更新')
-    action.value = ''
-    if (taskDetail.value?.id === result.id) taskDetail.value = result
-    await refresh()
-  } catch (error) {
-    actionError.value = errorMessage(error)
-  } finally {
-    actionSaving.value = false
-  }
-}
-// 批量创建巡检：按消防站和到期情况选出灭火器，统一指定巡检人员和截止时间；已有未结任务或已报废的资产由服务端跳过。
-const batchDialog = ref(false),
-  batchForm = reactive({ stationId: '', due: 'overdue', assigneeId: '', dueAtInput: '', notes: '' }),
-  batchAssets = ref([]),
-  batchSelected = ref([]),
-  batchLoading = ref(false),
-  batchSaving = ref(false),
-  batchError = ref(''),
-  batchResult = ref(null)
-// 候选灭火器随消防站自动勾选，只把人员、截止时间和说明视为填写内容。
-const batchGuard = trackDialogForm(batchDialog, () => [batchForm.assigneeId, batchForm.dueAtInput, batchForm.notes])
-const closeBatch = () => closeGuarded(batchGuard, batchSaving.value, () => (batchDialog.value = false))
-const batchAssignees = computed(() => options.personnel.filter(item => item.stationId === batchForm.stationId && item.enabled))
-const batchLoader = useListLoader(batchLoading)
-async function loadBatchAssets() {
-  batchAssets.value = []
-  batchSelected.value = []
-  batchError.value = ''
-  if (!batchForm.stationId) return batchLoader.cancel()
-  try {
-    const result = await batchLoader.run(signal =>
-      api(
-        `/api/v1/extinguishers?${fireQuery({ stationId: batchForm.stationId, due: batchForm.due, remindDays: filters.remindDays }, { page: 1, pageSize: 100 })}`,
-        { signal }
-      )
-    )
-    batchAssets.value = (result.items || []).filter(item => item.status !== 'retired' && !item.openInspection)
-    batchSelected.value = batchAssets.value.map(item => item.id)
-  } catch (error) {
-    if (!isAbort(error)) batchError.value = errorMessage(error)
-  }
+async function actionSaved(result) {
+  if (taskDetail.value?.id === result.id) taskDetail.value = result
+  await refresh()
 }
 function openBatch() {
-  Object.assign(batchForm, {
-    stationId: filters.stationId || options.stations.find(item => item.enabled)?.id || '',
-    due: 'overdue',
-    assigneeId: '',
-    dueAtInput: localDateTimeInput(Date.now() + 86400000),
-    notes: ''
-  })
-  batchResult.value = null
-  batchDialog.value = true
+  batchOpen.value = true
   loadOptions()
-  loadBatchAssets()
-}
-function changeBatchStation() {
-  batchForm.assigneeId = ''
-  loadBatchAssets()
-}
-function toggleBatchAsset(id, checked) {
-  batchSelected.value = checked ? [...new Set([...batchSelected.value, id])] : batchSelected.value.filter(item => item !== id)
-}
-async function saveBatch() {
-  if (batchSaving.value || !can('POST /api/v1/extinguisher-inspections/batch')) return
-  batchSaving.value = true
-  batchError.value = ''
-  try {
-    if (!batchSelected.value.length || !batchForm.assigneeId) throw new Error('请选择灭火器和巡检人员')
-    const result = await api('/api/v1/extinguisher-inspections/batch', {
-      method: 'POST',
-      body: JSON.stringify({
-        extinguisherIds: batchSelected.value,
-        assigneeId: batchForm.assigneeId,
-        dueAt: inputTimestamp(batchForm.dueAtInput, '巡检截止时间'),
-        notes: batchForm.notes.trim()
-      })
-    })
-    batchResult.value = result
-    batchGuard.reset()
-    UiMessage.success(`已创建 ${result.created} 个巡检任务`)
-    await Promise.all([refresh(), loadBatchAssets()])
-  } catch (error) {
-    // 冲突说明候选已过期（他人已建任务或已报废），刷新候选后再显示原因。
-    if (error?.status === 409) await loadBatchAssets()
-    batchError.value = errorMessage(error)
-  } finally {
-    batchSaving.value = false
-  }
 }
 function assetActions(row) {
   return [
@@ -654,378 +436,28 @@ onMounted(refresh)
       </ui-table>
     </DataTableCard>
 
-    <ui-dialog
-      :model-value="dialog"
-      :title="form.id ? '编辑灭火器' : '新增灭火器'"
-      width="min(760px,94vw)"
-      :show-close="!saving"
-      :close-on-press-escape="!saving"
-      @update:model-value="value => value || closeAsset()"
-    >
-      <ui-alert v-if="saveError" type="error" :title="saveError" :closable="false" class="fire-section" />
-      <ui-form :model="form" label-position="top">
-        <section class="fire-section">
-          <h3>资产与放置位置</h3>
-          <div class="fire-form-grid">
-            <ui-form-item label="灭火器编号 *" :error="fieldErrors.code"><ui-input v-model="form.code" :disabled="saving" /></ui-form-item
-            ><ui-form-item label="所属消防站 *" :error="fieldErrors.stationId"
-              ><ui-select v-model="form.stationId" :disabled="saving" filterable
-                ><ui-option
-                  v-for="item in options.stations"
-                  :key="item.id"
-                  :label="`${item.name}${!item.enabled ? '（已停用）' : ''}`"
-                  :value="item.id"
-                  :disabled="!item.enabled && item.id !== form.stationId" /></ui-select></ui-form-item
-            ><ui-form-item label="放置位置 *" :error="fieldErrors.location"
-              ><ui-input v-model="form.location" :disabled="saving" placeholder="建筑、楼层或具体点位" /></ui-form-item
-            ><ui-form-item label="灭火器类型"
-              ><ui-select v-model="form.type" :disabled="saving"
-                ><ui-option
-                  v-for="item in extinguisherTypes"
-                  :key="item.value"
-                  :value="item.value"
-                  :label="item.label" /></ui-select></ui-form-item
-            ><ui-form-item label="规格"><ui-input v-model="form.specification" :disabled="saving" placeholder="例如：4 kg" /></ui-form-item
-            ><ui-form-item label="状态"
-              ><ui-select v-model="form.status" :disabled="saving"
-                ><ui-option v-for="item in assetStates" :key="item.value" :value="item.value" :label="item.label" /></ui-select
-            ></ui-form-item>
-          </div>
-        </section>
-        <section class="fire-section">
-          <h3>生产与维护计划</h3>
-          <div class="fire-form-grid">
-            <ui-form-item label="生产厂家"><ui-input v-model="form.manufacturer" :disabled="saving" /></ui-form-item
-            ><ui-form-item label="出厂序列号"><ui-input v-model="form.serialNumber" :disabled="saving" /></ui-form-item
-            ><ui-form-item label="生产日期"
-              ><input v-model="form.manufacturedOn" type="date" class="fire-date" :disabled="saving" /></ui-form-item
-            ><ui-form-item label="维护到期日期"
-              ><input v-model="form.serviceDueOn" type="date" class="fire-date" :disabled="saving" /></ui-form-item
-            ><ui-form-item label="计划报废日期"
-              ><input v-model="form.retireOn" type="date" class="fire-date" :disabled="saving" /></ui-form-item
-            ><ui-form-item label="巡检周期（天）" :error="fieldErrors.inspectionCycleDays"
-              ><ui-input-number v-model="form.inspectionCycleDays" :disabled="saving" :min="1" :max="3650" :precision="0"
-            /></ui-form-item>
-          </div>
-        </section>
-        <ui-form-item label="备注"
-          ><ui-input v-model="form.notes" :disabled="saving" type="textarea" :rows="3" maxlength="2000"
-        /></ui-form-item> </ui-form
-      ><template #footer
-        ><ui-button :disabled="saving" @click="closeAsset">取消</ui-button
-        ><ui-button
-          v-permission="form.id ? 'PUT /api/v1/extinguishers/:id' : 'POST /api/v1/extinguishers'"
-          type="primary"
-          :loading="saving"
-          @click="saveAsset"
-          >保存</ui-button
-        ></template
-      >
-    </ui-dialog>
-    <ui-dialog
-      :model-value="batchDialog"
-      title="批量创建巡检任务"
-      width="min(760px,94vw)"
-      :show-close="!batchSaving"
-      :close-on-press-escape="!batchSaving"
-      @update:model-value="value => value || closeBatch()"
-    >
-      <ui-alert v-if="batchError" type="error" :title="batchError" :closable="false" class="fire-section" />
-      <ui-form label-position="top"
-        ><div class="fire-form-grid">
-          <ui-form-item label="消防站 *"
-            ><ui-select v-model="batchForm.stationId" :disabled="batchSaving" filterable @change="changeBatchStation"
-              ><ui-option
-                v-for="item in options.stations"
-                :key="item.id"
-                :label="item.name"
-                :value="item.id"
-                :disabled="!item.enabled" /></ui-select
-          ></ui-form-item>
-          <ui-form-item label="到期情况"
-            ><ui-select v-model="batchForm.due" :disabled="batchSaving" @change="loadBatchAssets"
-              ><ui-option value="overdue" label="已逾期" /><ui-option value="soon" label="即将到期" /><ui-option
-                value=""
-                label="全部在用" /></ui-select
-          ></ui-form-item>
-          <ui-form-item label="巡检人员 *"
-            ><ui-select
-              v-model="batchForm.assigneeId"
-              :disabled="batchSaving || !batchForm.stationId"
-              filterable
-              placeholder="选择本消防站人员"
-              ><ui-option v-for="item in batchAssignees" :key="item.id" :label="item.name" :value="item.id" /></ui-select
-          ></ui-form-item>
-          <ui-form-item label="巡检截止时间 *"
-            ><input v-model="batchForm.dueAtInput" :disabled="batchSaving" type="datetime-local" class="fire-date"
-          /></ui-form-item>
-        </div>
-        <section class="fire-section">
-          <h3>选择灭火器 · 已选 {{ batchSelected.length }} / {{ batchAssets.length }}</h3>
-          <p class="fire-hint">只列出没有未结巡检任务的在用灭火器（最多 100 个）。</p>
-          <p v-if="batchLoading" class="fire-hint">正在读取灭火器…</p>
-          <div v-else class="fire-batch-assets">
-            <label v-for="item in batchAssets" :key="item.id" class="fire-batch-asset"
-              ><ui-checkbox
-                :model-value="batchSelected.includes(item.id)"
-                :disabled="batchSaving"
-                @update:model-value="checked => toggleBatchAsset(item.id, checked)"
-              /><span
-                ><strong>{{ item.code }}</strong
-                ><small class="fire-subline">{{ item.location }}</small></span
-              ></label
-            >
-            <p v-if="!batchAssets.length" class="fire-hint">没有符合条件的灭火器。</p>
-          </div>
-        </section>
-        <ui-form-item label="备注"
-          ><ui-input v-model="batchForm.notes" :disabled="batchSaving" type="textarea" :rows="2" maxlength="2000" /></ui-form-item
-      ></ui-form>
-      <ui-alert
-        v-if="batchResult?.skipped?.length"
-        type="warning"
-        :closable="false"
-        :title="`已跳过 ${batchResult.skipped.length} 个：${batchResult.skipped.map(item => `${item.code}（${item.reason}）`).join('、')}`"
-      />
-      <template #footer
-        ><ui-button :disabled="batchSaving" @click="closeBatch">关闭</ui-button
-        ><ui-button
-          v-permission="'POST /api/v1/extinguisher-inspections/batch'"
-          type="primary"
-          :loading="batchSaving"
-          :disabled="!batchSelected.length || !batchForm.assigneeId"
-          @click="saveBatch"
-          >创建 {{ batchSelected.length }} 个任务</ui-button
-        ></template
-      >
-    </ui-dialog>
-    <ui-dialog
-      :model-value="taskDialog"
-      title="创建巡检任务"
-      width="min(580px,94vw)"
-      :show-close="!taskSaving"
-      :close-on-press-escape="!taskSaving"
-      @update:model-value="value => value || closeTask()"
-    >
-      <ui-alert v-if="taskError" type="error" :title="taskError" :closable="false" class="fire-section" /><ui-form label-position="top"
-        ><ui-form-item label="消防站"
-          ><ui-select v-model="taskStationId" :disabled="taskSaving" filterable @change="changeTaskStation"
-            ><ui-option
-              v-for="item in options.stations"
-              :key="item.id"
-              :label="item.name"
-              :value="item.id"
-              :disabled="!item.enabled" /></ui-select></ui-form-item
-        ><ui-form-item label="灭火器 *"
-          ><ui-select
-            v-model="taskForm.extinguisherId"
-            :disabled="taskSaving || !taskStationId"
-            filterable
-            @change="taskForm.assigneeId = ''"
-            placeholder="选择该消防站的灭火器"
-            ><ui-option v-for="item in taskAssets" :key="item.id" :label="item.code" :value="item.id" /></ui-select></ui-form-item
-        ><ui-form-item label="巡检人员 *"
-          ><ui-select
-            v-model="taskForm.assigneeId"
-            :disabled="taskSaving || !taskForm.extinguisherId"
-            filterable
-            placeholder="选择本消防站人员"
-            ><ui-option v-for="item in assignees" :key="item.id" :label="item.name" :value="item.id" /></ui-select></ui-form-item
-        ><ui-form-item label="巡检截止时间 *"
-          ><input v-model="taskForm.dueAtInput" :disabled="taskSaving" type="datetime-local" class="fire-date" /></ui-form-item
-        ><ui-form-item label="任务说明"
-          ><ui-input v-model="taskForm.notes" :disabled="taskSaving" type="textarea" :rows="3" maxlength="2000" /></ui-form-item></ui-form
-      ><template #footer
-        ><ui-button :disabled="taskSaving" @click="closeTask">取消</ui-button
-        ><ui-button v-permission="'POST /api/v1/extinguisher-inspections'" type="primary" :loading="taskSaving" @click="saveTask"
-          >创建任务</ui-button
-        ></template
-      >
-    </ui-dialog>
-    <ui-dialog
-      :model-value="Boolean(action)"
-      :title="actionTitles[action] || ''"
-      width="min(680px,94vw)"
-      :show-close="!actionSaving"
-      :close-on-press-escape="!actionSaving"
-      @update:model-value="value => value || closeAction()"
-    >
-      <ui-alert v-if="actionError" type="error" :title="actionError" :closable="false" class="fire-section" />
-      <p class="fire-hint">灭火器 {{ assetName(actionTask?.extinguisherId) }} · {{ personName(actionTask?.assigneeId) }}</p>
-      <ui-form label-position="top">
-        <template v-if="action === 'inspect'"
-          ><p class="fire-hint">按实际检查结果逐项选择。标准项目不能修改或移除，可追加其他检查项目。</p>
-          <div v-for="(item, index) in actionForm.checks" :key="index" class="fire-row">
-            <ui-input
-              v-model="item.name"
-              :disabled="actionSaving || item.standard"
-              placeholder="检查项目名称"
-              :aria-label="`检查项目 ${index + 1}`"
-            /><ui-select v-model="item.passed" :disabled="actionSaving" placeholder="请选择结果" :aria-label="`检查结果 ${index + 1}`"
-              ><ui-option :value="true" label="合格" /><ui-option :value="false" label="不合格" /></ui-select
-            ><ui-button v-if="!item.standard" size="small" :disabled="actionSaving" @click="actionForm.checks.splice(index, 1)"
-              >移除</ui-button
-            >
-          </div>
-          <ui-button size="small" :disabled="actionSaving" @click="actionForm.checks.push({ name: '', passed: null })"
-            >添加检查项目</ui-button
-          ><ui-form-item label="发现的问题（不合格时必填）" style="margin-top: 16px"
-            ><ui-input v-model="actionForm.findings" :disabled="actionSaving" type="textarea" :rows="4" maxlength="4000" /></ui-form-item
-        ></template>
-        <template v-if="action === 'rectify'"
-          ><ui-alert
-            type="warning"
-            :title="actionTask?.findings || '请根据巡检问题完成整改'"
-            :closable="false"
-            class="fire-section" /><ui-form-item label="整改措施与完成情况 *"
-            ><ui-input v-model="actionForm.action" :disabled="actionSaving" type="textarea" :rows="5" maxlength="4000" /></ui-form-item
-        ></template>
-        <template v-if="action === 'review'"
-          ><div class="fire-history">
-            <strong>本次整改</strong>
-            <p>{{ actionTask?.rectifications?.at(-1)?.action }}</p>
-            <small class="fire-hint"
-              >提交人 {{ actionTask?.rectifications?.at(-1)?.submittedBy }} ·
-              {{ dateTimeLabel(actionTask?.rectifications?.at(-1)?.submittedAt) }}</small
-            >
-          </div>
-          <ui-form-item label="复核结果"
-            ><ui-select v-model="actionForm.approved" :disabled="actionSaving"
-              ><ui-option :value="true" label="通过，关闭任务" /><ui-option
-                :value="false"
-                label="驳回，继续整改" /></ui-select></ui-form-item
-          ><ui-form-item label="复核意见 *"
-            ><ui-input v-model="actionForm.note" :disabled="actionSaving" type="textarea" :rows="4" maxlength="4000" /></ui-form-item
-        ></template>
-        <ui-form-item v-if="action === 'cancel'" label="取消原因 *"
-          ><ui-input v-model="actionForm.reason" :disabled="actionSaving" type="textarea" :rows="4" maxlength="2000"
-        /></ui-form-item> </ui-form
-      ><template #footer
-        ><ui-button :disabled="actionSaving" @click="closeAction">返回</ui-button
-        ><ui-button
-          v-permission="`POST /api/v1/extinguisher-inspections/:id/${action}`"
-          type="primary"
-          :loading="actionSaving"
-          @click="saveAction"
-          >提交</ui-button
-        ></template
-      >
-    </ui-dialog>
-    <ui-drawer
-      :model-value="Boolean(assetDetail)"
-      :title="assetDetail ? `灭火器 · ${assetDetail.code}` : ''"
-      size="min(700px,100vw)"
-      @close="assetDetail = null"
-    >
-      <template v-if="assetDetail"
-        ><StatusDot :tone="statusTone(assetDetail.status)" :label="statusLabel(assetDetail.status)" />
-        <dl class="fire-details">
-          <div
-            v-for="(value, label) in {
-              所属消防站: stationName(assetDetail.stationId),
-              放置位置: assetDetail.location,
-              类型: typeName(assetDetail.type),
-              规格: assetDetail.specification,
-              厂家: assetDetail.manufacturer,
-              出厂序列号: assetDetail.serialNumber,
-              生产日期: dateLabel(assetDetail.manufacturedOn),
-              维护到期: dateLabel(assetDetail.serviceDueOn),
-              计划报废: dateLabel(assetDetail.retireOn),
-              巡检周期: `${assetDetail.inspectionCycleDays} 天`,
-              最近巡检: assetDetail.lastInspectedAt ? dateTimeLabel(assetDetail.lastInspectedAt) : '尚未巡检',
-              下次巡检: dateLabel(assetDetail.nextInspectionOn),
-              备注: assetDetail.notes
-            }"
-            :key="label"
-          >
-            <dt>{{ label }}</dt>
-            <dd>{{ value || '—' }}</dd>
-          </div>
-        </dl>
-        <div class="fire-row">
-          <ui-button v-permission="'PUT /api/v1/extinguishers/:id'" @click="openAsset(assetDetail)">编辑资料</ui-button
-          ><ui-button
-            v-if="assetDetail.status !== 'retired'"
-            v-permission="'POST /api/v1/extinguisher-inspections'"
-            type="primary"
-            @click="openCreateTask(assetDetail)"
-            >创建巡检任务</ui-button
-          >
-        </div></template
-      >
-    </ui-drawer>
-    <ui-drawer
-      :model-value="Boolean(taskDetail)"
-      :title="taskDetail ? `巡检 · ${assetName(taskDetail.extinguisherId)}` : ''"
-      size="min(760px,100vw)"
-      @close="taskDetail = null"
-    >
-      <template v-if="taskDetail"
-        ><StatusDot
-          :tone="statusTone(taskDetail.status)"
-          :label="inspectionStates.find(item => item.value === taskDetail.status)?.label || taskDetail.status"
-        />
-        <div class="fire-row"><RowActions :actions="taskActions(taskDetail).filter(item => item.key !== 'detail')" :inline="4" /></div>
-        <p v-if="taskDetail.status === 'reviewing' && !canReviewInspection(taskDetail, session.user)" class="fire-hint">
-          当前整改由你提交，请由其他有复核权限的用户复核。
-        </p>
-        <dl class="fire-details">
-          <div>
-            <dt>巡检人员</dt>
-            <dd>{{ personName(taskDetail.assigneeId) }}</dd>
-          </div>
-          <div>
-            <dt>截止时间</dt>
-            <dd>{{ dateTimeLabel(taskDetail.dueAt) }}</dd>
-          </div>
-          <div>
-            <dt>任务说明</dt>
-            <dd>{{ taskDetail.notes || '—' }}</dd>
-          </div>
-          <div>
-            <dt>创建人</dt>
-            <dd>{{ taskDetail.createdBy }}</dd>
-          </div>
-          <div v-if="taskDetail.inspectedAt">
-            <dt>巡检时间 / 提交人</dt>
-            <dd>{{ dateTimeLabel(taskDetail.inspectedAt) }} · {{ taskDetail.inspectedBy }}</dd>
-          </div>
-          <div v-if="taskDetail.result">
-            <dt>巡检结果</dt>
-            <dd>{{ statusLabel(taskDetail.result) }}</dd>
-          </div>
-          <div v-if="taskDetail.findings">
-            <dt>发现的问题</dt>
-            <dd>{{ taskDetail.findings }}</dd>
-          </div>
-          <div v-if="taskDetail.cancelReason">
-            <dt>取消原因</dt>
-            <dd>{{ taskDetail.cancelReason }}</dd>
-          </div>
-        </dl>
-        <section v-if="taskDetail.checks?.length" class="fire-section">
-          <h3>检查项目</h3>
-          <div v-for="item in taskDetail.checks" :key="item.name" class="fire-row">
-            <span>{{ item.name }}</span
-            ><StatusDot :tone="item.passed ? 'success' : 'danger'" :label="item.passed ? '合格' : '不合格'" />
-          </div>
-        </section>
-        <section class="fire-section">
-          <h3>整改与复核记录</h3>
-          <p v-if="!taskDetail.rectifications?.length" class="fire-hint">暂无整改记录</p>
-          <article v-for="(item, index) in taskDetail.rectifications || []" :key="index" class="fire-history">
-            <strong>第 {{ index + 1 }} 次整改</strong
-            ><StatusDot :tone="statusTone(item.status)" :label="item.status === 'pending' ? '待复核' : statusLabel(item.status)" />
-            <p>{{ item.action }}</p>
-            <small class="fire-hint">{{ item.submittedBy }} · {{ dateTimeLabel(item.submittedAt) }}</small
-            ><template v-if="item.reviewedAt"
-              ><p>复核意见：{{ item.reviewNote || '—' }}</p>
-              <small class="fire-hint">{{ item.reviewedBy }} · {{ dateTimeLabel(item.reviewedAt) }}</small></template
-            >
-          </article>
-        </section>
-      </template>
-    </ui-drawer>
+    <ExtinguisherAssetDialog
+      v-model="assetOpen"
+      :target="assetTarget"
+      :station-id="filters.stationId"
+      :options="options"
+      @saved="assetSaved"
+    />
+    <ExtinguisherBatchDialog
+      v-model="batchOpen"
+      :station-id="filters.stationId"
+      :remind-days="filters.remindDays"
+      :options="options"
+      @saved="refresh"
+    />
+    <ExtinguisherTaskDialog v-model="taskOpen" :asset="taskAsset" :station-id="filters.stationId" :options="options" @saved="taskSaved" />
+    <ExtinguisherActionDialog v-model="actionOpen" :kind="actionKind" :task="actionTask" :options="options" @saved="actionSaved" />
+    <ExtinguisherAssetDrawer v-model="assetDetail" :options="options" @edit="openAsset" @task="openCreateTask" />
+    <ExtinguisherTaskDrawer
+      v-model="taskDetail"
+      :actions="taskDetail ? taskActions(taskDetail).filter(item => item.key !== 'detail') : []"
+      :options="options"
+    />
   </div>
 </template>
 

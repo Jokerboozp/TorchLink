@@ -1,3 +1,5 @@
+import { extinguisherTypes } from './fireSafety.js'
+
 // Editable fields deliberately exclude reminder projections and audit fields.
 const editableFields = {
   stations: ['code', 'name', 'type', 'address', 'longitude', 'latitude', 'contact', 'phone', 'enabled', 'notes'],
@@ -89,4 +91,14 @@ export function fireQuery(filters, pagination = {}) {
     if (value !== '' && value != null) query.set(key, String(value))
   }
   return query.toString()
+}
+
+// 灭火器页面的名称查找；options 为 /api/v1/fire-safety/options 的结果，资料被删除时给出说明而不是编号。
+export function extinguisherLabels(options) {
+  return {
+    stationName: id => options.stations.find(item => item.id === id)?.name || '已移除消防站',
+    personName: id => options.personnel.find(item => item.id === id)?.name || '已移除人员',
+    assetName: id => options.extinguishers.find(item => item.id === id)?.code || '已移除灭火器',
+    typeName: value => extinguisherTypes.find(item => item.value === value)?.label || value
+  }
 }
