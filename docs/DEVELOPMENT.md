@@ -42,7 +42,9 @@ Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交�
 
 ### 持续集成
 
-`.github/workflows/ci.yml` 在推送到 main 与 Pull Request 时运行：`gofmt`、`go vet`、`go mod tidy` 无差异、golangci-lint，以真实 PostgreSQL（pgvector 0.8.1 / PG17）、ClickHouse 25.7、Redis 7.4 服务容器执行 `go test ./cmd/... ./internal/... ./deploy/toolaccounts`（依赖 `IOT_TEST_POSTGRES_DSN` 等的仓储与迁移测试不再跳过），对核心、协议运行时、持久队列、MQTT / Kafka 与外部数据包加 `-race`，`protocol-packages/` 与 `dev/` 下各独立协议 module 的 vet 与测试，根 module 及各协议 module 的 `govulncheck`；前端 ESLint、Prettier 格式检查、`npm test`、`npm run build` 与提示性 `npm audit`；Bash 与 PowerShell 部署脚本冒烟与 Prometheus 规则 `promtool` 校验。本地可用相同变量指向一次性数据库复现。
+`.github/workflows/ci.yml` 在推送到 main 与 Pull Request 时运行：`gofmt`、`go vet`、`go mod tidy` 无差异、golangci-lint，以真实 PostgreSQL（pgvector 0.8.1 / PG17）、ClickHouse 25.7、Redis 7.4 服务容器执行 `go test ./cmd/... ./internal/... ./deploy/toolaccounts`（依赖 `IOT_TEST_POSTGRES_DSN` 等的仓储与迁移测试不再跳过），对核心、协议运行时、持久队列、MQTT / Kafka、外部数据、内存仓储、视频、运维中心、进程装配、通知、消息主题、单位点位与设备接入包加 `-race`，`protocol-packages/` 与 `dev/` 下各独立协议 module 的 vet 与测试，根 module 及各协议 module 的 `govulncheck`；前端 ESLint、Prettier 格式检查、`npm test`、`npm run build` 与提示性 `npm audit`；Bash 与 PowerShell 部署脚本冒烟与 Prometheus 规则 `promtool` 校验。本地可用相同变量指向一次性数据库复现。
+
+`.github/workflows/nightly.yml` 每天北京时间 02:17 运行（也可手动触发）：对 HTTP 接口、容量测试与 PostgreSQL 仓储加 `-race`；`scripts/ci/nightly-integration.sh` 用 `compose.yaml` 中的 EMQX（JWT / ACL 与部署一致）和 Redpanda（SASL，额外发布管理端口）、一个无认证的 Redpanda 开发容器、测试自带的 Mosquitto 和平台镜像的协议运行器，在备用端口上执行真实 MQTT、Kafka、拆分进程恢复与运行器隔离测试，结束后删除容器和数据卷。本地有 Docker 和 Go 时可在仓库根目录直接执行 `bash scripts/ci/nightly-integration.sh`（设置 `IOT_TEST_POSTGRES_DSN` 时包含拆分进程用例，`IOT_NIGHTLY_PLATFORM_IMAGE` 可指定已构建的平台镜像以跳过构建）。
 
 ### 脚本入口
 

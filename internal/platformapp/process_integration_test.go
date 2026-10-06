@@ -74,7 +74,9 @@ func TestSplitProcessesPostgresKafkaRecovery(t *testing.T) {
 			baseEnv = append(baseEnv, entry)
 		}
 	}
-	baseEnv = append(baseEnv, "IOT_POSTGRES_DSN="+isolatedDSN, "IOT_KAFKA_BROKERS="+broker, "IOT_JWT_SECRET=isolated-split-process-jwt-key-32", "IOT_ADMIN_USER=test-admin", "IOT_ADMIN_PASSWORD=isolated-process-password", "IOT_ADMIN_TENANTS=t", "IOT_DATA_DIR="+root, "IOT_ACCESS_GATEWAY_URL=http://"+gatewayAddr)
+	baseEnv = append(baseEnv, "IOT_POSTGRES_DSN="+isolatedDSN, "IOT_KAFKA_BROKERS="+broker, "IOT_JWT_SECRET=isolated-split-process-jwt-key-32", "IOT_ADMIN_USER=test-admin", "IOT_ADMIN_PASSWORD=isolated-process-password", "IOT_ADMIN_TENANTS=t", "IOT_DATA_DIR="+root, "IOT_ACCESS_GATEWAY_URL=http://"+gatewayAddr,
+		// Harness is mandatory configuration; this test never starts a workflow.
+		"IOT_AI_HARNESS_URL=http://127.0.0.1:9", "IOT_AI_HARNESS_MCP_URL=http://127.0.0.1:9/mcp/harness", "IOT_AI_HARNESS_TOKEN=isolated-split-process-harness-token-32")
 	start := func(role, addr string) func() {
 		executable, e := os.Executable()
 		if e != nil {
@@ -120,7 +122,8 @@ func TestSplitProcessesPostgresKafkaRecovery(t *testing.T) {
 			case <-time.After(100 * time.Millisecond):
 			}
 		}
-		t.Fatal("process startup failed; inspect isolated process log")
+		output, _ := os.ReadFile(filepath.Join(root, role+".log"))
+		t.Fatalf("%s process did not start; log tail:\n%s", role, tail(output, 4000))
 		return stop
 	}
 	stopGateway := start("gateway", gatewayAddr)
@@ -208,4 +211,12 @@ func TestSplitProcessesPostgresKafkaRecovery(t *testing.T) {
 	if e != nil || count != 2 || len(messages) != 2 {
 		t.Fatal("unexpected message count", count, e)
 	}
+}
+
+// tail returns at most the last n bytes of a process log.
+func tail(b []byte, n int) string {
+	if len(b) > n {
+		b = b[len(b)-n:]
+	}
+	return string(b)
 }

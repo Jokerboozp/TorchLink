@@ -183,6 +183,8 @@ func TestStandardMQTTLiveBroker(t *testing.T) {
 	if e = repo.SaveRule(ctx, model.AlarmRule{TenantID: tenant, ID: "temperature-rule", ProductID: "product", Name: "temporary threshold", Enabled: true, AlarmType: "HIGH_TEMPERATURE", Level: "HIGH", Conditions: []model.RuleCondition{{Field: "temperature", Operator: ">", Value: 80}}, Recovery: []model.RuleCondition{{Field: "temperature", Operator: "<", Value: 70}}}); e != nil {
 		t.Fatal(e)
 	}
+	// Saved behind the engine's back: drop its cached rule list as the rule API does.
+	engine.RulesChanged(tenant)
 	raise := fmt.Sprintf(`{"id":"alarm-property","timestamp":%d,"data":{"temperature":85}}`, time.Now().UnixMilli())
 	wait(t, device.Publish(prefix+"property", 1, false, raise))
 	until(t, func() bool {
