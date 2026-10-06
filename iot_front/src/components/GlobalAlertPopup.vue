@@ -13,7 +13,8 @@ import {
   normalizeAlertSettings,
   parseRealtimeAlert,
   playAlarmTone,
-  saveAlertSettings
+  saveAlertSettings,
+  unlockAlarmAudio
 } from '../globalAlert'
 
 const emit = defineEmits(['navigate'])
@@ -68,14 +69,22 @@ function handleRealtime(event) {
   // 告警集中到达时提示音至少间隔 3 秒，避免叠响。
   if (settings.soundEnabled && !quiet && Date.now() - lastToneAt >= TONE_INTERVAL_MS) {
     lastToneAt = Date.now()
-    void playAlarmTone()
+    void playAlarmTone().then(played => {
+      if (played || toneBlockedNoticeShown) return
+      toneBlockedNoticeShown = true
+      UiMessage.warning('警报声被浏览器拦截：点击页面任意位置后，后续告警即可响铃')
+    })
   }
   if (!settings.popupEnabled || quiet) return
+  // 屏幕阅读器通过常驻的播报区读出最新一条提示。
+  liveMessage.value = `${alert.kind === 'fault' ? '设备故障' : '发现报警'}：${alert.deviceName || alert.deviceId || '未知设备'}，${alertContent(alert)}`
   if (popupAlerts.value.length >= MAX_POPUPS) hiddenCount.value++
   popupAlerts.value = [alert, ...popupAlerts.value].slice(0, MAX_POPUPS)
 }
 
 const TONE_INTERVAL_MS = 3000
+const liveMessage = ref('')
+let toneBlockedNoticeShown = false
 const MAX_POPUPS = 3
 let lastToneAt = 0
 // 超出显示上限后被挤掉的提示数，提醒用户到告警中心查看全部。
@@ -139,13 +148,22 @@ onMounted(() => {
   window.addEventListener('storage', handleStorage)
 })
 
+const unlockEvents = ['pointerdown', 'keydown']
+function unlockOnce() {
+  unlockAlarmAudio()
+  for (const name of unlockEvents) window.removeEventListener(name, unlockOnce, true)
+}
+for (const name of unlockEvents) window.addEventListener(name, unlockOnce, true)
+
 onBeforeUnmount(() => {
+  for (const name of unlockEvents) window.removeEventListener(name, unlockOnce, true)
   window.removeEventListener('iot:realtime', handleRealtime)
   window.removeEventListener('storage', handleStorage)
 })
 </script>
 
 <template>
+  <div class="global-alert-live" aria-live="assertive" aria-atomic="true">{{ liveMessage }}</div>
   <section v-if="popupAlerts.length" class="global-alert-popups" aria-label="实时报警通知">
     <div v-if="popupAlerts.length > 1 || hiddenCount" class="global-alert-bar">
       <span>{{ hiddenCount ? `另有 ${hiddenCount} 条提示未显示` : `${popupAlerts.length} 条实时提示` }}</span>
@@ -158,8 +176,7 @@ onBeforeUnmount(() => {
         :key="item.id"
         class="global-alert-popup"
         :class="`is-${item.kind}`"
-        role="alertdialog"
-        aria-live="assertive"
+        :aria-label="item.kind === 'fault' ? '设备故障' : '发现报警'"
       >
         <div class="global-alert-head">
           <div class="global-alert-icon"><component :is="item.kind === 'fault' ? AlertTriangle : BellRing" /></div>
@@ -250,6 +267,17 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
+/* 屏幕阅读器播报区：常驻但不可见。 */
+.global-alert-live {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 /* 弹窗与设置对话框传送到 body，样式以 global-alert- / alert- 前缀限定。 */
 .global-alert-popups {
   position: fixed;

@@ -293,13 +293,33 @@ export function alertTagType(level) {
 
 let audioContext
 
-export async function playAlarmTone() {
-  if (typeof window === 'undefined') return false
+function alarmAudio() {
+  if (typeof window === 'undefined') return null
   const AudioContext = window.AudioContext || window.webkitAudioContext
-  if (!AudioContext) return false
+  if (!AudioContext) return null
+  audioContext ||= new AudioContext()
+  return audioContext
+}
+
+// 浏览器只在用户操作后允许播放声音：首次点击或按键时创建并恢复音频上下文，
+// 之后的实时告警即可直接响铃。
+export function unlockAlarmAudio() {
   try {
-    audioContext ||= new AudioContext()
-    if (audioContext.state === 'suspended') await audioContext.resume()
+    const context = alarmAudio()
+    if (context?.state === 'suspended') void context.resume().catch(() => {})
+  } catch {
+    /* 不支持音频时无需处理。 */
+  }
+}
+
+// 返回是否已播放；浏览器仍拦截自动播放（页面尚无用户操作）时返回 false。
+export async function playAlarmTone() {
+  try {
+    const context = alarmAudio()
+    if (!context) return false
+    if (context.state === 'suspended') await Promise.race([context.resume(), new Promise(done => setTimeout(done, 300))])
+    if (context.state !== 'running') return false
+    const audioContext = context
     const start = audioContext.currentTime
     for (const [offset, frequency] of [
       [0, 880],
