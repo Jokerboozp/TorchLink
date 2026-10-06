@@ -140,7 +140,13 @@ func (e *Engine) IngestRaw(ctx context.Context, raw model.RawMessage) (model.Raw
 		return model.RawArchiveIndex{}, false, reserveErr
 	}
 	if !newReservation {
-		if existing, err := e.Repo.GetRawIndex(ctx, raw.TenantID, raw.MessageID); err == nil {
+		existing, err := e.Repo.GetRawIndex(ctx, raw.TenantID, raw.MessageID)
+		if err != nil && !errors.Is(err, model.ErrNotFound) {
+			// The archive may already hold this message; archiving it again
+			// after a transient read error would duplicate it. Retry instead.
+			return model.RawArchiveIndex{}, false, fmt.Errorf("read reserved raw index: %w", err)
+		}
+		if err == nil {
 			if existing.PayloadHash != raw.PayloadHash() || existing.DeviceID != raw.DeviceID || existing.ProductID != raw.ProductID {
 				if e.Log != nil {
 					e.Log.Warn("raw message id conflict", "tenantId", raw.TenantID, "messageId", raw.MessageID)
