@@ -219,6 +219,14 @@ function openFirstMatch() {
   openPage(name)
 }
 
+// 实时通道跟随权限：获得告警、设备等菜单时补连，全部失去时停止，避免授权后要重新登录才有告警提醒。
+const realtimeAllowed = () => can(['menu:devices', 'menu:alarms', 'menu:dashboard', 'menu:raw'])
+watch(realtimeAllowed, (allowed, before) => {
+  if (!authenticated.value || allowed === before) return
+  if (allowed) connect()
+  else stopRealtime()
+})
+
 watch(
   () => permissionState.accessVersion + '\n' + permissionState.items.join('\n'),
   (value, old) => {

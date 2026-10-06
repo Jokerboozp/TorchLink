@@ -176,6 +176,21 @@ test('事件轮询失败时逐次退避，恢复后回到常规间隔', async ()
   assert.equal(r.delays.at(-1), 3000)
   assert.equal(r.realtimeStatus.state, 'ok')
 })
+test('事件轮询遇到 403 时刷新权限并继续退避轮询，不会静默停止', async () => {
+  let forbidden = true
+  const r = realtime(async () => {
+    if (forbidden) throw Object.assign(Error('forbidden'), { status: 403 })
+    return { alarms: [], devices: [], permissions: ['menu:alarms'] }
+  })
+  await r.start()
+  await settle()
+  assert.equal(r.timers.length, 1, '403 后必须安排下一次轮询')
+  assert.equal(r.realtimeStatus.state, 'retrying')
+  forbidden = false
+  await r.timers.shift()()
+  assert.equal(r.realtimeStatus.state, 'ok')
+  assert.equal(r.timers.length, 1)
+})
 test('退出登录后迟到的消息响应不能进入另一个用户的页面', async () => {
   let resolve
   const r = realtime(() => new Promise(done => (resolve = done)))

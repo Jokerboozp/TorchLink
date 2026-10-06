@@ -142,12 +142,13 @@ export async function startRealtime(onMessage) {
     } catch (error) {
       if (run !== generation) return
       // Keep the last successful snapshot across transient network failures.
-      if (error.status === 403) {
-        polling = false
-        await refreshPermissions().catch(() => {})
-        return
-      }
-      if (error.status === 401) {
+      // 403 usually means the account's permissions just changed. Refresh them
+      // and keep polling with backoff: the shell stops this loop when the
+      // account no longer has any realtime menu, so a stall here would
+      // silently drop alarm popups for the rest of the session.
+      if (error.status === 403) await refreshPermissions().catch(() => {})
+      if (run !== generation) return
+      else if (error.status === 401) {
         polling = false
         realtimeStatus.state = 'stopped'
         return
