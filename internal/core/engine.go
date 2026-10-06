@@ -1032,15 +1032,32 @@ func (e *Engine) recoverRuleAlarm(ctx context.Context, rule model.AlarmRule, msg
 
 // DeleteRule removes a rule and closes any alarms that can no longer be
 // recovered by the deleted rule. Historical alarm rows are retained.
+//
+// Every step leaves a state that a retried delete completes: the rule is
+// switched off first so it raises nothing new, its alarms are recovered while
+// the rule still exists, and only then the rule and its duration timers are
+// removed together.
 func (e *Engine) DeleteRule(ctx context.Context, tenant, ruleID string) error {
-	if err := e.Repo.DeleteRule(ctx, tenant, ruleID); err != nil {
+	rules, err := e.Repo.ListRules(ctx, tenant)
+	if err != nil {
 		return err
+	}
+	index := slices.IndexFunc(rules, func(r model.AlarmRule) bool { return r.ID == ruleID })
+	if index < 0 {
+		return model.ErrNotFound
+	}
+	if rule := rules[index]; rule.Enabled {
+		rule.Enabled = false
+		if err = e.Repo.SaveRule(ctx, rule); err != nil {
+			return err
+		}
 	}
 	e.RulesChanged(tenant)
-	if err := e.Repo.DeleteRulePendings(ctx, tenant, ruleID); err != nil {
+	if err = e.closeRuleAlarms(ctx, tenant, ruleID); err != nil {
 		return err
 	}
-	return e.closeRuleAlarms(ctx, tenant, ruleID)
+	defer e.RulesChanged(tenant)
+	return e.Repo.DeleteRule(ctx, tenant, ruleID)
 }
 
 // DisableRule clears duration state and closes active/acknowledged alarms

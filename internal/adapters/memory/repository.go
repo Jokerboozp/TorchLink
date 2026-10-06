@@ -798,6 +798,12 @@ func (r *Repository) DeleteRule(_ context.Context, tenant, id string) error {
 		return ErrNotFound
 	}
 	delete(r.rules, k)
+	prefix := key(tenant, id) + "\x00"
+	for pendingKey := range r.rulePending {
+		if strings.HasPrefix(pendingKey, prefix) {
+			delete(r.rulePending, pendingKey)
+		}
+	}
 	return nil
 }
 func (r *Repository) SaveRulePending(_ context.Context, tenant, ruleID, deviceID string, since int64) error {

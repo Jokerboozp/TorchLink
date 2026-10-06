@@ -1000,12 +1000,19 @@ func (r *Repository) ListRulesPage(ctx context.Context, tenant string, limit, of
 	}
 	return items, total, rows.Err()
 }
+
+// DeleteRule removes the rule with its duration timers in one transaction.
 func (r *Repository) DeleteRule(ctx context.Context, tenant, id string) error {
-	tag, err := r.pool.Exec(ctx, `DELETE FROM alarm_rule WHERE tenant_id=$1 AND id=$2`, tenant, id)
-	if err == nil && tag.RowsAffected() == 0 {
-		return ErrNotFound
-	}
-	return err
+	return pgx.BeginFunc(ctx, r.pool, func(tx pgx.Tx) error {
+		if _, err := tx.Exec(ctx, `DELETE FROM alarm_rule_pending WHERE tenant_id=$1 AND rule_id=$2`, tenant, id); err != nil {
+			return err
+		}
+		tag, err := tx.Exec(ctx, `DELETE FROM alarm_rule WHERE tenant_id=$1 AND id=$2`, tenant, id)
+		if err == nil && tag.RowsAffected() == 0 {
+			return ErrNotFound
+		}
+		return err
+	})
 }
 func (r *Repository) SaveRulePending(ctx context.Context, tenant, ruleID, deviceID string, since int64) error {
 	_, err := r.pool.Exec(ctx, `INSERT INTO alarm_rule_pending(tenant_id,rule_id,device_id,since_at) VALUES($1,$2,$3,$4) ON CONFLICT(tenant_id,rule_id,device_id) DO UPDATE SET since_at=LEAST(alarm_rule_pending.since_at, EXCLUDED.since_at), updated_at=now()`, tenant, ruleID, deviceID, since)

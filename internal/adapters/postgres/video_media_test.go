@@ -14,3 +14,7 @@ func TestDevicePagesAndPlaySessions(t *testing.T) {
 func TestRawPublishRetriesStopAtTheLimit(t *testing.T) {
 	repositorytest.RawPublishRetriesStopAtTheLimit(t, testRepository(t))
 }
+
+func TestRuleDeleteRemovesDurationTimers(t *testing.T) {
+	repositorytest.RuleDeleteRemovesDurationTimers(t, testRepository(t))
+}
