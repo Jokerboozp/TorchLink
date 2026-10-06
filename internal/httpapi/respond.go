@@ -62,9 +62,20 @@ func tenant(c auth.Claims, requested string) string {
 	return c.TenantID
 }
 
+// defaultTenant is the tenant a login without tenantId signs in to: the first
+// tenant configured in IOT_ADMIN_TENANTS, or tenant_001.
+func defaultTenant(configured []string) string {
+	for _, tenantID := range configured {
+		if tenantID = strings.TrimSpace(tenantID); tenantID != "" {
+			return tenantID
+		}
+	}
+	return "tenant_001"
+}
+
 func adminTenantAllowed(configured []string, requested string) bool {
 	if len(configured) == 0 {
-		configured = []string{"tenant_001"}
+		configured = []string{defaultTenant(nil)}
 	}
 	requested = strings.TrimSpace(requested)
 	for _, tenantID := range configured {

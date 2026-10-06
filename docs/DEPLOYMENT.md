@@ -230,7 +230,7 @@ PostgreSQL 17 镜像包含固定版本 pgvector 0.8.1，沿用原 PostgreSQL 数
 | `IOT_ACCESS_GATEWAY_URL` | 独立接入网关的 HTTP(S) 内网地址 |
 | `IOT_ACCESS_NODE_URL` | 其他实例可直达当前实例的固定 HTTP(S) 地址 |
 | `IOT_ADMIN_PASSWORD` | 平台内置管理员密码，默认 admin123，可自定义，无长度或复杂度限制 |
-| `IOT_ADMIN_TENANTS` | 内置管理员可访问的租户，多个值用逗号分隔 |
+| `IOT_ADMIN_TENANTS` | 内置管理员可访问的租户，多个值用逗号分隔；登录页不填写租户，使用第一个 |
 | `IOT_ADMIN_USER` | 平台内置管理员用户名 |
 | `IOT_API_EMBEDDED_WORKERS` | api 角色是否内嵌解析、业务处理与后台任务，默认 true；设为 false 时须另行部署各 Worker 角色 |
 | `IOT_API_PORT` | Docker 部署时 API 对外端口 |

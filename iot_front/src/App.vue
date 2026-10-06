@@ -137,15 +137,8 @@ const contentArea = ref(null)
 const pageKey = ref(0)
 const loginLoading = ref(false)
 const globalAlertPopup = ref(null)
-// 登录表单只记住本浏览器上次使用的租户，不预填账户名。
-const lastTenant = () => {
-  try {
-    return localStorage.getItem('iot:last-tenant') || ''
-  } catch {
-    return ''
-  }
-}
-const loginForm = ref({ tenantId: lastTenant(), username: '', password: '' })
+// 登录不填写租户，由服务端使用部署配置的默认租户。
+const loginForm = ref({ username: '', password: '' })
 const currentUser = computed(() => identity.value.user || loginForm.value.username || '账户')
 // 平台用户显示自己被分配的角色名称；登录凭据里的角色对所有平台用户都相同，不能用于显示。
 const currentRole = computed(() =>
@@ -373,11 +366,6 @@ const passwordDialog = ref(false)
 const passwordChange = ref({ required: false, token: '', current: '' })
 function startSession(data, username) {
   sessionStore.start(data, username)
-  try {
-    if (data.tenantId) localStorage.setItem('iot:last-tenant', data.tenantId)
-  } catch {
-    /* 无法保存时下次手动填写租户。 */
-  }
   // 登录前打开的深链接（例如通知中的告警详情）在登录后继续打开。
   applyRoute()
   refreshModules()
@@ -623,17 +611,6 @@ onBeforeUnmount(() => {
           <h2>欢迎使用炬联</h2>
           <p class="login-form__lead">登录账户，进入消防物联网工作台</p>
           <div class="login-fields">
-            <div class="login-field">
-              <label for="tenant-id">租户</label>
-              <ui-input
-                id="tenant-id"
-                v-model="loginForm.tenantId"
-                size="large"
-                autocomplete="organization"
-                placeholder="请输入租户编号"
-                required
-              />
-            </div>
             <div class="login-field">
               <label for="username">用户名</label>
               <ui-input

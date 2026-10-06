@@ -12,7 +12,7 @@ GRAFANA_ADMIN_PASSWORD	Grafana 管理员密码，默认 admin123；已有配置�
 IOT_JWT_SECRET	平台登录令牌签名密钥，首次部署自动生成
 IOT_ADMIN_USER	平台内置管理员用户名
 IOT_ADMIN_PASSWORD	平台内置管理员密码，默认 admin123，可自定义，无长度或复杂度限制
-IOT_ADMIN_TENANTS	内置管理员可访问的租户，多个值用逗号分隔
+IOT_ADMIN_TENANTS	内置管理员可访问的租户，多个值用逗号分隔；登录页不填写租户，使用第一个
 IOT_AI_HARNESS_TOKEN	平台与 DeepSeek Harness 之间的内部令牌
 IOT_BACKUP_ADMIN_TOKEN	备份服务管理令牌
 IOT_METRICS_TOKEN	Prometheus 抓取平台 /metrics 的令牌，部署时自动生成；置空则不校验

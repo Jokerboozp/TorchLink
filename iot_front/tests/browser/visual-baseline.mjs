@@ -93,7 +93,7 @@ async function login(theme) {
   await call('Page.navigate', { url: origin })
   await until(() => evaluate("Boolean(document.querySelector('.login-form input[type=password]'))"), 'login form')
   await evaluate(
-    "(() => { const fill = (s, v) => { const i = document.querySelector(s); i.value = v; i.dispatchEvent(new Event('input', { bubbles: true })) }; fill('.login-form #tenant-id input, .login-form input#tenant-id', 'fixture'); fill('.login-form #username input, .login-form input#username', 'admin'); fill('.login-form input[type=password]', 'fixture'); document.querySelector('.login-form button[type=submit]').click() })()"
+    "(() => { const fill = (s, v) => { const i = document.querySelector(s); i.value = v; i.dispatchEvent(new Event('input', { bubbles: true })) }; fill('.login-form #username input, .login-form input#username', 'admin'); fill('.login-form input[type=password]', 'fixture'); document.querySelector('.login-form button[type=submit]').click() })()"
   )
   await until(() => evaluate("document.querySelectorAll('.nav-item').length >= 15"), 'menu')
 }

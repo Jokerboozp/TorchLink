@@ -187,7 +187,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	in.TenantID = strings.TrimSpace(in.TenantID)
 	if in.TenantID == "" {
-		in.TenantID = "tenant_001"
+		in.TenantID = defaultTenant(s.cfg.AdminTenants)
 	}
 	account := in.TenantID + "\x00" + in.Username
 	if wait := s.logins.retryAfter(account); wait > 0 {

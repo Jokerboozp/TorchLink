@@ -91,9 +91,9 @@ try {
       )
     }) /* 等待异步页面出现业务内容。 */
   }
-  // 登录页不预填租户与账户：夹具登录时三项都要填写。
+  // 登录页不预填账户：夹具登录时填写用户名和密码。
   const fixtureLogin =
-    "(() => { const fill = (selector, value) => { const input = document.querySelector(selector); input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })) }; fill('.login-form #tenant-id input, .login-form input#tenant-id', 'fixture'); fill('.login-form #username input, .login-form input#username', 'admin'); fill('.login-form input[type=password]', 'fixture'); document.querySelector('.login-form button[type=submit]').click() })()"
+    "(() => { const fill = (selector, value) => { const input = document.querySelector(selector); input.value = value; input.dispatchEvent(new Event('input', { bubbles: true })) }; fill('.login-form #username input, .login-form input#username', 'admin'); fill('.login-form input[type=password]', 'fixture'); document.querySelector('.login-form button[type=submit]').click() })()"
   const freshSession = async () => {
     /* 重新载入并登录：隔离前面页面累积的状态，避免无头浏览器长时间运行后卡住。 */
     await call('Page.navigate', { url: origin })

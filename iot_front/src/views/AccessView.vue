@@ -313,7 +313,7 @@ function roleActions(row) {
       <section class="user-editor-section">
         <div class="user-editor-heading">
           <h3>账户信息</h3>
-          <p>用户登录时需填写所属租户、用户名和密码。</p>
+          <p>用户登录时填写用户名和密码。</p>
         </div>
         <div class="user-editor-grid">
           <ui-form-item label="所属租户"><ui-input :model-value="tenantId" disabled /></ui-form-item>

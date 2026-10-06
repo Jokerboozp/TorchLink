@@ -112,6 +112,34 @@ func TestBuiltinAdminCanUseConfiguredTenant(t *testing.T) {
 	}
 }
 
+// The login page sends no tenant: it falls back to the first configured
+// admin tenant, not a fixed ID that may be missing from IOT_ADMIN_TENANTS.
+func TestLoginWithoutTenantUsesFirstConfiguredTenant(t *testing.T) {
+	cfg := config.Config{AdminUser: "admin", AdminPassword: "admin123", AdminTenants: []string{" ", "tenant-main", "tenant-other"}, JWTSecret: "test-secret-at-least-32-characters"}
+	s := &Server{cfg: cfg, auth: auth.New(cfg.JWTSecret), engine: &core.Engine{}}
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"username":"admin","password":"admin123"}`))
+	req.Header.Set("Content-Type", "application/json")
+	resp := httptest.NewRecorder()
+	s.login(resp, req)
+	if resp.Code != http.StatusOK {
+		t.Fatalf("login without tenant failed: status=%d body=%s", resp.Code, resp.Body.String())
+	}
+	var result struct {
+		AccessToken string `json:"accessToken"`
+		TenantID    string `json:"tenantId"`
+	}
+	if err := json.Unmarshal(resp.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	claims, err := s.auth.Parse(result.AccessToken)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.TenantID != "tenant-main" || claims.TenantID != "tenant-main" {
+		t.Fatalf("unexpected default tenant: response=%q token=%q", result.TenantID, claims.TenantID)
+	}
+}
+
 // Repeated wrong passwords lock the account for a while; a success before the
 // limit clears the count, and the lock ends on its own.
 func TestLoginLimiterLocksAccountAfterRepeatedFailures(t *testing.T) {
