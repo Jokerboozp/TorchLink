@@ -51,7 +51,9 @@ import { pageGuide } from './pageGuide'
 import { NAVIGATION_KEY, parsePath, pathFor, withPageState } from './routing'
 import { confirmDiscard, hasUnsaved } from './composables/unsavedGuard.js'
 import PageLoadState from './components/layout/PageLoadState.vue'
-import { can, permissionState, refreshPermissions, resetPermissions } from './permissions'
+import { can, permissionState } from './permissions'
+import { storeToRefs } from 'pinia'
+import { onSessionReset, useSessionStore } from './stores/session'
 import { isDark, setThemeMode, themeMode } from './theme/mode.js'
 import { realtimeStatus, retryRealtime, startRealtime, stopRealtime } from './realtime'
 import { useMediaQuery } from './composables/useMediaQuery'
@@ -94,7 +96,11 @@ const OpsDashboardsView = lazyView(() => import('./views/OpsDashboardsView.vue')
 const OpsAlertsView = lazyView(() => import('./views/OpsAlertsView.vue'))
 const OpsCapacityView = lazyView(() => import('./views/OpsCapacityView.vue'))
 
-const authenticated = ref(Boolean(session.token))
+const sessionStore = useSessionStore()
+const { authenticated, identity, platformVersion } = storeToRefs(sessionStore)
+// 退出登录时由会话仓库统一清理：直播状态缓存与后台运行的智能助手对话。
+onSessionReset(resetLiveState)
+onSessionReset(resetAIConversation)
 const active = ref('dashboard')
 const readStoredCollapse = () => {
   try {
@@ -129,9 +135,6 @@ const lastTenant = () => {
   }
 }
 const loginForm = ref({ tenantId: lastTenant(), username: '', password: '' })
-const identity = ref({ tenant: session.tenant, user: session.user, role: session.role })
-// 平台版本只用于排查与反馈问题，来自 /api/v1/auth/me。
-const platformVersion = ref('')
 const currentUser = computed(() => identity.value.user || loginForm.value.username || '账户')
 const currentRole = computed(() => ({ admin: '管理员', operator: '运维人员', viewer: '访客' })[identity.value.role] || '平台用户')
 
@@ -258,7 +261,7 @@ async function syncIdentity() {
   if (!authenticated.value) return
   lastFocusSync = Date.now()
   try {
-    platformVersion.value = (await refreshPermissions())?.platformVersion || ''
+    await sessionStore.refresh()
     if (!routeApplied) applyRoute(true)
     else if (!can('menu:' + active.value)) active.value = firstAllowedPage()
   } catch (error) {
@@ -304,18 +307,12 @@ async function onPopState() {
 const passwordDialog = ref(false)
 const passwordChange = ref({ required: false, token: '', current: '' })
 function startSession(data, username) {
-  session.save(data, username)
+  sessionStore.start(data, username)
   try {
     if (data.tenantId) localStorage.setItem('iot:last-tenant', data.tenantId)
   } catch {
     /* 无法保存时下次手动填写租户。 */
   }
-  identity.value = { tenant: data.tenantId || '', user: username, role: data.role || '' }
-  platformVersion.value = data.platformVersion || ''
-  authenticated.value = true
-  permissionState.accessVersion = data.accessVersion || ''
-  permissionState.items = data.permissions || []
-  permissionState.ready = true
   // 登录前打开的深链接（例如通知中的告警详情）在登录后继续打开。
   applyRoute(true)
   refreshModules()
@@ -356,8 +353,6 @@ function logout() {
   stopRealtime()
   // 先关闭直播弹窗（卸载时释放播放会话），再清除身份与直播状态缓存。
   livePlayerVisible.value = false
-  resetLiveState()
-  resetAIConversation()
   // 对话记录含设备与告警问答，退出后不留在本浏览器。
   try {
     // 用本页的身份：其他标签页退出时共享的会话键已被清空。
@@ -365,10 +360,7 @@ function logout() {
   } catch {
     /* 存储不可用时没有可清理的记录。 */
   }
-  session.clear()
-  resetPermissions()
-  identity.value = { tenant: '', user: '', role: '' }
-  authenticated.value = false
+  sessionStore.signOut()
 }
 
 const themeOptions = [
