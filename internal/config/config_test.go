@@ -524,3 +524,44 @@ func TestProductionRejectsPlaceholderServiceTokens(t *testing.T) {
 		}
 	}
 }
+
+func TestSecretsAreReadFromFiles(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, value string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(value), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	// Resolved values are set with os.Setenv; registering them restores them.
+	for _, name := range []string{"IOT_JWT_SECRET", "IOT_POSTGRES_PASSWORD", "IOT_OPS_LOKI_RUNTIME", "IOT_BACKUP_ADMIN_TOKEN"} {
+		t.Setenv(name, "")
+	}
+	t.Setenv("IOT_JWT_SECRET_FILE", write("jwt", "from-file-jwt-secret-0123456789abcdef\n"))
+	t.Setenv("IOT_POSTGRES_DSN", "postgres://iot@db:5432/iot?sslmode=disable")
+	t.Setenv("IOT_POSTGRES_PASSWORD_FILE", write("pg", "p@ss:word/1\r\n"))
+	// Only secret-like names are resolved; other *_FILE variables are paths.
+	t.Setenv("IOT_OPS_LOKI_RUNTIME_FILE", write("runtime", "keep-as-path"))
+	cfg := Load()
+	if cfg.JWTSecret != "from-file-jwt-secret-0123456789abcdef" {
+		t.Fatalf("jwt secret %q", cfg.JWTSecret)
+	}
+	if cfg.PostgresDSN != "postgres://iot:p%40ss%3Aword%2F1@db:5432/iot?sslmode=disable" {
+		t.Fatalf("dsn %q", cfg.PostgresDSN)
+	}
+	if os.Getenv("IOT_OPS_LOKI_RUNTIME") != "" {
+		t.Fatal("a non-secret _FILE variable was resolved")
+	}
+	if cfg.loadErr != nil {
+		t.Fatalf("load error %v", cfg.loadErr)
+	}
+
+	t.Setenv("IOT_AI_API_KEY", "inline")
+	t.Setenv("IOT_AI_API_KEY_FILE", write("ai", "file"))
+	t.Setenv("IOT_BACKUP_ADMIN_TOKEN_FILE", filepath.Join(dir, "missing"))
+	err := ApplySecretFiles()
+	if err == nil || !strings.Contains(err.Error(), "IOT_AI_API_KEY") || !strings.Contains(err.Error(), "IOT_BACKUP_ADMIN_TOKEN_FILE") {
+		t.Fatalf("conflicting or missing secret files accepted: %v", err)
+	}
+}

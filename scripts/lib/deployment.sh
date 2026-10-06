@@ -203,12 +203,18 @@ ensure_metrics_token() {
 # tokens (Harness gateway, backup restore API) with generated secrets; the
 # platform refuses placeholders outside development mode.
 ensure_service_tokens() {
-  local key value
+  local key value entry
   for key in IOT_AI_HARNESS_TOKEN IOT_BACKUP_ADMIN_TOKEN; do
     value="$(get_deployment_env_value "$1" "$key")"
     if [[ ${#value} -lt 32 || "$value" == *change-me* ]]; then
       set_deployment_env_value "$1" "$key" "$(deployment_secret)"
     fi
+  done
+  # compose.yaml passes these to the platform as Compose secrets, which fail
+  # when the variable is missing; older files get the previous defaults.
+  for entry in POSTGRES_PASSWORD=admin123 DEEPSEEK_API_KEY= IOT_VIDEO_CREDENTIAL_KEY=; do
+    key="${entry%%=*}"
+    grep -Eq "^[[:space:]]*(export[[:space:]]+)?$key[[:space:]]*=" "$1" 2>/dev/null || set_deployment_env_value "$1" "$key" "${entry#*=}"
   done
 }
 

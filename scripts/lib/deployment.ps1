@@ -314,6 +314,11 @@ function Ensure-ServiceTokens {
             Set-DeploymentEnvValue -Path $Path -Key $key -Value (New-DeploymentSecret)
         }
     }
+    # compose.yaml passes these to the platform as Compose secrets, which fail
+    # when the variable is missing; older files get the previous defaults.
+    foreach ($entry in @(@('POSTGRES_PASSWORD', 'admin123'), @('DEEPSEEK_API_KEY', ''), @('IOT_VIDEO_CREDENTIAL_KEY', ''))) {
+        if (-not (Test-DeploymentEnvKey -Path $Path -Key $entry[0])) { Set-DeploymentEnvValue -Path $Path -Key $entry[0] -Value $entry[1] }
+    }
 }
 
 # Knowledge vectors and reranking use the embedding / reranker services

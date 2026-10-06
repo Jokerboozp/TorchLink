@@ -33,6 +33,11 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	// Secrets may come from NAME_FILE (Compose secrets), as for the platform.
+	if err := config.ApplySecretFiles(); err != nil {
+		log.Error("read secret files", "error", err)
+		os.Exit(1)
+	}
 	service, err := backup.New(ctx, backup.Config{
 		PostgresDSN: os.Getenv("IOT_POSTGRES_DSN"), BackupDir: env("IOT_BACKUP_DIR", "./data/backups"), BackupBucket: env("IOT_BACKUP_BUCKET", "iot-backups"),
 		MinIOEndpoint: os.Getenv("IOT_MINIO_ENDPOINT"), MinIOAccessKey: os.Getenv("IOT_MINIO_ACCESS_KEY"), MinIOSecretKey: os.Getenv("IOT_MINIO_SECRET_KEY"), MinIOUseTLS: boolean("IOT_MINIO_USE_TLS"),

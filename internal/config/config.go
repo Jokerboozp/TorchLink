@@ -170,9 +170,10 @@ type Config struct {
 }
 
 func Load() Config {
+	secretErr := ApplySecretFiles()
 	parse := beginParse()
 	cfg := load()
-	cfg.loadErr = errors.Join(cfg.loadErr, parse.end())
+	cfg.loadErr = errors.Join(cfg.loadErr, secretErr, parse.end())
 	return cfg
 }
 
@@ -196,26 +197,27 @@ func load() Config {
 	}
 	instance, explicitInstance := instanceID()
 	return Config{
-		InstanceID:                  instance,
-		InstanceIDExplicit:          explicitInstance,
-		ClusterInstances:            int64Value("IOT_CLUSTER_INSTANCES", 1),
-		APIEmbeddedWorkers:          boolValue("IOT_API_EMBEDDED_WORKERS", true),
-		PublishExternalTopics:       boolValue("IOT_PUBLISH_EXTERNAL_TOPICS", true),
-		AccessCoordination:          boolValue("IOT_ACCESS_COORDINATION", false),
-		AccessNodeURL:               strings.TrimRight(os.Getenv("IOT_ACCESS_NODE_URL"), "/"),
-		NodeURL:                     strings.TrimRight(os.Getenv("IOT_NODE_URL"), "/"),
-		ProcessRole:                 strings.ToLower(get("IOT_PROCESS_ROLE", "combined")),
-		AccessGatewayURL:            strings.TrimRight(os.Getenv("IOT_ACCESS_GATEWAY_URL"), "/"),
-		HTTPAddr:                    get("IOT_HTTP_ADDR", ":8080"),
-		CORSAllowedOrigins:          split(os.Getenv("IOT_CORS_ALLOWED_ORIGINS")),
-		DataDir:                     get("IOT_DATA_DIR", "./data"),
-		JWTSecret:                   get("IOT_JWT_SECRET", defaultJWTSecret),
-		HarnessJWTSecret:            get("IOT_HARNESS_JWT_SECRET", ""),
-		MetricsToken:                get("IOT_METRICS_TOKEN", ""),
-		AdminUser:                   get("IOT_ADMIN_USER", "admin"),
-		AdminPassword:               get("IOT_ADMIN_PASSWORD", defaultAdminPassword),
-		AdminTenants:                split(get("IOT_ADMIN_TENANTS", "tenant_001")),
-		PostgresDSN:                 os.Getenv("IOT_POSTGRES_DSN"),
+		InstanceID:            instance,
+		InstanceIDExplicit:    explicitInstance,
+		ClusterInstances:      int64Value("IOT_CLUSTER_INSTANCES", 1),
+		APIEmbeddedWorkers:    boolValue("IOT_API_EMBEDDED_WORKERS", true),
+		PublishExternalTopics: boolValue("IOT_PUBLISH_EXTERNAL_TOPICS", true),
+		AccessCoordination:    boolValue("IOT_ACCESS_COORDINATION", false),
+		AccessNodeURL:         strings.TrimRight(os.Getenv("IOT_ACCESS_NODE_URL"), "/"),
+		NodeURL:               strings.TrimRight(os.Getenv("IOT_NODE_URL"), "/"),
+		ProcessRole:           strings.ToLower(get("IOT_PROCESS_ROLE", "combined")),
+		AccessGatewayURL:      strings.TrimRight(os.Getenv("IOT_ACCESS_GATEWAY_URL"), "/"),
+		HTTPAddr:              get("IOT_HTTP_ADDR", ":8080"),
+		CORSAllowedOrigins:    split(os.Getenv("IOT_CORS_ALLOWED_ORIGINS")),
+		DataDir:               get("IOT_DATA_DIR", "./data"),
+		JWTSecret:             get("IOT_JWT_SECRET", defaultJWTSecret),
+		HarnessJWTSecret:      get("IOT_HARNESS_JWT_SECRET", ""),
+		MetricsToken:          get("IOT_METRICS_TOKEN", ""),
+		AdminUser:             get("IOT_ADMIN_USER", "admin"),
+		AdminPassword:         get("IOT_ADMIN_PASSWORD", defaultAdminPassword),
+		AdminTenants:          split(get("IOT_ADMIN_TENANTS", "tenant_001")),
+		// IOT_POSTGRES_PASSWORD (or its _FILE) keeps the password out of the DSN.
+		PostgresDSN:                 withPassword(os.Getenv("IOT_POSTGRES_DSN"), os.Getenv("IOT_POSTGRES_PASSWORD")),
 		RedisAddr:                   os.Getenv("IOT_REDIS_ADDR"),
 		RedisPassword:               os.Getenv("IOT_REDIS_PASSWORD"),
 		RedisMasterName:             strings.TrimSpace(os.Getenv("IOT_REDIS_MASTER_NAME")),
