@@ -63,7 +63,11 @@ func (a *Archive) index(m model.RawMessage, bucket, key string) model.RawArchive
 }
 func (a *Archive) GetRaw(_ context.Context, idx model.RawArchiveIndex) (model.RawMessage, error) {
 	var m model.RawMessage
-	f, err := os.Open(filepath.Join(a.root, safe(idx.ObjectBucket), filepath.FromSlash(idx.ObjectKey)))
+	path, err := a.objectPath(idx.ObjectBucket, idx.ObjectKey)
+	if err != nil {
+		return m, err
+	}
+	f, err := os.Open(path)
 	if err != nil {
 		return m, err
 	}
@@ -77,8 +81,11 @@ func (a *Archive) GetRaw(_ context.Context, idx model.RawArchiveIndex) (model.Ra
 	return m, err
 }
 func (a *Archive) PutObject(_ context.Context, bucket, key string, r io.Reader, _ int64, _ string) (string, error) {
-	full := filepath.Join(a.root, safe(bucket), filepath.FromSlash(key))
-	if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
+	full, err := a.objectPath(bucket, key)
+	if err != nil {
+		return "", err
+	}
+	if err = os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
 		return "", err
 	}
 	f, err := os.OpenFile(full, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o640)
@@ -90,21 +97,36 @@ func (a *Archive) PutObject(_ context.Context, bucket, key string, r io.Reader, 
 	return fmt.Sprintf("local://%s/%s", bucket, key), err
 }
 func (a *Archive) GetObject(_ context.Context, bucket, key string) (io.ReadCloser, error) {
-	return os.Open(filepath.Join(a.root, safe(bucket), filepath.FromSlash(key)))
+	path, err := a.objectPath(bucket, key)
+	if err != nil {
+		return nil, err
+	}
+	return os.Open(path)
 }
 func (a *Archive) Health(context.Context) error { _, err := os.Stat(a.root); return err }
-func (a *Archive) DeleteObject(_ context.Context, bucket, key string) error {
+
+// objectPath resolves key inside the bucket directory and rejects keys that
+// would leave it (.. segments or absolute paths).
+func (a *Archive) objectPath(bucket, key string) (string, error) {
 	base, err := filepath.Abs(filepath.Join(a.root, safe(bucket)))
 	if err != nil {
-		return err
+		return "", err
 	}
 	target, err := filepath.Abs(filepath.Join(base, filepath.FromSlash(key)))
 	if err != nil {
-		return err
+		return "", err
 	}
 	rel, err := filepath.Rel(base, target)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("invalid object key")
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid object key")
+	}
+	return target, nil
+}
+
+func (a *Archive) DeleteObject(_ context.Context, bucket, key string) error {
+	target, err := a.objectPath(bucket, key)
+	if err != nil {
+		return err
 	}
 	err = os.Remove(target)
 	if os.IsNotExist(err) {
