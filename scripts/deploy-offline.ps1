@@ -60,6 +60,7 @@ foreach ($path in @($envPath, $composePath, $offlineComposePath, $archivePath, $
     }
 }
 . (Join-Path $scriptDir 'lib/deployment.ps1')
+Protect-DeploymentEnvFile -Path $envPath
 Ensure-MetricsToken -Path $envPath
 Ensure-ServiceTokens -Path $envPath
 Ensure-KafkaBindAddress -Path $envPath

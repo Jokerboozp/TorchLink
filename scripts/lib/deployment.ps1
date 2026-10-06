@@ -31,10 +31,21 @@ function New-DeploymentSecret {
     return [BitConverter]::ToString($bytes).Replace('-', '').ToLowerInvariant()
 }
 
+# The environment file holds credentials: on Windows only the current user may
+# read or change it, the same restriction cluster-up.ps1 applies to the deploy key
+# (chmod 600 on Linux). Other platforms keep the umask the file was created with.
+function Protect-DeploymentEnvFile {
+    param([Parameter(Mandatory)][string]$Path)
+    if ($env:OS -ne 'Windows_NT' -or -not (Test-Path -LiteralPath $Path -PathType Leaf)) { return }
+    & icacls ([IO.Path]::GetFullPath($Path)) /inheritance:r /grant:r "$($env:USERNAME):(R,W)" | Out-Null
+    if ($LASTEXITCODE -ne 0) { Write-Warning "无法收紧配置文件权限：$Path" }
+}
+
 function Ensure-DeploymentEnv {
     param([Parameter(Mandatory)][string]$Path)
 
     if (Test-Path -LiteralPath $Path -PathType Leaf) {
+        Protect-DeploymentEnvFile -Path $Path
         Write-Host "保留已有配置：$Path"
         return
     }
@@ -100,6 +111,7 @@ function Ensure-DeploymentEnv {
         $bytes = $encoding.GetBytes(($lines -join "`n") + "`n")
         $stream.Write($bytes, 0, $bytes.Length)
     } finally { $stream.Dispose() }
+    Protect-DeploymentEnvFile -Path $fullPath
     Write-Host "已生成配置：$Path（服务工具账号使用配置默认值，内部令牌随机生成）。"
 }
 
