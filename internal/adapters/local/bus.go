@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 
 	"iot-platform/internal/ports"
 )
@@ -58,7 +59,22 @@ type Published struct {
 	Retained bool
 }
 
+// NewRealtime records every publication for inspection; tests use it.
+// Processes without an MQTT broker use NewDiscardRealtime instead.
 func NewRealtime() *Realtime { return &Realtime{} }
+
+// DiscardRealtime drops realtime publications. A process without an MQTT
+// broker has nobody to deliver them to, and keeping them would grow memory
+// with every device message.
+type DiscardRealtime struct{ Dropped atomic.Int64 }
+
+func NewDiscardRealtime() *DiscardRealtime { return &DiscardRealtime{} }
+func (r *DiscardRealtime) Publish(context.Context, string, []byte, byte, bool) error {
+	r.Dropped.Add(1)
+	return nil
+}
+func (r *DiscardRealtime) Health(context.Context) error { return nil }
+func (r *DiscardRealtime) Close() error                 { return nil }
 func (r *Realtime) Publish(_ context.Context, topic string, payload []byte, qos byte, retained bool) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()

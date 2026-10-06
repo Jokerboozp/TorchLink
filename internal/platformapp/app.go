@@ -286,8 +286,12 @@ func (a *app) openMessaging() {
 		a.kafkaBus, a.bus = kafkaBus, kafkaBus
 		log.Info("event bus enabled", "adapter", "kafka", "brokers", cfg.KafkaBrokers)
 	}
-	a.realtime = local.NewRealtime()
+	// Replaced by the MQTT client when a broker is configured; without one,
+	// realtime publications have no subscriber and are dropped.
+	discard := local.NewDiscardRealtime()
+	a.realtime = discard
 	a.registry = metrics.New()
+	a.every(15*time.Second, func() { a.registry.Set("realtime_dropped_total", float64(discard.Dropped.Load())) })
 	if a.kafkaBus != nil {
 		a.kafkaBus.SetMetrics(a.registry)
 		// kafka_lag is the total backlog of this process's consumer groups;
