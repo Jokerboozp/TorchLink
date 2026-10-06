@@ -488,6 +488,9 @@ func (r *Repository) GetRawIndex(_ context.Context, tenant, messageID string) (m
 	}
 	return v, nil
 }
+func (r *Repository) GetRawIndexAt(ctx context.Context, tenant, messageID string, _ int64) (model.RawArchiveIndex, error) {
+	return r.GetRawIndex(ctx, tenant, messageID)
+}
 func (r *Repository) ListRawIndexes(_ context.Context, f ports.RawFilter) ([]model.RawArchiveIndex, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()

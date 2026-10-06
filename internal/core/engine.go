@@ -138,7 +138,8 @@ func (e *Engine) IngestRaw(ctx context.Context, raw model.RawMessage) (model.Raw
 		return model.RawArchiveIndex{}, false, reserveErr
 	}
 	if !newReservation {
-		existing, err := e.Repo.GetRawIndex(ctx, raw.TenantID, raw.MessageID)
+		// The reservation keeps the first receive time, which locates the partition.
+		existing, err := e.Repo.GetRawIndexAt(ctx, raw.TenantID, raw.MessageID, reserved.ReceivedAt)
 		if err != nil && !errors.Is(err, model.ErrNotFound) {
 			// The archive may already hold this message; archiving it again
 			// after a transient read error would duplicate it. Retry instead.
@@ -179,7 +180,7 @@ func (e *Engine) IngestRaw(ctx context.Context, raw model.RawMessage) (model.Raw
 		return idx, false, fmt.Errorf("index raw: %w", err)
 	}
 	if !created {
-		existing, err := e.Repo.GetRawIndex(ctx, raw.TenantID, raw.MessageID)
+		existing, err := e.Repo.GetRawIndexAt(ctx, raw.TenantID, raw.MessageID, raw.ReceivedAt)
 		if err != nil {
 			return idx, false, err
 		}

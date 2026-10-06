@@ -367,6 +367,17 @@ func (r *Repository) GetLatestMessage(ctx context.Context, t, id string) (model.
 	return v, nil
 }
 
+func (r *Repository) GetRawIndexAt(ctx context.Context, t, id string, receivedAt int64) (model.RawArchiveIndex, error) {
+	v, e := r.Repository.GetRawIndexAt(ctx, t, id, receivedAt)
+	if e != nil {
+		return v, e
+	}
+	if !Allowed(ctx, t, v.DeviceID) {
+		return model.RawArchiveIndex{}, ErrDenied
+	}
+	return v, nil
+}
+
 func (r *Repository) GetRawIndex(ctx context.Context, t, id string) (model.RawArchiveIndex, error) {
 	v, e := r.Repository.GetRawIndex(ctx, t, id)
 	if e != nil {

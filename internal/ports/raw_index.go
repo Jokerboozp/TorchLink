@@ -27,6 +27,10 @@ type RawIndexStore interface {
 	// model.MaxRawPublishAttempts and need an operator.
 	CountStalledRawIndexes(context.Context) (int, error)
 	GetRawIndex(context.Context, string, string) (model.RawArchiveIndex, error)
+	// GetRawIndexAt is GetRawIndex for a message whose receivedAt (Unix
+	// milliseconds) is known, so the lookup reads one monthly partition; a
+	// wrong or zero receivedAt still finds the message.
+	GetRawIndexAt(ctx context.Context, tenant, messageID string, receivedAt int64) (model.RawArchiveIndex, error)
 	ListRawIndexes(context.Context, RawFilter) ([]model.RawArchiveIndex, error)
 	CountRawIndexes(context.Context, RawFilter) (int, error)
 }

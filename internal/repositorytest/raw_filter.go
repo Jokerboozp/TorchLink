@@ -2,10 +2,12 @@ package repositorytest
 
 import (
 	"context"
+	"errors"
 	"iot-platform/internal/model"
 	"iot-platform/internal/ports"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func RawFilters(t *testing.T, repo ports.Repository) {
@@ -84,5 +86,30 @@ func RawFilters(t *testing.T, repo ports.Repository) {
 				t.Fatalf("capped count %d %v want %d", count, err, min(len(tc.want), 2))
 			}
 		})
+	}
+}
+
+type rawLookupRepository interface {
+	SaveRawIndex(context.Context, model.RawArchiveIndex) (bool, error)
+	GetRawIndexAt(context.Context, string, string, int64) (model.RawArchiveIndex, error)
+}
+
+// RawIndexLookupByReceiveTime checks that a receive-time hint finds the
+// message, and that a wrong or missing hint still finds it.
+func RawIndexLookupByReceiveTime(t *testing.T, repo rawLookupRepository) {
+	t.Helper()
+	ctx := context.Background()
+	received := time.Date(2026, 3, 31, 23, 30, 0, 0, time.UTC).UnixMilli()
+	if _, err := repo.SaveRawIndex(ctx, model.RawArchiveIndex{MessageID: "raw-at", TenantID: "raw-lookup", ProductID: "p", DeviceID: "d", Protocol: "json", PayloadFormat: "json", ObjectKey: "raw-at", PayloadHash: "h", PayloadSize: 1, ReceivedAt: received, ArchivedAt: received}); err != nil {
+		t.Fatal(err)
+	}
+	for name, hint := range map[string]int64{"exact": received, "other month": received - 60*24*time.Hour.Milliseconds(), "unknown": 0} {
+		v, err := repo.GetRawIndexAt(ctx, "raw-lookup", "raw-at", hint)
+		if err != nil || v.MessageID != "raw-at" || v.ReceivedAt != received {
+			t.Errorf("%s hint: %+v, %v", name, v, err)
+		}
+	}
+	if _, err := repo.GetRawIndexAt(ctx, "raw-lookup", "missing", received); !errors.Is(err, model.ErrNotFound) {
+		t.Fatalf("a missing message = %v, want ErrNotFound", err)
 	}
 }

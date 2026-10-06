@@ -622,6 +622,20 @@ func (r *Repository) GetRawIndex(ctx context.Context, tenant, messageID string) 
 	}
 	return v, err
 }
+func (r *Repository) GetRawIndexAt(ctx context.Context, tenant, messageID string, receivedAt int64) (model.RawArchiveIndex, error) {
+	month := markMonth(receivedAt)
+	if month.IsZero() {
+		return r.GetRawIndex(ctx, tenant, messageID)
+	}
+	var v model.RawArchiveIndex
+	// Constant bounds let the planner read only the message's partition.
+	err := scanRawIndex(r.pool.QueryRow(ctx, `SELECT message_id,tenant_id,product_id,device_id,protocol,payload_format,object_bucket,object_key,object_offset,payload_hash,payload_size,received_at,archived_at,published_at,publish_attempts,last_publish_error,parse_attempted_at,parse_error FROM raw_archive_index r WHERE tenant_id=$1 AND message_id=$2`+monthRange(month), tenant, messageID), &v)
+	if errors.Is(err, pgx.ErrNoRows) {
+		// The hint may come from a caller with another clock; search everywhere.
+		return r.GetRawIndex(ctx, tenant, messageID)
+	}
+	return v, err
+}
 func (r *Repository) ListRawIndexes(ctx context.Context, f ports.RawFilter) ([]model.RawArchiveIndex, error) {
 	from, args := rawFilterSQL(f)
 	q := `SELECT r.message_id,r.tenant_id,r.product_id,r.device_id,r.protocol,r.payload_format,r.object_bucket,r.object_key,r.object_offset,r.payload_hash,r.payload_size,r.received_at,r.archived_at,r.published_at,r.publish_attempts,r.last_publish_error,r.parse_attempted_at,r.parse_error FROM ` + from

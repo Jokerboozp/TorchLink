@@ -172,6 +172,10 @@ func TestSwitchProductProtocolIsAtomicAndDetectsChanges(t *testing.T) {
 
 func TestRawFilters(t *testing.T) { repositorytest.RawFilters(t, NewRepository()) }
 
+func TestRawIndexLookupByReceiveTime(t *testing.T) {
+	repositorytest.RawIndexLookupByReceiveTime(t, NewRepository())
+}
+
 func TestVideoCameraRelationsEnforceOneDevicePerCamera(t *testing.T) {
 	repo := NewRepository()
 	camera := model.VideoCameraMapping{TenantID: "tenant-001", CameraID: "camera-001", CameraName: "一号摄像头", DeviceID: "device-001", Brand: "大华", CameraPoint: "东侧入口", Building: "A", Floor: "1", Room: "大厅"}

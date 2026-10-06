@@ -586,6 +586,10 @@ func TestRawFiltersPostgres(t *testing.T) {
 	repositorytest.RawFilters(t, testRepository(t))
 }
 
+func TestRawIndexLookupByReceiveTime(t *testing.T) {
+	repositorytest.RawIndexLookupByReceiveTime(t, testRepository(t))
+}
+
 // Only the filters that are set reach the SQL, so PostgreSQL cannot fall back
 // to a generic plan that scans every alarm.
 func TestAlarmFilterSQLUsesOnlySetFilters(t *testing.T) {
