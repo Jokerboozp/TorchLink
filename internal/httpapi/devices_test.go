@@ -256,7 +256,7 @@ func checkDeviceRegistryFiltersBeforePagination(t *testing.T, repo ports.Reposit
 		}
 		return ids, body["total"].(float64)
 	}
-	root := req("POST", "/api/v1/auth/login", "", map[string]any{"username": "root", "password": cfg.AdminPassword, "tenantId": "tenant_a"}, 200)["accessToken"].(string)
+	root := api.login(t, "root", cfg.AdminPassword, "tenant_a")
 	cases := map[string][]string{
 		"":                              {"gw-1", "child-1", "direct-1", "other-1"},
 		"role=GATEWAY":                  {"gw-1"},
@@ -291,7 +291,7 @@ func checkDeviceRegistryFiltersBeforePagination(t *testing.T, repo ports.Reposit
 	// Users limited to selected devices get the same filters within their scope.
 	req("POST", "/api/v1/access/roles", root, map[string]any{"id": "viewer", "name": "查看", "permissions": []string{"menu:devices"}}, 200)
 	req("POST", "/api/v1/access/users", root, map[string]any{"username": "viewer", "displayName": "查看", "password": "viewer-password", "enabled": true, "roleIds": []string{"viewer"}, "permissions": []string{}, "deviceScope": "selected", "deviceIds": []string{"gw-1", "direct-1"}}, 200)
-	limited := req("POST", "/api/v1/auth/login", "", map[string]any{"username": "viewer", "password": "viewer-password", "tenantId": "tenant_a"}, 200)["accessToken"].(string)
+	limited := api.login(t, "viewer", "viewer-password", "tenant_a")
 	if got, total := list(limited, ""); !slices.Equal(got, []string{"gw-1", "direct-1"}) || total != 2 {
 		t.Fatalf("limited scope: %v %v", got, total)
 	}

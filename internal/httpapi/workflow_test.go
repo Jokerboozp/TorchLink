@@ -821,10 +821,7 @@ func TestRawFiltersHTTP(t *testing.T) {
 		cfg.AdminTenants = []string{"t"}
 	})
 	srv := api.server
-	token, err := api.auth.IssueWithVersion("admin", "t", "admin", api.adminSessionVersion(), time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
+	token := api.adminToken(t, "t")
 	for _, query := range []string{"deviceId=d&productId=p&messageId=parsed", "parseStatus=PARSED&messageType=ALARM_REPORT&parser=json_parser&protocol=JSON&payloadFormat=JSON&start=1000&end=1000"} {
 		result := requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/raw-messages?"+query, token, nil, 200)
 		items := result["items"].([]any)
@@ -836,7 +833,7 @@ func TestRawFiltersHTTP(t *testing.T) {
 
 	// Without a time, device or message filter only the last 7 days are read.
 	recent := time.Now().UnixMilli()
-	if _, err = repo.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: "t", MessageID: "recent", DeviceID: "d", ProductID: "p", ReceivedAt: recent}); err != nil {
+	if _, err := repo.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: "t", MessageID: "recent", DeviceID: "d", ProductID: "p", ReceivedAt: recent}); err != nil {
 		t.Fatal(err)
 	}
 	result := requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/raw-messages", token, nil, 200)
