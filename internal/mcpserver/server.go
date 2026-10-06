@@ -318,8 +318,6 @@ func alarmPage(ctx context.Context, engine *core.Engine, filter ports.AlarmFilte
 	limit := boundedLimit(req.GetInt("limit", alarmPageLimit), alarmPageLimit, alarmPageMax)
 	offset := max(req.GetInt("offset", 0), 0)
 	filter.Summary = true
-	items := []model.Alarm{}
-	total := 0
 	filter.AlarmType = alarmType
 	if alarmType != "" && filter.Start == 0 {
 		// Type lookups compare history; without an explicit window they read
@@ -327,14 +325,14 @@ func alarmPage(ctx context.Context, engine *core.Engine, filter ports.AlarmFilte
 		filter.Start = time.Now().Add(-90 * 24 * time.Hour).UnixMilli()
 	}
 	filter.Limit, filter.Offset = limit, offset
-	page, err := engine.Repo.ListAlarms(ctx, filter)
+	items, err := engine.Repo.ListAlarms(ctx, filter)
 	if err != nil {
 		return nil, err
 	}
-	if total, err = engine.Repo.CountAlarms(ctx, filter); err != nil {
+	total, err := engine.Repo.CountAlarms(ctx, filter)
+	if err != nil {
 		return nil, err
 	}
-	items = page
 	next := offset + len(items)
 	if next >= total {
 		next = -1
