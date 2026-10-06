@@ -25,7 +25,8 @@ type AlertListInput struct {
 }
 
 func (in AlertListInput) filter() (ports.AlertFilter, error) {
-	f := ports.AlertFilter{Active: true, Silenced: in.Silenced, Inhibited: in.Inhibited}
+	// The always-firing heartbeat is a pipeline check, not an incident.
+	f := ports.AlertFilter{Active: true, Silenced: in.Silenced, Inhibited: in.Inhibited, Matchers: []string{Matcher{Name: "alertname", Op: "!=", Value: heartbeatAlert}.String()}}
 	for _, m := range in.Matchers {
 		if err := m.validate(); err != nil {
 			return f, err

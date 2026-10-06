@@ -243,7 +243,7 @@ if [ "$include_ops" = true ]; then
   case "$ops_dir" in /*) ;; *) ops_dir="$project_root/$ops_dir";; esac
   mkdir -p "$ops_dir/prometheus-rules" "$ops_dir/loki/rules/fake" "$ops_dir/alertmanager"
   [ -f "$ops_dir/loki/runtime.yaml" ] || printf 'overrides: {}\n' > "$ops_dir/loki/runtime.yaml"
-  [ -f "$ops_dir/alertmanager/alertmanager.yml" ] || printf '%s\n' 'route:' '  receiver: platform-null' '  group_by: [alertname, severity]' 'receivers:' '  - name: platform-null' > "$ops_dir/alertmanager/alertmanager.yml"
+  [ -f "$ops_dir/alertmanager/alertmanager.yml" ] || printf '%s\n' 'route:' '  receiver: platform-null' '  group_by: [alertname, severity]' '  routes:' '    - receiver: torchlink-heartbeat' "      matchers: ['alertname=\"Watchdog\"']" '      group_by: [alertname]' '      repeat_interval: 24h' 'receivers:' '  - name: platform-null' '  - name: torchlink-heartbeat' > "$ops_dir/alertmanager/alertmanager.yml"
   chmod 0755 "$ops_dir" "$ops_dir/prometheus-rules" "$ops_dir/loki" "$ops_dir/loki/rules" "$ops_dir/loki/rules/fake" "$ops_dir/alertmanager"
   chmod 0644 "$ops_dir/loki/runtime.yaml" "$ops_dir/alertmanager/alertmanager.yml"
   if [ "$dependency_host" = 127.0.0.1 ] || [ "$dependency_host" = localhost ]; then

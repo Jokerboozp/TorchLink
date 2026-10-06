@@ -194,3 +194,11 @@ groups:
         for: 5m
         labels: {severity: critical}
         annotations: {summary: "Redpanda 存在副本不足的分区（{{ $labels.instance }}），节点故障时可能丢失消息"}
+  - name: heartbeat
+    rules:
+      # 始终触发：Alertmanager 收到它说明规则在评估、告警能送达。它经专用路由发往
+      # 无渠道的接收人，不通知任何人；运维中心在它缺失时把 Alertmanager 标为异常。
+      - alert: Watchdog
+        expr: vector(1)
+        labels: {severity: none}
+        annotations: {summary: "告警链路心跳，始终触发，用于确认 Prometheus 到 Alertmanager 的告警链路正常"}

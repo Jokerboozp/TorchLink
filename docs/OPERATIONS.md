@@ -20,7 +20,7 @@
 - 管理端口只绑定本机（`*_BIND_ADDRESS` 默认 `127.0.0.1`），需要对外的 Kafka 或控制台单独放开。
 - 已按 [HTTPS 与 MQTTS](DEPLOYMENT.md#https-与-mqtts) 配置证书。
 - 通知渠道和策略已配置并收到测试消息，见 [告警通知](PLATFORM.md#告警通知)。
-- 平台自身告警（死信、备份失败、归档失败等）由 Alertmanager 发送，初始配置的接收人 `platform-null` 不投递任何渠道：在运维中心“监控告警 → 通知渠道”添加接收人并发送测试告警。未配置时运维中心总览把 Alertmanager 标为“部分异常”并提示。
+- 平台自身告警（死信、备份失败、归档失败等）由 Alertmanager 发送，初始配置的接收人 `platform-null` 不投递任何渠道：在运维中心“监控告警 → 通知渠道”添加接收人并发送测试告警。未配置时运维中心总览把 Alertmanager 标为“部分异常”并提示。规则组 `heartbeat` 中的 `Watchdog` 始终触发，经专用路由发往无渠道的 `torchlink-heartbeat`，不通知任何人，也不出现在告警列表；运维中心在 Alertmanager 没有收到它时把 Alertmanager 标为“部分异常”，说明规则未加载或 Prometheus 无法连接 Alertmanager，此时其他平台告警同样不会送达。早期版本写入的 Alertmanager 配置由平台启动时自动补上该路由。
 - 整库备份（`DATABASE`）至少成功一次，并在演练库完成过一次恢复验证；按需配置异地副本。
 - `IOT_OPS_TENANTS` 已设置运维租户，值守账号能打开运维中心。
 
@@ -66,6 +66,7 @@
 | 告警 | 含义 | 处理 |
 | --- | --- | --- |
 | `IotPlatformDown` | 平台进程不可抓取 | `docker compose ps`、`docker compose logs platform-api`；检查 `/health/ready` 中失败的依赖 |
+| `Watchdog` | 告警链路心跳，正常时始终存在且不通知 | 无需处理；运维中心提示未收到心跳时，检查 Prometheus 规则加载和 Prometheus 到 Alertmanager 的连接 |
 | `ConsumerBlockedByOutage` | 依赖（数据库、Kafka 等）临时故障，消费者暂停在原位置重试 | 先恢复依赖；恢复后自动继续，不需要回放。持续超过 `IOT_CONSUMER_MAX_BLOCK`（默认 30 分钟）的消息会进入死信 |
 | `DeadLetterPublished` | 消息因永久错误或长时间阻塞进入死信 | 运维中心 → 运维总览 → 死信，查看错误原因；修复后逐条“重新投递”（写审计）。业务处理死信也可按消息 ID 列表用 `cmd/dlq-replay` 批量重新送回业务流，见 [开发与测试](DEVELOPMENT.md) |
 | `KafkaLagObservationMissing` | 无法读取消费积压，积压告警与接入背压判断可能失效 | 检查 Redpanda 管理接口、ACL 与网络；平台日志 `sample kafka consumer lag` / `sample processing backlog` |

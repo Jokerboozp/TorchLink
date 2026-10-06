@@ -12,7 +12,7 @@ const deviceNotificationLabel = "torchlink_device_notification"
 const deviceDiscardReceiver = "torchlink-device-discard"
 
 func isManagedNotificationRoute(r amRoute) bool {
-	if isTestRoute(r) {
+	if isTestRoute(r) || isHeartbeatRoute(r) {
 		return true
 	}
 	for _, text := range r.Matchers {

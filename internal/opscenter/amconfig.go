@@ -301,7 +301,7 @@ func (s *Service) NotificationConfig(ctx context.Context) (model.OpsNotification
 	}
 	if receivers := mapGet(root, "receivers"); receivers != nil {
 		for _, r := range receivers.Content {
-			if name := mapGet(r, "name"); name != nil && name.Value == deviceDiscardReceiver {
+			if name := mapGet(r, "name"); name != nil && (name.Value == deviceDiscardReceiver || name.Value == heartbeatReceiver) {
 				continue
 			}
 			out.Receivers = append(out.Receivers, receiverModel(r))
@@ -402,7 +402,7 @@ func (s *Service) SaveNotificationConfig(ctx context.Context, in model.OpsNotifi
 		if r.Name == "" || len([]rune(r.Name)) > 100 || strings.ContainsAny(r.Name, "\n\r") {
 			return model.OpsNotificationConfig{}, invalid(field+".name", "接收人名称为 1～100 个字符")
 		}
-		if r.Name == deviceDiscardReceiver {
+		if r.Name == deviceDiscardReceiver || r.Name == heartbeatReceiver {
 			return model.OpsNotificationConfig{}, invalid(field+".name", "此名称由设备通知保留")
 		}
 		if names[r.Name] {
@@ -444,6 +444,7 @@ func (s *Service) SaveNotificationConfig(ctx context.Context, in model.OpsNotifi
 		return model.OpsNotificationConfig{}, err
 	}
 	injectTestRoutes(routeNode, names)
+	injectHeartbeatRoute(routeNode, receiversNode)
 	mapSet(root, "route", routeNode)
 	mapSet(root, "receivers", receiversNode)
 	var buf bytes.Buffer

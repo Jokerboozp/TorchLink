@@ -16,6 +16,7 @@ import (
 	"net/mail"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -1038,5 +1039,99 @@ func TestAlertmanagerStatusWarnsWithoutReceivers(t *testing.T) {
 	svc, _, _ = newAMService(t, baseAMConfig)
 	if status, _ := svc.Component(ctx, "alertmanager"); status.State != "ok" {
 		t.Fatalf("configured receivers must not warn: %+v", status)
+	}
+}
+
+// heartbeatAlerts answers alert queries; heartbeat reports whether the
+// Watchdog has arrived.
+type heartbeatAlerts struct {
+	*fakeAlertmanager
+	heartbeat bool
+	filters   []ports.AlertFilter
+}
+
+func (h *heartbeatAlerts) Alerts(_ context.Context, f ports.AlertFilter) ([]model.OpsAlert, error) {
+	h.filters = append(h.filters, f)
+	if h.heartbeat && slices.Contains(f.Matchers, `alertname="Watchdog"`) {
+		return []model.OpsAlert{{Labels: map[string]string{"alertname": "Watchdog"}}}, nil
+	}
+	return []model.OpsAlert{}, nil
+}
+
+type configuredMetrics struct{ ports.MetricsBackend }
+
+func (configuredMetrics) Configured() bool { return true }
+
+// The always-firing Watchdog reaches a receiver without channels through a
+// first-position route that the editor never shows and every save keeps.
+func TestHeartbeatRouteIsAddedOnceHiddenAndKept(t *testing.T) {
+	ctx := context.Background()
+	svc, am, file := newAMService(t, baseAMConfig)
+	for range 2 {
+		if err := svc.EnsureHeartbeatRoute(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if am.reloads != 1 {
+		t.Fatalf("an existing heartbeat route must not be written again: %d reloads", am.reloads)
+	}
+	content, _ := os.ReadFile(file)
+	root, err := parseAMRoot(content)
+	if err != nil || !hasHeartbeatRoute(root) {
+		t.Fatalf("heartbeat route missing or not first:\n%s", content)
+	}
+	cfg, err := svc.NotificationConfig(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range cfg.Receivers {
+		if r.Name == heartbeatReceiver {
+			t.Fatal("the heartbeat receiver must not be editable")
+		}
+	}
+	for _, r := range cfg.Route.Routes {
+		if r.Receiver == heartbeatReceiver {
+			t.Fatal("the heartbeat route must not be editable")
+		}
+	}
+	for i := range cfg.Receivers {
+		cfg.Receivers[i].OriginalName = cfg.Receivers[i].Name
+	}
+	if _, err := svc.SaveNotificationConfig(ctx, cfg, "alice"); err != nil {
+		t.Fatal(err)
+	}
+	content, _ = os.ReadFile(file)
+	if root, _ := parseAMRoot(content); !hasHeartbeatRoute(root) || strings.Count(string(content), "name: "+heartbeatReceiver) != 1 {
+		t.Fatalf("a save must keep exactly one heartbeat route and receiver:\n%s", content)
+	}
+	cfg, _ = svc.NotificationConfig(ctx)
+	for i := range cfg.Receivers {
+		cfg.Receivers[i].OriginalName = cfg.Receivers[i].Name
+	}
+	cfg.Receivers = append(cfg.Receivers, model.OpsReceiver{Name: heartbeatReceiver})
+	if _, err := svc.SaveNotificationConfig(ctx, cfg, "alice"); err == nil {
+		t.Fatal("the heartbeat receiver name is reserved")
+	}
+}
+
+// A missing heartbeat means alerts are not reaching Alertmanager; the
+// heartbeat itself never appears among current alerts.
+func TestHeartbeatMarksBrokenAlertingAndStaysOutOfAlertLists(t *testing.T) {
+	ctx := context.Background()
+	svc, am, _ := newAMService(t, baseAMConfig)
+	alerts := &heartbeatAlerts{fakeAlertmanager: am}
+	svc.Alerts, svc.Metrics = alerts, configuredMetrics{}
+	if status, _ := svc.Component(ctx, "alertmanager"); status.State != "degraded" || !strings.Contains(status.Message, "Watchdog") {
+		t.Fatalf("a missing heartbeat must degrade Alertmanager: %+v", status)
+	}
+	alerts.heartbeat = true
+	if status, _ := svc.Component(ctx, "alertmanager"); status.State != "ok" {
+		t.Fatalf("an arriving heartbeat with receivers is healthy: %+v", status)
+	}
+	if _, err := svc.CurrentAlerts(ctx, AlertListInput{}); err != nil {
+		t.Fatal(err)
+	}
+	if last := alerts.filters[len(alerts.filters)-1]; !slices.Contains(last.Matchers, `alertname!="Watchdog"`) {
+		t.Fatalf("alert lists must exclude the heartbeat: %+v", last)
 	}
 }

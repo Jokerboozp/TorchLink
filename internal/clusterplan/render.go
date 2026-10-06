@@ -985,7 +985,9 @@ func alertmanagerConfig(webhook bool) string {
 	if webhook {
 		receiver += "    webhook_configs:\n      - url_file: /etc/alertmanager/webhook-url\n        send_resolved: true\n"
 	}
-	return "route:\n  receiver: platform\n  group_by: [alertname, cluster]\n  group_wait: 30s\n  group_interval: 5m\n  repeat_interval: 4h\nreceivers:\n" + receiver
+	// The always-firing Watchdog heartbeat goes to a receiver without channels.
+	heartbeat := "  routes:\n    - receiver: torchlink-heartbeat\n      matchers: ['alertname=\"Watchdog\"']\n      group_by: [alertname]\n      repeat_interval: 24h\n"
+	return "route:\n  receiver: platform\n  group_by: [alertname, cluster]\n  group_wait: 30s\n  group_interval: 5m\n  repeat_interval: 4h\n" + heartbeat + "receivers:\n" + receiver + "  - name: torchlink-heartbeat\n"
 }
 
 // prometheusEntrypoint writes IOT_METRICS_TOKEN to a private file in the data

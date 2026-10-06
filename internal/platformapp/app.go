@@ -577,6 +577,9 @@ func (a *app) startOps() {
 	if cfg.Runs(config.ComponentManagement) {
 		// Dashboard provisioning is an idempotent upsert by UID.
 		go a.opsService.RunDefaultDashboards(a.ctx)
+		// Configurations written before the Watchdog heartbeat existed get its
+		// silent route, so the always-firing alert never notifies anyone.
+		go a.opsService.RunHeartbeatRoute(a.ctx)
 	}
 	if cfg.Runs(config.ComponentJobs) {
 		// Alertmanager deduplicates identical alerts, so a notification

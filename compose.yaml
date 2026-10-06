@@ -577,7 +577,7 @@ services:
         mkdir -p /ops/prometheus-rules /ops/loki/rules/fake /ops/alertmanager
         [ -f /ops/loki/runtime.yaml ] || printf 'overrides: {}\n' > /ops/loki/runtime.yaml
         if [ ! -f /ops/alertmanager/alertmanager.yml ]; then
-          printf '%s\n' 'route:' '  receiver: platform-null' '  group_by: [alertname, severity]' '  group_wait: 30s' '  group_interval: 5m' '  repeat_interval: 4h' 'receivers:' '  - name: platform-null' > /ops/alertmanager/alertmanager.yml
+          printf '%s\n' 'route:' '  receiver: platform-null' '  group_by: [alertname, severity]' '  group_wait: 30s' '  group_interval: 5m' '  repeat_interval: 4h' '  routes:' '    - receiver: torchlink-heartbeat' "      matchers: ['alertname=\"Watchdog\"']" '      group_by: [alertname]' '      repeat_interval: 24h' 'receivers:' '  - name: platform-null' '  - name: torchlink-heartbeat' > /ops/alertmanager/alertmanager.yml
         fi
         chown -R 65532:65532 /ops/prometheus-rules /ops/loki
         chmod 0755 /ops/prometheus-rules /ops/loki /ops/loki/rules /ops/loki/rules/fake

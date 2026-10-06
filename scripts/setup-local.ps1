@@ -160,7 +160,7 @@ if ($IncludeOps) {
     $runtimeFile = Join-Path $opsDir 'loki/runtime.yaml'
     if (-not (Test-Path -LiteralPath $runtimeFile)) { [IO.File]::WriteAllText($runtimeFile, "overrides: {}`n", $utf8) }
     $alertmanagerFile = Join-Path $opsDir 'alertmanager/alertmanager.yml'
-    if (-not (Test-Path -LiteralPath $alertmanagerFile)) { [IO.File]::WriteAllText($alertmanagerFile, "route:`n  receiver: platform-null`n  group_by: [alertname, severity]`nreceivers:`n  - name: platform-null`n", $utf8) }
+    if (-not (Test-Path -LiteralPath $alertmanagerFile)) { [IO.File]::WriteAllText($alertmanagerFile, "route:`n  receiver: platform-null`n  group_by: [alertname, severity]`n  routes:`n    - receiver: torchlink-heartbeat`n      matchers: ['alertname=`"Watchdog`"']`n      group_by: [alertname]`n      repeat_interval: 24h`nreceivers:`n  - name: platform-null`n  - name: torchlink-heartbeat`n", $utf8) }
 }
 Add-DeploymentEnvComments -Path $EnvFile
 
