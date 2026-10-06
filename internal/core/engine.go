@@ -343,7 +343,7 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 			if raw.PointTableVersion == "" {
 				raw.PointTableVersion = release.PointTableVersion
 			}
-			msg, err = e.Parsers.ParseWithConfig(release.ParserType, release.Config, raw)
+			msg, err = e.Parsers.ParseWithConfigContext(ctx, release.ParserType, release.Config, raw)
 		}
 	}
 	product, productErr := e.cachedProduct(ctx, raw.TenantID, raw.ProductID)
@@ -356,7 +356,7 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 			return fmt.Errorf("load protocol package %s: %w", product.ProtocolPackageID, pkgErr)
 		}
 		if pkgErr == nil && pkg.Status == "PUBLISHED" {
-			msg, err = e.Parsers.ParseVersionWithConfig(pkg.ParserType, raw.ParserVersion, pkg.Config, raw)
+			msg, err = e.Parsers.ParseVersionWithConfigContext(ctx, pkg.ParserType, raw.ParserVersion, pkg.Config, raw)
 		}
 	}
 	if msg == nil && err == nil {

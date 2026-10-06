@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -24,6 +25,12 @@ type Parser interface {
 // built into the service; only the mapping/layout is tenant-managed data.
 type ConfigurableParser interface {
 	ParseWithConfig(model.RawMessage, map[string]any) (*model.StandardMessage, error)
+}
+
+// ContextParser is a configurable parser whose work (an external protocol
+// worker) can be cancelled with the caller's context.
+type ContextParser interface {
+	ParseWithContext(context.Context, model.RawMessage, map[string]any) (*model.StandardMessage, error)
 }
 
 type Registry struct{ parsers, automatic []Parser }
@@ -67,13 +74,25 @@ func (r *Registry) ParseWithConfig(name string, config map[string]any, raw model
 	return r.ParseVersionWithConfig(name, "", config, raw)
 }
 func (r *Registry) ParseVersionWithConfig(name, version string, config map[string]any, raw model.RawMessage) (*model.StandardMessage, error) {
+	return r.ParseVersionWithConfigContext(context.Background(), name, version, config, raw)
+}
+
+// ParseWithConfigContext is ParseWithConfig with a context that cancels an
+// external protocol worker when the consumer stops.
+func (r *Registry) ParseWithConfigContext(ctx context.Context, name string, config map[string]any, raw model.RawMessage) (*model.StandardMessage, error) {
+	return r.ParseVersionWithConfigContext(ctx, name, "", config, raw)
+}
+
+func (r *Registry) ParseVersionWithConfigContext(ctx context.Context, name, version string, config map[string]any, raw model.RawMessage) (*model.StandardMessage, error) {
 	for _, p := range r.parsers {
 		if p.Name() != name || version != "" && p.Version() != version {
 			continue
 		}
 		var m *model.StandardMessage
 		var err error
-		if configurable, ok := p.(ConfigurableParser); ok {
+		if contextual, ok := p.(ContextParser); ok {
+			m, err = contextual.ParseWithContext(ctx, raw, config)
+		} else if configurable, ok := p.(ConfigurableParser); ok {
 			m, err = configurable.ParseWithConfig(raw, config)
 		} else {
 			m, err = p.Parse(raw)

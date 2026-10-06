@@ -288,13 +288,13 @@ func (e *Engine) parseReplay(ctx context.Context, raw model.RawMessage, version 
 		return nil, err
 	}
 	if release != nil {
-		return e.Parsers.ParseWithConfig(release.ParserType, release.Config, raw)
+		return e.Parsers.ParseWithConfigContext(ctx, release.ParserType, release.Config, raw)
 	}
 	product, err := e.Repo.GetProduct(ctx, raw.TenantID, raw.ProductID)
 	if err == nil && product.ProtocolPackageID != "" {
 		pkg, pkgErr := e.Repo.GetProtocolPackage(ctx, raw.TenantID, product.ProtocolPackageID)
 		if pkgErr == nil {
-			return e.Parsers.ParseVersionWithConfig(pkg.ParserType, raw.ParserVersion, pkg.Config, raw)
+			return e.Parsers.ParseVersionWithConfigContext(ctx, pkg.ParserType, raw.ParserVersion, pkg.Config, raw)
 		}
 	}
 	if version != "" {
