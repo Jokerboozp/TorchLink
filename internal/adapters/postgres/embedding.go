@@ -27,6 +27,31 @@ func (r *Repository) LoadEmbeddingConfig(ctx context.Context, active bool) (port
 	return cfg, err == nil, err
 }
 
+func (r *Repository) LoadEmbeddingConfigs(ctx context.Context) (ports.EmbeddingConfigs, error) {
+	var out ports.EmbeddingConfigs
+	rows, err := r.pool.Query(ctx, "SELECT id, config FROM ai_model_config WHERE id IN ('__embedding__','__embedding_active__') AND enabled=true")
+	if err != nil {
+		return out, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var raw []byte
+		if err := rows.Scan(&id, &raw); err != nil {
+			return out, err
+		}
+		target, found := &out.Saved, &out.HasSaved
+		if id == "__embedding_active__" {
+			target, found = &out.Active, &out.HasActive
+		}
+		if err := json.Unmarshal(raw, target); err != nil {
+			return out, err
+		}
+		*found = true
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) SaveEmbeddingConfig(ctx context.Context, cfg ports.EmbeddingConfig, active bool) error {
 	id := "__embedding__"
 	if active {

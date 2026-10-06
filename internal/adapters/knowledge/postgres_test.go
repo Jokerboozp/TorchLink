@@ -465,6 +465,10 @@ func TestPostgresKnowledgePersistenceScopesAndAtomicRebuild(t *testing.T) {
 	if saved, found, loadErr := repo.LoadEmbeddingConfig(ctx, true); loadErr != nil || !found || saved != rotatedConfig {
 		t.Fatal("same-space credential rotation was not durable")
 	}
+	// The runtime reads both records in one round trip each tick.
+	if configs, loadErr := repo.LoadEmbeddingConfigs(ctx); loadErr != nil || !configs.HasActive || configs.Active != rotatedConfig {
+		t.Fatalf("combined configuration read = %+v, %v", configs, loadErr)
+	}
 	close(paused.resume)
 	select {
 	case result := <-queryResult:

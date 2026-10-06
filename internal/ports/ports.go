@@ -229,7 +229,17 @@ type EmbeddingConfig struct {
 
 type EmbeddingConfigStore interface {
 	LoadEmbeddingConfig(context.Context, bool) (EmbeddingConfig, bool, error)
+	// LoadEmbeddingConfigs reads the saved and the active configuration in
+	// one round trip.
+	LoadEmbeddingConfigs(context.Context) (EmbeddingConfigs, error)
 	SaveEmbeddingConfig(context.Context, EmbeddingConfig, bool) error
+}
+
+// EmbeddingConfigs are the configuration an operator saved and the one the
+// persistent index was built with; Has* is false for a missing record.
+type EmbeddingConfigs struct {
+	Saved, Active       EmbeddingConfig
+	HasSaved, HasActive bool
 }
 
 type EmbeddingRuntime interface {

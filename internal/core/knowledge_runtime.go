@@ -104,15 +104,20 @@ func (k *KnowledgeRuntime) Run(ctx context.Context) {
 	idle := 0
 	rebuildElsewhere := false
 	for {
+		// One read per tick gives both the saved and the active configuration.
 		if k.store != nil {
-			if cfg, found, err := k.store.LoadEmbeddingConfig(ctx, false); err == nil && found {
+			configs, err := k.store.LoadEmbeddingConfigs(ctx)
+			if err == nil && configs.HasSaved {
 				k.mu.Lock()
-				k.config = cfg
+				k.config = configs.Saved
 				k.mu.Unlock()
 			}
-		}
-		if err := k.syncActiveConfig(ctx); err != nil && ctx.Err() == nil {
-			k.log.Warn("refresh active knowledge configuration", "error", err)
+			if err == nil && configs.HasActive {
+				err = k.applyActiveConfig(ctx, configs.Active)
+			}
+			if err != nil && ctx.Err() == nil {
+				k.log.Warn("refresh active knowledge configuration", "error", err)
+			}
 		}
 		if time.Now().After(nextBuild) {
 			err := k.rebuild(ctx)
@@ -134,8 +139,9 @@ func (k *KnowledgeRuntime) Run(ctx context.Context) {
 		}
 		// Work through the queue each tick instead of one document per tick.
 		worked := false
-		for range knowledgeDocumentsPerTick {
-			processed, err := k.processNextDocument(ctx)
+		for i := range knowledgeDocumentsPerTick {
+			// The first document uses the configuration this tick just read.
+			processed, err := k.processNextDocument(ctx, i > 0)
 			if err != nil && ctx.Err() == nil {
 				k.log.Warn("knowledge document job failed", "error", err)
 			}
@@ -238,6 +244,12 @@ func (k *KnowledgeRuntime) syncActiveConfig(ctx context.Context) error {
 	if err != nil || !found {
 		return err
 	}
+	return k.applyActiveConfig(ctx, cfg)
+}
+
+// applyActiveConfig switches to cfg, the active configuration another replica
+// recorded, once its index is complete.
+func (k *KnowledgeRuntime) applyActiveConfig(ctx context.Context, cfg ports.EmbeddingConfig) error {
 	k.mu.RLock()
 	same := cfg == k.activeConfig
 	k.mu.RUnlock()
@@ -270,14 +282,14 @@ func (k *KnowledgeRuntime) syncActiveConfig(ctx context.Context) error {
 const knowledgeDocumentsPerTick = 20
 
 func (k *KnowledgeRuntime) processDocument(ctx context.Context) error {
-	_, err := k.processNextDocument(ctx)
+	_, err := k.processNextDocument(ctx, true)
 	return err
 }
 
 // processNextDocument runs one queued document job and reports whether one was
 // claimed. Document jobs on different replicas run in parallel; the shared
 // lock only keeps them out of a running index rebuild.
-func (k *KnowledgeRuntime) processNextDocument(ctx context.Context) (bool, error) {
+func (k *KnowledgeRuntime) processNextDocument(ctx context.Context, sync bool) (bool, error) {
 	if k.jobs == nil || k.locks == nil {
 		return false, nil
 	}
@@ -287,8 +299,10 @@ func (k *KnowledgeRuntime) processNextDocument(ctx context.Context) (bool, error
 	}
 	defer release()
 	// Another replica may have activated a model while this worker waited.
-	if err := k.syncActiveConfig(ctx); err != nil {
-		return false, err
+	if sync {
+		if err := k.syncActiveConfig(ctx); err != nil {
+			return false, err
+		}
 	}
 	doc, found, err := k.jobs.ClaimKnowledgeDocument(ctx)
 	if err != nil || !found {

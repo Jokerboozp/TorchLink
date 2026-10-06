@@ -713,6 +713,11 @@ func (r *countingRepo) GetRawIndex(ctx context.Context, tenant, id string) (mode
 	return r.Repository.GetRawIndex(ctx, tenant, id)
 }
 
+func (r *countingRepo) GetRawIndexAt(ctx context.Context, tenant, id string, receivedAt int64) (model.RawArchiveIndex, error) {
+	r.rawIndexReads++
+	return r.Repository.GetRawIndexAt(ctx, tenant, id, receivedAt)
+}
+
 func (r *countingRepo) GetProduct(ctx context.Context, tenant, id string) (model.Product, error) {
 	r.productReads++
 	return r.Repository.GetProduct(ctx, tenant, id)
