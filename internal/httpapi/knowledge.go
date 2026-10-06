@@ -329,5 +329,6 @@ func (s *Server) knowledgeUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.audit(r, "knowledge.upload", "knowledge-document", doc.ID, map[string]any{"workflowId": workflowID})
+	s.wakeKnowledgeJobs()
 	write(w, 202, doc)
 }

@@ -32,7 +32,9 @@ type KnowledgeRuntime struct {
 	jobs         ports.KnowledgeDocumentJobs
 	archive      ports.Archive
 	StatusView   *KnowledgeReindexer
-	log          interface {
+	// wake shortens the idle backoff after an upload or a configuration change.
+	wake chan struct{}
+	log  interface {
 		Info(string, ...any)
 		Warn(string, ...any)
 		Error(string, ...any)
@@ -48,7 +50,7 @@ func NewKnowledgeRuntime(cfg, activeCfg ports.EmbeddingConfig, factory Knowledge
 	if err != nil {
 		return nil, err
 	}
-	return &KnowledgeRuntime{config: cfg, activeConfig: activeCfg, active: active, factory: factory, store: store, repo: repo, locks: locks, jobs: jobs, archive: archive, log: log, StatusView: &KnowledgeReindexer{}}, nil
+	return &KnowledgeRuntime{config: cfg, activeConfig: activeCfg, active: active, factory: factory, store: store, repo: repo, locks: locks, jobs: jobs, archive: archive, log: log, StatusView: &KnowledgeReindexer{}, wake: make(chan struct{}, 1)}, nil
 }
 
 func (k *KnowledgeRuntime) CurrentConfig() ports.EmbeddingConfig {
@@ -73,13 +75,34 @@ func (k *KnowledgeRuntime) Configure(ctx context.Context, cfg ports.EmbeddingCon
 	k.mu.Lock()
 	k.config = cfg
 	k.mu.Unlock()
+	k.Wake()
 	return nil
 }
 
+// Wake makes the runtime check its queue now instead of after the idle
+// backoff; upload, retry and delete handlers call it.
+func (k *KnowledgeRuntime) Wake() {
+	if k.wake == nil {
+		return
+	}
+	select {
+	case k.wake <- struct{}{}:
+	default:
+	}
+}
+
+// Knowledge work is checked every 2 seconds while there is work and backs off
+// to 30 seconds when idle, so an idle platform does not query the database
+// several times every 2 seconds on every replica.
+const (
+	knowledgeTickBusy = 2 * time.Second
+	knowledgeTickIdle = 30 * time.Second
+)
+
 func (k *KnowledgeRuntime) Run(ctx context.Context) {
-	timer := time.NewTicker(2 * time.Second)
-	defer timer.Stop()
 	var nextBuild time.Time
+	idle := 0
+	rebuildElsewhere := false
 	for {
 		if k.store != nil {
 			if cfg, found, err := k.store.LoadEmbeddingConfig(ctx, false); err == nil && found {
@@ -92,24 +115,49 @@ func (k *KnowledgeRuntime) Run(ctx context.Context) {
 			k.log.Warn("refresh active knowledge configuration", "error", err)
 		}
 		if time.Now().After(nextBuild) {
-			if err := k.rebuild(ctx); err != nil {
+			err := k.rebuild(ctx)
+			switch {
+			case errors.Is(err, errRebuildElsewhere):
+				// Another replica is rebuilding; say so once, not every retry.
+				if !rebuildElsewhere {
+					k.log.Info("knowledge index rebuild is running on another replica")
+				}
+				rebuildElsewhere = true
+				nextBuild = time.Now().Add(15 * time.Second)
+			case err != nil:
+				rebuildElsewhere = false
 				k.log.Warn("knowledge index rebuild deferred", "error", err)
 				nextBuild = time.Now().Add(15 * time.Second)
+			default:
+				rebuildElsewhere = false
 			}
 		}
 		// Work through the queue each tick instead of one document per tick.
+		worked := false
 		for range knowledgeDocumentsPerTick {
 			processed, err := k.processNextDocument(ctx)
 			if err != nil && ctx.Err() == nil {
 				k.log.Warn("knowledge document job failed", "error", err)
 			}
+			worked = worked || processed
 			if !processed || err != nil {
 				break
 			}
 		}
+		if worked || rebuildElsewhere {
+			idle = 0
+		} else {
+			idle++
+		}
+		delay := min(knowledgeTickBusy<<min(idle, 4), knowledgeTickIdle)
+		timer := time.NewTimer(delay)
 		select {
 		case <-ctx.Done():
+			timer.Stop()
 			return
+		case <-k.wake: // nil (never ready) for a runtime built without NewKnowledgeRuntime
+			timer.Stop()
+			idle = 0
 		case <-timer.C:
 		}
 	}

@@ -47,6 +47,7 @@ func (s *Server) deleteKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		s.audit(r, "knowledge.delete", "knowledge-document", id, nil)
+		s.wakeKnowledgeJobs()
 		write(w, 202, map[string]any{"deleting": true, "id": id})
 		return
 	}

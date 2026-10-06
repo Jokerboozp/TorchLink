@@ -175,5 +175,14 @@ func (s *Server) retryKnowledgeDocument(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	s.audit(r, "knowledge.retry", "knowledge-document", doc.ID, nil)
+	s.wakeKnowledgeJobs()
 	write(w, 202, doc)
+}
+
+// wakeKnowledgeJobs asks this replica's knowledge runtime to process the
+// queue now; other replicas pick the job up after their idle interval.
+func (s *Server) wakeKnowledgeJobs() {
+	if runtime, ok := s.embeddingRuntime.(interface{ Wake() }); ok {
+		runtime.Wake()
+	}
 }
