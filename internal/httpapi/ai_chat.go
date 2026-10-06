@@ -62,10 +62,7 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		}
 		result, err := s.runAIWorkflow(r.Context(), claims(r), in.Question, workflowID, in.ConversationID, in.Model, in.MaxTokens, nil)
 		if err != nil {
-			if s.log != nil {
-				s.log.Warn("run AI workflow failed", "error", err)
-			}
-			problem(w, 502, "AI workflow request failed")
+			s.aiProblem(w, r, err)
 			return
 		}
 		write(w, 200, result)
@@ -121,7 +118,8 @@ func (s *Server) aiChatStream(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		if r.Context().Err() == nil && !terminal {
-			_ = stream.event(ports.AIWorkflowEvent{Type: "run.failed", RunID: result.RunID, Code: "workflow_failed", Message: "AI workflow request failed"})
+			failure := s.aiFailureOf(r, err)
+			_ = stream.event(ports.AIWorkflowEvent{Type: "run.failed", RunID: result.RunID, Code: failure.code, Message: failure.message})
 		}
 		return
 	}
@@ -277,7 +275,7 @@ func (s *Server) aiRuleDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	rule, err := s.ai.DraftRule(aiRunContext(r.Context(), claims(r)), claims(r).TenantID, in.Text) /* 由 rule-drafter 工作流生成。 */
 	if err != nil {
-		problem(w, 502, err.Error())
+		s.aiProblem(w, r, err)
 		return
 	}
 	c := claims(r)
@@ -329,8 +327,50 @@ func (s *Server) aiReport(w http.ResponseWriter, r *http.Request) {
 	}
 	report, err := s.ai.GenerateReport(aiRunContext(r.Context(), claims(r)), claims(r).TenantID, in.Period, in.Start, in.End)
 	if err != nil {
-		problem(w, 502, err.Error())
+		s.aiProblem(w, r, err)
 		return
 	}
 	write(w, 200, map[string]any{"period": in.Period, "start": in.Start, "end": in.End, "report": report})
+}
+
+type aiFailure struct {
+	status    int
+	code      string
+	message   string
+	retryable bool
+}
+
+// aiFailureOf maps an AI run error to what the user sees: reasons the user
+// can act on keep their message, a busy Harness asks to retry, and model or
+// gateway failures get a generic message with a logged reference.
+func (s *Server) aiFailureOf(r *http.Request, err error) aiFailure {
+	var rejected *ports.AIRequestError
+	switch {
+	case errors.As(err, &rejected):
+		return aiFailure{status: rejected.Status, code: "AI_REQUEST_REJECTED", message: rejected.Message}
+	case errors.Is(err, ports.ErrAIWorkflowBusy):
+		return aiFailure{status: http.StatusTooManyRequests, code: "AI_BUSY", message: "AI 工作流服务繁忙，请稍后重试", retryable: true}
+	case errors.Is(err, aiworkflow.ErrAIWorkflowsUnavailable):
+		return aiFailure{status: http.StatusServiceUnavailable, code: "AI_UNAVAILABLE", message: err.Error()}
+	case errors.Is(err, core.ErrAIInputTooLarge):
+		return aiFailure{status: http.StatusUnprocessableEntity, code: "AI_INPUT_TOO_LARGE", message: core.ErrAIInputTooLarge.Error()}
+	case errors.Is(err, context.DeadlineExceeded):
+		return aiFailure{status: http.StatusGatewayTimeout, code: "AI_TIMEOUT", message: "AI 工作流处理超时，请稍后重试", retryable: true}
+	}
+	reference := requestIDFrom(r.Context())
+	if reference == "" {
+		reference = randomHex(6)
+	}
+	if s.log != nil {
+		s.log.ErrorContext(r.Context(), "AI workflow request failed", "reference", reference, "path", r.URL.Path, "error", err)
+	}
+	return aiFailure{status: http.StatusBadGateway, code: "AI_WORKFLOW_FAILED", message: "AI 工作流请求失败（编号 " + reference + "）", retryable: true}
+}
+
+func (s *Server) aiProblem(w http.ResponseWriter, r *http.Request, err error) {
+	failure := s.aiFailureOf(r, err)
+	if failure.status == http.StatusTooManyRequests {
+		w.Header().Set("Retry-After", "5")
+	}
+	write(w, failure.status, map[string]any{"type": "about:blank", "title": http.StatusText(failure.status), "status": failure.status, "code": failure.code, "detail": failure.message, "retryable": failure.retryable})
 }

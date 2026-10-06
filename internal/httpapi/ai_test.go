@@ -1669,3 +1669,34 @@ func TestChatConversationsBelongToTheUser(t *testing.T) {
 	requestJSON(t, server.Client(), http.MethodDelete, server.URL+"/api/v1/ai/conversations/conversation_1", alice, nil, http.StatusOK)
 	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/conversations/conversation_1", alice, nil, http.StatusNotFound)
 }
+
+// AI failures keep user-actionable reasons and map busy, missing and
+// oversized cases to statuses the page can act on; other failures get a
+// generic message with a reference.
+func TestAIFailuresMapToActionableStatuses(t *testing.T) {
+	s := &Server{log: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	r := httptest.NewRequest("POST", "/api/v1/ai/chat", nil)
+	cases := []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{ports.AIRejected(http.StatusForbidden, "无智能助手访问权限"), 403, "AI_REQUEST_REJECTED"},
+		{fmt.Errorf("run: %w", ports.ErrAIWorkflowBusy), 429, "AI_BUSY"},
+		{aiworkflow.ErrAIWorkflowsUnavailable, 503, "AI_UNAVAILABLE"},
+		{fmt.Errorf("prompt: %w", core.ErrAIInputTooLarge), 422, "AI_INPUT_TOO_LARGE"},
+		{errors.New("upstream 500"), 502, "AI_WORKFLOW_FAILED"},
+	}
+	for _, c := range cases {
+		w := httptest.NewRecorder()
+		s.aiProblem(w, r, c.err)
+		if w.Code != c.status || !strings.Contains(w.Body.String(), c.code) {
+			t.Fatalf("%v: %d %s", c.err, w.Code, w.Body.String())
+		}
+	}
+	w := httptest.NewRecorder()
+	s.aiProblem(w, r, ports.ErrAIWorkflowBusy)
+	if w.Header().Get("Retry-After") == "" {
+		t.Fatal("busy answers must say when to retry")
+	}
+}

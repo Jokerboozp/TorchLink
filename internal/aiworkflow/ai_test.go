@@ -950,3 +950,13 @@ func TestRunChatCredentialAndRecord(t *testing.T) {
 		t.Fatal("empty question accepted")
 	}
 }
+
+func TestChatRefusesBusinessAgents(t *testing.T) {
+	for _, id := range BusinessWorkflowIDs() {
+		_, err := (&Service{}).RunChat(context.Background(), ChatRequest{TenantID: "t", WorkflowID: id, Question: "列出设备"}, nil)
+		var rejected *ports.AIRequestError
+		if !errors.As(err, &rejected) || rejected.Status != http.StatusUnprocessableEntity {
+			t.Fatalf("%s: chat must refuse business agents, got %v", id, err)
+		}
+	}
+}

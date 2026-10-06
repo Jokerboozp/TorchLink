@@ -8,6 +8,21 @@ import (
 	"iot-platform/internal/model"
 )
 
+// AIRequestError rejects an AI request for a reason the user can act on
+// (a permission, an invalid question, a missing knowledge grant). Status is
+// the HTTP status to answer; Message is shown to the user as is.
+type AIRequestError struct {
+	Status  int
+	Message string
+}
+
+func (e *AIRequestError) Error() string { return e.Message }
+
+// AIRejected builds an AIRequestError.
+func AIRejected(status int, message string) error {
+	return &AIRequestError{Status: status, Message: message}
+}
+
 // ErrAIWorkflowBusy means the Harness is running as many workflows as it
 // allows; the caller may wait and retry.
 var ErrAIWorkflowBusy = errors.New("AI 工作流服务繁忙")

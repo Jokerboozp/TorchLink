@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,10 +38,15 @@ type ChatRequest struct {
 // permission check, a scoped MCP credential, run record) but keeps the
 // multi-turn conversation and reports the knowledge prefetch through emit.
 func (e *Service) RunChat(ctx context.Context, req ChatRequest, emit func(ports.AIWorkflowEvent) error) (ports.AIWorkflowResult, error) {
+	tenantID, workflowID := strings.TrimSpace(req.TenantID), strings.TrimSpace(req.WorkflowID)
+	// Business agents serve platform features with their own permissions and
+	// purposes; the assistant cannot borrow their persona or knowledge.
+	if slices.Contains(BusinessWorkflowIDs(), workflowID) {
+		return ports.AIWorkflowResult{}, ports.AIRejected(http.StatusUnprocessableEntity, "该智能体用于平台业务功能，不能用于对话")
+	}
 	if !e.AIWorkflowsReady() {
 		return ports.AIWorkflowResult{}, ErrAIWorkflowsUnavailable
 	}
-	tenantID, workflowID := strings.TrimSpace(req.TenantID), strings.TrimSpace(req.WorkflowID)
 	ctx, err := e.authorize(ctx, tenantID, "")
 	if err != nil {
 		return ports.AIWorkflowResult{}, err
@@ -50,10 +57,10 @@ func (e *Service) RunChat(ctx context.Context, req ChatRequest, emit func(ports.
 	}
 	question := strings.TrimSpace(req.Question)
 	if question == "" {
-		return ports.AIWorkflowResult{}, errors.New("请输入问题")
+		return ports.AIWorkflowResult{}, ports.AIRejected(http.StatusUnprocessableEntity, "请输入问题")
 	}
 	if len(question) > 8000 {
-		return ports.AIWorkflowResult{}, errors.New("问题超过 8000 字节，请缩短后重试")
+		return ports.AIWorkflowResult{}, ports.AIRejected(http.StatusUnprocessableEntity, "问题超过 8000 字节，请缩短后重试")
 	}
 	runID := id("ai_run")
 	conversationID := strings.TrimSpace(req.ConversationID)
@@ -81,13 +88,13 @@ func (e *Service) RunChat(ctx context.Context, req ChatRequest, emit func(ports.
 		binding = DefaultWorkflowKnowledgeBinding(tenantID, workflowID)
 	}
 	if binding.TenantID != tenantID || binding.WorkflowID != workflowID {
-		return failed(errors.New("知识策略与当前租户或智能体不符，拒绝执行"))
+		return failed(ports.AIRejected(http.StatusForbidden, "知识策略与当前租户或智能体不符，拒绝执行"))
 	}
 	knowledgeScope := ports.MCPToolScope("query_knowledge_base")
 	scopes := append([]string(nil), identity.Scopes...)
 	if !hasScope(scopes, knowledgeScope) {
 		if binding.RetrievalMode != "disabled" && binding.NoMatchPolicy == "require-evidence" {
-			return failed(errors.New("当前用户无此智能体所需的知识库访问权限"))
+			return failed(ports.AIRejected(http.StatusForbidden, "当前用户无此智能体所需的知识库访问权限"))
 		}
 		binding.RetrievalMode = "disabled"
 	}
@@ -101,7 +108,7 @@ func (e *Service) RunChat(ctx context.Context, req ChatRequest, emit func(ports.
 		prompt += KnowledgeBindingInstruction(binding)
 		if e.engine.KB == nil {
 			if binding.NoMatchPolicy == "require-evidence" {
-				return failed(errors.New("此智能体要求知识证据，但知识库不可用"))
+				return failed(ports.AIRejected(http.StatusServiceUnavailable, "此智能体要求知识证据，但知识库不可用"))
 			}
 			prompt += aiprompt.KnowledgeUnavailable
 		} else if prompt, err = e.prefetchChatKnowledge(ctx, tenantID, runID, workflowID, question, prompt, binding, emit); err != nil {
@@ -192,7 +199,7 @@ func (e *Service) prefetchChatKnowledge(ctx context.Context, tenantID, runID, wo
 		return prompt, fmt.Errorf("检索智能体绑定知识失败：%w", err)
 	}
 	if len(hits) == 0 && binding.NoMatchPolicy == "require-evidence" {
-		return prompt, errors.New("此智能体要求匹配知识证据，但未检索到匹配内容")
+		return prompt, ports.AIRejected(http.StatusUnprocessableEntity, "此智能体要求匹配知识证据，但未检索到匹配内容")
 	}
 	if KeywordOnlyHits(hits) {
 		prompt += aiprompt.KnowledgeKeywordOnly

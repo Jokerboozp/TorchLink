@@ -5,8 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"iot-platform/internal/aiworkflow"
+	"net/http"
 
 	"iot-platform/internal/auth"
 	"iot-platform/internal/model"
@@ -57,7 +57,7 @@ func (s *Server) AuthorizeRun(ctx context.Context, tenantID, workflowID string) 
 func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string) (context.Context, error) {
 	identity, ok := ports.AIRunIdentityFrom(ctx)
 	if !ok || identity.TenantID != tenantID {
-		return ctx, errors.New("AI 运行身份与租户不符")
+		return ctx, ports.AIRejected(http.StatusForbidden, "AI 运行身份与租户不符")
 	}
 	if !identity.ManagedUser {
 		return ctx, nil
@@ -65,17 +65,17 @@ func (s *Server) authorizeAIRun(ctx context.Context, tenantID, workflowID string
 	c := auth.Claims{TenantID: tenantID, Username: identity.Username, SessionVersion: identity.SessionVersion}
 	user, permissions, err := s.managedIdentity(ctx, c)
 	if err != nil {
-		return ctx, errors.New("账户已停用或会话已失效，请重新登录")
+		return ctx, ports.AIRejected(http.StatusUnauthorized, "账户已停用或会话已失效，请重新登录")
 	}
 	if workflowID != "" {
 		if !businessWorkflowAllowed(permissions, workflowID) {
-			return ctx, errors.New("无此智能功能的访问权限")
+			return ctx, ports.AIRejected(http.StatusForbidden, "无此智能功能的访问权限")
 		}
 	} else if !chatAllowed(permissions) {
-		return ctx, errors.New("无智能助手访问权限")
+		return ctx, ports.AIRejected(http.StatusForbidden, "无智能助手访问权限")
 	}
 	if identity.AccessVersion == "" || identity.AccessVersion != s.accessVersion(user, permissions, tenantID) {
-		return ctx, errors.New("权限或设备范围已变化，请重新发起 AI 任务")
+		return ctx, ports.AIRejected(http.StatusConflict, "权限或设备范围已变化，请重新发起 AI 任务")
 	}
 	ctx = context.WithValue(ctx, deviceScopeKey{}, s.scopeFor(user, permissions, tenantID))
 	ctx = context.WithValue(ctx, permissionsKey{}, permissions)
