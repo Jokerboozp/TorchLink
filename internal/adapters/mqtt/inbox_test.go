@@ -12,6 +12,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -257,6 +259,8 @@ func TestInboxIdentityPersistsAndDirectoryIsExclusive(t *testing.T) {
 	if other, err := openInbox(root, 8<<20, 80); err == nil {
 		other.close()
 		t.Fatal("two receivers own the same inbox")
+	} else if !errors.Is(err, ErrInboxInUse) || (runtime.GOOS != "windows" && !strings.Contains(err.Error(), "holder pid "+strconv.Itoa(os.Getpid()))) {
+		t.Fatalf("second open should name the holder: %v", err)
 	}
 	for i := 0; i < 200; i++ {
 		if err = d.put(fmt.Sprintf("/iot/up/t/p/d%d/event", i), []byte(`{}`)); err != nil {

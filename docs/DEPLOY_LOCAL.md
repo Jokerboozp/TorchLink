@@ -66,7 +66,7 @@ go run ./cmd/backup-service --env-file .env.local
 
 ### 本地 API 进程交接
 
-终端、IDE 与临时测试 API 不能同时使用相同监听端口和 MQTT 收件箱目录。启动提示 `MQTT inbox directory is used by another process` 或 `8081` 被占用时，先核对实际环境文件、`IOT_DATA_DIR`、`IOT_PROCESS_ROLE` 和 `IOT_INSTANCE_ID`，再定位原进程。macOS / Linux 可执行：
+终端、IDE 与临时测试 API 不能同时使用相同监听端口和 MQTT 收件箱目录。启动提示 `MQTT inbox directory is used by another process` 或 `8081` 被占用时，先核对实际环境文件、`IOT_DATA_DIR`、`IOT_PROCESS_ROLE` 和 `IOT_INSTANCE_ID`，再定位原进程。macOS / Linux 上该提示会附带持有锁的进程号（`holder pid <PID>`），可直接核对；也可执行：
 
 ```bash
 lsof -nP -iTCP:8081 -sTCP:LISTEN
