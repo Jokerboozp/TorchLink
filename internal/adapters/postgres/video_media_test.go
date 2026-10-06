@@ -24,3 +24,15 @@ func TestKnowledgeDocLookupStaysInTenant(t *testing.T) {
 }
 
 func TestListContract(t *testing.T) { repositorytest.ListContract(t, testRepository(t)) }
+
+func TestDeleteResourceBlocksReferences(t *testing.T) {
+	repositorytest.DeleteResourceBlocksReferences(t, testRepository(t))
+}
+
+func TestDeleteProtocolReleaseKeepsOtherVersions(t *testing.T) {
+	repositorytest.DeleteProtocolReleaseKeepsOtherVersions(t, testRepository(t))
+}
+
+func TestDeleteAlarmRemovesEveryAnalysisScope(t *testing.T) {
+	repositorytest.DeleteAlarmRemovesEveryAnalysisScope(t, testRepository(t))
+}
