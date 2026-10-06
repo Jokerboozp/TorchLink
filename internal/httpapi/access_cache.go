@@ -19,6 +19,10 @@ type accessCache struct {
 	entries map[string]cachedAccess
 }
 
+// maxCachedAccess bounds the cache: tenant strings arrive in unauthenticated
+// API keys, so they must not grow process memory without limit.
+const maxCachedAccess = 4096
+
 type cachedAccess struct {
 	state        model.AccessState
 	siteRevision int64
@@ -76,9 +80,20 @@ func (s *Server) authorizationAccess(ctx context.Context, tenant string) (model.
 		return state, err
 	}
 	entry := cachedAccess{state: state, siteRevision: siteState.Revision, sites: newSiteIndex(siteState)}
+	if revision == 0 && len(state.Users) == 0 && len(state.Roles) == 0 && len(state.APIKeys) == 0 {
+		// A tenant without stored access grants nobody anything; caching it
+		// would only let invented tenant names fill the cache.
+		return state, nil
+	}
 	s.access.mu.Lock()
 	if s.access.entries == nil {
 		s.access.entries = map[string]cachedAccess{}
+	}
+	if _, exists := s.access.entries[tenant]; !exists && len(s.access.entries) >= maxCachedAccess {
+		for evict := range s.access.entries {
+			delete(s.access.entries, evict)
+			break
+		}
 	}
 	if previous, exists := s.access.entries[tenant]; !exists || previous.state.Revision < state.Revision || (previous.state.Revision == state.Revision && previous.siteRevision <= entry.siteRevision) {
 		s.access.entries[tenant] = entry

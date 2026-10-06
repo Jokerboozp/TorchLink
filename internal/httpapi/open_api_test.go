@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"context"
+	"encoding/base64"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http/httptest"
@@ -163,5 +165,37 @@ func TestOpenAPIKeyScopesReportsAndAlarms(t *testing.T) {
 	req("GET", "/api/open/v1/me", key, nil, 401)
 	if state, _ := repo.LoadAccessState(ctx, tenant); len(state.APIKeys) != 0 {
 		t.Fatal("deleting a user kept its API keys")
+	}
+}
+
+// Unauthenticated API keys carry the tenant name; forged names and key IDs
+// must neither pass format checks nor accumulate in the authorization caches.
+func TestForgedAPIKeysDoNotGrowAccessCaches(t *testing.T) {
+	repo := memory.NewRepository()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	engine := core.New(ScopedRepository(repo), nil, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), log)
+	api := New(config.Config{DevMode: true, JWTSecret: "forged-key-test-secret-at-least-32-bytes"}, engine, metrics.New(), log)
+	call := func(key string) int {
+		r := httptest.NewRequest("GET", "/api/open/v1/alarms", nil)
+		r.Header.Set("X-API-Key", key)
+		return serve(api, r).Code
+	}
+	for i := range 50 {
+		tenant := base64.RawURLEncoding.EncodeToString(fmt.Appendf(nil, "forged-%d", i))
+		if code := call("tlk." + tenant + ".ak0123456789abcdef.secret"); code != 401 {
+			t.Fatalf("forged key answered %d", code)
+		}
+	}
+	if code := call("tlk." + base64.RawURLEncoding.EncodeToString([]byte("tenant")) + ".not-a-key-id.secret"); code != 401 {
+		t.Fatalf("malformed key ID answered %d", code)
+	}
+	if code := call("tlk." + base64.RawURLEncoding.EncodeToString([]byte("bad\ntenant")) + ".ak0123456789abcdef.secret"); code != 401 {
+		t.Fatalf("control characters in the tenant answered %d", code)
+	}
+	api.access.mu.Lock()
+	cached := len(api.access.entries)
+	api.access.mu.Unlock()
+	if cached != 0 {
+		t.Fatalf("forged tenants were cached: %d entries", cached)
 	}
 }

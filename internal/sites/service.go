@@ -74,11 +74,26 @@ func (s *Service) Snapshot(ctx context.Context, tenant string) (model.SiteState,
 	return state, nil
 }
 
+// maxCachedTenants bounds the snapshot cache.
+const maxCachedTenants = 4096
+
 // remember caches a snapshot unless a newer one is already cached.
 func (s *Service) remember(tenant string, state model.SiteState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if previous, exists := s.cache[tenant]; !exists || previous.Revision <= state.Revision {
+	previous, exists := s.cache[tenant]
+	if !exists && state.Revision == 0 {
+		// A tenant without stored sites has nothing worth keeping; tenant
+		// names from unauthenticated requests must not fill the cache.
+		return
+	}
+	if !exists && len(s.cache) >= maxCachedTenants {
+		for evict := range s.cache {
+			delete(s.cache, evict)
+			break
+		}
+	}
+	if !exists || previous.Revision <= state.Revision {
 		s.cache[tenant] = state
 	}
 }

@@ -9,9 +9,11 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"iot-platform/internal/auth"
@@ -34,6 +36,8 @@ const (
 	openAPIBodyLimit      = 1 << 20
 	openAPIMessageIDLimit = 128
 	openAPIKeyRatePerSec  = 100
+	// openAPITenantRatePerSec is the combined budget of every key of a tenant.
+	openAPITenantRatePerSec = 1000
 )
 
 var apiCapabilityNames = map[string]string{
@@ -82,16 +86,33 @@ func formatAPIKey(tenantID, keyID, secret string) string {
 	return apiKeyScheme + "." + base64.RawURLEncoding.EncodeToString([]byte(tenantID)) + "." + keyID + "." + secret
 }
 
+// apiKeyID matches the identifiers issued by createAPIKey ("ak" + 16 hex).
+var apiKeyID = regexp.MustCompile(`^ak[0-9a-f]{16}$`)
+
 func parseAPIKey(value string) (tenantID, keyID, secret string, ok bool) {
 	parts := strings.Split(strings.TrimSpace(value), ".")
-	if len(parts) != 4 || parts[0] != apiKeyScheme || parts[2] == "" || parts[3] == "" || len(value) > 512 {
+	if len(parts) != 4 || parts[0] != apiKeyScheme || !apiKeyID.MatchString(parts[2]) || parts[3] == "" || len(value) > 512 {
 		return "", "", "", false
 	}
 	tenant, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil || len(tenant) == 0 || !utf8.Valid(tenant) {
+	if err != nil || !validTenantID(string(tenant)) {
 		return "", "", "", false
 	}
 	return string(tenant), parts[2], parts[3], true
+}
+
+// validTenantID rejects tenant strings no tenant can have, before they reach
+// rate-limit keys, storage queries or caches.
+func validTenantID(tenant string) bool {
+	if tenant == "" || len(tenant) > 128 || !utf8.ValidString(tenant) {
+		return false
+	}
+	for _, r := range tenant {
+		if unicode.IsControl(r) || unicode.IsSpace(r) || r == '/' || r == '\\' {
+			return false
+		}
+	}
+	return true
 }
 
 func apiKeySecretHash(secret string) string {
@@ -122,7 +143,9 @@ func (s *Server) authorizeAPIKey(capability, consoleMethod, consolePath string) 
 			fail(http.StatusUnauthorized, "missing or malformed API key")
 			return
 		}
-		if !s.onboarding.AllowRate("openapi\x00"+tenantID+"\x00"+keyID, openAPIKeyRatePerSec) {
+		// The tenant budget bounds what callers can reach by varying the key
+		// ID, since unknown IDs are only rejected after a storage lookup.
+		if !s.onboarding.AllowRate("openapi-tenant\x00"+tenantID, openAPITenantRatePerSec) || !s.onboarding.AllowRate("openapi\x00"+tenantID+"\x00"+keyID, openAPIKeyRatePerSec) {
 			c.Header("Retry-After", "1")
 			fail(http.StatusTooManyRequests, "API key rate limit exceeded")
 			return
