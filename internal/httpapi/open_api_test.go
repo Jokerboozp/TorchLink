@@ -123,6 +123,7 @@ func TestOpenAPIKeyScopesReportsAndAlarms(t *testing.T) {
 	// The bound user's permissions still apply: it has no AI assistant menu.
 	req("POST", "/api/open/v1/ai/chat", key, map[string]string{"question": "hi"}, 403)
 	req("PUT", "/api/v1/access/api-keys/"+keyID, admin, map[string]any{"name": "外部平台", "capabilities": []string{"alarms:read", "alarms:handle", "messages:read", "messages:report"}}, 200)
+	req("POST", "/api/open/v1/alarms/"+alarmID+"/actions", key, map[string]string{"action": "SUPPRESSED"}, 422)
 	acked := req("POST", "/api/open/v1/alarms/"+alarmID+"/actions", key, map[string]string{"action": "ACKED"}, 200)
 	if acked["status"] != "ACKED" {
 		t.Fatal("alarm was not acknowledged", acked)

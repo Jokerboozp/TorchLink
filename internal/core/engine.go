@@ -1253,6 +1253,11 @@ func (e *Engine) SetAlarmStatus(ctx context.Context, tenant, alarmID, status, ac
 			a.Status = status
 			a.ClosedAt = now
 		case "SUPPRESSED":
+			// Suppression silences an open alarm; reopening a recovered or
+			// closed one as suppressed would rewrite its outcome.
+			if a.Status != "ACTIVE" && a.Status != "ACKED" {
+				return false, fmt.Errorf("only active or acknowledged alarms can be suppressed")
+			}
 			a.Status = status
 		default:
 			return false, fmt.Errorf("unsupported status %s", status)

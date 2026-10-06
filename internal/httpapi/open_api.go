@@ -349,7 +349,14 @@ func (s *Server) openAlarmAction(w http.ResponseWriter, r *http.Request) {
 	}
 	key, _ := requestAPIKeyRecord(r.Context())
 	c := claims(r)
-	v, err := s.engine.SetAlarmStatus(r.Context(), c.TenantID, r.PathValue("id"), strings.ToUpper(strings.TrimSpace(in.Action)), c.Username+" (API "+key.Name+")")
+	// External systems may acknowledge, recover or close alarms; suppression
+	// stays a console decision.
+	action := strings.ToUpper(strings.TrimSpace(in.Action))
+	if action != "ACKED" && action != "RECOVERED" && action != "CLOSED" {
+		problem(w, 422, "action must be ACKED, RECOVERED or CLOSED")
+		return
+	}
+	v, err := s.engine.SetAlarmStatus(r.Context(), c.TenantID, r.PathValue("id"), action, c.Username+" (API "+key.Name+")")
 	if err != nil {
 		problem(w, 422, err.Error())
 		return

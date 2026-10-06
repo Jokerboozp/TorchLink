@@ -684,7 +684,7 @@ Content-Type: application/json
 ### 查询与处置告警
 
 - `GET /alarms` 支持 `deviceId`、`status`（`ACTIVE`、`ACKED`、`RECOVERED`、`CLOSED`）、`level`、`source`、`start`、`end`（毫秒时间戳）及 `page`、`pageSize` 分页，返回 `items`、`total`。只返回绑定用户可见设备的告警。
-- `POST /alarms/{alarmId}/actions`，正文 `{"action":"ACKED"}`。`ACKED` 确认活动告警，`RECOVERED` 恢复活动或已确认告警，`CLOSED` 关闭告警；处置后重算设备状态，并记录操作人为“绑定用户 (API 密钥名)”。
+- `POST /alarms/{alarmId}/actions`，正文 `{"action":"ACKED"}`。`ACKED` 确认活动告警，`RECOVERED` 恢复活动或已确认告警，`CLOSED` 关闭告警，其他动作返回 422（屏蔽只能在控制台操作）；处置后重算设备状态，并记录操作人为“绑定用户 (API 密钥名)”。
 
 ### 查询设备与数据
 

@@ -1019,3 +1019,18 @@ func TestDeviceStatusFollowsRemainingOpenAlarms(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlyOpenAlarmsCanBeSuppressed(t *testing.T) {
+	ctx := context.Background()
+	repo := memory.NewRepository()
+	e := New(repo, nil, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for _, status := range []string{"RECOVERED", "CLOSED"} {
+		id := "alarm_" + status
+		if _, _, err := repo.UpsertAlarm(ctx, model.Alarm{ID: id, TenantID: "t1", DeviceID: "d1", AlarmType: "TEMP", AlarmLevel: "LOW", Status: status, Source: "device"}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.SetAlarmStatus(ctx, "t1", id, "SUPPRESSED", "operator"); err == nil {
+			t.Fatalf("a %s alarm was reopened as suppressed", status)
+		}
+	}
+}
