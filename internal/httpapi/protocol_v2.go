@@ -35,12 +35,12 @@ func (s *Server) protocolDefinitionsV2(w http.ResponseWriter, r *http.Request) {
 	tenant := claims(r).TenantID
 	definitions, err := s.engine.Repo.ListProtocolDefinitions(r.Context(), tenant)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	releases, err := s.engine.Repo.ListProtocolReleases(r.Context(), tenant, "")
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	byProtocol := map[string][]model.ProtocolRelease{}
@@ -75,7 +75,7 @@ func (s *Server) saveProtocolDefinitionV2(w http.ResponseWriter, r *http.Request
 	}
 	v.UpdatedAt = now
 	if err := s.engine.Repo.SaveProtocolDefinition(r.Context(), v); err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	s.audit(r, "protocol.v2.definition.save", "protocol", v.ID, nil)
@@ -85,7 +85,7 @@ func (s *Server) saveProtocolDefinitionV2(w http.ResponseWriter, r *http.Request
 func (s *Server) protocolReleasesV2(w http.ResponseWriter, r *http.Request) {
 	items, err := s.engine.Repo.ListProtocolReleases(r.Context(), claims(r).TenantID, r.PathValue("id"))
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	write(w, 200, map[string]any{"items": items, "total": len(items)})
@@ -249,12 +249,12 @@ func (s *Server) installProtocolPackageV2(w http.ResponseWriter, r *http.Request
 	}
 	root, err := filepath.Abs(s.cfg.DataDir)
 	if err != nil {
-		s.failure(w, r, err, "resolve protocol data directory")
+		s.fail(w, r, err, "resolve protocol data directory")
 		return
 	}
 	directory := filepath.Join(root, "protocol-releases", tenant, protocolID, manifest.Version)
 	if err = os.MkdirAll(directory, 0o700); err != nil {
-		s.failure(w, r, err, "create protocol release directory")
+		s.fail(w, r, err, "create protocol release directory")
 		return
 	}
 	packagePath := filepath.Join(directory, "package.zip")
@@ -325,7 +325,7 @@ func (s *Server) installProtocolPackageV2(w http.ResponseWriter, r *http.Request
 	if err != nil {
 		_ = os.Remove(workerPath)
 		_ = os.Remove(packagePath)
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	retained = true
@@ -478,7 +478,7 @@ func (s *Server) publishProtocolReleaseV2(w http.ResponseWriter, r *http.Request
 	}
 	now := time.Now().UnixMilli()
 	if err = s.engine.Repo.UpdateProtocolReleaseStatus(r.Context(), tenant, id, version, "PUBLISHED", now); err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	s.engine.ProtocolsChanged(tenant)
@@ -501,7 +501,7 @@ func (s *Server) bindProductProtocolV2(w http.ResponseWriter, r *http.Request) {
 	}
 	binding, err := s.bindProtocolRelease(r, in.ProtocolID, in.Version, r.PathValue("id"))
 	if err != nil {
-		bindingProblem(w, err)
+		s.fail(w, r, err, "绑定协议版本失败")
 		return
 	}
 	write(w, 200, binding)
@@ -519,32 +519,24 @@ func (s *Server) rollbackProductProtocolV2(w http.ResponseWriter, r *http.Reques
 	}
 	binding, err := s.bindProtocolRelease(r, firstNonBlank(current.PreviousProtocolID, current.ProtocolID), current.PreviousVersion, productID)
 	if err != nil {
-		bindingProblem(w, err)
+		s.fail(w, r, err, "绑定协议版本失败")
 		return
 	}
 	write(w, 200, binding)
-}
-
-func bindingProblem(w http.ResponseWriter, err error) {
-	if errors.Is(err, model.ErrBindingChanged) {
-		problem(w, 409, err.Error())
-		return
-	}
-	problem(w, 422, err.Error())
 }
 
 func (s *Server) bindProtocolRelease(r *http.Request, protocolID, version, productID string) (model.ProductProtocolBinding, error) {
 	tenant := claims(r).TenantID
 	release, err := s.engine.Repo.GetProtocolRelease(r.Context(), tenant, protocolID, version)
 	if err != nil {
-		return model.ProductProtocolBinding{}, errors.New("protocol release not found")
+		return model.ProductProtocolBinding{}, model.Invalid("protocol release not found")
 	}
 	if release.Status != "PUBLISHED" {
-		return model.ProductProtocolBinding{}, errors.New("only a published protocol release can be bound")
+		return model.ProductProtocolBinding{}, model.Invalid("only a published protocol release can be bound")
 	}
 	product, err := s.engine.Repo.GetProduct(r.Context(), tenant, productID)
 	if err != nil {
-		return model.ProductProtocolBinding{}, errors.New("product not found")
+		return model.ProductProtocolBinding{}, model.Invalid("product not found")
 	}
 	if current, e := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, productID); e == nil && current.ProtocolID == protocolID && current.Version == version {
 		return current, nil
@@ -562,15 +554,15 @@ func (s *Server) bindProtocolRelease(r *http.Request, protocolID, version, produ
 	}
 	for _, profile := range profiles {
 		if profile.Enabled && profile.ProductID == productID && len(profile.Queries) > 0 && !protocolworker.HasCapability(release, "encode") {
-			return model.ProductProtocolBinding{}, errors.New("该产品已有定时查询，新版本必须保留 encode 能力")
+			return model.ProductProtocolBinding{}, model.Invalid("该产品已有定时查询，新版本必须保留 encode 能力")
 		}
 		for _, mapping := range profile.ChildProducts {
 			if profile.Enabled && mapping.ProductID == productID && release.PayloadFormat != "hex" {
-				return model.ProductProtocolBinding{}, errors.New("子设备接入映射要求 HEX 解析协议")
+				return model.ProductProtocolBinding{}, model.Invalid("子设备接入映射要求 HEX 解析协议")
 			}
 		}
 		if profile.Enabled && profile.Mode == "listener" && profile.ProductID == productID && !listenerSupports(release, profile.Network) {
-			return model.ProductProtocolBinding{}, errors.New("新版本不支持该产品已启用的 TCP/UDP 接入实例")
+			return model.ProductProtocolBinding{}, model.Invalid("新版本不支持该产品已启用的 TCP/UDP 接入实例")
 		}
 	}
 	previous, previousProtocol := "", ""
@@ -608,7 +600,7 @@ func (s *Server) importModbusTCPV2(w http.ResponseWriter, r *http.Request) {
 func (s *Server) deviceAccessProfilesV2(w http.ResponseWriter, r *http.Request) {
 	items, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), claims(r).TenantID)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	for i := range items {
@@ -669,7 +661,7 @@ func (s *Server) saveDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 		}
 		profiles, listErr := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), "")
 		if listErr != nil {
-			s.failure(w, r, listErr, "读取接入实例失败")
+			s.fail(w, r, listErr, "读取接入实例失败")
 			return
 		}
 		for _, other := range profiles {
@@ -719,7 +711,7 @@ func (s *Server) saveDeviceAccessProfileV2(w http.ResponseWriter, r *http.Reques
 			problem(w, 409, "协议绑定或监听端口已改变，请刷新后重新确认")
 			return
 		}
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	s.audit(r, "protocol.v2.access.save", "deviceAccessProfile", v.ID, map[string]any{"deviceId": v.DeviceID, "enabled": v.Enabled})

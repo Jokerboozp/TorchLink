@@ -21,6 +21,9 @@ type EnrollError struct {
 
 func (e *EnrollError) Error() string { return e.Message }
 
+// StatusCode is the HTTP status the API answers this error with.
+func (e *EnrollError) StatusCode() int { return e.Status }
+
 func invalid(message string) error  { return &EnrollError{Status: 422, Message: message} }
 func conflict(message string) error { return &EnrollError{Status: 409, Message: message} }
 

@@ -16,13 +16,13 @@ func (s *Server) products(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.ListProductsPage(r.Context(), claims(r).TenantID, r.URL.Query().Get("q"), pagination.PageSize, pagination.Offset)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	for i := range items {
 		status, ready, e := s.onboarding.TemplateReadiness(r.Context(), claims(r).TenantID, items[i].ID)
 		if e != nil {
-			s.failure(w, r, e, "读取模板准备状态失败")
+			s.fail(w, r, e, "读取模板准备状态失败")
 			return
 		}
 		items[i].PreparationStatus, items[i].Reusable = status, ready
@@ -35,7 +35,7 @@ func (s *Server) products(w http.ResponseWriter, r *http.Request) {
 func (s *Server) productBindingCheck(w http.ResponseWriter, r *http.Request) {
 	items, err := s.engine.UnboundProducts(r.Context(), claims(r).TenantID)
 	if err != nil {
-		s.failure(w, r, err, "检查设备模板协议绑定失败")
+		s.fail(w, r, err, "检查设备模板协议绑定失败")
 		return
 	}
 	write(w, 200, map[string]any{"items": items})
@@ -107,7 +107,7 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 		if onboarding.CandidateFingerprint(before) != onboarding.CandidateFingerprint(after) {
 			_, count, e := s.engine.Repo.ListManagedDevicesFiltered(r.Context(), ports.DeviceFilter{TenantID: c.TenantID, RestrictProducts: true, ProductIDs: []string{v.ID}}, 1, 0)
 			if e != nil {
-				s.failure(w, r, e, "读取模板使用情况失败")
+				s.fail(w, r, e, "读取模板使用情况失败")
 				return
 			}
 			if count > 0 {
@@ -118,7 +118,7 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	} else if errors.Is(getErr, model.ErrNotFound) {
 		newProduct = true
 	} else {
-		s.internalError(w, r, getErr)
+		s.fail(w, r, getErr, "")
 		return
 	}
 	if v.CreatedAt == 0 {
@@ -126,7 +126,7 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	}
 	v.UpdatedAt = now
 	if err = s.engine.Repo.SaveProduct(r.Context(), v); err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	s.engine.ProtocolsChanged(c.TenantID)
@@ -134,12 +134,12 @@ func (s *Server) saveProduct(w http.ResponseWriter, r *http.Request) {
 	_, releaseErr := s.engine.Repo.GetProtocolRelease(r.Context(), c.TenantID, pkg.Protocol, pkg.Version)
 	if newProduct && v.ProtocolPackageID != parser.StandardProtocolID+"@1.0.0" && releaseErr == nil {
 		if _, err := s.bindProtocolRelease(r, pkg.Protocol, pkg.Version, v.ID); err != nil {
-			bindingProblem(w, err)
+			s.fail(w, r, err, "绑定协议版本失败")
 			return
 		}
 		v, err = s.engine.Repo.GetProduct(r.Context(), c.TenantID, v.ID)
 		if err != nil {
-			s.internalError(w, r, err)
+			s.fail(w, r, err, "")
 			return
 		}
 	}

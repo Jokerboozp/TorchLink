@@ -25,7 +25,7 @@ func (s *Server) deviceRegistry(w http.ResponseWriter, r *http.Request) {
 	// The scope-aware repository filters limited users before totals and pagination.
 	items, total, err := s.engine.Repo.ListManagedDevicesFiltered(r.Context(), filter, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	deviceIDs := make([]string, 0, len(items))
@@ -34,7 +34,7 @@ func (s *Server) deviceRegistry(w http.ResponseWriter, r *http.Request) {
 	}
 	childCounts, err := s.engine.Repo.CountManagedDeviceChildren(r.Context(), tenantID, deviceIDs)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	productIDs := make([]string, 0, len(items))
@@ -159,7 +159,7 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 		created = true
 		v.CreatedAt = now
 	} else {
-		s.failure(w, r, err, "读取设备登记信息失败")
+		s.fail(w, r, err, "读取设备登记信息失败")
 		return
 	}
 	if v.Status == "" {
@@ -216,7 +216,7 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 	} else if requested := v.ConnectorProfileID; requested != "" {
 		profiles, profileErr := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), c.TenantID)
 		if profileErr != nil {
-			s.internalError(w, r, profileErr)
+			s.fail(w, r, profileErr, "")
 			return
 		}
 		valid := false
@@ -237,7 +237,7 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	v.UpdatedAt = now
 	if err := s.engine.Repo.SaveManagedDevice(r.Context(), v); err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	if timingChanged {
@@ -266,7 +266,7 @@ func (s *Server) registerDiscoveredDevice(w http.ResponseWriter, r *http.Request
 		problem(w, 409, "device is already registered")
 		return
 	} else if !errors.Is(err, model.ErrNotFound) {
-		s.failure(w, r, err, "读取设备登记信息失败")
+		s.fail(w, r, err, "读取设备登记信息失败")
 		return
 	}
 	state, err := s.engine.Repo.GetDeviceState(r.Context(), c.TenantID, id)

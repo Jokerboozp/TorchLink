@@ -237,7 +237,7 @@ func (s *Server) videoDeviceCameras(w http.ResponseWriter, r *http.Request) {
 	deviceID := r.PathValue("deviceId")
 	items, err := s.engine.ListCameraSummaries(r.Context(), tenant, deviceID)
 	if err != nil {
-		s.failure(w, r, err, "读取关联摄像头失败")
+		s.fail(w, r, err, "读取关联摄像头失败")
 		return
 	}
 	out := make([]cameraLiveBrief, 0, len(items))

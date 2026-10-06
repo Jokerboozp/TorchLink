@@ -74,7 +74,7 @@ func (s *Server) externalError(w http.ResponseWriter, r *http.Request, err error
 		status = 403
 		detail = err.Error()
 	default:
-		s.failure(w, r, err, detail)
+		s.fail(w, r, err, detail)
 		return
 	}
 	problem(w, status, detail)
@@ -257,7 +257,7 @@ func (s *Server) externalRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	var record externaldata.Record
 	if err = json.Unmarshal(e.Body, &record); err != nil {
-		s.failure(w, r, err, "记录内容不可读")
+		s.fail(w, r, err, "记录内容不可读")
 		return
 	}
 	receipt, err := s.externalData.Store.Get(r.Context(), tenant, "receipt", record.ReceiptID)

@@ -59,7 +59,7 @@ func AllTopics() []string {
 }
 
 // ErrRawConflict indicates reuse of a message identity with different content.
-var ErrRawConflict = errors.New("message id already exists with different content")
+var ErrRawConflict error = Conflict("message id already exists with different content")
 
 type RawMessage struct {
 	MessageID         string            `json:"messageId"`
@@ -742,7 +742,7 @@ func (a Alarm) RequiresVerification() bool {
 }
 
 // ErrDispositionRequired refuses closing a fire alarm without verification.
-var ErrDispositionRequired = errors.New("火警及紧急告警须先填写核实结论再关闭")
+var ErrDispositionRequired error = Invalid("火警及紧急告警须先填写核实结论再关闭")
 
 func (a Alarm) MQTTTopic(eventType string) string {
 	clean := func(v string) string {

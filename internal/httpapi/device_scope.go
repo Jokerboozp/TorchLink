@@ -38,7 +38,7 @@ func (s *Server) unscopedRepo() ports.Repository { return devicescope.Unscoped(s
 func (s *Server) accessDeviceOptions(w http.ResponseWriter, r *http.Request) {
 	rows, e := s.unscopedRepo().ListManagedDevices(r.Context(), claims(r).TenantID)
 	if e != nil {
-		s.failure(w, r, e, "读取设备选项失败")
+		s.fail(w, r, e, "读取设备选项失败")
 		return
 	}
 	out := []map[string]string{}

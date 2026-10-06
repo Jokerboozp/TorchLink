@@ -23,7 +23,7 @@ func (s *Server) listRaw(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	filter, filterErr := parseRawFilter(q)
 	if filterErr != nil {
-		problem(w, http.StatusBadRequest, filterErr.Error())
+		problem(w, http.StatusUnprocessableEntity, filterErr.Error())
 		return
 	}
 	filter.TenantID, filter.Limit, filter.Offset = c.TenantID, pagination.PageSize, pagination.Offset
@@ -38,12 +38,12 @@ func (s *Server) listRaw(w http.ResponseWriter, r *http.Request) {
 	filter.CountLimit = rawCountCap + 1
 	items, err := s.engine.Repo.ListRawIndexes(r.Context(), filter)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	total, err := s.engine.Repo.CountRawIndexes(r.Context(), filter)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	ids := make([]string, 0, len(items))
@@ -83,7 +83,7 @@ func (s *Server) rawDetail(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, err := s.engine.GetRaw(r.Context(), idx)
 	if err != nil {
-		s.failure(w, r, err, "raw archive could not be read")
+		s.fail(w, r, err, "raw archive could not be read")
 		return
 	}
 	result := map[string]any{"archive": idx, "message": raw, "parseStatus": "UNPARSED", "parseError": idx.ParseError}
@@ -105,12 +105,12 @@ func (s *Server) downloadRaw(w http.ResponseWriter, r *http.Request) {
 	}
 	raw, err := s.engine.GetRaw(r.Context(), idx)
 	if err != nil {
-		s.failure(w, r, err, "raw archive could not be read")
+		s.fail(w, r, err, "raw archive could not be read")
 		return
 	}
 	body, err := json.MarshalIndent(raw, "", "  ")
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	filename := strings.Map(func(r rune) rune {
@@ -135,7 +135,7 @@ func (s *Server) downloadRawBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(in.MessageIDs) == 0 {
-		problem(w, 400, "at least one messageId is required")
+		problem(w, http.StatusUnprocessableEntity, "at least one messageId is required")
 		return
 	}
 	if len(in.MessageIDs) > 500 {
@@ -170,13 +170,13 @@ func (s *Server) downloadRawBatch(w http.ResponseWriter, r *http.Request) {
 		}
 		raw, err := s.engine.GetRaw(r.Context(), idx)
 		if err != nil {
-			s.failure(w, r, err, "raw archive could not be read: "+id)
+			s.fail(w, r, err, "raw archive could not be read: "+id)
 			return
 		}
 		items = append(items, archivedRaw{Index: idx, Message: raw})
 	}
 	if len(items) == 0 {
-		problem(w, 400, "at least one valid messageId is required")
+		problem(w, http.StatusUnprocessableEntity, "at least one valid messageId is required")
 		return
 	}
 	var archive bytes.Buffer
@@ -185,17 +185,17 @@ func (s *Server) downloadRawBatch(w http.ResponseWriter, r *http.Request) {
 	for i, item := range items {
 		body, err := json.MarshalIndent(item.Message, "", "  ")
 		if err != nil {
-			s.internalError(w, r, err)
+			s.fail(w, r, err, "")
 			return
 		}
 		name := fmt.Sprintf("报文/%03d_%s.json", i+1, safeAttachmentName(item.Index.MessageID))
 		file, err := zw.Create(name)
 		if err != nil {
-			s.internalError(w, r, err)
+			s.fail(w, r, err, "")
 			return
 		}
 		if _, err = file.Write(append(body, '\n')); err != nil {
-			s.internalError(w, r, err)
+			s.fail(w, r, err, "")
 			return
 		}
 		manifest = append(manifest, item.Index)
@@ -206,11 +206,11 @@ func (s *Server) downloadRawBatch(w http.ResponseWriter, r *http.Request) {
 		_, err = manifestFile.Write(append(manifestBody, '\n'))
 	}
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	if err = zw.Close(); err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	filename := fmt.Sprintf("原始报文_%s_%d条.zip", time.Now().Format("20060102_150405"), len(items))

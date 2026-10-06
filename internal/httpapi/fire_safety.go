@@ -103,7 +103,7 @@ func (s *Server) fireSafetyError(w http.ResponseWriter, r *http.Request, err err
 		status = http.StatusForbidden
 	}
 	if status == http.StatusInternalServerError {
-		s.failure(w, r, err, "消防管理数据读取或保存失败，请稍后重试")
+		s.fail(w, r, err, "消防管理数据读取或保存失败，请稍后重试")
 		return
 	}
 	problem(w, status, err.Error())
@@ -115,7 +115,7 @@ func (s *Server) fireSafetyMutation(action string) endpointHandler {
 		if r.Method == http.MethodDelete {
 			version, err := strconv.ParseInt(r.URL.Query().Get("version"), 10, 64)
 			if err != nil || version < 1 {
-				problem(w, 400, "请提供当前记录版本后重试")
+				problem(w, http.StatusUnprocessableEntity, "请提供当前记录版本后重试")
 				return
 			}
 			body, _ = json.Marshal(map[string]int64{"version": version})

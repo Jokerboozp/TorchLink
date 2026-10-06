@@ -51,7 +51,7 @@ func (s *Server) workflowKnowledgeBinding(w http.ResponseWriter, r *http.Request
 	if r.Method == http.MethodGet {
 		binding, err := s.engine.Repo.GetWorkflowKnowledgeBinding(r.Context(), c.TenantID, workflowID)
 		if err != nil {
-			s.internalError(w, r, err)
+			s.fail(w, r, err, "")
 			return
 		}
 		if binding.WorkflowID == "" {
@@ -84,7 +84,7 @@ func (s *Server) workflowKnowledgeBinding(w http.ResponseWriter, r *http.Request
 		RetrievalMode: in.RetrievalMode, TopK: in.TopK, MinScore: in.MinScore, NoMatchPolicy: in.NoMatchPolicy, UpdatedAt: time.Now().UnixMilli(),
 	}
 	if err := s.engine.Repo.SaveWorkflowKnowledgeBinding(r.Context(), binding); err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	s.audit(r, "ai.workflow.knowledge-binding.save", "ai-workflow", workflowID, map[string]any{"retrievalMode": binding.RetrievalMode, "topK": binding.TopK})
@@ -116,7 +116,7 @@ func (s *Server) testWorkflowKnowledge(w http.ResponseWriter, r *http.Request) {
 	}
 	binding, err := s.engine.Repo.GetWorkflowKnowledgeBinding(r.Context(), c.TenantID, workflowID)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	if binding.WorkflowID == "" {
@@ -149,7 +149,7 @@ func (s *Server) knowledgeDocs(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.ListKnowledgeDocsPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	_, persistent := s.engine.KB.(ports.EmbeddingRuntime)
@@ -159,7 +159,7 @@ func (s *Server) knowledgeDocs(w http.ResponseWriter, r *http.Request) {
 	}
 	summary, err := s.engine.Repo.KnowledgeDocSummary(r.Context(), claims(r).TenantID)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	meta := map[string]any{"indexMode": indexMode, "persistentIndex": persistent, "indexState": s.engine.KnowledgeReindex.Status(), "summary": summary}
@@ -189,7 +189,7 @@ func (s *Server) knowledgeDocumentDetail(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	inspector, ok := s.engine.KB.(ports.InspectableKnowledgeBase)
@@ -199,7 +199,7 @@ func (s *Server) knowledgeDocumentDetail(w http.ResponseWriter, r *http.Request)
 	}
 	chunks, err := inspector.ListKnowledgeChunks(r.Context(), claims(r).TenantID, document.ID)
 	if err != nil {
-		s.internalError(w, r, fmt.Errorf("load indexed chunks: %w", err))
+		s.fail(w, r, fmt.Errorf("load indexed chunks: %w", err), "")
 		return
 	}
 	write(w, http.StatusOK, map[string]any{
@@ -256,7 +256,7 @@ func (s *Server) knowledgeUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	f, h, err := r.FormFile("file")
 	if err != nil {
-		problem(w, 400, "file is required")
+		problem(w, http.StatusUnprocessableEntity, "file is required")
 		return
 	}
 	defer f.Close()
@@ -304,7 +304,7 @@ func (s *Server) knowledgeUpload(w http.ResponseWriter, r *http.Request) {
 		doc.Metadata["capacityRunId"] = run
 	}
 	if err = s.engine.Repo.SaveKnowledgeDoc(r.Context(), doc); err != nil {
-		s.failure(w, r, err, "文档记录保存失败")
+		s.fail(w, r, err, "文档记录保存失败")
 		return
 	}
 	// The persistent worker recovers pending rows after a restart. Tests and
@@ -322,7 +322,7 @@ func (s *Server) knowledgeUpload(w http.ResponseWriter, r *http.Request) {
 		doc.Metadata["chunks"] = result.Chunks
 		doc.Metadata["characters"] = result.Characters
 		if err = s.engine.Repo.SaveKnowledgeDoc(r.Context(), doc); err != nil {
-			s.internalError(w, r, err)
+			s.fail(w, r, err, "")
 			return
 		}
 		write(w, 201, doc)

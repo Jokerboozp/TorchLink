@@ -12,7 +12,7 @@ func (s *Server) videoCameras(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.ListVideoCameraMappingsPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	for index := range items {
@@ -48,7 +48,7 @@ func (s *Server) videoRelations(w http.ResponseWriter, r *http.Request) {
 	}
 	relations, err := s.engine.Repo.ListVideoCameraRelationsByTarget(r.Context(), claims(r).TenantID, relationType, targetID)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	write(w, http.StatusOK, map[string]any{"items": relations, "relationType": relationType, "targetId": targetID})
@@ -117,7 +117,7 @@ func (s *Server) saveVideoCamera(w http.ResponseWriter, r *http.Request) {
 	v.SDKCredentialRef = ""
 	v.UpdatedAt = time.Now().UnixMilli()
 	if err := s.engine.Repo.SaveVideoCameraMapping(r.Context(), v); err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	// Live configuration is stored separately and is never touched here; only

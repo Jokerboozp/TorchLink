@@ -6,12 +6,12 @@ import (
 )
 
 var ErrNotFound = errors.New("not found")
-var ErrResourceInUse = errors.New("resource is referenced")
-var ErrInvalidIngress = errors.New("invalid ingress message")
+var ErrResourceInUse error = Conflict("resource is referenced")
+var ErrInvalidIngress error = Invalid("invalid ingress message")
 
 // ErrBackpressure rejects new raw messages while the parse and storage backlog
 // is above its limit; senders retry later and the backlog drains first.
-var ErrBackpressure = errors.New("ingest paused: processing backlog above limit, retry later")
+var ErrBackpressure error = Unavailable("ingest paused: processing backlog above limit, retry later")
 
 // ErrStaleClaim is returned when a processing claim was taken over after its
 // lease expired; the fenced holder must not record completion.
@@ -35,7 +35,7 @@ type permanentError struct{ error }
 func (e permanentError) Unwrap() []error { return []error{e.error, ErrPermanent} }
 
 // ErrConcurrentUpdate is returned when optimistic retries were exhausted.
-var ErrConcurrentUpdate = errors.New("concurrent update; retry")
+var ErrConcurrentUpdate error = Conflict("concurrent update; retry")
 
 // StandardClaim is the outcome of claiming a standard message for business
 // processing across workers.

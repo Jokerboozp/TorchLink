@@ -2,10 +2,14 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"iot-platform/internal/devicescope"
 	"iot-platform/internal/logctx"
+	"iot-platform/internal/model"
+	"iot-platform/internal/onboarding"
 	"log/slog"
 	"net/http/httptest"
 	"path/filepath"
@@ -14,7 +18,7 @@ import (
 )
 
 // A literal 500 written with problem() drops the error and the reference the
-// operations guide tells operators to search for; handlers use s.failure.
+// operations guide tells operators to search for; handlers use s.fail.
 func TestHandlersReportInternalErrorsWithReference(t *testing.T) {
 	files, err := filepath.Glob("*.go")
 	if err != nil {
@@ -40,11 +44,11 @@ func TestHandlersReportInternalErrorsWithReference(t *testing.T) {
 			switch status := call.Args[1].(type) {
 			case *ast.BasicLit:
 				if status.Value == "500" {
-					t.Errorf("%s: use s.failure for internal errors", fset.Position(call.Pos()))
+					t.Errorf("%s: use s.fail for internal errors", fset.Position(call.Pos()))
 				}
 			case *ast.SelectorExpr:
 				if status.Sel.Name == "StatusInternalServerError" {
-					t.Errorf("%s: use s.failure for internal errors", fset.Position(call.Pos()))
+					t.Errorf("%s: use s.fail for internal errors", fset.Position(call.Pos()))
 				}
 			}
 			return true
@@ -64,5 +68,38 @@ func TestFailureLogsTheReferenceItReturns(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "reference=req-42") || !strings.Contains(logs.String(), "connection refused") {
 		t.Fatalf("the cause was not logged under the reference: %s", logs.String())
+	}
+}
+
+func TestFailMapsErrorCategories(t *testing.T) {
+	var logs strings.Builder
+	server := &Server{log: slog.New(slog.NewTextHandler(&logs, nil))}
+	cases := []struct {
+		method string
+		err    error
+		status int
+		detail string
+	}{
+		{"GET", fmt.Errorf("load device: %w", devicescope.ErrDenied), 404, devicescope.ErrDenied.Error()},
+		{"PUT", devicescope.ErrDenied, 403, devicescope.ErrDenied.Error()},
+		{"POST", &onboarding.EnrollError{Status: 409, Message: "地址已被占用"}, 409, "地址已被占用"},
+		{"POST", fmt.Errorf("save: %w", model.Invalid("巡检周期须为正整数")), 422, "巡检周期须为正整数"},
+		{"PUT", fmt.Errorf("save: %w", model.ErrBindingChanged), 409, model.ErrBindingChanged.Error()},
+		{"GET", fmt.Errorf("load: %w", model.ErrNotFound), 404, "资源不存在或无访问权限"},
+		{"POST", model.ErrBackpressure, 503, model.ErrBackpressure.Error()},
+		{"GET", errors.New("dial tcp 10.0.0.5:5432: connection refused"), 500, "读取失败"},
+	}
+	for _, c := range cases {
+		w := httptest.NewRecorder()
+		server.fail(w, httptest.NewRequest(c.method, "/api/v1/things", nil), c.err, "读取失败")
+		if w.Code != c.status || !strings.Contains(w.Body.String(), c.detail) {
+			t.Errorf("%s %v: got %d %s, want %d with %q", c.method, c.err, w.Code, w.Body.String(), c.status, c.detail)
+		}
+		if c.status != 500 && strings.Contains(w.Body.String(), "connection refused") {
+			t.Errorf("%v leaked its cause", c.err)
+		}
+	}
+	if strings.Contains(logs.String(), "地址已被占用") || !strings.Contains(logs.String(), "connection refused") {
+		t.Fatalf("only unexpected errors are logged: %s", logs.String())
 	}
 }

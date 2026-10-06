@@ -219,7 +219,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	token, err := s.auth.IssueWithVersion(in.Username, in.TenantID, "admin", s.adminSessionVersion(), 8*time.Hour)
 	if err != nil {
-		s.failure(w, r, err, "无法签发登录凭据")
+		s.fail(w, r, err, "无法签发登录凭据")
 		return
 	}
 	write(w, 200, map[string]any{"accessToken": token, "expiresIn": 28800, "tenantId": in.TenantID, "role": "admin", "permissions": []string{"*"}, "platformVersion": version.Version})

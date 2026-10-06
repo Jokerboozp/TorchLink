@@ -1,7 +1,5 @@
 package model
 
-import "errors"
-
 // Camera live module records. Basic camera metadata stays in
 // VideoCameraMapping; live access settings, encrypted credentials and play
 // sessions are stored separately so editing a camera's name or location can
@@ -99,7 +97,7 @@ type VideoPlaySession struct {
 
 // ErrGBDeviceTaken means a GB/T 28181 device ID already belongs to another
 // tenant. Device IDs are SIP identities and must map to exactly one tenant.
-var ErrGBDeviceTaken = errors.New("国标设备编号已被其他租户使用")
+var ErrGBDeviceTaken error = Conflict("国标设备编号已被其他租户使用")
 
 // GBDevice is a GB/T 28181 device (IPC, NVR or lower-level platform) that
 // registers to the platform's SIP server. Administrators own the settings;

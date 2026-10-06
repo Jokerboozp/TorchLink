@@ -18,7 +18,7 @@ func (s *Server) mqttToken(w http.ResponseWriter, r *http.Request) {
 	// Broker-only credentials: never usable as a console token.
 	token, err := s.auth.IssueBrowserMQTT(c.Username, c.TenantID, scope, 15*time.Minute)
 	if err != nil {
-		s.failure(w, r, err, "创建消息令牌失败")
+		s.fail(w, r, err, "创建消息令牌失败")
 		return
 	}
 	write(w, 200, map[string]any{"username": auth.BrowserMQTTUsername(c.Username), "token": token, "expiresIn": 900, "subscriptions": scope, "websocketUrl": s.mqttWebSocketURL(r)})
@@ -72,7 +72,7 @@ func (s *Server) deviceMQTTToken(w http.ResponseWriter, r *http.Request) {
 
 	token, err := s.auth.IssueWithACL(v.AccessKey, v.TenantID, "device", nil, acl, ttl)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	response := map[string]any{"username": v.AccessKey, "token": token, "expiresIn": int(ttl.Seconds()), "publishTopic": topic, "receiptTopic": receiptTopic, "websocketUrl": s.mqttWebSocketURL(r)}
@@ -95,7 +95,7 @@ func (s *Server) mqttLoadToken(w http.ResponseWriter, r *http.Request) {
 	acl := []auth.ACLRule{{Permission: "allow", Action: "publish", Topic: topic}}
 	token, err := s.auth.IssueWithACL("loadgen:"+c.Username, c.TenantID, "loadgen", nil, acl, time.Hour)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	s.audit(r, "mqtt.load-token.issue", "product", input.ProductID, map[string]any{"topic": topic, "expiresIn": 3600})

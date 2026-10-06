@@ -108,7 +108,7 @@ func (s *Server) capacityReport(w http.ResponseWriter, r *http.Request) {
 	switch format {
 	case "", "html", "markdown", "json", "csv", "zip":
 	default:
-		problem(w, http.StatusBadRequest, "format must be html, markdown, json, csv or zip")
+		problem(w, http.StatusUnprocessableEntity, "format must be html, markdown, json, csv or zip")
 		return
 	}
 	resp, ok := s.callCapacity(w, r, http.MethodGet, "/v1/runs/"+id+"/report", url.Values{"format": {firstNonEmptyString(format, "html")}}, nil, 10*time.Minute)
@@ -155,7 +155,7 @@ func (s *Server) capacityPlanBody(w http.ResponseWriter, r *http.Request, start 
 		OperatorToken string `json:"operatorToken,omitempty"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 300<<10)).Decode(&req); err != nil || strings.TrimSpace(req.Plan) == "" {
-		problem(w, http.StatusBadRequest, "请求需要 environment 与 plan（YAML 文本，最大 256 KiB）")
+		problem(w, http.StatusUnprocessableEntity, "请求需要 environment 与 plan（YAML 文本，最大 256 KiB）")
 		return nil, false
 	}
 	c := claims(r)
@@ -169,7 +169,7 @@ func (s *Server) capacityPlanBody(w http.ResponseWriter, r *http.Request, start 
 		}
 		token, err := s.reissueToken(c, ttl)
 		if err != nil {
-			s.failure(w, r, err, "无法为容量测试签发操作凭据")
+			s.fail(w, r, err, "无法为容量测试签发操作凭据")
 			return nil, false
 		}
 		req.OperatorToken = token

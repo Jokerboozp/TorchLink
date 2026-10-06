@@ -121,7 +121,7 @@ func (s *Server) loadMessageTopics(w http.ResponseWriter, r *http.Request) (mode
 	}
 	cfg, err := s.engine.MessageTopics.Load(r.Context(), claims(r).TenantID)
 	if err != nil {
-		s.failure(w, r, err, "读取消息主题配置失败")
+		s.fail(w, r, err, "读取消息主题配置失败")
 		return cfg, false
 	}
 	return cfg, true
@@ -365,7 +365,7 @@ func (s *Server) saveMessageTopics(w http.ResponseWriter, r *http.Request, cfg m
 		return
 	}
 	if err != nil {
-		s.failure(w, r, err, "保存消息主题配置失败")
+		s.fail(w, r, err, "保存消息主题配置失败")
 		return
 	}
 	if !saved {

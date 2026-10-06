@@ -26,9 +26,9 @@ const (
 )
 
 var (
-	ErrAlarmClosed        = errors.New("已关闭的告警不能再修改附件")
-	ErrTooManyAttachments = fmt.Errorf("每条告警最多 %d 个附件", MaxAlarmAttachments)
-	ErrAttachmentNotFound = errors.New("附件不存在")
+	ErrAlarmClosed        error = Invalid("已关闭的告警不能再修改附件")
+	ErrTooManyAttachments error = Invalid(fmt.Sprintf("每条告警最多 %d 个附件", MaxAlarmAttachments))
+	ErrAttachmentNotFound       = errors.New("附件不存在")
 )
 
 // AlarmAttachmentKey is the object key of an attachment.

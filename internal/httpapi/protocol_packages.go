@@ -13,7 +13,7 @@ func (s *Server) protocolPackages(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.ListProtocolPackagesPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	writeList(w, 200, items, total, pagination, map[string]any{"parserTypes": parser.ManagedParserTypes()})
@@ -80,7 +80,7 @@ func (s *Server) saveProtocolPackage(w http.ResponseWriter, r *http.Request) {
 	}
 	v.UpdatedAt = now
 	if err := s.engine.Repo.SaveProtocolPackage(r.Context(), v); err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	s.audit(r, "protocol.save", "protocolPackage", v.ID, map[string]any{"version": v.Version, "status": v.Status})

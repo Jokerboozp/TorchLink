@@ -69,7 +69,7 @@ func capacityFullScope(w http.ResponseWriter, r *http.Request) bool {
 func (s *Server) capacityOperatorBody(w http.ResponseWriter, r *http.Request, environment string) ([]byte, bool) {
 	token, err := s.capacityOperatorToken(r)
 	if err != nil {
-		s.failure(w, r, err, "无法签发清理操作凭据")
+		s.fail(w, r, err, "无法签发清理操作凭据")
 		return nil, false
 	}
 	body, _ := json.Marshal(map[string]string{"tenant": claims(r).TenantID, "environment": environment, "operatorToken": token})
@@ -127,7 +127,7 @@ func (s *Server) capacityCleanupAll(w http.ResponseWriter, r *http.Request) {
 			Environment string `json:"environment"`
 		}
 		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&in) != nil {
-			problem(w, 400, "请选择测试环境")
+			problem(w, http.StatusUnprocessableEntity, "请选择测试环境")
 			return
 		}
 		environment, path = in.Environment, "/v1/cleanup"
@@ -322,5 +322,5 @@ func (s *Server) capacityDataError(w http.ResponseWriter, r *http.Request, err e
 		problem(w, 409, "清理超时，可保留记录后重试")
 		return
 	}
-	s.failure(w, r, err, "测试数据清理失败，可保留记录后重试")
+	s.fail(w, r, err, "测试数据清理失败，可保留记录后重试")
 }

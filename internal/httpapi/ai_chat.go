@@ -29,7 +29,7 @@ func (s *Server) aiAnalysis(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		if err != nil {
-			s.internalError(w, r, err)
+			s.fail(w, r, err, "")
 			return
 		}
 		if !found || v.CreatedAt > latest.CreatedAt {
@@ -89,7 +89,7 @@ func (s *Server) aiChatStream(w http.ResponseWriter, r *http.Request) {
 	}
 	flusher, ok := w.(http.Flusher)
 	if !ok {
-		s.failure(w, r, errors.New("response writer does not support streaming"), "streaming is not supported")
+		s.fail(w, r, errors.New("response writer does not support streaming"), "streaming is not supported")
 		return
 	}
 	w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
@@ -307,7 +307,7 @@ func (s *Server) aiRuleDraft(w http.ResponseWriter, r *http.Request) {
 	}
 	presentation, presentationErr := core.PresentRule(rule)
 	if presentationErr != nil {
-		s.internalError(w, r, presentationErr)
+		s.fail(w, r, presentationErr, "")
 		return
 	}
 	s.engine.RecordAudit(r.Context(), model.AuditLog{ID: fmt.Sprintf("audit_%d", time.Now().UnixNano()), TenantID: c.TenantID, Actor: c.Username, Action: "ai.rule_draft", TargetType: "rule", TargetID: rule.ID, Details: map[string]any{"success": true}, CreatedAt: time.Now().UnixMilli()})

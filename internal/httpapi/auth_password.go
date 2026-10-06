@@ -17,7 +17,7 @@ const passwordChangeTTL = 15 * time.Minute
 func (s *Server) writeManagedSession(w http.ResponseWriter, r *http.Request, state model.AccessState, u model.PlatformUser, tenant string) {
 	token, err := s.auth.IssueUser(u.Username, tenant, u.SessionVersion, 8*time.Hour)
 	if err != nil {
-		s.failure(w, r, err, "创建会话失败")
+		s.fail(w, r, err, "创建会话失败")
 		return
 	}
 	permissions := effectivePermissions(state, u)
@@ -94,7 +94,7 @@ func (s *Server) changeOwnPassword(w http.ResponseWriter, r *http.Request) {
 	state.Users[index] = u
 	ok, err := store.SaveAccessState(r.Context(), c.TenantID, state)
 	if err != nil {
-		s.failure(w, r, err, "保存密码失败")
+		s.fail(w, r, err, "保存密码失败")
 		return
 	}
 	if !ok {

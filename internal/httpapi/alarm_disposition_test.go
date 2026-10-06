@@ -113,7 +113,7 @@ func TestAlarmVerificationStatisticsAndExport(t *testing.T) {
 	if code, pdf := monthly(root, "?month="+month); code != 200 || !bytes.HasPrefix(pdf, []byte("%PDF-1.")) || !bytes.HasSuffix(bytes.TrimSpace(pdf), []byte("%%EOF")) {
 		t.Fatalf("monthly report %d %q", code, pdf[:min(len(pdf), 40)])
 	}
-	if code, _ := monthly(root, "?month=2999-01"); code != 400 {
+	if code, _ := monthly(root, "?month=2999-01"); code != 422 {
 		t.Fatalf("future month accepted: %d", code)
 	}
 	if code, _ := monthly(other, ""); code != 403 {

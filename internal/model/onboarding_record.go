@@ -2,10 +2,9 @@ package model
 
 import (
 	"encoding/json"
-	"errors"
 )
 
-var ErrOnboardingChanged = errors.New("接入记录已发生变化，请刷新后重试")
+var ErrOnboardingChanged error = Conflict("接入记录已发生变化，请刷新后重试")
 
 // OnboardingRecord is a versioned, tenant-owned control-plane record. Body must
 // never contain plaintext device credentials. Kind and OwnerID are immutable.

@@ -99,7 +99,7 @@ func (s *Server) aiRunHistory(w http.ResponseWriter, r *http.Request) {
 	}
 	items, total, err := s.engine.AIRuns.ListAIRuns(r.Context(), aiRunFilter(r))
 	if err != nil {
-		s.failure(w, r, err, "AI 运行记录读取失败")
+		s.fail(w, r, err, "AI 运行记录读取失败")
 		return
 	}
 	write(w, http.StatusOK, map[string]any{"items": items, "total": total, "available": true})
@@ -117,7 +117,7 @@ func (s *Server) aiRunUsage(w http.ResponseWriter, r *http.Request) {
 	}
 	items, err := s.engine.AIRuns.AIRunUsage(r.Context(), aiRunFilter(r))
 	if err != nil {
-		s.failure(w, r, err, "AI 用量统计读取失败")
+		s.fail(w, r, err, "AI 用量统计读取失败")
 		return
 	}
 	write(w, http.StatusOK, map[string]any{"items": items, "available": true})

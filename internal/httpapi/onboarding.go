@@ -24,12 +24,7 @@ func (s *Server) enrollProblem(w http.ResponseWriter, r *http.Request, err error
 		problem(w, 409, "设备模板配置或验收记录已变化，请重新预检")
 		return
 	}
-	var e *onboarding.EnrollError
-	if errors.As(err, &e) {
-		problem(w, e.Status, e.Message)
-		return
-	}
-	s.internalError(w, r, err)
+	s.fail(w, r, err, "")
 }
 
 // onboardingPreflight evaluates a saved template, or a template draft described

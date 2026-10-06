@@ -14,7 +14,7 @@ func (s *Server) rules(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	v, total, err := s.engine.Repo.ListRulesPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	writeList(w, 200, v, total, pagination, nil)
@@ -49,7 +49,7 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 		v.ID = id
 		items, err := s.engine.Repo.ListRules(r.Context(), c.TenantID)
 		if err != nil {
-			s.internalError(w, r, err)
+			s.fail(w, r, err, "")
 			return
 		}
 		found := false
@@ -98,12 +98,12 @@ func (s *Server) saveRule(w http.ResponseWriter, r *http.Request) {
 	}
 	if status == http.StatusOK && wasEnabled && !v.Enabled {
 		if err := s.engine.DisableRule(r.Context(), c.TenantID, v.ID); err != nil {
-			s.internalError(w, r, err)
+			s.fail(w, r, err, "")
 			return
 		}
 	}
 	if err := s.engine.Repo.SaveRule(r.Context(), v); err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	s.engine.RulesChanged(c.TenantID)

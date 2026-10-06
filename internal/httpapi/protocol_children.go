@@ -26,7 +26,7 @@ func (s *Server) registerConfiguredChild(w http.ResponseWriter, r *http.Request)
 	}
 	profiles, err := s.engine.Repo.ListDeviceAccessProfiles(r.Context(), tenant)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	var profile model.DeviceAccessProfile
@@ -71,7 +71,7 @@ func (s *Server) deviceChildren(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.ListManagedDeviceChildren(r.Context(), tenant, parent, pagination.PageSize, pagination.Offset)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	// One query per kind for the whole page instead of three per child.
@@ -86,17 +86,17 @@ func (s *Server) deviceChildren(w http.ResponseWriter, r *http.Request) {
 	}
 	bindings, err := s.engine.Repo.GetProductProtocolBindingsByIDs(r.Context(), tenant, productIDs)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	states, err := s.engine.Repo.GetDeviceStatesByIDs(r.Context(), tenant, deviceIDs)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	products, err := s.engine.Repo.GetProductsByIDs(r.Context(), tenant, productIDs)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	out := []map[string]any{}

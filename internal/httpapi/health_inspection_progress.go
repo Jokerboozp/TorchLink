@@ -24,7 +24,7 @@ const (
 func (s *Server) runHealthInspection(w http.ResponseWriter, r *http.Request) {
 	job, err := s.startHealthInspectionJob(capacityJobContext(r), claims(r).TenantID, claims(r).Username, aiRunIdentity(r.Context(), claims(r)))
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	write(w, http.StatusAccepted, healthInspectionJobView(job))
@@ -172,7 +172,7 @@ func (s *Server) healthInspectionProgress(w http.ResponseWriter, r *http.Request
 	requestedJobID := strings.TrimSpace(r.PathValue("jobId"))
 	job, found, err := s.loadHealthInspectionJob(r.Context(), claims(r).TenantID)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	if !found || requestedJobID != "" && job.ID != requestedJobID {

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iot-platform/internal/devicescope"
 	"net/http"
 	"strconv"
 	"strings"
@@ -104,6 +105,62 @@ func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error
 	}
 	s.log.ErrorContext(r.Context(), "request failed", "reference", reference, "method", r.Method, "path", r.URL.Path, "error", err)
 	write(w, http.StatusInternalServerError, map[string]any{"type": "about:blank", "title": http.StatusText(http.StatusInternalServerError), "status": http.StatusInternalServerError, "detail": "服务内部错误，请稍后重试；如持续出现请提供编号 " + reference + " 联系管理员", "traceId": reference})
+}
+
+// statusError is a domain error that chooses its own HTTP status, such as an
+// onboarding.EnrollError.
+type statusError interface {
+	error
+	StatusCode() int
+}
+
+// fail answers a handler error by its category: a device outside the
+// request's scope (404 for reads, 403 for changes), an error carrying its own
+// status, then model.ErrNotFound (404), model.ErrInvalid (422),
+// model.ErrConflict (409), model.ErrForbidden (403) and model.ErrUnavailable
+// (503). Anything else is unexpected: it is logged and answered 500 with
+// detail and a reference (see failure), or the generic message when detail is
+// empty (see internalError).
+func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error, detail string) {
+	var own statusError
+	var domain *model.Error
+	switch {
+	case errors.Is(err, devicescope.ErrDenied):
+		if r.Method == http.MethodGet || r.Method == http.MethodHead {
+			problem(w, http.StatusNotFound, devicescope.ErrDenied.Error())
+		} else {
+			problemCode(w, http.StatusForbidden, codeDeviceScopeDenied, devicescope.ErrDenied.Error())
+		}
+	case errors.As(err, &own):
+		problem(w, own.StatusCode(), own.Error())
+	case errors.As(err, &domain):
+		problem(w, categoryStatus(domain.Category), domain.Message)
+	case errors.Is(err, model.ErrNotFound):
+		problem(w, http.StatusNotFound, "资源不存在或无访问权限")
+	case errors.Is(err, model.ErrInvalid), errors.Is(err, model.ErrConflict), errors.Is(err, model.ErrForbidden), errors.Is(err, model.ErrUnavailable):
+		problem(w, categoryStatus(err), err.Error())
+	case detail == "":
+		s.internalError(w, r, err)
+	default:
+		s.failure(w, r, err, detail)
+	}
+}
+
+// categoryStatus is the HTTP status of a model error category.
+func categoryStatus(err error) int {
+	switch {
+	case errors.Is(err, model.ErrInvalid):
+		return http.StatusUnprocessableEntity
+	case errors.Is(err, model.ErrConflict):
+		return http.StatusConflict
+	case errors.Is(err, model.ErrForbidden):
+		return http.StatusForbidden
+	case errors.Is(err, model.ErrUnavailable):
+		return http.StatusServiceUnavailable
+	case errors.Is(err, model.ErrNotFound):
+		return http.StatusNotFound
+	}
+	return http.StatusInternalServerError
 }
 
 // failure answers 500 with a Chinese hint and a reference, and logs err under

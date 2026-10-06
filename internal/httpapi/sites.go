@@ -78,7 +78,7 @@ func (s *Server) siteError(w http.ResponseWriter, r *http.Request, err error) {
 	case errors.Is(err, sites.ErrConflict):
 		problem(w, 409, err.Error())
 	default:
-		s.failure(w, r, err, "单位建筑数据读取或保存失败，请稍后重试")
+		s.fail(w, r, err, "单位建筑数据读取或保存失败，请稍后重试")
 	}
 }
 
@@ -236,7 +236,7 @@ func (s *Server) deleteSite(kind string) endpointHandler {
 		id := r.PathValue("id")
 		version, err := strconv.ParseInt(r.URL.Query().Get("version"), 10, 64)
 		if err != nil || version < 1 {
-			problem(w, 400, "请提供当前记录版本后重试")
+			problem(w, http.StatusUnprocessableEntity, "请提供当前记录版本后重试")
 			return
 		}
 		switch kind {
@@ -285,7 +285,7 @@ func (s *Server) uploadFloorPlan(w http.ResponseWriter, r *http.Request) {
 	}
 	version, err := strconv.ParseInt(r.URL.Query().Get("version"), 10, 64)
 	if err != nil || version < 1 {
-		problem(w, 400, "请提供当前楼层版本后重试")
+		problem(w, http.StatusUnprocessableEntity, "请提供当前楼层版本后重试")
 		return
 	}
 	data, _, ok := readUpload(w, r, maxSitePlan, "平面图不能超过 20 MiB")
@@ -337,7 +337,7 @@ func readUpload(w http.ResponseWriter, r *http.Request, limit int64, tooLarge st
 	defer r.MultipartForm.RemoveAll()
 	f, h, err := r.FormFile("file")
 	if err != nil {
-		problem(w, 400, "请选择文件")
+		problem(w, http.StatusUnprocessableEntity, "请选择文件")
 		return nil, "", false
 	}
 	defer f.Close()
@@ -455,7 +455,7 @@ func (s *Server) validUnitGrants(w http.ResponseWriter, r *http.Request, scope s
 	}
 	state, err := s.sites.Snapshot(r.Context(), claims(r).TenantID)
 	if err != nil {
-		s.failure(w, r, err, "读取单位失败")
+		s.fail(w, r, err, "读取单位失败")
 		return nil, false
 	}
 	known := map[string]bool{}

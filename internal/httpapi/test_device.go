@@ -33,21 +33,21 @@ func (s *Server) provisionTestDevice(w http.ResponseWriter, r *http.Request) {
 
 	pkg, packageCreated, err := s.ensureTestProtocolPackage(r.Context(), tenantID, protocolID, in.Reset, now)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	product, productCreated, err := s.ensureTestProduct(r.Context(), tenantID, productID, pkg.ID, in.Reset, now)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	if _, err := s.removeLegacyTestAlarmRule(r.Context(), tenantID, "rule_test_device_"+scope, product.ID); err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	device, deviceCreated, credential, err := s.ensureTestManagedDevice(r.Context(), tenantID, deviceID, product.ID, in.Reset, now)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	s.audit(r, "test-device.provision", "device", device.ID, map[string]any{

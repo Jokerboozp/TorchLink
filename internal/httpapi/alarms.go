@@ -14,12 +14,12 @@ func (s *Server) alarms(w http.ResponseWriter, r *http.Request) {
 	filter := ports.AlarmFilter{TenantID: claims(r).TenantID, DeviceID: q.Get("deviceId"), Status: q.Get("status"), Level: q.Get("level"), Source: q.Get("source"), Start: i64(q.Get("start")), End: i64(q.Get("end")), Limit: pagination.PageSize, Offset: pagination.Offset}
 	items, err := s.engine.Repo.ListAlarms(r.Context(), filter)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	total, err := s.engine.Repo.CountAlarms(r.Context(), filter)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	deviceIDs := make([]string, 0, len(items))

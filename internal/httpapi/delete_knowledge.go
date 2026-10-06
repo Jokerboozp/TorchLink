@@ -22,7 +22,7 @@ func (s *Server) deleteKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err != nil {
-		s.failure(w, r, err, "could not load document")
+		s.fail(w, r, err, "could not load document")
 		return
 	}
 	index, indexed := s.engine.KB.(ports.KnowledgeDocumentDeleter)
@@ -39,7 +39,7 @@ func (s *Server) deleteKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 		doc.Metadata["indexStage"] = "deleting"
 		updated, updateErr := jobs.UpdateKnowledgeDocument(r.Context(), doc)
 		if updateErr != nil {
-			s.failure(w, r, updateErr, "无法保存文档删除任务")
+			s.fail(w, r, updateErr, "无法保存文档删除任务")
 			return
 		}
 		if !updated {
@@ -60,7 +60,7 @@ func (s *Server) deleteKnowledgeDocument(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if err = s.engine.Repo.DeleteResource(r.Context(), tenant, "knowledge", id); err != nil {
-		s.failure(w, r, err, "could not delete document record")
+		s.fail(w, r, err, "could not delete document record")
 		return
 	}
 	s.audit(r, "knowledge.delete", "knowledge-document", id, nil)

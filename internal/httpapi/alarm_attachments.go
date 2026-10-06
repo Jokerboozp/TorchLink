@@ -77,7 +77,7 @@ func (s *Server) attachmentProblem(w http.ResponseWriter, r *http.Request, err e
 	case errors.Is(err, model.ErrAlarmClosed), errors.Is(err, model.ErrTooManyAttachments):
 		problem(w, 422, err.Error())
 	default:
-		s.failure(w, r, err, "保存附件失败")
+		s.fail(w, r, err, "保存附件失败")
 	}
 }
 

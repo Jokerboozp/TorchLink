@@ -86,12 +86,7 @@ func (s *Server) onboardingTaskProblem(w http.ResponseWriter, r *http.Request, e
 		problem(w, 404, "接入记录不存在或无权访问")
 		return
 	}
-	var e *onboarding.EnrollError
-	if errors.As(err, &e) {
-		problem(w, e.Status, e.Message)
-		return
-	}
-	s.failure(w, r, err, "接入任务暂时不可用，请稍后重试")
+	s.fail(w, r, err, "接入任务暂时不可用，请稍后重试")
 }
 func taskPage(r *http.Request) (int, int) {
 	page := parseListPagination(r)

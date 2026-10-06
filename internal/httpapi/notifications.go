@@ -118,7 +118,7 @@ func (s *Server) notificationProblem(w http.ResponseWriter, r *http.Request, err
 	case errors.Is(err, notify.ErrConflict):
 		problem(w, 409, "内容已被修改或已存在，请刷新后重试")
 	default:
-		s.failure(w, r, err, "保存告警通知配置失败")
+		s.fail(w, r, err, "保存告警通知配置失败")
 	}
 }
 
@@ -174,7 +174,7 @@ func (s *Server) saveNotificationChannel(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		if secret, err = n.Cipher.Open(c.TenantID, c.ID, sealed); err != nil {
-			s.internalError(w, r, err)
+			s.fail(w, r, err, "")
 			return
 		}
 	}
@@ -195,7 +195,7 @@ func (s *Server) saveNotificationChannel(w http.ResponseWriter, r *http.Request)
 	if c.Version == 0 || in.Secret != nil {
 		sealed, err := n.Cipher.Seal(c.TenantID, c.ID, secret)
 		if err != nil {
-			s.failure(w, r, err, "加密渠道凭据失败")
+			s.fail(w, r, err, "加密渠道凭据失败")
 			return
 		}
 		sealedPtr = &sealed
@@ -380,7 +380,7 @@ func (s *Server) alarmNotifications(w http.ResponseWriter, r *http.Request) {
 	}
 	items, err := s.notifications.Store.ListAlarmTasks(r.Context(), tenant, r.PathValue("id"))
 	if err != nil {
-		s.failure(w, r, err, "读取通知记录失败")
+		s.fail(w, r, err, "读取通知记录失败")
 		return
 	}
 	names := map[string]string{}

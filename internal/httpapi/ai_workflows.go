@@ -97,7 +97,7 @@ func (s *Server) healthInspectionPDF(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		s.failure(w, r, err, "生成巡检报告失败")
+		s.fail(w, r, err, "生成巡检报告失败")
 		return
 	}
 	filename := fmt.Sprintf("health-inspection-%d.pdf", job.Report.GeneratedAt)
@@ -122,7 +122,7 @@ func (s *Server) healthInspectionPage(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("limit"); v != "" {
 		n, e := strconv.Atoi(v)
 		if e != nil || n < 1 || n > 100 {
-			problem(w, 400, "limit 必须为 1 到 100")
+			problem(w, http.StatusUnprocessableEntity, "limit 必须为 1 到 100")
 			return
 		}
 		limit = n
@@ -130,7 +130,7 @@ func (s *Server) healthInspectionPage(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("offset"); v != "" {
 		n, e := strconv.Atoi(v)
 		if e != nil || n < 0 {
-			problem(w, 400, "offset 必须是非负整数")
+			problem(w, http.StatusUnprocessableEntity, "offset 必须是非负整数")
 			return
 		}
 		offset = n
@@ -340,7 +340,7 @@ func (s *Server) publishProtocolAssistant(w http.ResponseWriter, r *http.Request
 		pkg.CreatedAt = old.CreatedAt
 	}
 	if err = s.engine.Repo.SaveProtocolPackage(r.Context(), pkg); err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	s.audit(r, "ai.protocol-assistant.publish", "protocolPackage", pkg.ID, map[string]any{"version": pkg.Version, "status": pkg.Status, "fields": len(draft.Fields)})

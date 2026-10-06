@@ -39,7 +39,7 @@ func (s *Server) listAIConversations(w http.ResponseWriter, r *http.Request) {
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	items, err := s.engine.AIConversations.ListAIConversations(r.Context(), c.TenantID, c.Username, workflowID, requestAccessVersion(r.Context(), c), limit)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	write(w, http.StatusOK, map[string]any{"items": items})
@@ -57,7 +57,7 @@ func (s *Server) getAIConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	write(w, http.StatusOK, map[string]any{"conversation": conversation, "messages": messages})
@@ -75,7 +75,7 @@ func (s *Server) deleteAIConversation(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	s.audit(r, "ai.conversation.delete", "ai-conversation", r.PathValue("id"), nil)

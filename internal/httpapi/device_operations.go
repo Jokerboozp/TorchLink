@@ -59,7 +59,7 @@ func (s *Server) deviceHistory(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if e != nil {
-		s.internalError(w, r, e)
+		s.fail(w, r, e, "")
 		return
 	}
 	write(w, 200, map[string]any{"items": items, "total": total})
@@ -72,7 +72,7 @@ func (s *Server) listDeviceCommands(w http.ResponseWriter, r *http.Request) {
 	limit, offset := page.PageSize, page.Offset
 	items, total, e := s.engine.Repo.ListDeviceCommands(r.Context(), claims(r).TenantID, r.PathValue("id"), limit, offset)
 	if e != nil {
-		s.internalError(w, r, e)
+		s.fail(w, r, e, "")
 		return
 	}
 	for i := range items {
@@ -109,7 +109,7 @@ func (s *Server) deviceSignals(w http.ResponseWriter, r *http.Request) {
 	}
 	items, err := s.engine.DeviceSignals.ListDeviceSignals(r.Context(), claims(r).TenantID, []string{r.PathValue("id")}, 50)
 	if err != nil {
-		s.failure(w, r, err, "读取设备健康信号失败")
+		s.fail(w, r, err, "读取设备健康信号失败")
 		return
 	}
 	write(w, 200, map[string]any{"items": items, "available": true})

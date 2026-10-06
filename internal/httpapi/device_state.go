@@ -20,12 +20,12 @@ func (s *Server) devices(w http.ResponseWriter, r *http.Request) {
 		items, total, err = s.engine.Repo.ListDeviceStatesPage(r.Context(), tenantID, pagination.PageSize, pagination.Offset)
 	}
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	_, online, err := s.engine.Repo.CountDeviceStates(r.Context(), tenantID, unregisteredOnly)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	writeList(w, 200, items, total, pagination, map[string]any{"online": online, "offline": total - online, "unregistered": unregisteredOnly})
@@ -51,7 +51,7 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	property := q.Get("property")
 	if property == "" {
-		problem(w, 400, "property is required")
+		problem(w, http.StatusUnprocessableEntity, "property is required")
 		return
 	}
 	if !validPropertyName(property) {
@@ -61,7 +61,7 @@ func (s *Server) history(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
 	items, total, err := s.engine.Repo.PropertyHistoryPage(r.Context(), claims(r).TenantID, r.PathValue("deviceId"), property, i64(q.Get("start")), i64(q.Get("end")), pagination.PageSize, pagination.Offset)
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	writeList(w, 200, items, total, pagination, nil)

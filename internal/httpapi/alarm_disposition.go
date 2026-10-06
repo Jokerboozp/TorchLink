@@ -93,7 +93,7 @@ func (s *Server) alarmStatistics(w http.ResponseWriter, r *http.Request) {
 	stats, err := s.engine.Repo.AlarmDispositionStats(r.Context(), reportFilter(r))
 	if err != nil {
 		s.log.ErrorContext(r.Context(), "alarm statistics failed", "error", err)
-		s.failure(w, r, err, "读取告警失败")
+		s.fail(w, r, err, "读取告警失败")
 		return
 	}
 	write(w, 200, stats)
@@ -105,7 +105,7 @@ func (s *Server) alarmAIQuality(w http.ResponseWriter, r *http.Request) {
 	outcomes, err := s.engine.Repo.AIAnalysisOutcomes(r.Context(), reportFilter(r), strings.TrimSpace(r.URL.Query().Get("promptVersion")))
 	if err != nil {
 		s.log.ErrorContext(r.Context(), "AI analysis statistics failed", "error", err)
-		s.failure(w, r, err, "读取研判统计失败")
+		s.fail(w, r, err, "读取研判统计失败")
 		return
 	}
 	write(w, 200, map[string]any{"stats": model.SummarizeAIAnalysis(outcomes), "outcomes": outcomes})
@@ -155,7 +155,7 @@ func (s *Server) exportAlarms(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		s.log.ErrorContext(r.Context(), "alarm export failed", "rows", rows, "error", err)
 		if out == nil {
-			s.failure(w, r, err, "读取告警失败")
+			s.fail(w, r, err, "读取告警失败")
 			return
 		}
 		panic(http.ErrAbortHandler)
@@ -175,7 +175,7 @@ func (s *Server) alarmMonthlyReport(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("month"); v != "" {
 		parsed, err := time.ParseInLocation("2006-01", v, model.ReportZone)
 		if err != nil || parsed.After(now) || parsed.Year() < 2000 {
-			problem(w, 400, "月份格式为 YYYY-MM，且不能晚于本月")
+			problem(w, http.StatusUnprocessableEntity, "月份格式为 YYYY-MM，且不能晚于本月")
 			return
 		}
 		month = parsed
@@ -183,12 +183,12 @@ func (s *Server) alarmMonthlyReport(w http.ResponseWriter, r *http.Request) {
 	report, err := s.engine.AlarmMonthlyReport(r.Context(), claims(r).TenantID, month)
 	if err != nil {
 		s.log.ErrorContext(r.Context(), "alarm monthly report failed", "error", err)
-		s.failure(w, r, err, "读取告警失败")
+		s.fail(w, r, err, "读取告警失败")
 		return
 	}
 	pdf, err := core.RenderAlarmMonthlyPDF(report)
 	if err != nil {
-		s.failure(w, r, err, "生成月报失败")
+		s.fail(w, r, err, "生成月报失败")
 		return
 	}
 	w.Header().Set("Content-Type", "application/pdf")

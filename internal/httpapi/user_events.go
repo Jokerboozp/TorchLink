@@ -64,7 +64,7 @@ func (s *Server) userEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	body, err := json.Marshal(map[string]any{"alarms": alarms, "devices": states, "deviceTotal": deviceTotal, "permissions": permissions, "accessVersion": accessVersion, "delta": delta, "truncated": truncated, "snapshotLimit": eventSnapshotLimit, "cursor": s.events.revisions.cursor(seq, access)})
 	if err != nil {
-		s.failure(w, r, err, "读取消息失败")
+		s.fail(w, r, err, "读取消息失败")
 		return
 	}
 	// Pages poll every few seconds; an unchanged view answers 304 without a body.

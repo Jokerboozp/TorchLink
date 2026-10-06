@@ -619,7 +619,7 @@ func checkDashboard(t *testing.T, repo ports.Repository) {
 		}
 	}
 	for _, query := range []string{"days=10000", "days=abc", "offset=841", "offset=-721", "offset=abc"} {
-		requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/dashboard?"+query, token, nil, 400)
+		requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/dashboard?"+query, token, nil, 422)
 	}
 	requestJSON(t, server.Client(), "GET", server.URL+"/api/v1/dashboard", "", nil, 401)
 }
@@ -830,7 +830,7 @@ func TestRawFiltersHTTP(t *testing.T) {
 			t.Fatalf("filtered response %+v", result)
 		}
 	}
-	requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/raw-messages?start=no", token, nil, 400)
+	requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/raw-messages?start=no", token, nil, 422)
 
 	// Without a time, device or message filter only the last 7 days are read.
 	recent := time.Now().UnixMilli()

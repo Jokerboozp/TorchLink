@@ -15,7 +15,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("days"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || (n != 7 && n != 30) {
-			problem(w, 400, "days must be 7 or 30")
+			problem(w, http.StatusUnprocessableEntity, "days must be 7 or 30")
 			return
 		}
 		days = n
@@ -24,7 +24,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 	if v := r.URL.Query().Get("offset"); v != "" {
 		n, err := strconv.Atoi(v)
 		if err != nil || n < -720 || n > 840 {
-			problem(w, 400, "invalid timezone offset")
+			problem(w, http.StatusUnprocessableEntity, "invalid timezone offset")
 			return
 		}
 		offset = n
@@ -37,7 +37,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {
 		return s.engine.Repo.DashboardCounts(ctx, c.TenantID, start.UnixMilli(), now.UnixMilli())
 	})
 	if err != nil {
-		s.internalError(w, r, err)
+		s.fail(w, r, err, "")
 		return
 	}
 	states, levels := map[string]int{}, map[string]int{}
