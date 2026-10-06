@@ -157,13 +157,18 @@ func (r *Repository) ListProducts(ctx context.Context, tenant string) ([]model.P
 	}
 	return out, rows.Err()
 }
-func (r *Repository) ListProductsPage(ctx context.Context, tenant string, limit, offset int) ([]model.Product, int, error) {
+func (r *Repository) ListProductsPage(ctx context.Context, tenant, query string, limit, offset int) ([]model.Product, int, error) {
 	limit, offset = normalizePage(limit, offset)
+	pattern := ""
+	if q := strings.TrimSpace(query); q != "" {
+		pattern = "%" + strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(q) + "%"
+	}
+	const match = `tenant_id=$1 AND ($2='' OR id ILIKE $2 ESCAPE '\' OR COALESCE(body->>'name','') ILIKE $2 ESCAPE '\')`
 	var total int
-	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM iot_product WHERE tenant_id=$1`, tenant).Scan(&total); err != nil {
+	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM iot_product WHERE `+match, tenant, pattern).Scan(&total); err != nil {
 		return nil, 0, err
 	}
-	rows, err := r.pool.Query(ctx, `SELECT body FROM iot_product WHERE tenant_id=$1 ORDER BY updated_at DESC,id DESC LIMIT $2 OFFSET $3`, tenant, limit, offset)
+	rows, err := r.pool.Query(ctx, `SELECT body FROM iot_product WHERE `+match+` ORDER BY updated_at DESC,id DESC LIMIT $3 OFFSET $4`, tenant, pattern, limit, offset)
 	if err != nil {
 		return nil, 0, err
 	}

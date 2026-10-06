@@ -113,7 +113,7 @@ async function load({ catalog = true } = {}) {
       ]
     if (version !== loadVersion) return
     products.value = p.items || []
-    productTotal.value = Number(p.total ?? p.count ?? products.value.length)
+    productTotal.value = Number(p.total ?? products.value.length)
     loadError.value = ''
     loadUnbound()
   } catch (error) {

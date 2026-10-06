@@ -23,6 +23,7 @@ import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 import { usePageState } from '../composables/usePageState.js'
 import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
+import { usePagedList } from '../composables/usePagedList'
 defineEmits(['navigate'])
 
 const tab = ref('assets'),
@@ -183,15 +184,7 @@ watch(tab, () => {
   filters.due = ''
   applyFilters()
 })
-function changePage(value) {
-  page.value = value
-  load()
-}
-function changePageSize(value) {
-  pageSize.value = value
-  page.value = 1
-  load()
-}
+const { changePage, changePageSize } = usePagedList(() => load(), { page, pageSize })
 function openAsset(row) {
   for (const key of Object.keys(form)) delete form[key]
   Object.assign(form, blank(), row ? JSON.parse(JSON.stringify(row)) : {})

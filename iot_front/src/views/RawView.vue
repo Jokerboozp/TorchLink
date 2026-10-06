@@ -5,7 +5,7 @@ defineEmits(['navigate'])
 import { errorMessage, transportLabel, formatLabel } from '../presentation'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, apiAll, download, formatTime, isAbort, notifyError, pretty } from '../api'
+import { api, download, formatTime, isAbort, notifyError, pretty } from '../api'
 import { downloadWithProgress, transferText } from '../transfer'
 import { useListLoader } from '../composables/useListLoader'
 import { can, permissionState } from '../permissions'
@@ -17,6 +17,8 @@ import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 import DeviceFilterSelect from '../components/DeviceFilterSelect.vue'
+import ProductFilterSelect from '../components/ProductFilterSelect.vue'
+import { usePagedList } from '../composables/usePagedList'
 
 const emptyFilters = () => ({
   deviceId: '',
@@ -62,18 +64,31 @@ filters.value = { ...emptyFilters(), ...appliedFilters.value, range: appliedFilt
 
 // 报文索引只保存设备与产品编号；名称按当前账户可读的设备和产品资料补充，读取失败时仍显示编号。
 const names = reactive({ devices: {}, products: {} })
-let productsRequested = false
-async function resolveNames(rows) {
-  if (!productsRequested && can('GET /api/v1/products')) {
-    productsRequested = true
-    apiAll('/api/v1/products')
-      .then(data => {
-        for (const product of data.items || []) if (product?.id) names.products[product.id] = product.name || ''
-      })
-      .catch(() => {
-        productsRequested = false
-      })
+// 按编号检索名称：只查本页出现的编号，少量并发，不预先加载全部资料。
+async function resolveEach(ids, store, lookup) {
+  const pending = [...new Set(ids.filter(id => id && !(id in store)))]
+  for (const id of pending) store[id] = ''
+  const worker = async () => {
+    for (let id = pending.shift(); id; id = pending.shift()) {
+      try {
+        store[id] = await lookup(id)
+      } catch {
+        delete store[id]
+      }
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(4, pending.length) }, worker))
+}
+async function resolveNames(rows) {
+  if (can('GET /api/v1/products'))
+    void resolveEach(
+      rows.map(row => row.productId),
+      names.products,
+      async id => {
+        const data = await api(`/api/v1/products?page=1&pageSize=20&q=${encodeURIComponent(id)}`)
+        return (data.items || []).find(item => item.id === id)?.name || ''
+      }
+    )
   if (!can('GET /api/v1/device-registry')) return
   const pending = [...new Set(rows.map(row => row.deviceId).filter(id => id && !(id in names.devices)))]
   for (const id of pending) names.devices[id] = ''
@@ -99,13 +114,13 @@ watch(
   () => {
     names.devices = {}
     names.products = {}
-    productsRequested = false
     void resolveNames(items.value)
   }
 )
 
 // 有设备资料读取权限时按名称或编号选择设备；否则输入完整设备编号。
 const canPickDevice = computed(() => can('GET /api/v1/device-registry'))
+const canPickProduct = computed(() => can('GET /api/v1/products'))
 
 async function load() {
   loadError.value = ''
@@ -173,16 +188,7 @@ const detailParseTag = status =>
     label: '待解析 / 未匹配'
   }
 
-function changePage(value) {
-  page.value = value
-  load()
-}
-
-function changePageSize(value) {
-  pageSize.value = value
-  page.value = 1
-  load()
-}
+const { changePage, changePageSize } = usePagedList(() => load(), { page, pageSize })
 
 // 打开详情与下载期间记录进行中的报文，避免重复点击发出重复请求。
 const opening = ref('')
@@ -294,7 +300,14 @@ function rowActions(row) {
       </div>
     </div>
     <div v-if="expanded" class="raw-filter-grid raw-filter-advanced">
-      <label>产品标识<ui-input v-model="filters.productId" clearable placeholder="输入完整产品标识" aria-label="产品标识" /></label>
+      <label
+        >产品标识<ProductFilterSelect v-if="canPickProduct" v-model="filters.productId" placeholder="按模板名称或标识选择" /><ui-input
+          v-else
+          v-model="filters.productId"
+          clearable
+          placeholder="输入完整产品标识"
+          aria-label="产品标识"
+      /></label>
       <label>协议<ui-input v-model="filters.protocol" clearable placeholder="如 json、gb26875" aria-label="协议" /></label>
       <label
         >报文格式<ui-select

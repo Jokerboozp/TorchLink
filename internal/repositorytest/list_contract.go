@@ -46,4 +46,17 @@ func ListContract(t *testing.T, repo ports.Repository) {
 	if products, err := repo.ListProducts(ctx, tenant); err != nil || len(products) != 1 {
 		t.Fatalf("tenant products %d (%v)", len(products), err)
 	}
+	// Product search matches the ID or name case-insensitively; % and _ are literal.
+	for _, p := range []model.Product{{ID: "smoke-a", Name: "烟感 A"}, {ID: "rate-100%_x", Name: "Rate"}} {
+		p.TenantID, p.Status = tenant, "ENABLED"
+		if err := repo.SaveProduct(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for query, want := range map[string]int{"烟感": 1, "SMOKE": 1, "%": 1, "_": 1, "rate": 1, "": 3, "missing": 0} {
+		items, total, err := repo.ListProductsPage(ctx, tenant, query, 20, 0)
+		if err != nil || total != want || len(items) != want {
+			t.Fatalf("product search %q: %d rows of %d, want %d (%v)", query, len(items), total, want, err)
+		}
+	}
 }

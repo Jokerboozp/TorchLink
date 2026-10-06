@@ -16,6 +16,7 @@ import StatusDot from '../components/layout/StatusDot.vue'
 import { errorMessage } from '../presentation'
 import { usePageState } from '../composables/usePageState.js'
 import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
+import { usePagedList } from '../composables/usePagedList'
 
 const rules = ref([])
 const products = ref([])
@@ -159,7 +160,7 @@ async function load() {
       Promise.all([api(`/api/v1/rules?page=${page.value}&pageSize=${pageSize.value}`, { signal }), apiAll('/api/v1/products', { signal })])
     )
     rules.value = rulesData.items || []
-    total.value = Number(rulesData.total ?? rulesData.count ?? rules.value.length)
+    total.value = Number(rulesData.total ?? rules.value.length)
     products.value = productData.items || []
     loadError.value = ''
   } catch (error) {
@@ -167,16 +168,7 @@ async function load() {
   }
 }
 
-function changePage(value) {
-  page.value = value
-  load()
-}
-
-function changePageSize(value) {
-  pageSize.value = value
-  page.value = 1
-  load()
-}
+const { changePage, changePageSize } = usePagedList(() => load(), { page, pageSize })
 
 function open(value, presentation = null) {
   Object.assign(

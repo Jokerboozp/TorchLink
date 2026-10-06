@@ -12,6 +12,7 @@ import DataTableCard from '../components/layout/DataTableCard.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import KnowledgeIndexStatus from '../components/KnowledgeIndexStatus.vue'
 import { confirmDelete } from '../deleteAction'
+import { usePagedList } from '../composables/usePagedList'
 
 const emit = defineEmits(['navigate'])
 const uploadRef = ref(null)
@@ -109,7 +110,7 @@ async function load(silent = false) {
       const data = documentResult.value
       documentsError.value = ''
       documents.value = Array.isArray(data.items) ? data.items : []
-      total.value = Number(data.total ?? data.count ?? documents.value.length)
+      total.value = Number(data.total ?? documents.value.length)
       runtime.value = {
         indexMode: data.indexMode || '',
         persistentIndex: Boolean(data.persistentIndex),
@@ -210,15 +211,7 @@ async function saveBinding() {
   }
 }
 
-function changePage(value) {
-  page.value = value
-  load()
-}
-function changePageSize(value) {
-  pageSize.value = value
-  page.value = 1
-  load()
-}
+const { changePage, changePageSize } = usePagedList(() => load(), { page, pageSize })
 function openUpload() {
   if (!canUpload.value) return
   uploadDialog.value = true

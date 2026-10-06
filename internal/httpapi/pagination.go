@@ -71,12 +71,9 @@ func paginationNumber(value string) int {
 func writeList(w http.ResponseWriter, status int, items any, total int, pagination listPagination, extra map[string]any) {
 	response := map[string]any{
 		"items":    items,
-		"count":    total,
 		"total":    total,
 		"page":     pagination.Page,
 		"pageSize": pagination.PageSize,
-		"limit":    pagination.PageSize,
-		"offset":   pagination.Offset,
 		"pagination": map[string]int{
 			"page":     pagination.Page,
 			"pageSize": pagination.PageSize,

@@ -10,6 +10,7 @@ import { toolName } from '../presentation'
 import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import DataTableCard from './layout/DataTableCard.vue'
 import RowActions from './layout/RowActions.vue'
+import { usePagedList } from '../composables/usePagedList'
 
 const emit = defineEmits(['changed'])
 
@@ -225,15 +226,7 @@ function rowActions(item) {
   ]
 }
 
-function changePage(value) {
-  page.value = value
-  load()
-}
-function changePageSize(value) {
-  pageSize.value = value
-  page.value = 1
-  load()
-}
+const { changePage, changePageSize } = usePagedList(() => load(), { page, pageSize })
 
 onMounted(load)
 </script>

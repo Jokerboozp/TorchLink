@@ -324,7 +324,7 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 }
 func (s *Server) products(w http.ResponseWriter, r *http.Request) {
 	pagination := parseListPagination(r)
-	items, total, err := s.engine.Repo.ListProductsPage(r.Context(), claims(r).TenantID, pagination.PageSize, pagination.Offset)
+	items, total, err := s.engine.Repo.ListProductsPage(r.Context(), claims(r).TenantID, r.URL.Query().Get("q"), pagination.PageSize, pagination.Offset)
 	if err != nil {
 		s.internalError(w, r, err)
 		return

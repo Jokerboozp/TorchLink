@@ -162,7 +162,7 @@ func TestHTTPWorkflow(t *testing.T) {
 	}
 	publicResp.Body.Close()
 	registry := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/device-registry", token, nil, 200)
-	if registry["count"].(float64) != 1 {
+	if registry["total"].(float64) != 1 {
 		t.Fatalf("unexpected registry: %#v", registry)
 	}
 	requestJSON(t, server.Client(), http.MethodPost, server.URL+"/api/v1/rules", token, map[string]any{"id": "rule_e2e", "name": "高温烟雾", "alarmType": "FIRE_RISK", "level": "HIGH", "match": "all", "enabled": true, "conditions": []map[string]any{{"field": "temperature", "operator": ">", "value": 80}, {"field": "smoke", "operator": "eq", "value": true}}}, 201)
@@ -172,7 +172,7 @@ func TestHTTPWorkflow(t *testing.T) {
 		t.Fatalf("raw not created: %#v", ingest)
 	}
 	alarms := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/alarms?status=ACTIVE", token, nil, 200)
-	if alarms["count"].(float64) != 1 {
+	if alarms["total"].(float64) != 1 {
 		t.Fatalf("unexpected alarms %#v", alarms)
 	}
 	items := alarms["items"].([]any)
@@ -350,7 +350,7 @@ func TestHTTPWorkflow(t *testing.T) {
 		t.Fatalf("test fixture alarm was not parsed %#v", testRaw)
 	}
 	testAlarms := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/alarms?deviceId="+testDeviceID+"&status=ACTIVE", token, nil, http.StatusOK)
-	if testAlarms["count"].(float64) < 1 {
+	if testAlarms["total"].(float64) < 1 {
 		t.Fatalf("test fixture alarm rule did not trigger %#v", testAlarms)
 	}
 	resp, err := server.Client().Get(server.URL + "/")

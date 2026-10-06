@@ -106,11 +106,21 @@ func (r *Repository) ListProducts(_ context.Context, tenant string) ([]model.Pro
 	sort.Slice(out, func(i, j int) bool { return newerFirst(out[i].UpdatedAt, out[j].UpdatedAt, out[i].ID, out[j].ID) })
 	return out, nil
 }
-func (r *Repository) ListProductsPage(ctx context.Context, tenant string, limit, offset int) ([]model.Product, int, error) {
+func (r *Repository) ListProductsPage(ctx context.Context, tenant, query string, limit, offset int) ([]model.Product, int, error) {
 	items, err := r.ListProducts(ctx, tenant)
 	if err != nil {
 		return nil, 0, err
 	}
+	if q := strings.ToLower(strings.TrimSpace(query)); q != "" {
+		matched := items[:0]
+		for _, item := range items {
+			if strings.Contains(strings.ToLower(item.ID), q) || strings.Contains(strings.ToLower(item.Name), q) {
+				matched = append(matched, item)
+			}
+		}
+		items = matched
+	}
+	limit, offset = normalizePage(limit, offset)
 	return page(items, offset, limit), len(items), nil
 }
 func (r *Repository) SaveProtocolPackage(_ context.Context, v model.ProtocolPackage) error {

@@ -355,11 +355,11 @@ test('association pagination preserves filters and stops when the dataset shrink
   assert.equal(result.mode, 'test')
 })
 
-test('association pagination supports count-only and uncounted responses', async () => {
+test('association pagination supports totalled and untotalled responses', async () => {
   for (const counted of [true, false]) {
     const result = await loadAllPages(async path => {
       const data = paginated(path)
-      return { items: data.items, ...(counted ? { count: data.total } : {}) }
+      return { items: data.items, ...(counted ? { total: data.total } : {}) }
     }, '/catalog')
     assert.equal(result.items.length, 101)
   }
@@ -770,7 +770,9 @@ test('原始报文按当前账户可见的设备和产品资料显示名称，�
   await f.load()
   await new Promise(resolve => setTimeout(resolve, 0))
   assert.equal(requests.filter(url => url.includes('device-registry')).length, 2, '已解析的名称直接复用')
-  assert.equal(requests.filter(url => url.startsWith('/api/v1/products')).length, 1)
+  // Products are looked up by ID like devices: once per ID, reused on the next load.
+  assert.equal(requests.filter(url => url.startsWith('/api/v1/products') && url.includes('q=p1')).length, 1)
+  assert.equal(requests.filter(url => url.startsWith('/api/v1/products')).length, 2)
 
   const first = f.show('raw-1')
   f.show('raw-1')
@@ -1112,4 +1114,25 @@ test('一次返回全部记录的列表在前端分页，列表变短时页码�
   await nextTick()
   assert.equal(page.value, 1)
   assert.equal(paged.value.length, 25)
+})
+
+test('catalog loading reads pages a few at a time, keeps their order and stops at 50 pages', async () => {
+  let inFlight = 0,
+    peak = 0
+  const requested = []
+  const result = await loadAllPages(async path => {
+    const page = Number(new URL(path, 'http://audit.invalid').searchParams.get('page'))
+    requested.push(page)
+    inFlight++
+    peak = Math.max(peak, inFlight)
+    await new Promise(resolve => setTimeout(resolve, page % 3))
+    inFlight--
+    return { items: Array.from({ length: 100 }, (_, i) => `${page}-${i}`), total: 10000 }
+  }, '/catalog')
+  assert.equal(requested.length, 50)
+  assert.ok(peak <= 4, `at most four pages in flight, saw ${peak}`)
+  assert.equal(result.items.length, 5000)
+  assert.equal(result.items[100], '2-0')
+  assert.equal(result.items.at(-1), '50-99')
+  assert.equal(result.truncated, true)
 })

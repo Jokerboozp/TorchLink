@@ -868,7 +868,7 @@ func TestTestDeviceDirectAlarmCreatesAlarmAndUpdatesDeviceState(t *testing.T) {
 		},
 	}, http.StatusCreated)
 	alarms := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/alarms?deviceId="+deviceID+"&status=ACTIVE", token, nil, http.StatusOK)
-	if alarms["count"] != float64(1) {
+	if alarms["total"] != float64(1) {
 		t.Fatalf("direct device alarm was not shown in alarm center: %#v", alarms)
 	}
 	items := alarms["items"].([]any)
@@ -892,7 +892,7 @@ func TestTestDeviceDirectAlarmCreatesAlarmAndUpdatesDeviceState(t *testing.T) {
 		},
 	}, http.StatusCreated)
 	alarms = requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/alarms?deviceId="+deviceID+"&status=ACTIVE", token, nil, http.StatusOK)
-	if alarms["count"] != float64(0) {
+	if alarms["total"] != float64(0) {
 		t.Fatalf("direct device alarm was not recovered: %#v", alarms)
 	}
 	state = requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/devices/"+deviceID+"/latest", token, nil, http.StatusOK)

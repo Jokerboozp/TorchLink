@@ -36,6 +36,7 @@ import AlarmDisposition from '../components/AlarmDisposition.vue'
 import AlarmAttachments from '../components/AlarmAttachments.vue'
 import AlarmLocation from '../components/AlarmLocation.vue'
 import AiAnalysisQuality from '../components/AiAnalysisQuality.vue'
+import { usePagedList } from '../composables/usePagedList'
 
 const filters = reactive({ status: '', level: '', deviceId: '' })
 const items = ref([])
@@ -160,15 +161,7 @@ function dispositionUpdated(updated) {
   void load()
 }
 
-function changePage(value) {
-  page.value = value
-  load()
-}
-function changePageSize(value) {
-  pageSize.value = value
-  page.value = 1
-  load()
-}
+const { changePage, changePageSize } = usePagedList(() => load(), { page, pageSize })
 
 function stopAnalysisPolling() {
   if (analysisPollTimer) window.clearTimeout(analysisPollTimer)

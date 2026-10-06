@@ -16,5 +16,6 @@ type ProductStore interface {
 	GetProduct(context.Context, string, string) (model.Product, error)
 	GetProductsByIDs(context.Context, string, []string) (map[string]model.Product, error)
 	ListProducts(context.Context, string) ([]model.Product, error)
-	ListProductsPage(context.Context, string, int, int) ([]model.Product, int, error)
+	// ListProductsPage(ctx, tenant, query, limit, offset): query matches the ID or name, case-insensitively.
+	ListProductsPage(context.Context, string, string, int, int) ([]model.Product, int, error)
 }

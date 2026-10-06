@@ -163,7 +163,7 @@ async function load() {
     listError.value = ''
     if (pending) {
       unregistered.value = list.items || []
-      unregisteredTotal.value = pendingCount.value = Number(list.total ?? list.count ?? 0)
+      unregisteredTotal.value = pendingCount.value = Number(list.total ?? 0)
     } else {
       registry.value = list.items || []
       registryTotal.value = Number(list.total ?? list.count ?? 0)

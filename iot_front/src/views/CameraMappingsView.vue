@@ -20,6 +20,7 @@ import { confirmDelete } from '../deleteAction'
 import { errorMessage } from '../presentation'
 import { usePageState } from '../composables/usePageState.js'
 import { confirmClose, trackDialogForm } from '../composables/unsavedGuard.js'
+import { usePagedList } from '../composables/usePagedList'
 
 const cameras = ref([])
 const { devices, loading: devicesLoading, search: searchDevices, onSearch: onDeviceSearch } = useDeviceSearch(() => camera.deviceId)
@@ -90,7 +91,7 @@ async function load() {
       api(`/api/v1/integrations/video/cameras?page=${page.value}&pageSize=${pageSize.value}`, { signal })
     )
     cameras.value = data.items || []
-    total.value = Number(data.total ?? data.count ?? cameras.value.length)
+    total.value = Number(data.total ?? cameras.value.length)
     loadError.value = ''
   } catch (error) {
     if (!isAbort(error)) loadError.value = error?.status === 401 ? '' : errorMessage(error) || '摄像头读取失败'
@@ -154,15 +155,7 @@ function remove(row) {
     onDeleted: load
   })
 }
-function changePage(value) {
-  page.value = value
-  load()
-}
-function changePageSize(value) {
-  pageSize.value = value
-  page.value = 1
-  load()
-}
+const { changePage, changePageSize } = usePagedList(() => load(), { page, pageSize })
 
 onMounted(async () => {
   // 从告警等页面跳转定位摄像头时从第一页开始，不沿用上次保存的页码。

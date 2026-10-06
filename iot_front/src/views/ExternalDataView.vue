@@ -140,7 +140,7 @@ async function load(quiet = false) {
     const result = await externalApi.list(tab.value, listQuery())
     if (!current()) return
     items.value = result.items || []
-    total.value = Number(result.total ?? result.count ?? 0)
+    total.value = Number(result.total ?? 0)
   } catch (e) {
     if (current()) error.value = e.message || '读取失败，请重试'
   } finally {

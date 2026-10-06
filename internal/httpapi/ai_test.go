@@ -993,7 +993,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 	}
 
 	workflows := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/workflows", token, nil, http.StatusOK)
-	if workflows["configured"] != true || workflows["healthy"] != true || workflows["count"].(float64) != 1 {
+	if workflows["configured"] != true || workflows["healthy"] != true || workflows["total"].(float64) != 1 {
 		t.Fatalf("unexpected workflows response: %#v", workflows)
 	}
 	manifest := map[string]any{"schemaVersion": 1, "id": "custom-status", "name": "Custom Status", "description": "Status statistics", "version": "1.0.0", "enabled": true, "persona": "Always query the system overview before answering status questions.", "defaultModel": "deepseek-v4-flash", "maxTokens": 2048, "capabilities": []string{"status"}, "allowedTools": []string{"mcp__iot__query_system_overview"}}
@@ -1010,7 +1010,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 		t.Fatalf("unexpected dynamic Agent: %#v", createdAgent)
 	}
 	managed := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/workflows/admin", adminToken, nil, http.StatusOK)
-	if managed["count"] != float64(1) || managed["items"].([]any)[0].(map[string]any)["persona"] != manifest["persona"] {
+	if managed["total"] != float64(1) || managed["items"].([]any)[0].(map[string]any)["persona"] != manifest["persona"] {
 		t.Fatalf("unexpected managed Agent catalog: %#v", managed)
 	}
 	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/ai/workflows/admin", token, nil, http.StatusForbidden)
@@ -1224,7 +1224,7 @@ func TestKnowledgeUploadAndTenantScopedList(t *testing.T) {
 	}
 
 	listed := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/knowledge/documents", viewerToken, nil, http.StatusOK)
-	if listed["count"] != float64(1) || listed["persistentIndex"] != false || listed["indexMode"] != "local-memory" {
+	if listed["total"] != float64(1) || listed["persistentIndex"] != false || listed["indexMode"] != "local-memory" {
 		t.Fatalf("unexpected knowledge list %#v", listed)
 	}
 	items := listed["items"].([]any)
@@ -1251,7 +1251,7 @@ func TestKnowledgeUploadAndTenantScopedList(t *testing.T) {
 	}
 
 	isolated := requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/knowledge/documents", otherTenantToken, nil, http.StatusOK)
-	if isolated["count"] != float64(0) {
+	if isolated["total"] != float64(0) {
 		t.Fatalf("knowledge documents leaked across tenants: %#v", isolated)
 	}
 	requestJSON(t, server.Client(), http.MethodGet, server.URL+"/api/v1/knowledge/documents/"+item["id"].(string), otherTenantToken, nil, http.StatusNotFound)

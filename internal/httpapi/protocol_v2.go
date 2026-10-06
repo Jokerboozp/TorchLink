@@ -51,7 +51,7 @@ func (s *Server) protocolDefinitionsV2(w http.ResponseWriter, r *http.Request) {
 	for _, definition := range definitions {
 		items = append(items, map[string]any{"definition": definition, "releases": byProtocol[definition.ID]})
 	}
-	write(w, 200, map[string]any{"items": items, "count": len(items)})
+	write(w, 200, map[string]any{"items": items, "total": len(items)})
 }
 
 func (s *Server) saveProtocolDefinitionV2(w http.ResponseWriter, r *http.Request) {
@@ -88,7 +88,7 @@ func (s *Server) protocolReleasesV2(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
-	write(w, 200, map[string]any{"items": items, "count": len(items)})
+	write(w, 200, map[string]any{"items": items, "total": len(items)})
 }
 
 func (s *Server) createProtocolReleaseV2(w http.ResponseWriter, r *http.Request) {
@@ -626,7 +626,7 @@ func (s *Server) deviceAccessProfilesV2(w http.ResponseWriter, r *http.Request) 
 			}
 		}
 	}
-	write(w, 200, map[string]any{"items": items, "count": len(items)})
+	write(w, 200, map[string]any{"items": items, "total": len(items)})
 }
 func (s *Server) saveDeviceAccessProfileV2(w http.ResponseWriter, r *http.Request) {
 	var v model.DeviceAccessProfile

@@ -216,7 +216,7 @@ func TestMemoryProductPaginationReturnsPageAndTotal(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	items, total, err := repo.ListProductsPage(context.Background(), "tenant_001", 2, 1)
+	items, total, err := repo.ListProductsPage(context.Background(), "tenant_001", "", 2, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

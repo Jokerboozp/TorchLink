@@ -25,6 +25,7 @@ import DataTableCard from '../components/layout/DataTableCard.vue'
 import FilterBar from '../components/layout/FilterBar.vue'
 import RowActions from '../components/layout/RowActions.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
+import { usePagedList } from '../composables/usePagedList'
 
 const filters = reactive({ type: '', status: '' })
 const records = ref([])
@@ -110,16 +111,7 @@ async function load(resetPage = false, silent = false) {
   }
 }
 
-function changePage(value) {
-  page.value = value
-  load()
-}
-
-function changePageSize(value) {
-  pageSize.value = value
-  page.value = 1
-  load()
-}
+const { changePage, changePageSize } = usePagedList(() => load(), { page, pageSize })
 
 async function showDetail(row) {
   detailVisible.value = true
