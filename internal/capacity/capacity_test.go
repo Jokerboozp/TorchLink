@@ -358,6 +358,63 @@ func TestServiceRunsArePagedNewestFirst(t *testing.T) {
 	}
 }
 
+// A run whose controller process exited mid-run (API restart) must not stay
+// "DRAINING" forever: it is reported as interrupted, cannot be stopped, and
+// may be cleaned; a run with a live heartbeat is untouched.
+func TestStaleRunIsReportedInterruptedAndCannotBeStopped(t *testing.T) {
+	root := t.TempDir()
+	token := strings.Repeat("t", 40)
+	service := NewService(ServeOptions{ResultsDir: root, Token: token})
+	srv := httptest.NewServer(service.Handler())
+	defer srv.Close()
+	stop := func(id string) int {
+		req, _ := http.NewRequest(http.MethodPost, srv.URL+"/v1/runs/"+id+"/stop", strings.NewReader(`{}`))
+		req.Header.Set("Authorization", "Bearer "+token)
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	now := time.Now().UnixMilli()
+	stale, live := "cap-20260930-120000-abcdef", "cap-20260930-120001-abcdef"
+	for id, updated := range map[string]int64{stale: now - 2*staleAfter.Milliseconds(), live: now} {
+		_ = os.Mkdir(filepath.Join(root, id), 0o700)
+		_ = writeJSONAtomic(filepath.Join(root, id, "state.json"), RunState{RunID: id, Status: StatusDraining, PhaseID: "p01-soak-50", StartedAt: now - 3600_000, UpdatedAt: updated})
+	}
+	if err := RequestStop(root, stale, false); !errors.Is(err, ErrRunNotActive) {
+		t.Fatal("stop accepted for a run without a controller:", err)
+	}
+	if status := stop(stale); status != http.StatusConflict {
+		t.Fatal("stale run stop status", status)
+	}
+	info, err := service.runInfo(stale)
+	if err != nil || info.Status != StatusInterrupted || !strings.Contains(info.Message, StatusDraining) {
+		t.Fatalf("%+v %v", info, err)
+	}
+	if st, _ := ReadState(root, stale); st.Status != StatusInterrupted || st.StopReason != ReasonInfrastructure || st.Result != "" {
+		t.Fatalf("interruption must be persisted without a result so the run stays resumable: %+v", st)
+	}
+	if _, err = service.runScope(stale, "t"); errors.Is(err, ErrRunActive) {
+		t.Fatal("interrupted run must be cleanable")
+	}
+	if info, err = service.runInfo(live); err != nil || info.Status != StatusDraining {
+		t.Fatalf("live run changed: %+v %v", info, err)
+	}
+	if err = RequestStop(root, live, true); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(root, live, StopFile)); !strings.Contains(string(b), "force") {
+		t.Fatal("force stop not recorded", string(b))
+	}
+	// The service refuses to stop a run it is not executing even when the
+	// state is fresh (another process would have to own it).
+	if status := stop(live); status != http.StatusConflict {
+		t.Fatal("inactive run stop status", status)
+	}
+}
+
 func TestCleanupRejectsActiveRunAndUnsafePaths(t *testing.T) {
 	root := t.TempDir()
 	service := NewService(ServeOptions{ResultsDir: root})
@@ -366,7 +423,7 @@ func TestCleanupRejectsActiveRunAndUnsafePaths(t *testing.T) {
 	}
 	id := "cap-20260930-120000-abcdef"
 	_ = os.Mkdir(filepath.Join(root, id), 0700)
-	_ = writeJSONAtomic(filepath.Join(root, id, "state.json"), RunState{RunID: id, Status: StatusRunning})
+	_ = writeJSONAtomic(filepath.Join(root, id, "state.json"), RunState{RunID: id, Status: StatusRunning, UpdatedAt: time.Now().UnixMilli()})
 	if _, err := service.runScope(id, "t"); !errors.Is(err, ErrRunActive) {
 		t.Fatal("running record was cleanable", err)
 	}

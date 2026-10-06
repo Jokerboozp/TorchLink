@@ -12,7 +12,8 @@ export const runStatusText = {
   FINISHED: '已完成',
   FAILED: '执行失败',
   CANCELLING: '正在停止',
-  CANCELLED: '已停止'
+  CANCELLED: '已停止',
+  INTERRUPTED: '已中断'
 }
 
 export const verdictText = { passed: '通过', failed: '失败', inconclusive: '证据不足' }
@@ -32,12 +33,12 @@ export const classText = {
 
 export const presetText = { quick: '快速回归', capacity: '容量搜索', soak: '长稳', resilience: '故障恢复' }
 
-const finished = new Set(['FINISHED', 'FAILED', 'CANCELLED'])
+const finished = new Set(['FINISHED', 'FAILED', 'CANCELLED', 'INTERRUPTED'])
 
 export const isFinished = status => finished.has(status)
 
 export function statusTone(status, verdict) {
-  if (status === 'FAILED') return 'danger'
+  if (status === 'FAILED' || status === 'INTERRUPTED') return 'danger'
   if (!isFinished(status)) return 'warning'
   if (verdict === 'passed') return 'success'
   if (verdict === 'failed') return 'danger'

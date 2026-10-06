@@ -185,6 +185,7 @@ func statusCmd(args []string) error {
 	if err != nil {
 		return err
 	}
+	st, _ = capacity.InterruptedState(st, time.Now())
 	if *asJSON {
 		b, _ := json.MarshalIndent(st, "", "  ")
 		fmt.Println(string(b))

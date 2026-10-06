@@ -209,7 +209,7 @@ func (s *Service) runScope(id, tenant string) (runScope, error) {
 	if err != nil {
 		return out, err
 	}
-	if !slices.Contains([]string{StatusFinished, StatusFailed, StatusCancelled}, st.Status) {
+	if st, _ = InterruptedState(st, time.Now()); !st.Ended() {
 		return out, ErrRunActive
 	}
 	p, err := LoadPlan(filepath.Join(dir, "plan.sanitized.yaml"))

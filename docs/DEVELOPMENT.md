@@ -246,6 +246,8 @@ TCP/UDP 默认 29075/29076，须已映射且空闲；可用 `--tcp-port`、`--ud
 
 一条命令完成：计划校验 → 前置检查 → 准备测试设备 → 多 Agent 开环配速发压 → 逐实例采集 `/metrics` → 排空 → 按原文 ID 全量核对 → 边界搜索 → 报告。停止、失败也会写出部分报告。实现位于 `internal/capacity`，入口仍是 `cmd/capacity-test`。
 
+停止分两级：普通停止结束新负载后仍排空（最长 1 分钟）、核对并生成报告；排空阶段再请求强制停止会立即结束排空，核对最长 1 分钟，未完成的消息记为未知。控制器每 5 秒刷新 `state.json`；控制器进程在运行中退出（平台重启、崩溃）时，服务和 `status` 命令把超过 30 秒无心跳且未结束的运行显示为“已中断”（`INTERRUPTED`），停止接口返回 409，该运行可用同一计划 `--resume` 续跑，或在管理页删除。
+
 ```bash
 go run ./cmd/capacity-test plan validate --plan cmd/capacity-test/examples/core-mixed.yaml
 go run ./cmd/capacity-test run --plan cmd/capacity-test/examples/core-mixed.yaml --secrets capacity-secrets.yaml

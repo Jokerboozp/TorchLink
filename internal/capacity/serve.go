@@ -357,6 +357,15 @@ func (s *Service) runInfo(id string) (RunInfo, error) {
 	s.mu.Lock()
 	active, cleaning, cleanupErr := s.active == id, s.cleaningRun == id, s.cleanupErr[id]
 	s.mu.Unlock()
+	// A run this service is not executing and whose controller stopped
+	// heartbeating (process exited mid-run) is shown as interrupted instead
+	// of staying in its last phase forever.
+	if st2, ok := InterruptedState(st, time.Now()); ok && !active {
+		st = st2
+		if err := writeJSONAtomic(filepath.Join(s.opt.ResultsDir, id, "state.json"), st); err == nil {
+			fmt.Fprintf(s.opt.Log, "capacity run %s marked interrupted: %s\n", id, st.Message)
+		}
+	}
 	info := RunInfo{RunID: id, Status: st.Status, Message: st.Message, StartedAt: st.StartedAt, UpdatedAt: st.UpdatedAt, PhaseID: st.PhaseID, TargetRate: st.TargetRate, MeasureFrom: st.MeasureFrom, MeasureTo: st.MeasureTo, Completed: st.Completed, Active: active, Cleaning: cleaning, CleanupError: cleanupErr}
 	if info.Completed == nil {
 		info.Completed = []PhaseBrief{}
@@ -568,7 +577,20 @@ func (s *Service) Handler() http.Handler {
 			Force bool `json:"force"`
 		}
 		_ = json.NewDecoder(http.MaxBytesReader(w, r.Body, 4<<10)).Decode(&body)
+		s.mu.Lock()
+		active := s.active == id
+		s.mu.Unlock()
+		if !active {
+			// Refresh the stored state so the list stops showing it as running.
+			_, _ = s.runInfo(id)
+			serveError(w, http.StatusConflict, "run_not_active", "该运行没有正在执行的控制器（已结束或进程已退出），无法停止；可续跑或删除该运行")
+			return
+		}
 		if err := RequestStop(s.opt.ResultsDir, id, body.Force); err != nil {
+			if errors.Is(err, ErrRunNotActive) {
+				serveError(w, http.StatusConflict, "run_not_active", "该运行没有正在执行的控制器，无法停止")
+				return
+			}
 			serveError(w, http.StatusInternalServerError, "stop_failed", clip(err.Error(), 200))
 			return
 		}

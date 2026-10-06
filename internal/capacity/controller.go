@@ -39,7 +39,45 @@ const (
 	StatusCancelling = "CANCELLING"
 	StatusCancelled  = "CANCELLED"
 	StatusFailed     = "FAILED"
+	// StatusInterrupted marks a run whose controller process ended (API
+	// restart, crash) before the run finished; it can be resumed or cleaned.
+	StatusInterrupted = "INTERRUPTED"
 )
+
+// staleAfter is how long state.json may go without a heartbeat before the
+// controller is considered gone. A live controller touches it every 5s.
+const staleAfter = 30 * time.Second
+
+// ErrRunNotActive is returned when a stop targets a run that has no live
+// controller: it already ended, or its process exited.
+var ErrRunNotActive = errors.New("run has no running controller")
+
+// Ended reports whether the run reached a final state.
+func (s RunState) Ended() bool {
+	switch s.Status {
+	case StatusFinished, StatusFailed, StatusCancelled, StatusInterrupted:
+		return true
+	}
+	return s.Result != ""
+}
+
+// InterruptedState returns the state rewritten as INTERRUPTED when the run
+// has not ended and its controller stopped heartbeating; ok is false when
+// the state is left unchanged.
+func InterruptedState(st RunState, now time.Time) (RunState, bool) {
+	if st.Ended() || now.UnixMilli()-st.UpdatedAt < staleAfter.Milliseconds() {
+		return st, false
+	}
+	last := st.Status
+	if st.Message != "" {
+		last += "：" + st.Message
+	}
+	st.Status = StatusInterrupted
+	st.Message = "控制器进程在 " + last + " 阶段退出（如平台重启），未写出报告；可用同一计划续跑，或删除该运行"
+	st.StopReason = ReasonInfrastructure
+	st.UpdatedAt = now.UnixMilli()
+	return st, true
+}
 
 // StopFile is created by `capacity-test stop`; "force" skips the drain.
 const StopFile = "STOP"
@@ -395,6 +433,21 @@ func (c *controller) execute(parent context.Context) error {
 	done := make(chan struct{})
 	defer close(done)
 	go c.watchStop(parent, done)
+	// state.json is refreshed for the whole execution (preparing thousands
+	// of devices or writing the report can exceed staleAfter), so readers
+	// can tell a live controller from one whose process exited.
+	go func() {
+		t := time.NewTicker(5 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-done:
+				return
+			case <-t.C:
+				c.touch()
+			}
+		}
+	}()
 	// searchCtx ends on a stop request; evidence handling uses its own contexts.
 	searchCtx, cancelSearch := context.WithCancel(context.Background())
 	defer cancelSearch()
@@ -904,7 +957,7 @@ func (c *controller) fixtures(ctx context.Context) ([]DeviceCredential, Manifest
 	return out, m, nil
 }
 
-// heartbeats renew agent leases and sample clock offsets every 5 seconds.
+// heartbeats sample agent clock offsets every 5 seconds.
 func (c *controller) heartbeats(ctx context.Context) {
 	t := time.NewTicker(5 * time.Second)
 	defer t.Stop()
@@ -917,7 +970,6 @@ func (c *controller) heartbeats(ctx context.Context) {
 		for _, h := range c.agents {
 			c.sampleClock(ctx, h)
 		}
-		c.touch()
 	}
 }
 
@@ -1202,7 +1254,11 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 		}
 	}
 	if c.verifier != nil {
-		vctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+		verifyLimit := 10 * time.Minute
+		if c.forced {
+			verifyLimit = time.Minute
+		}
+		vctx, cancel := context.WithTimeout(context.Background(), verifyLimit)
 		if err := c.verifier.Pass(vctx, true); err != nil {
 			rec.Integrity.Note = "final reconciliation failed: " + err.Error()
 			rec.Integrity.VerificationMode = "incomplete"
@@ -1403,10 +1459,18 @@ func (c *controller) collectAgent(h *agentHandle, ref RunRef, phaseID string, se
 }
 
 // drain waits until every message of the phase reached a final state and the
-// pipeline backlog is empty, or until limit.
+// pipeline backlog is empty, or until limit. A stop request arriving during
+// the drain shortens it to one minute; a forced stop ends it at once.
 func (c *controller) drain(phaseID string, limit time.Duration) bool {
 	deadline := time.Now().Add(limit)
 	for {
+		if c.forced {
+			c.event("drain_forced", "", phaseID, "forced stop: drain skipped")
+			return false
+		}
+		if soon := time.Now().Add(time.Minute); c.stopped() && soon.Before(deadline) {
+			deadline = soon
+		}
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		err := c.verifier.Pass(ctx, false)
 		cancel()
@@ -1531,11 +1595,17 @@ func ReadState(resultsDir, runID string) (RunState, error) {
 	return s, json.Unmarshal(b, &s)
 }
 
-// RequestStop asks a running controller to stop; force skips the drain.
+// RequestStop asks a running controller to stop; force skips the drain. It
+// fails with ErrRunNotActive when the run ended or its controller stopped
+// heartbeating, so a stale run is not reported as stopping.
 func RequestStop(resultsDir, runID string, force bool) error {
 	dir := filepath.Join(resultsDir, runID)
-	if _, err := os.Stat(filepath.Join(dir, "state.json")); err != nil {
+	st, err := ReadState(resultsDir, runID)
+	if err != nil {
 		return fmt.Errorf("run %s not found under %s", runID, resultsDir)
+	}
+	if _, stale := InterruptedState(st, time.Now()); stale || st.Ended() {
+		return fmt.Errorf("%w: %s is %s", ErrRunNotActive, runID, st.Status)
 	}
 	content := []byte("soft\n")
 	if force {
