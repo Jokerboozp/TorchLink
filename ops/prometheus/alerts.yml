@@ -72,6 +72,11 @@ groups:
         for: 0m
         labels: {severity: warning}
         annotations: {summary: "ClickHouse 写入失败，遥测与原文可能缺失"}
+      - alert: PostgresPoolSaturated
+        expr: max by (instance) (postgres_pool_acquired_conns / postgres_pool_max_conns) > 0.9
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: "实例 {{ $labels.instance }} 的数据库连接池占用超过 90%，请求会排队变慢"}
       - alert: PostgresReplicaReadsDisabled
         expr: min(postgres_replica_reads) == 0
         for: 5m

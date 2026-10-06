@@ -964,8 +964,7 @@ func (s *Server) ingestRaw(w http.ResponseWriter, r *http.Request) {
 	v.TenantID = tenant(c, v.TenantID)
 	start := time.Now()
 	idx, created, err := s.engine.IngestRaw(r.Context(), v)
-	s.metrics.ObserveMS("raw_archive_latency_ms", start)
-	s.metrics.ObserveMS("storage_latency_ms", start)
+	s.metrics.ObserveIn("raw_archive_duration_seconds", metrics.RequestBuckets, time.Since(start).Seconds())
 	if ingestBusy(w, err) {
 		return
 	}

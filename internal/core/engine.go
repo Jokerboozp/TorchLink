@@ -311,6 +311,11 @@ func (e *Engine) ensureGatewayChild(ctx context.Context, raw model.RawMessage) e
 	e.RecordAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: raw.TenantID, Actor: "gateway:" + gateway.ID, Action: "device.child.auto-register", TargetType: "device", TargetID: child.ID, Details: map[string]any{"gatewayId": gateway.ID, "productId": child.ProductID}, CreatedAt: now})
 	return nil
 }
+
+// parseDurationBuckets bound protocol parsing times (including external Go
+// workers), in seconds.
+var parseDurationBuckets = []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 2, 5, 10}
+
 func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 	var raw model.RawMessage
 	if err := json.Unmarshal(b, &raw); err != nil {
@@ -318,6 +323,7 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 	}
 	var msg *model.StandardMessage
 	var err error
+	parseStarted := time.Now()
 	protocolID, protocolVersion := raw.ProtocolID, raw.ProtocolVersion
 	// Repository failures are returned for redelivery; only a missing binding,
 	// release or product is a parse result recorded on the raw message.
@@ -361,6 +367,11 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 	}
 	if msg == nil && err == nil {
 		msg, err = e.Parsers.Parse(raw)
+	}
+	if h, ok := e.Metrics.(interface {
+		ObserveIn(string, []float64, float64)
+	}); ok {
+		h.ObserveIn("parse_duration_seconds", parseDurationBuckets, time.Since(parseStarted).Seconds())
 	}
 	if err == nil && msg != nil {
 		_, err = model.MessageComponents(*msg)

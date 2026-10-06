@@ -34,6 +34,9 @@ type Directory interface {
 	OnDutyContacts(ctx context.Context, tenant string, at time.Time, stations []string) ([]Contact, error)
 }
 
+// notificationDelayBuckets bound alarm-to-first-notification times, seconds.
+var notificationDelayBuckets = []float64{1, 2, 5, 10, 30, 60, 120, 300, 600}
+
 // Metrics receives counters; *metrics.Registry implements it.
 type Metrics interface{ Inc(string) }
 
@@ -243,6 +246,15 @@ func (s *Service) deliver(ctx context.Context, t Task) error {
 		return s.retry(ctx, t, err)
 	}
 	s.count("notification_sent_total")
+	if t.Stage == 0 && t.CreatedAt > 0 {
+		// The first stage is created when the alarm is reported, so this is
+		// the time from the alarm to its first notification.
+		if h, ok := s.Metrics.(interface {
+			ObserveIn(string, []float64, float64)
+		}); ok {
+			h.ObserveIn("alarm_notification_delay_seconds", notificationDelayBuckets, time.Since(time.UnixMilli(t.CreatedAt)).Seconds())
+		}
+	}
 	return finish(StatusSent, "")
 }
 

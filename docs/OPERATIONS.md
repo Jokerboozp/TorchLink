@@ -72,6 +72,7 @@
 | `RawPublishFailures`、`RawPublishStalled` | 原文已归档但写入内部队列失败；多次失败后停止自动重试 | 检查 Redpanda / Kafka 与主题；恢复后滞留的原文需在“原始报文”回放（`REINGEST`） |
 | `IngestPaused`、`ProtocolFramesDropped` | 处理积压超过 `IOT_INGEST_MAX_BACKLOG`，平台暂停接收；TCP/UDP 因背压持续丢帧 | 查 `KafkaConsumerLagHigh` 与 Parser / Processor 资源；积压降到 80% 以下自动恢复，设备按协议重传 |
 | `ClickHouseInsertFailures`、`PostgresReplicaReadsDisabled` | ClickHouse 写入失败；只读副本不可用、读请求回到主库 | 检查 ClickHouse 日志与磁盘；检查副本复制延迟（`IOT_POSTGRES_MAX_REPLICA_LAG`） |
+| `PostgresPoolSaturated` | 数据库连接池占用超过 90% 持续 5 分钟，请求排队变慢 | 看 `postgres_pool_acquire_seconds_total` 增速与慢查询；必要时调大 `IOT_POSTGRES_MAX_CONNS` 或扩容实例 |
 | `ReadinessDegraded` | 负载均衡探测到某实例依赖未就绪（只在有 `/health/ready` 探测时产生） | 按标签中的依赖排查；Redis 缓存故障标为 degraded，不会被摘除 |
 | `ProtocolListenerFull` | TCP / UDP 会话达到上限 | 调整 `IOT_PROTOCOL_LISTENER_MAX_SESSIONS`，核对是否有异常重连的设备 |
 | `MQTTSubscriptionLost`、`MQTTDeliveryLoss`、`MQTTInboxBacklog`、`MQTTBrokerObservationMissing` | MQTT 订阅、投递或本地收件箱异常 | 检查 EMQX 状态与管理 API 配置、磁盘空间；收件箱积压在依赖恢复后自动排空 |

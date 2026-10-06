@@ -717,6 +717,17 @@ func (a *app) startAccess() {
 }
 
 func (a *app) storageStats() {
+	// Pool saturation explains slow requests while every dependency reports
+	// healthy; alert PostgresPoolSaturated watches acquired/max.
+	if a.postgresRepo != nil {
+		st := a.postgresRepo.Pool().Stat()
+		a.registry.Set("postgres_pool_max_conns", float64(st.MaxConns()))
+		a.registry.Set("postgres_pool_total_conns", float64(st.TotalConns()))
+		a.registry.Set("postgres_pool_idle_conns", float64(st.IdleConns()))
+		a.registry.Set("postgres_pool_acquired_conns", float64(st.AcquiredConns()))
+		a.registry.Set("postgres_pool_empty_acquire_total", float64(st.EmptyAcquireCount()))
+		a.registry.Set("postgres_pool_acquire_seconds_total", st.AcquireDuration().Seconds())
+	}
 	if ch, ok := a.clickHouseRaw.(*clickhouseadapter.Repository); ok {
 		st := ch.BatchStats()
 		a.registry.Set("clickhouse_insert_batches", float64(st.Batches))
