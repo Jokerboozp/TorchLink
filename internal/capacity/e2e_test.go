@@ -200,9 +200,9 @@ fixtures: {tenant: t1, product: p1, deviceCount: 10, reuseDevices: true, message
 load:
   ingressShare: {http: 1}
   initialMessagesPerSecond: 20
-  queryRequestsPerSecond: 3
+  queryRequestsPerSecond: 10
   queryMix: {devices: 0.5, alarms: 0.5}
-search: {%s, warmup: 0s, drainTimeout: 10s, cooldown: 1s, observeInterval: 1s}
+search: {%s, warmup: 0s, drainTimeout: 3s, cooldown: 1s, observeInterval: 1s}
 budget: {maximumWallTime: 5m, maximumMessagesPerSecond: 100, maximumEvidenceGiB: 1}
 `, preset, search) + x.plan
 	plan = strings.Replace(plan, "messageBytes: 200}", "messageBytes: 200"+x.fixtures+"}", 1)
@@ -236,7 +236,7 @@ func readSummary(t *testing.T, dir string) Summary {
 func TestStartupFailureRetainsActionableReason(t *testing.T) {
 	for _, stage := range []string{"preflight", "prepare"} {
 		t.Run(stage, func(t *testing.T) {
-			e := newE2E(t, 0, "quick", "rates: [20], measure: 10s")
+			e := newE2E(t, 0, "quick", "rates: [20], measure: 3s")
 			original := e.platform.srv.Config.Handler
 			detail := "该模板尚未通过首台实机验证"
 			e.platform.srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -278,7 +278,7 @@ func TestStartupFailureRetainsActionableReason(t *testing.T) {
 
 func TestEndToEndQuickRunWithLocalAndRemoteAgents(t *testing.T) {
 	t.Parallel()
-	e := newE2E(t, 0, "quick", "rates: [20], measure: 10s")
+	e := newE2E(t, 0, "quick", "rates: [20], measure: 3s")
 	runID, err := e.run(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -289,7 +289,7 @@ func TestEndToEndQuickRunWithLocalAndRemoteAgents(t *testing.T) {
 		b, _ := os.ReadFile(filepath.Join(dir, "phases", s.Phases[0].PhaseID+".json"))
 		t.Fatalf("%+v\n%s", s, b)
 	}
-	if s.Integrity.UniqueSent == nil || *s.Integrity.UniqueSent < 190 || *s.Integrity.Missing != 0 || *s.Integrity.UniqueBusinessCompleted != *s.Integrity.UniqueSent {
+	if s.Integrity.UniqueSent == nil || *s.Integrity.UniqueSent < 55 || *s.Integrity.Missing != 0 || *s.Integrity.UniqueBusinessCompleted != *s.Integrity.UniqueSent {
 		t.Fatalf("integrity %+v", s.Integrity)
 	}
 	var rec PhaseRecord
@@ -330,7 +330,7 @@ func TestEndToEndQuickRunWithLocalAndRemoteAgents(t *testing.T) {
 
 func TestEndToEndIntegrityFailureStopsSearchWithEvidence(t *testing.T) {
 	t.Parallel()
-	e := newE2E(t, 25, "capacity", "measure: 10s, repeats: 1, maxSteps: 3")
+	e := newE2E(t, 25, "capacity", "measure: 3s, repeats: 1, maxSteps: 3")
 	runID, err := e.run(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -572,7 +572,7 @@ func TestKnowledgeModuleWaitsForIndexCompletionAndKeepsCleanupOwnership(t *testi
 
 func TestEndToEndBusinessModulesAndAlarmSequence(t *testing.T) {
 	t.Parallel()
-	e := newE2E(t, 0, "quick", "rates: [20], measure: 10s", e2eExtra{
+	e := newE2E(t, 0, "quick", "rates: [20], measure: 3s", e2eExtra{
 		fixtures:  ", alarmFraction: 0.2, alarmRuleId: rule-stress, alarmRecovers: true",
 		inventory: "web: {{api}}\n",
 		secrets:   "openkey: open-key-secret-e2e\n",
@@ -643,7 +643,7 @@ func TestEndToEndBusinessModulesAndAlarmSequence(t *testing.T) {
 
 func TestEndToEndAlarmSequenceMismatchFailsIntegrity(t *testing.T) {
 	t.Parallel()
-	e := newE2E(t, 0, "quick", "rates: [20], measure: 10s", e2eExtra{
+	e := newE2E(t, 0, "quick", "rates: [20], measure: 3s", e2eExtra{
 		fixtures: ", alarmFraction: 0.3, alarmRuleId: rule-stress",
 		handlers: func(_ *http.ServeMux, f *fakePlatform) { f.dropAlarms = true },
 	})
@@ -712,7 +712,7 @@ func TestEndToEndResilienceInjectsRecoversAndMeasuresRecovery(t *testing.T) {
 
 func TestServiceRunsPlansAgainstTrustedEnvironments(t *testing.T) {
 	t.Parallel()
-	e := newE2E(t, 0, "quick", "rates: [20], measure: 10s")
+	e := newE2E(t, 0, "quick", "rates: [20], measure: 3s")
 	invDir := filepath.Join(e.dir, "environments")
 	_ = os.MkdirAll(invDir, 0o750)
 	inv, _ := os.ReadFile(filepath.Join(e.dir, "inv.yaml"))
@@ -816,7 +816,7 @@ func nodeExporter(mux *http.ServeMux, _ *fakePlatform) {
 
 func TestEndToEndHostChartsAndPNGOutput(t *testing.T) {
 	t.Parallel()
-	e := newE2E(t, 0, "quick", "rates: [20], measure: 10s", e2eExtra{
+	e := newE2E(t, 0, "quick", "rates: [20], measure: 3s", e2eExtra{
 		handlers:  nodeExporter,
 		inventory: "nodes:\n  - {name: host-a, url: {{api}}/node/metrics}\n",
 		plan:      "outputs: {formats: [html, markdown, json, csv, svg, png]}\n",
@@ -861,7 +861,7 @@ func TestEndToEndHostChartsAndPNGOutput(t *testing.T) {
 
 func TestEndToEndResumeReplaysCompletedStepsWithNextGeneration(t *testing.T) {
 	t.Parallel()
-	e := newE2E(t, 0, "quick", "rates: [10, 20], measure: 10s")
+	e := newE2E(t, 0, "quick", "rates: [10, 20], measure: 3s")
 	runID, err := e.run(context.Background())
 	if err != nil {
 		t.Fatal(err)
@@ -898,7 +898,8 @@ func TestEndToEndResumeReplaysCompletedStepsWithNextGeneration(t *testing.T) {
 	if len(s.Phases) != 2 || s.Phases[0].PhaseID != first.Phases[0].PhaseID || s.Phases[1].PhaseID != first.Phases[1].PhaseID || after.Generation != 2 || after.Status != StatusFinished {
 		t.Fatalf("phases %+v state %+v", s.Phases, after)
 	}
-	if e.platform.seen.Load()-onboarded < 150 || e.platform.seen.Load()-onboarded > 260 {
+	// One 3s step at 20 msg/s is about 60 messages (TestMain shortens phases).
+	if e.platform.seen.Load()-onboarded < 45 || e.platform.seen.Load()-onboarded > 80 {
 		t.Fatal("only the interrupted step is sent again", e.platform.seen.Load()-onboarded)
 	}
 	events, _ := os.ReadFile(filepath.Join(dir, "events.jsonl"))
@@ -949,7 +950,7 @@ func TestSelfModuleRunsWithoutInventoryOrSecretsAndProvisionsFixtures(t *testing
 	}
 	// The page sends no tenant, credentials or product: the platform adds
 	// tenant and token, the module provisions the product and rule.
-	plan := "schemaVersion: 1\nname: ui-quick\npreset: quick\nfixtures: {deviceCount: 5, reuseDevices: true, messageBytes: 200, alarmFraction: 0.3, autoProvision: true}\nload: {ingressShare: {http: 1}, initialMessagesPerSecond: 10}\nsearch: {rates: [10], measure: 10s, warmup: 0s, drainTimeout: 10s, cooldown: 1s, observeInterval: 1s}\nbudget: {maximumWallTime: 5m, maximumMessagesPerSecond: 100, maximumEvidenceGiB: 1}\n"
+	plan := "schemaVersion: 1\nname: ui-quick\npreset: quick\nfixtures: {deviceCount: 5, reuseDevices: true, messageBytes: 200, alarmFraction: 0.3, autoProvision: true}\nload: {ingressShare: {http: 1}, initialMessagesPerSecond: 10}\nsearch: {rates: [10], measure: 3s, warmup: 0s, drainTimeout: 3s, cooldown: 1s, observeInterval: 1s}\nbudget: {maximumWallTime: 5m, maximumMessagesPerSecond: 100, maximumEvidenceGiB: 1}\n"
 	req := map[string]string{"environment": "self", "plan": plan, "tenant": "t1", "operatorToken": f.token}
 	if status, body = call("POST", "/v1/plans/validate", req); status != 200 || !strings.Contains(string(body), `"valid":true`) {
 		t.Fatalf("%d %s", status, body)
@@ -1011,7 +1012,7 @@ func TestEndToEndAlarmSequenceIgnoresPreviousStepAlarms(t *testing.T) {
 	t.Parallel()
 	// Sparse alarms leave devices that alarmed in step 1 but not in step 2;
 	// their step-1 alarms must not count against step 2.
-	e := newE2E(t, 0, "quick", "rates: [20, 20], measure: 10s", e2eExtra{
+	e := newE2E(t, 0, "quick", "rates: [20, 20], measure: 3s", e2eExtra{
 		fixtures: ", alarmFraction: 0.03, alarmRuleId: rule-stress, alarmRecovers: true",
 	})
 	runID, err := e.run(context.Background())

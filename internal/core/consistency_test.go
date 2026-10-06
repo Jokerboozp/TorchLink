@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"iot-platform/internal/adapters/local"
@@ -125,32 +126,35 @@ func TestSingletonJobRunsOnOneProcessAndFailsOver(t *testing.T) {
 	oldTTL, oldRenew := singletonTTL, singletonRenew
 	singletonTTL, singletonRenew = time.Second, 100*time.Millisecond
 	defer func() { singletonTTL, singletonRenew = oldTTL, oldRenew }()
-	repo := memory.NewRepository()
-	a, b := quietEngine(repo), quietEngine(repo)
-	a.SetIdentity("a")
-	b.SetIdentity("b")
-	var ranA, ranB atomic.Int64
-	ctxA, stopA := context.WithCancel(context.Background())
-	ctxB, stopB := context.WithCancel(context.Background())
-	defer stopB()
-	job := func(n *atomic.Int64) func(context.Context) error {
-		return func(context.Context) error { n.Add(1); return nil }
-	}
-	a.RunSingleton(ctxA, "job", 20*time.Millisecond, job(&ranA))
-	time.Sleep(50 * time.Millisecond)
-	b.RunSingleton(ctxB, "job", 20*time.Millisecond, job(&ranB))
-	time.Sleep(400 * time.Millisecond)
-	if ranA.Load() == 0 || ranB.Load() != 0 {
-		t.Fatalf("both processes ran the singleton: a=%d b=%d", ranA.Load(), ranB.Load())
-	}
-	stopA()
-	deadline := time.Now().Add(3 * time.Second)
-	for ranB.Load() == 0 && time.Now().Before(deadline) {
+	// Virtual time: the lease expiry and renewals run without real waiting.
+	synctest.Test(t, func(t *testing.T) {
+		repo := memory.NewRepository()
+		a, b := quietEngine(repo), quietEngine(repo)
+		a.SetIdentity("a")
+		b.SetIdentity("b")
+		var ranA, ranB atomic.Int64
+		ctxA, stopA := context.WithCancel(context.Background())
+		ctxB, stopB := context.WithCancel(context.Background())
+		defer stopB()
+		job := func(n *atomic.Int64) func(context.Context) error {
+			return func(context.Context) error { n.Add(1); return nil }
+		}
+		a.RunSingleton(ctxA, "job", 20*time.Millisecond, job(&ranA))
 		time.Sleep(50 * time.Millisecond)
-	}
-	if ranB.Load() == 0 {
-		t.Fatal("standby did not take over after the holder stopped")
-	}
+		b.RunSingleton(ctxB, "job", 20*time.Millisecond, job(&ranB))
+		time.Sleep(400 * time.Millisecond)
+		synctest.Wait()
+		if ranA.Load() == 0 || ranB.Load() != 0 {
+			t.Fatalf("both processes ran the singleton: a=%d b=%d", ranA.Load(), ranB.Load())
+		}
+		stopA()
+		// The standby takes over once the stopped holder's lease expires.
+		time.Sleep(singletonTTL + 2*singletonRenew)
+		synctest.Wait()
+		if ranB.Load() == 0 {
+			t.Fatal("standby did not take over after the holder stopped")
+		}
+	})
 }
 
 func TestProcessorOnlyEngineConsumesBusinessStream(t *testing.T) {

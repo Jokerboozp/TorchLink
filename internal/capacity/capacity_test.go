@@ -441,7 +441,7 @@ load:
   ingressShare: {http: 0.5, mqtt: 0.5}
   initialMessagesPerSecond: 100
   mqttConnections: 50
-search: {measure: 10s, warmup: 0s}
+search: {measure: 3s, warmup: 0s}
 budget: {maximumWallTime: 1h, maximumMessagesPerSecond: 800, maximumEvidenceGiB: 1}
 `))
 	if err != nil {

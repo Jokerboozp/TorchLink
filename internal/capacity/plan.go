@@ -343,6 +343,13 @@ func LoadPlan(path string) (*Plan, error) {
 
 // A run acts with an operator credential the platform issues at start for the
 // whole budget plus a margin; plans may not outlast the longest credential.
+// Lower bounds of a phase's measurement window and drain wait; tests shorten
+// them so end-to-end runs take seconds.
+var (
+	minMeasure      = 10 * time.Second
+	minDrainTimeout = 10 * time.Second
+)
+
 const (
 	operatorTokenMargin = 30 * time.Minute
 	MaxOperatorTokenTTL = 48 * time.Hour
@@ -516,8 +523,8 @@ func (p *Plan) Validate() error {
 	if s.RampFactor <= 1 || s.RampFactor > 4 {
 		bad("search.rampFactor must be in (1, 4]")
 	}
-	if s.Warmup < 0 || s.Measure < Duration(10*time.Second) || s.CandidateHold < s.Measure {
-		bad("search.measure must be at least 10s, warmup non-negative, candidateHold >= measure")
+	if s.Warmup < 0 || s.Measure < Duration(minMeasure) || s.CandidateHold < s.Measure {
+		bad("search.measure must be at least %s, warmup non-negative, candidateHold >= measure", minMeasure)
 	}
 	if s.BoundaryRelativeWidth <= 0 || s.BoundaryRelativeWidth > 1 {
 		bad("search.boundaryRelativeWidth must be in (0, 1]")
@@ -525,8 +532,8 @@ func (p *Plan) Validate() error {
 	if s.Repeats < 1 || s.Repeats > 10 || s.MaxSteps < 1 || s.MaxSteps > 200 {
 		bad("search.repeats must be 1-10 and search.maxSteps 1-200")
 	}
-	if s.DrainTimeout < Duration(10*time.Second) || s.ObserveInterval < Duration(time.Second) {
-		bad("search.drainTimeout must be at least 10s and observeInterval at least 1s")
+	if s.DrainTimeout < Duration(minDrainTimeout) || s.ObserveInterval < Duration(time.Second) {
+		bad("search.drainTimeout must be at least %s and observeInterval at least 1s", minDrainTimeout)
 	}
 	for _, r := range s.Rates {
 		if r <= 0 {

@@ -156,6 +156,10 @@ type clockSample struct {
 	offset, unc time.Duration
 }
 
+// phaseLead is the time agents get to arm a phase before it starts; tests
+// shorten it.
+var phaseLead = 3 * time.Second
+
 func (h *agentHandle) clock() (time.Duration, time.Duration) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -1073,7 +1077,7 @@ func (c *controller) RunStep(ctx context.Context, rate float64, kind string, hol
 		rates[s] = r
 	}
 	warmup := p.Search.Warmup.D()
-	start := time.Now().Add(3 * time.Second)
+	start := time.Now().Add(phaseLead)
 	rec.StartedAt, rec.MeasureFrom, rec.MeasureTo = start.UnixMilli(), start.Add(warmup).UnixMilli(), start.Add(warmup+hold).UnixMilli()
 	rec.WarmupSeconds, rec.MeasureSeconds = warmup.Seconds(), hold.Seconds()
 	c.stateMu.Lock()
