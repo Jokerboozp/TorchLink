@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"iot-platform/internal/logkey"
 	"net/http"
 	"strings"
 	"time"
@@ -137,7 +138,7 @@ func (s *Server) storeRunningAIAnalysisJob(job model.AlarmAnalysisJob) bool {
 	updated, err := s.engine.Repo.UpdateRunningAlarmAnalysisJob(ctx, job)
 	if err != nil {
 		if s.log != nil {
-			s.log.Warn("save alarm analysis progress failed", "tenant", job.TenantID, "alarm", job.AlarmID, "job", job.ID, "error", err)
+			s.log.Warn("save alarm analysis progress failed", logkey.Tenant, job.TenantID, "alarm", job.AlarmID, "job", job.ID, "error", err)
 		}
 		return true
 	}
@@ -157,7 +158,6 @@ func (s *Server) finishAIAnalysisJob(job model.AlarmAnalysisJob, analysis model.
 	s.storeRunningAIAnalysisJob(job)
 	if err == nil {
 		s.engine.RecordAudit(context.Background(), model.AuditLog{
-			ID:         "audit_" + randomHex(10),
 			TenantID:   job.TenantID,
 			Actor:      job.Actor,
 			Action:     "ai.alarm-analysis.run",

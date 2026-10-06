@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"iot-platform/internal/logkey"
 	"net/http"
 	"strings"
 	"time"
@@ -148,7 +149,7 @@ func (s *Server) storeRunningHealthInspectionJob(job model.HealthInspectionJob) 
 	updated, err := s.engine.Repo.UpdateRunningHealthInspectionJob(ctx, job)
 	if err != nil {
 		if s.log != nil {
-			s.log.Warn("save health inspection progress failed", "tenant", job.TenantID, "job", job.ID, "error", err)
+			s.log.Warn("save health inspection progress failed", logkey.Tenant, job.TenantID, "job", job.ID, "error", err)
 		}
 		return true
 	}

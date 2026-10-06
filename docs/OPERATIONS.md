@@ -61,7 +61,7 @@
 
 平台自身告警由 Alertmanager 发送（运维中心可查看和静默），与消防业务告警的通知相互独立。
 
-每个 API 响应都带 `X-Request-ID`（沿用代理传入的合法编号，否则由平台生成），访问日志字段为 `requestId`；接口返回“服务内部错误……请提供编号”时，该编号即请求编号，可在 Loki 中按它检索 `request failed` 日志里的详细原因。接口延迟与错误率见指标 `http_request_duration_seconds{route,method,code}`（流式对话不计入）。
+每个 API 响应都带 `X-Request-ID`（沿用代理传入的合法编号，否则由平台生成），访问日志字段为 `requestId`，已认证请求另带 `tenantId` 与 `user`，涉及设备的日志统一用 `deviceId`（字段名定义在 `internal/logkey`）；接口返回“服务内部错误……请提供编号”时，该编号即请求编号，可在 Loki 中按它检索 `request failed` 日志里的详细原因。接口延迟与错误率见指标 `http_request_duration_seconds{route,method,code}`（流式对话不计入）。
 
 | 告警 | 含义 | 处理 |
 | --- | --- | --- |

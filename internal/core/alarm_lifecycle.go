@@ -66,7 +66,7 @@ func (e *Engine) SetAlarmStatus(ctx context.Context, tenant, alarmID, status, ac
 	if err := e.syncDeviceBusinessStatus(ctx, a.TenantID, "", a.DeviceID); err != nil {
 		return a, err
 	}
-	e.RecordAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenant, Actor: actor, Action: "alarm." + strings.ToLower(status), TargetType: "alarm", TargetID: alarmID, CreatedAt: now})
+	e.RecordAudit(ctx, model.AuditLog{TenantID: tenant, Actor: actor, Action: "alarm." + strings.ToLower(status), TargetType: "alarm", TargetID: alarmID, CreatedAt: now})
 	payload := mustJSON(a)
 	if status == "RECOVERED" {
 		e.publishEvent(ctx, model.TopicAlarmRecovered, a.ID, a.MQTTTopic("recovered"), payload)
@@ -103,7 +103,7 @@ func (e *Engine) VerifyAlarm(ctx context.Context, tenant, alarmID string, d mode
 	if err != nil {
 		return a, err
 	}
-	e.RecordAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenant, Actor: actor, Action: "alarm.verify", TargetType: "alarm", TargetID: alarmID, Details: map[string]any{"result": d.Result, "dispatchId": d.DispatchID}, CreatedAt: now})
+	e.RecordAudit(ctx, model.AuditLog{TenantID: tenant, Actor: actor, Action: "alarm.verify", TargetType: "alarm", TargetID: alarmID, Details: map[string]any{"result": d.Result, "dispatchId": d.DispatchID}, CreatedAt: now})
 	return a, nil
 }
 
@@ -165,6 +165,6 @@ func (e *Engine) changeAttachments(ctx context.Context, tenant, alarmID, actor, 
 	if err != nil {
 		return a, err
 	}
-	e.RecordAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenant, Actor: actor, Action: action, TargetType: "alarm", TargetID: alarmID, Details: map[string]any{"attachmentId": att.ID, "name": att.Name, "size": att.Size}, CreatedAt: e.Clock.Now().UnixMilli()})
+	e.RecordAudit(ctx, model.AuditLog{TenantID: tenant, Actor: actor, Action: action, TargetType: "alarm", TargetID: alarmID, Details: map[string]any{"attachmentId": att.ID, "name": att.Name, "size": att.Size}, CreatedAt: e.Clock.Now().UnixMilli()})
 	return a, nil
 }

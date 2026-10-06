@@ -5,6 +5,7 @@ package logctx
 
 import (
 	"context"
+	"iot-platform/internal/logkey"
 	"log/slog"
 
 	"iot-platform/internal/auth"
@@ -34,14 +35,14 @@ func NewHandler(next slog.Handler) *Handler { return &Handler{Handler: next} }
 func (h *Handler) Handle(ctx context.Context, r slog.Record) error {
 	if ctx != nil {
 		if id := RequestID(ctx); id != "" {
-			r.AddAttrs(slog.String("requestId", id))
+			r.AddAttrs(slog.String(logkey.RequestID, id))
 		}
 		if claims, ok := auth.ClaimsFromContext(ctx); ok {
 			if claims.TenantID != "" {
-				r.AddAttrs(slog.String("tenantId", claims.TenantID))
+				r.AddAttrs(slog.String(logkey.Tenant, claims.TenantID))
 			}
 			if claims.Username != "" {
-				r.AddAttrs(slog.String("user", claims.Username))
+				r.AddAttrs(slog.String(logkey.User, claims.Username))
 			}
 		}
 	}

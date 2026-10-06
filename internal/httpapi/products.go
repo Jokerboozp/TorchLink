@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"iot-platform/internal/logkey"
 	"net/http"
 	"time"
 
@@ -158,7 +159,7 @@ func (s *Server) applyTemplateTiming(tenant, productID string) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
 		if changed, err := s.engine.ApplyDeviceTiming(ctx, tenant, productID, ""); err != nil {
-			s.log.Error("apply template reporting timing failed", "tenant", tenant, "product", productID, "updated", changed, "error", err)
+			s.log.Error("apply template reporting timing failed", logkey.Tenant, tenant, "product", productID, "updated", changed, "error", err)
 		}
 	}()
 }

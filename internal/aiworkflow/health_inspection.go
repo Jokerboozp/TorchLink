@@ -124,7 +124,7 @@ func (e *Service) InspectDeviceHealth(ctx context.Context, tenantID string) (mod
 	} else {
 		report.Warnings = append(report.Warnings, "AI 巡检建议未生成："+ErrAIWorkflowsUnavailable.Error())
 	}
-	e.engine.RecordAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: tenantID, Actor: "ai-health-inspection", Action: "ai.health-inspection", TargetType: "device-health", TargetID: fmt.Sprintf("inspection_%d", now), Details: map[string]any{"counts": counts, "success": true}, CreatedAt: now})
+	e.engine.RecordAudit(ctx, model.AuditLog{TenantID: tenantID, Actor: "ai-health-inspection", Action: "ai.health-inspection", TargetType: "device-health", TargetID: fmt.Sprintf("inspection_%d", now), Details: map[string]any{"counts": counts, "success": true}, CreatedAt: now})
 	return report, nil
 }
 

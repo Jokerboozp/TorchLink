@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/logkey"
 	"sync"
 
 	"iot-platform/internal/model"
@@ -184,7 +185,7 @@ func (k *KnowledgeReindexer) runOnce(ctx context.Context, index ports.Rebuildabl
 			doc.Metadata["rebuildRequired"] = true
 			doc.Status = "INDEX_FAILED"
 			doc.Metadata["indexError"] = indexErr.Error()
-			k.Log.Error("knowledge document rebuild failed", "tenantId", doc.TenantID, "documentId", doc.ID, "error", indexErr)
+			k.Log.Error("knowledge document rebuild failed", logkey.Tenant, doc.TenantID, "documentId", doc.ID, "error", indexErr)
 		} else {
 			doc.Status = "INDEXED"
 			doc.Metadata["chunks"] = result.Chunks

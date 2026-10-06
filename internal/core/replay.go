@@ -118,7 +118,7 @@ func (e *Engine) StartReplay(ctx context.Context, req model.ReplayRequest) (mode
 		cancel()
 		return req, err
 	}
-	e.RecordAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: req.TenantID, Actor: req.CreatedBy, Action: "replay.create", TargetType: "replay", TargetID: req.ID, Details: map[string]any{"mode": req.Mode, "start": req.Start, "end": req.End}, CreatedAt: req.CreatedAt})
+	e.RecordAudit(ctx, model.AuditLog{TenantID: req.TenantID, Actor: req.CreatedBy, Action: "replay.create", TargetType: "replay", TargetID: req.ID, Details: map[string]any{"mode": req.Mode, "start": req.Start, "end": req.End}, CreatedAt: req.CreatedAt})
 	go func() {
 		defer cancel()
 		defer e.replays.end(req.ID)

@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"iot-platform/internal/logkey"
 	"net/http"
 	"time"
 
@@ -242,7 +243,7 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	if timingChanged {
 		if _, err := s.engine.ApplyDeviceTiming(r.Context(), c.TenantID, v.ProductID, v.ID); err != nil {
-			s.log.ErrorContext(r.Context(), "apply device reporting timing failed", "device", v.ID, "error", err)
+			s.log.ErrorContext(r.Context(), "apply device reporting timing failed", logkey.Device, v.ID, "error", err)
 		}
 	}
 	s.audit(r, "device.save", "device", v.ID, map[string]any{"productId": v.ProductID, "status": v.Status})

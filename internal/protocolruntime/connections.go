@@ -2,6 +2,7 @@ package protocolruntime
 
 import (
 	"context"
+	"iot-platform/internal/logkey"
 	"iot-platform/internal/model"
 	"time"
 )
@@ -38,7 +39,7 @@ func (r *Listeners) reportConnection(p model.DeviceAccessProfile, device string,
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		if e := r.connectionReporter(ctx, p.TenantID, p.ProductID, device, connected, time.Now().UnixMilli()); e != nil && r.log != nil {
-			r.log.Warn("listener connection projection failed", "device", device, "error", e)
+			r.log.Warn("listener connection projection failed", logkey.Device, device, "error", e)
 		}
 	}
 }

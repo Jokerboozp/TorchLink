@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"iot-platform/internal/logkey"
 
 	"iot-platform/internal/model"
 )
@@ -30,12 +31,15 @@ func (e *Engine) deliveryFailed(channel, topic string, err error) {
 // RecordAudit writes an audit entry. The audited action has already happened,
 // so a failed write is reported instead of failing the action.
 func (e *Engine) RecordAudit(ctx context.Context, entry model.AuditLog) {
+	if entry.ID == "" {
+		entry.ID = model.NewAuditID()
+	}
 	if err := e.Repo.SaveAudit(ctx, entry); err != nil {
 		if e.Metrics != nil {
 			e.Metrics.Inc("audit_write_failed_total")
 		}
 		if e.Log != nil {
-			e.Log.Error("audit write failed", "tenant", entry.TenantID, "action", entry.Action, "error", err)
+			e.Log.Error("audit write failed", logkey.Tenant, entry.TenantID, "action", entry.Action, "error", err)
 		}
 	}
 }

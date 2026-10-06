@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iot-platform/internal/logkey"
 	"iot-platform/internal/netguard"
 	"log/slog"
 	"strings"
@@ -128,7 +129,7 @@ func (e *Engine) IngestRaw(ctx context.Context, raw model.RawMessage) (model.Raw
 	reserved, newReservation, reserveErr := e.Repo.ReserveRawMessage(ctx, raw)
 	if errors.Is(reserveErr, model.ErrRawConflict) {
 		if e.Log != nil {
-			e.Log.Warn("raw message id conflict", "tenantId", raw.TenantID, "messageId", raw.MessageID)
+			e.Log.Warn("raw message id conflict", logkey.Tenant, raw.TenantID, "messageId", raw.MessageID)
 		}
 		existing, _ := e.Repo.GetRawIndex(ctx, raw.TenantID, raw.MessageID)
 		return existing, false, model.ErrRawConflict
@@ -146,7 +147,7 @@ func (e *Engine) IngestRaw(ctx context.Context, raw model.RawMessage) (model.Raw
 		if err == nil {
 			if existing.PayloadHash != raw.PayloadHash() || existing.DeviceID != raw.DeviceID || existing.ProductID != raw.ProductID {
 				if e.Log != nil {
-					e.Log.Warn("raw message id conflict", "tenantId", raw.TenantID, "messageId", raw.MessageID)
+					e.Log.Warn("raw message id conflict", logkey.Tenant, raw.TenantID, "messageId", raw.MessageID)
 				}
 				return existing, false, model.ErrRawConflict
 			}
@@ -305,7 +306,7 @@ func (e *Engine) ensureGatewayChild(ctx context.Context, raw model.RawMessage) e
 	if err = e.Repo.SaveManagedDevice(ctx, child); err != nil {
 		return fmt.Errorf("auto-register child device: %w", err)
 	}
-	e.RecordAudit(ctx, model.AuditLog{ID: id("audit"), TenantID: raw.TenantID, Actor: "gateway:" + gateway.ID, Action: "device.child.auto-register", TargetType: "device", TargetID: child.ID, Details: map[string]any{"gatewayId": gateway.ID, "productId": child.ProductID}, CreatedAt: now})
+	e.RecordAudit(ctx, model.AuditLog{TenantID: raw.TenantID, Actor: "gateway:" + gateway.ID, Action: "device.child.auto-register", TargetType: "device", TargetID: child.ID, Details: map[string]any{"gatewayId": gateway.ID, "productId": child.ProductID}, CreatedAt: now})
 	return nil
 }
 
@@ -401,7 +402,7 @@ func (e *Engine) handleRaw(ctx context.Context, b []byte) error {
 			e.Metrics.Inc("parse_failed_total")
 		}
 		if e.Log != nil {
-			e.Log.Warn("raw message was not forwarded because parsing failed", "messageId", raw.MessageID, "deviceId", raw.DeviceID, "error", err)
+			e.Log.Warn("raw message was not forwarded because parsing failed", "messageId", raw.MessageID, logkey.Device, raw.DeviceID, "error", err)
 		}
 		// A parse failure is deliberately terminal for the forwarding path. The
 		// raw payload is already archived and remains available for replay, but

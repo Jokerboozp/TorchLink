@@ -124,3 +124,10 @@ func TestClearLegacyStreamFieldsKeepsCameraMetadata(t *testing.T) {
 		t.Fatalf("unexpected camera after clearing: %+v", v)
 	}
 }
+
+func TestNewAuditIDIsUniqueAndPrefixed(t *testing.T) {
+	a, b := NewAuditID(), NewAuditID()
+	if a == b || len(a) != len("audit_")+20 || a[:6] != "audit_" {
+		t.Fatalf("unexpected audit IDs %q %q", a, b)
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iot-platform/internal/logkey"
 	"log/slog"
 	"slices"
 	"strings"
@@ -267,7 +268,7 @@ func (s *Service) retry(ctx context.Context, t Task, cause error) error {
 	if t.Attempts >= s.maxAttempts() {
 		t.Status = StatusFailed
 		s.count("notification_failed_total")
-		s.logger().Error("alarm notification failed", "tenantId", t.TenantID, "alarmId", t.AlarmID, "channelId", t.ChannelID, "stage", t.Stage, "error", t.LastError)
+		s.logger().Error("alarm notification failed", logkey.Tenant, t.TenantID, "alarmId", t.AlarmID, "channelId", t.ChannelID, "stage", t.Stage, "error", t.LastError)
 	} else {
 		t.Status = StatusPending
 		t.NextAt = s.now().Add(min(time.Duration(1<<t.Attempts)*15*time.Second, 10*time.Minute)).UnixMilli()

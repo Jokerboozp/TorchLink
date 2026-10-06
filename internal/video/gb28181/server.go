@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iot-platform/internal/logkey"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -276,7 +277,7 @@ func (s *Server) onRegister(req *sip.Request, tx sip.ServerTransaction) {
 	}
 	password, known := s.h.Password(ctx, id)
 	if !known || p["username"] != id || !verifyDigest(p, string(sip.REGISTER), password) {
-		s.log.Info("gb28181 registration rejected", "device", id, "source", src.Addr().String())
+		s.log.Info("gb28181 registration rejected", logkey.Device, id, "source", src.Addr().String())
 		s.respond(req, tx, 403, "Forbidden")
 		return
 	}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"iot-platform/internal/logkey"
 	"log/slog"
 	"net"
 	"net/netip"
@@ -130,7 +131,7 @@ func (g *gbGateway) updateState(ctx context.Context, id string, change func(*mod
 	}
 	change(&d.State)
 	if err := g.store.SaveGBDeviceState(ctx, d.DeviceID, d.State); err != nil {
-		g.log.Warn("save gb28181 device state failed", "device", d.DeviceID, "error", err)
+		g.log.Warn("save gb28181 device state failed", logkey.Device, d.DeviceID, "error", err)
 	}
 	return d, true
 }
@@ -146,7 +147,7 @@ func (g *gbGateway) Password(ctx context.Context, id string) (string, bool) {
 	}
 	password, err := g.password(d)
 	if err != nil || password == "" {
-		g.log.Warn("gb28181 device password unavailable", "device", id)
+		g.log.Warn("gb28181 device password unavailable", logkey.Device, id)
 		return "", false
 	}
 	return password, true
@@ -161,14 +162,14 @@ func (g *gbGateway) Registered(ctx context.Context, r gb28181.Registration) {
 	if !ok {
 		return
 	}
-	g.log.Info("gb28181 device registered", "device", d.DeviceID, "tenant", d.TenantID, "transport", r.Transport)
+	g.log.Info("gb28181 device registered", logkey.Device, d.DeviceID, logkey.Tenant, d.TenantID, "transport", r.Transport)
 	go func() {
 		// Devices expect the REGISTER answer before the first query.
 		time.Sleep(500 * time.Millisecond)
 		c, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
 		if err := g.refresh(c, d.DeviceID); err != nil {
-			g.log.Info("gb28181 device query failed", "device", d.DeviceID, "error", err)
+			g.log.Info("gb28181 device query failed", logkey.Device, d.DeviceID, "error", err)
 		}
 	}()
 }
@@ -272,7 +273,7 @@ func (g *gbGateway) refresh(ctx context.Context, id string) error {
 	delete(g.catalogs, id)
 	g.mu.Unlock()
 	if err := g.sip.Query(ctx, gbDevice(d), "DeviceInfo"); err != nil {
-		g.log.Info("gb28181 DeviceInfo query failed", "device", id, "error", err)
+		g.log.Info("gb28181 DeviceInfo query failed", logkey.Device, id, "error", err)
 	}
 	return g.sip.Query(ctx, gbDevice(d), "Catalog")
 }

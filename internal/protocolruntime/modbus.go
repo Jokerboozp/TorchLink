@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/logkey"
 	"log/slog"
 	"net"
 	"strconv"
@@ -188,7 +189,7 @@ func (r *Runtime) collect(ctx context.Context, profile model.DeviceAccessProfile
 func (r *Runtime) updateFailure(ctx context.Context, profile model.DeviceAccessProfile, err error) {
 	_, saveErr := r.repo.UpdateDeviceAccessStatus(ctx, profile, "ERROR", limitError(err.Error(), 512), time.Now().UnixMilli())
 	if r.log != nil {
-		r.log.Warn("active protocol collection failed", "profileId", profile.ID, "deviceId", profile.DeviceID, "error", err)
+		r.log.Warn("active protocol collection failed", "profileId", profile.ID, logkey.Device, profile.DeviceID, "error", err)
 		if saveErr != nil {
 			r.log.Warn("save collection status", "profileId", profile.ID, "error", saveErr)
 		}

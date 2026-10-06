@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"iot-platform/internal/logkey"
 	"log/slog"
 	"regexp"
 	"slices"
@@ -269,7 +270,7 @@ func (s *Service) Publications(ctx context.Context, protocol, source string, pay
 	}
 	cfg, err := s.Load(ctx, identity.TenantID)
 	if err != nil {
-		slog.WarnContext(ctx, "message topic policy unavailable", "tenant", identity.TenantID, "reason", err)
+		slog.WarnContext(ctx, "message topic policy unavailable", logkey.Tenant, identity.TenantID, "reason", err)
 		return result
 	}
 	for _, route := range cfg.Topics {
@@ -278,7 +279,7 @@ func (s *Service) Publications(ctx context.Context, protocol, source string, pay
 		}
 		out, matched, err := PreviewQuery(*route.Query, payload)
 		if err != nil {
-			slog.WarnContext(ctx, "message topic query skipped", "tenant", identity.TenantID, "topicId", route.ID, "reason", err)
+			slog.WarnContext(ctx, "message topic query skipped", logkey.Tenant, identity.TenantID, "topicId", route.ID, "reason", err)
 			continue
 		}
 		if matched {

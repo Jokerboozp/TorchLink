@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"iot-platform/internal/logkey"
 	"math"
 	"sort"
 	"time"
@@ -86,12 +87,12 @@ func (e *Engine) ComputeDeviceSignalsOnce(ctx context.Context) error {
 		if err != nil {
 			failed = fmt.Errorf("tenant %s device signals: %w", tenant, err)
 			if e.Log != nil {
-				e.Log.Warn("device signals failed", "tenant", tenant, "error", err)
+				e.Log.Warn("device signals failed", logkey.Tenant, tenant, "error", err)
 			}
 			continue
 		}
 		if e.Log != nil {
-			e.Log.Debug("device signals computed", "tenant", tenant, "signals", len(signals), "duration", time.Since(started))
+			e.Log.Debug("device signals computed", logkey.Tenant, tenant, "signals", len(signals), "duration", time.Since(started))
 		}
 	}
 	return failed

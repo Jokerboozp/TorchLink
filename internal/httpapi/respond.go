@@ -28,7 +28,7 @@ func randomHex(size int) string {
 
 func (s *Server) audit(r *http.Request, action, targetType, targetID string, details map[string]any) {
 	c := claims(r)
-	s.engine.RecordAudit(r.Context(), model.AuditLog{ID: "audit_" + randomHex(10), TenantID: c.TenantID, Actor: c.Username, Action: action, TargetType: targetType, TargetID: targetID, Details: details, CreatedAt: time.Now().UnixMilli()})
+	s.engine.RecordAudit(r.Context(), model.AuditLog{TenantID: c.TenantID, Actor: c.Username, Action: action, TargetType: targetType, TargetID: targetID, Details: details, CreatedAt: time.Now().UnixMilli()})
 }
 
 // Machine-readable error codes in problem responses. Callers decide by code
