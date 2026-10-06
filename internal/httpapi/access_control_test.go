@@ -1048,6 +1048,36 @@ func TestAIConfigurationIsPlatformOnly(t *testing.T) {
 	req("DELETE", "/api/v1/ai/workflows/x", legacy, nil, 403)
 }
 
+// An account administrator cannot hand out permissions they do not hold,
+// neither directly nor through a role.
+func TestAccountAdministratorsGrantOnlyWhatTheyHold(t *testing.T) {
+	repo := memory.NewRepository()
+	cfg := config.Load()
+	cfg.AdminUser, cfg.AdminPassword = "root", "grant-root-test"
+	cfg.AdminTenants = []string{"t"}
+	cfg.JWTSecret = "grant-test-secret-at-least-32-bytes-long"
+	cfg.DevMode = true
+	api := New(cfg, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	req := func(method, path, token string, body any, status int) map[string]any {
+		t.Helper()
+		return requestJSON(t, srv.Client(), method, srv.URL+path, token, body, status)
+	}
+	login := func(user, password string) string {
+		return req("POST", "/api/v1/auth/login", "", map[string]any{"username": user, "password": password, "tenantId": "t"}, 200)["accessToken"].(string)
+	}
+	root := login("root", cfg.AdminPassword)
+	manager := []string{"menu:access", "menu:devices", "POST /api/v1/access/users", "POST /api/v1/access/roles"}
+	req("POST", "/api/v1/access/roles", root, map[string]any{"id": "alarm-admin", "name": "告警管理", "permissions": []string{"menu:alarms", "POST /api/v1/alarms/:id/actions"}, "deviceScope": "all"}, 200)
+	req("POST", "/api/v1/access/users", root, map[string]any{"username": "manager", "password": "grant-manager-test", "enabled": true, "permissions": manager, "deviceScope": "all"}, 200)
+	token := login("manager", "grant-manager-test")
+	req("POST", "/api/v1/access/users", token, map[string]any{"username": "helper", "password": "grant-helper-test", "enabled": true, "permissions": []string{"menu:devices"}, "deviceScope": "all"}, 200)
+	req("POST", "/api/v1/access/users", token, map[string]any{"username": "escalate", "password": "grant-helper-test", "enabled": true, "permissions": []string{"menu:devices", "menu:alarms"}, "deviceScope": "all"}, 403)
+	req("POST", "/api/v1/access/users", token, map[string]any{"username": "viarole", "password": "grant-helper-test", "enabled": true, "roleIds": []string{"alarm-admin"}, "permissions": []string{}, "deviceScope": "all"}, 403)
+	req("POST", "/api/v1/access/roles", token, map[string]any{"id": "wider", "name": "更宽", "permissions": []string{"menu:alarms"}, "deviceScope": "all"}, 403)
+}
+
 func TestManagedUserMustChangePasswordBeforeAccess(t *testing.T) {
 	repo := memory.NewRepository()
 	cfg := config.Load()

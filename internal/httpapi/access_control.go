@@ -600,6 +600,10 @@ func (s *Server) accessSaveUser(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	if !grantsWithinCaller(r, state, in.Permissions, in.RoleIDs) {
+		problem(w, 403, "不能授予自己没有的权限")
+		return
+	}
 	for _, id := range in.RoleIDs {
 		found := false
 		for _, role := range state.Roles {
@@ -750,6 +754,10 @@ func (s *Server) accessSaveRole(w http.ResponseWriter, r *http.Request) {
 		problem(w, 409, "角色标识已存在")
 		return
 	}
+	if !grantsWithinCaller(r, state, role.Permissions, nil) {
+		problem(w, 403, "不能授予自己没有的权限")
+		return
+	}
 	if r.Method == "PUT" && index < 0 {
 		problem(w, 404, "角色不存在")
 		return
@@ -812,4 +820,27 @@ func (s *Server) loginManaged(w http.ResponseWriter, r *http.Request, username, 
 		}
 	}
 	problem(w, 401, "invalid credentials")
+}
+
+// grantsWithinCaller keeps a managed user who administers accounts from
+// granting more than they hold themselves, directly or through a role;
+// otherwise a second account would lift them to every tenant permission.
+// The built-in administrator holds every permission.
+func grantsWithinCaller(r *http.Request, state model.AccessState, permissions, roleIDs []string) bool {
+	held, managed := r.Context().Value(permissionsKey{}).(map[string]bool)
+	if !managed || held["*"] {
+		return true
+	}
+	granted := slices.Clone(permissions)
+	for _, role := range state.Roles {
+		if slices.Contains(roleIDs, role.ID) {
+			granted = append(granted, role.Permissions...)
+		}
+	}
+	for _, id := range granted {
+		if !held[id] {
+			return false
+		}
+	}
+	return true
 }
