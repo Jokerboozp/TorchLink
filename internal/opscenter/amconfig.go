@@ -327,6 +327,39 @@ func (s *Service) NotificationConfig(ctx context.Context) (model.OpsNotification
 	return out, nil
 }
 
+// receiverWarning reports a routing tree that delivers platform alerts to
+// nobody, such as the initial platform-null receiver: Alertmanager then
+// accepts every alert and drops it silently.
+func (s *Service) receiverWarning(ctx context.Context) string {
+	if !configured(s.AMConfig) {
+		return ""
+	}
+	cfg, err := s.NotificationConfig(ctx)
+	if err != nil {
+		return ""
+	}
+	delivers := map[string]bool{}
+	for _, r := range cfg.Receivers {
+		delivers[r.Name] = len(r.Webhooks) > 0 || len(r.Emails) > 0 || len(r.ReadOnly) > 0
+	}
+	var reachable func(route model.OpsRoute) bool
+	reachable = func(route model.OpsRoute) bool {
+		if delivers[route.Receiver] {
+			return true
+		}
+		for _, child := range route.Routes {
+			if reachable(child) {
+				return true
+			}
+		}
+		return false
+	}
+	if reachable(cfg.Route) {
+		return ""
+	}
+	return "未配置告警接收人：平台告警不会发送给任何人，请在“监控告警 → 通知渠道”添加并发送测试告警"
+}
+
 // SaveNotificationConfig applies receiver and routing changes, asks
 // Alertmanager to reload and restores the previous file if it refuses.
 func (s *Service) SaveNotificationConfig(ctx context.Context, in model.OpsNotificationConfig, actor string) (model.OpsNotificationConfig, error) {

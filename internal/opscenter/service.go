@@ -154,7 +154,13 @@ func (s *Service) Component(ctx context.Context, id string) (model.OpsComponentS
 	case "grafana":
 		return statusOf(ctx, s.Dashboards, "grafana", "Grafana"), true
 	case "alertmanager":
-		return statusOf(ctx, s.Alerts, "alertmanager", "Alertmanager"), true
+		status := statusOf(ctx, s.Alerts, "alertmanager", "Alertmanager")
+		if status.State == "ok" {
+			if warning := s.receiverWarning(ctx); warning != "" {
+				status.State, status.Message = "degraded", warning
+			}
+		}
+		return status, true
 	}
 	return model.OpsComponentStatus{}, false
 }

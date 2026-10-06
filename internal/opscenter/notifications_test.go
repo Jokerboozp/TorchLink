@@ -39,6 +39,9 @@ type fakeAlertmanager struct {
 }
 
 func (f *fakeAlertmanager) Configured() bool { return true }
+func (f *fakeAlertmanager) Status(context.Context) model.OpsComponentStatus {
+	return model.OpsComponentStatus{ID: "alertmanager", Name: "Alertmanager", Configured: true, State: "ok"}
+}
 
 // Reload fails like Alertmanager does when a route names a missing receiver.
 func (f *fakeAlertmanager) Reload(context.Context) error {
@@ -1020,5 +1023,20 @@ func captureSMTP(conn net.Conn, messages chan<- string) {
 		default:
 			fmt.Fprint(conn, "250 ok\r\n")
 		}
+	}
+}
+
+// The initial configuration routes every platform alert to a receiver without
+// integrations; the overview must say so instead of reporting Alertmanager OK.
+func TestAlertmanagerStatusWarnsWithoutReceivers(t *testing.T) {
+	ctx := context.Background()
+	initial := "route:\n  receiver: platform-null\nreceivers:\n  - name: platform-null\n"
+	svc, _, _ := newAMService(t, initial)
+	if status, _ := svc.Component(ctx, "alertmanager"); status.State != "degraded" || !strings.Contains(status.Message, "未配置告警接收人") {
+		t.Fatalf("missing receiver warning: %+v", status)
+	}
+	svc, _, _ = newAMService(t, baseAMConfig)
+	if status, _ := svc.Component(ctx, "alertmanager"); status.State != "ok" {
+		t.Fatalf("configured receivers must not warn: %+v", status)
 	}
 }
