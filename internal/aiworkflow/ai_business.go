@@ -120,7 +120,12 @@ func (e *Service) runBusinessWorkflow(ctx context.Context, tenantID, workflowID,
 	}
 	var knowledge *ports.AIKnowledgeRunScope
 	if useKnowledge {
-		if query = ports.BoundKnowledgeQuery(query); workflowID != WorkflowAlarmAnalysis && query != "" {
+		// "auto" leaves retrieval to the model's knowledge tool; without the
+		// tool, or when evidence is required, the platform still prefetches.
+		onDemand := binding.RetrievalMode == "auto" && knowledgeToolRequested && binding.NoMatchPolicy != "require-evidence"
+		if onDemand {
+			prompt += aiprompt.KnowledgeOnDemand
+		} else if query = ports.BoundKnowledgeQuery(query); workflowID != WorkflowAlarmAnalysis && query != "" {
 			hits, err := SearchWorkflowKnowledge(ctx, e.engine.KB, tenantID, query, binding)
 			if err != nil {
 				return ports.AIWorkflowResult{}, fmt.Errorf("检索 %s 绑定知识失败：%w", workflowID, err)

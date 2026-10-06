@@ -7,6 +7,7 @@ const (
 	KnowledgeUnavailable    = "\n\n[平台知识策略] 知识库不可用，本次没有知识证据；不得声称依据知识库作答。"
 	KnowledgeKeywordOnly    = "\n\n[平台知识策略] 向量检索暂不可用，以下证据仅按关键词匹配，相关性可能较低，请据实判断。"
 	KnowledgeNoMatch        = "\n\n[平台知识策略] 本次未检索到匹配知识，回答须说明证据不足。"
+	KnowledgeOnDemand       = "\n\n[平台知识策略] 本次未预先附带知识证据；需要时调用知识库工具检索，并标注引用来源，不需要时直接回答。"
 	KnowledgeEvidenceNoTool = "\n\n[平台知识策略] 已附带授权范围的检索结果；本次未提供知识库工具，不得调用。"
 	KnowledgeNotAuthorized  = "\n\n[平台知识策略] 本次运行未授权知识库，不得调用知识库工具。"
 

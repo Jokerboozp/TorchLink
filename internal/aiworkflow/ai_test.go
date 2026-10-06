@@ -268,6 +268,27 @@ func TestBusinessFirstHarnessRequestContainsScopedKnowledgeEvidence(t *testing.T
 	}
 }
 
+// "auto" (按需检索) leaves retrieval to the knowledge tool: no prefetch, but
+// the tool scope and an instruction to use it when needed.
+func TestAutoRetrievalLeavesSearchToTheKnowledgeTool(t *testing.T) {
+	ctx := aitest.Context(context.Background())
+	engine, repo, _ := newBusinessEngine(t, nil)
+	index := &businessKnowledgeIndex{Local: knowledge.NewLocal()}
+	engine.KB = index
+	if err := repo.SaveWorkflowKnowledgeBinding(ctx, model.WorkflowKnowledgeBinding{TenantID: "t1", WorkflowID: WorkflowOpsReport, RetrievalMode: "auto", TopK: 3, MinScore: 0.1, NoMatchPolicy: "allow-model"}); err != nil {
+		t.Fatal(err)
+	}
+	received := installBusinessHarnessHTTP(t, engine, nil)
+	if _, err := engine.runBusinessWorkflow(ctx, "t1", WorkflowOpsReport, "", "高温 核实", "高温 核实", []string{"query_alarm_list", "query_knowledge_base"}, 2048); err != nil {
+		t.Fatal(err)
+	}
+	request := <-received
+	claims, _ := aitest.Claims(request)
+	if len(index.Requests()) != 0 || !claims.HasScope(auth.ScopeQueryKnowledgeBase) || !strings.Contains(request.Question, "需要时调用知识库工具") {
+		t.Fatalf("auto must not prefetch but must offer the tool: searches=%d scope=%v", len(index.Requests()), claims.HasScope(auth.ScopeQueryKnowledgeBase))
+	}
+}
+
 func TestBusinessKnowledgePermissionAndRequiredEvidenceBeforeHarness(t *testing.T) {
 	for _, policy := range []string{"allow-model", "require-evidence"} {
 		t.Run(policy, func(t *testing.T) {

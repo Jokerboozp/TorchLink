@@ -114,6 +114,10 @@ func (e *Service) RunChat(ctx context.Context, req ChatRequest, emit func(ports.
 				return failed(ports.AIRejected(http.StatusServiceUnavailable, "此智能体要求知识证据，但知识库不可用"))
 			}
 			prompt += aiprompt.KnowledgeUnavailable
+		} else if binding.RetrievalMode == "auto" && binding.NoMatchPolicy != "require-evidence" {
+			// On demand: the assistant calls the knowledge tool when the
+			// question needs it instead of a search before every turn.
+			prompt += aiprompt.KnowledgeOnDemand
 		} else if prompt, err = e.prefetchChatKnowledge(ctx, tenantID, runID, workflowID, question, prompt, binding, emit); err != nil {
 			return failed(err)
 		}
