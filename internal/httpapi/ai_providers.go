@@ -39,7 +39,7 @@ func (s *Server) aiProviders(w http.ResponseWriter, r *http.Request) {
 		if err := s.engine.AI.Health(ctx); err != nil {
 			healthMessage = "连接异常"
 			if s.log != nil {
-				s.log.Warn("AI provider health check failed", "provider", active.ID, "model", active.Model, "error", err)
+				s.log.WarnContext(r.Context(), "AI provider health check failed", "provider", active.ID, "model", active.Model, "error", err)
 			}
 		} else {
 			healthy = true
@@ -204,7 +204,7 @@ func (s *Server) updateAIProviderConfig(w http.ResponseWriter, r *http.Request) 
 		persistCancel()
 		if err != nil {
 			if s.log != nil {
-				s.log.Error("persist AI provider config", "provider", provider, "model", modelName, "error", err)
+				s.log.ErrorContext(r.Context(), "persist AI provider config", "provider", provider, "model", modelName, "error", err)
 			}
 			// Reconciliation pushes the stored configuration, so an unsaved
 			// switch would be undone silently a few seconds later; undo it now
@@ -359,7 +359,7 @@ func (s *Server) testAIProvider(w http.ResponseWriter, r *http.Request) {
 	defer auditCancel()
 	if auditErr := s.engine.Repo.SaveAIToolCall(auditCtx, audit); auditErr != nil {
 		if s.log != nil {
-			s.log.Error("persist AI provider test audit", "traceId", traceID, "error", auditErr)
+			s.log.ErrorContext(r.Context(), "persist AI provider test audit", "traceId", traceID, "error", auditErr)
 		}
 		s.failure(w, r, auditErr, "AI provider test completed but its audit trace could not be persisted")
 		return

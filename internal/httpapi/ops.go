@@ -175,7 +175,7 @@ func (s *Server) opsError(w http.ResponseWriter, r *http.Request, err error) {
 		}
 	default:
 		if s.log != nil {
-			s.log.Error("ops center request failed", "route", r.URL.Path, "error", err)
+			s.log.ErrorContext(r.Context(), "ops center request failed", "route", r.URL.Path, "error", err)
 		}
 		opsProblem(w, http.StatusInternalServerError, "OPS_FAILED", "运维操作失败，请查看平台日志", nil)
 	}

@@ -110,7 +110,7 @@ func (s *Server) uploadAlarmAttachment(w http.ResponseWriter, r *http.Request) {
 	att := model.AlarmAttachment{ID: core.NewAlarmAttachmentID(), Name: attachmentName(filename, ext), ContentType: contentType, Size: int64(len(data)), SHA256: hex.EncodeToString(digest[:])}
 	key := model.AlarmAttachmentKey(c.TenantID, alarmID, att.ID)
 	if _, err = s.engine.Archive.PutObject(r.Context(), model.AlarmAttachmentBucket, key, bytes.NewReader(data), att.Size, contentType); err != nil {
-		s.log.Error("store alarm attachment failed", "alarmId", alarmID, "error", err)
+		s.log.ErrorContext(r.Context(), "store alarm attachment failed", "alarmId", alarmID, "error", err)
 		problem(w, 502, "附件保存失败，请检查对象存储")
 		return
 	}

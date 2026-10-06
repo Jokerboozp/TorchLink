@@ -74,7 +74,7 @@ func (s *Server) opsDeadLetters(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			result.Error = "读取死信失败"
 			if s.log != nil {
-				s.log.Warn("read dead letters", "group", g, "error", err)
+				s.log.WarnContext(r.Context(), "read dead letters", "group", g, "error", err)
 			}
 		}
 		if result.Items == nil {

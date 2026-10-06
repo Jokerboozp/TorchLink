@@ -32,6 +32,7 @@ import (
 	"iot-platform/internal/core"
 	"iot-platform/internal/externaldata"
 	"iot-platform/internal/firesafety"
+	"iot-platform/internal/logctx"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
 	"iot-platform/internal/netguard"
@@ -98,6 +99,13 @@ type Server struct {
 }
 
 func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.Logger) *Server {
+	// Handler logs carry the request ID, tenant and user from the request
+	// context; wrap a logger that does not do so already.
+	if log != nil {
+		if _, ok := log.Handler().(*logctx.Handler); !ok {
+			log = slog.New(logctx.NewHandler(log.Handler()))
+		}
+	}
 	if _, ok := engine.Repo.(*deviceScopeRepository); !ok {
 		engine.Repo = ScopedRepository(engine.Repo)
 	}
@@ -296,11 +304,11 @@ func (s *Server) ready(w http.ResponseWriter, r *http.Request) {
 			checks[res.name] = "ok"
 		case res.optional:
 			// The probe is unauthenticated: report which dependency failed, not why.
-			s.log.Warn("optional readiness check failed", "dependency", res.name, "error", res.err)
+			s.log.WarnContext(r.Context(), "optional readiness check failed", "dependency", res.name, "error", res.err)
 			checks[res.name] = "degraded"
 			degraded, ok = true, 0
 		default:
-			s.log.Warn("readiness check failed", "dependency", res.name, "error", res.err)
+			s.log.WarnContext(r.Context(), "readiness check failed", "dependency", res.name, "error", res.err)
 			checks[res.name] = "unavailable"
 			status, degraded, ok = http.StatusServiceUnavailable, true, 0
 		}
@@ -801,7 +809,7 @@ func (s *Server) saveManagedDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	if timingChanged {
 		if _, err := s.engine.ApplyDeviceTiming(r.Context(), c.TenantID, v.ProductID, v.ID); err != nil {
-			s.log.Error("apply device reporting timing failed", "device", v.ID, "error", err)
+			s.log.ErrorContext(r.Context(), "apply device reporting timing failed", "device", v.ID, "error", err)
 		}
 	}
 	s.audit(r, "device.save", "device", v.ID, map[string]any{"productId": v.ProductID, "status": v.Status})
@@ -1902,7 +1910,6 @@ const slowRequest = 3 * time.Second
 // Routine successful requests (page polling, Prometheus scrapes, health
 // checks) are debug records so they do not flood the collected logs; set
 // IOT_LOG_LEVEL=debug to see every request.
-type requestIDKey struct{}
 
 var validRequestID = regexp.MustCompile(`^[A-Za-z0-9._:-]{1,64}$`)
 
@@ -1915,15 +1922,12 @@ func requestID() gin.HandlerFunc {
 			id = randomHex(8)
 		}
 		c.Header("X-Request-ID", id)
-		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), requestIDKey{}, id))
+		c.Request = c.Request.WithContext(logctx.WithRequestID(c.Request.Context(), id))
 		c.Next()
 	}
 }
 
-func requestIDFrom(ctx context.Context) string {
-	id, _ := ctx.Value(requestIDKey{}).(string)
-	return id
-}
+func requestIDFrom(ctx context.Context) string { return logctx.RequestID(ctx) }
 
 func (s *Server) accessLog() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -1949,7 +1953,8 @@ func (s *Server) accessLog() gin.HandlerFunc {
 		case duration >= slowRequest && !strings.HasPrefix(c.Writer.Header().Get("Content-Type"), "text/event-stream"):
 			level = slog.LevelInfo
 		}
-		s.log.Log(c.Request.Context(), level, "http request", "method", c.Request.Method, "path", c.Request.URL.Path, "route", c.FullPath(), "status", status, "duration", duration.String(), "requestId", requestIDFrom(c.Request.Context()))
+		// requestId, tenantId and user come from the context (logctx).
+		s.log.Log(c.Request.Context(), level, "http request", "method", c.Request.Method, "path", c.Request.URL.Path, "route", c.FullPath(), "status", status, "duration", duration.String())
 	}
 }
 
@@ -2046,7 +2051,7 @@ func (s *Server) internalError(w http.ResponseWriter, r *http.Request, err error
 	if reference == "" {
 		reference = randomHex(6)
 	}
-	s.log.Error("request failed", "reference", reference, "method", r.Method, "path", r.URL.Path, "error", err)
+	s.log.ErrorContext(r.Context(), "request failed", "reference", reference, "method", r.Method, "path", r.URL.Path, "error", err)
 	write(w, http.StatusInternalServerError, map[string]any{"type": "about:blank", "title": http.StatusText(http.StatusInternalServerError), "status": http.StatusInternalServerError, "detail": "服务内部错误，请稍后重试；如持续出现请提供编号 " + reference + " 联系管理员", "traceId": reference})
 }
 

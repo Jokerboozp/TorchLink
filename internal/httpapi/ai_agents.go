@@ -27,7 +27,7 @@ func (s *Server) aiWorkflows(w http.ResponseWriter, r *http.Request) {
 	items, err := s.engine.AIWorkflows.ListWorkflows(r.Context())
 	if err != nil {
 		if s.log != nil {
-			s.log.Warn("list AI workflows failed", "error", err)
+			s.log.WarnContext(r.Context(), "list AI workflows failed", "error", err)
 		}
 		writeList(w, 200, []ports.AIWorkflowPlugin{}, 0, pagination, map[string]any{"configured": true, "mode": "harness", "healthy": false, "healthMessage": "AI 工作流服务（Harness）无法连接"})
 		return
@@ -71,7 +71,7 @@ func (s *Server) aiWorkflowManifests(w http.ResponseWriter, r *http.Request) {
 	items, err := manager.ListWorkflowManifests(r.Context())
 	if err != nil {
 		if s.log != nil {
-			s.log.Warn("list AI workflow manifests failed", "error", err)
+			s.log.WarnContext(r.Context(), "list AI workflow manifests failed", "error", err)
 		}
 		problem(w, http.StatusBadGateway, "AI 工作流服务（Harness）无法读取智能体清单")
 		return
@@ -111,7 +111,7 @@ func (s *Server) saveAIWorkflow(w http.ResponseWriter, r *http.Request) {
 	err = s.recordAIWorkflowChange(r.Context(), ports.StoredAIWorkflowManifest{ID: manifest.ID, Manifest: manifest}, err)
 	if err != nil {
 		if s.log != nil {
-			s.log.Warn("save dynamic AI workflow failed", "workflow", manifest.ID, "error", err)
+			s.log.WarnContext(r.Context(), "save dynamic AI workflow failed", "workflow", manifest.ID, "error", err)
 		}
 		problem(w, http.StatusBadGateway, "AI workflow harness rejected the agent manifest")
 		return
@@ -147,7 +147,7 @@ func (s *Server) updateAIWorkflow(w http.ResponseWriter, r *http.Request) {
 		items, err := catalog.ListWorkflowManifests(r.Context())
 		if err != nil {
 			if s.log != nil {
-				s.log.Warn("check AI workflow before update failed", "workflow", manifest.ID, "error", err)
+				s.log.WarnContext(r.Context(), "check AI workflow before update failed", "workflow", manifest.ID, "error", err)
 			}
 			problem(w, http.StatusBadGateway, "AI 工作流服务（Harness）无法读取智能体清单")
 			return
@@ -169,7 +169,7 @@ func (s *Server) updateAIWorkflow(w http.ResponseWriter, r *http.Request) {
 	err = s.recordAIWorkflowChange(r.Context(), ports.StoredAIWorkflowManifest{ID: manifest.ID, Manifest: manifest}, err)
 	if err != nil {
 		if s.log != nil {
-			s.log.Warn("update dynamic AI workflow failed", "workflow", manifest.ID, "error", err)
+			s.log.WarnContext(r.Context(), "update dynamic AI workflow failed", "workflow", manifest.ID, "error", err)
 		}
 		problem(w, http.StatusBadGateway, "AI workflow harness rejected the agent manifest")
 		return
@@ -201,7 +201,7 @@ func (s *Server) deleteAIWorkflow(w http.ResponseWriter, r *http.Request) {
 	err := manager.DeleteWorkflow(r.Context(), workflowID)
 	if err = s.recordAIWorkflowChange(r.Context(), ports.StoredAIWorkflowManifest{ID: workflowID, Manifest: ports.AIWorkflowManifest{ID: workflowID}, Deleted: true}, err); err != nil {
 		if s.log != nil {
-			s.log.Warn("delete dynamic AI workflow failed", "workflow", workflowID, "error", err)
+			s.log.WarnContext(r.Context(), "delete dynamic AI workflow failed", "workflow", workflowID, "error", err)
 		}
 		problem(w, http.StatusBadGateway, "AI workflow harness rejected the delete request")
 		return

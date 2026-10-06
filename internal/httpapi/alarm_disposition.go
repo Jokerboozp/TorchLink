@@ -91,7 +91,7 @@ func reportFilter(r *http.Request) ports.AlarmFilter {
 func (s *Server) alarmStatistics(w http.ResponseWriter, r *http.Request) {
 	stats, err := s.engine.Repo.AlarmDispositionStats(r.Context(), reportFilter(r))
 	if err != nil {
-		s.log.Error("alarm statistics failed", "error", err)
+		s.log.ErrorContext(r.Context(), "alarm statistics failed", "error", err)
 		s.failure(w, r, err, "读取告警失败")
 		return
 	}
@@ -103,7 +103,7 @@ func (s *Server) alarmStatistics(w http.ResponseWriter, r *http.Request) {
 func (s *Server) alarmAIQuality(w http.ResponseWriter, r *http.Request) {
 	outcomes, err := s.engine.Repo.AIAnalysisOutcomes(r.Context(), reportFilter(r), strings.TrimSpace(r.URL.Query().Get("promptVersion")))
 	if err != nil {
-		s.log.Error("AI analysis statistics failed", "error", err)
+		s.log.ErrorContext(r.Context(), "AI analysis statistics failed", "error", err)
 		s.failure(w, r, err, "读取研判统计失败")
 		return
 	}
@@ -152,7 +152,7 @@ func (s *Server) exportAlarms(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	if err != nil {
-		s.log.Error("alarm export failed", "rows", rows, "error", err)
+		s.log.ErrorContext(r.Context(), "alarm export failed", "rows", rows, "error", err)
 		if out == nil {
 			s.failure(w, r, err, "读取告警失败")
 			return
@@ -181,7 +181,7 @@ func (s *Server) alarmMonthlyReport(w http.ResponseWriter, r *http.Request) {
 	}
 	report, err := s.engine.AlarmMonthlyReport(r.Context(), claims(r).TenantID, month)
 	if err != nil {
-		s.log.Error("alarm monthly report failed", "error", err)
+		s.log.ErrorContext(r.Context(), "alarm monthly report failed", "error", err)
 		s.failure(w, r, err, "读取告警失败")
 		return
 	}

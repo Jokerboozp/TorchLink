@@ -1,11 +1,11 @@
 package httpapi
 
 import (
-	"context"
 	"errors"
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"iot-platform/internal/logctx"
 	"log/slog"
 	"net/http/httptest"
 	"path/filepath"
@@ -56,7 +56,7 @@ func TestFailureLogsTheReferenceItReturns(t *testing.T) {
 	var logs strings.Builder
 	server := &Server{log: slog.New(slog.NewTextHandler(&logs, nil))}
 	r := httptest.NewRequest("GET", "/api/v1/things", nil)
-	r = r.WithContext(context.WithValue(r.Context(), requestIDKey{}, "req-42"))
+	r = r.WithContext(logctx.WithRequestID(r.Context(), "req-42"))
 	w := httptest.NewRecorder()
 	server.failure(w, r, errors.New("connection refused"), "读取失败")
 	if w.Code != 500 || !strings.Contains(w.Body.String(), `"traceId":"req-42"`) || !strings.Contains(w.Body.String(), "读取失败（编号 req-42）") {

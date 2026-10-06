@@ -126,7 +126,7 @@ func (s *Server) testWorkflowKnowledge(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	hits, err := s.searchWorkflowKnowledge(r.Context(), c.TenantID, question, binding)
 	if err != nil {
-		s.log.Warn("knowledge test search failed", "workflowId", workflowID, "error", err)
+		s.log.WarnContext(r.Context(), "knowledge test search failed", "workflowId", workflowID, "error", err)
 		problem(w, http.StatusBadGateway, "知识检索失败，请检查向量服务状态后重试")
 		return
 	}
@@ -294,7 +294,7 @@ func (s *Server) knowledgeUpload(w http.ResponseWriter, r *http.Request) {
 	bucket := "iot-knowledge-docs"
 	objectKey := fmt.Sprintf("%s/agents/%s/%s/%s", c.TenantID, workflowID, id, filename)
 	if _, err = s.engine.Archive.PutObject(r.Context(), bucket, objectKey, bytes.NewReader(data), int64(len(data)), h.Header.Get("Content-Type")); err != nil {
-		s.log.Error("store knowledge document failed", "tenant", c.TenantID, "object", objectKey, "error", err)
+		s.log.ErrorContext(r.Context(), "store knowledge document failed", "tenant", c.TenantID, "object", objectKey, "error", err)
 		problem(w, http.StatusBadGateway, "原件保存到对象存储失败，请检查对象存储服务后重试")
 		return
 	}

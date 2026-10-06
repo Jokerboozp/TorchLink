@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"iot-platform/internal/logctx"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -144,7 +145,8 @@ func TestLoginLimiterLocksAccountAfterRepeatedFailures(t *testing.T) {
 func TestAccessLogKeepsRoutineRequestsOutOfInfoLogs(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	var out bytes.Buffer
-	s := &Server{log: slog.New(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelInfo})), metrics: metrics.New()}
+	// Production loggers add the request ID from the context (logctx).
+	s := &Server{log: slog.New(logctx.NewHandler(slog.NewJSONHandler(&out, &slog.HandlerOptions{Level: slog.LevelInfo}))), metrics: metrics.New()}
 	router := gin.New()
 	router.Use(requestID(), s.accessLog())
 	router.GET("/metrics", func(c *gin.Context) { c.String(http.StatusOK, "ok") })

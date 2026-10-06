@@ -33,6 +33,7 @@ import (
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
 	"iot-platform/internal/httpapi"
+	"iot-platform/internal/logctx"
 	"iot-platform/internal/messagetopics"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/model"
@@ -91,7 +92,7 @@ func Run(forcedRole string) {
 	envFile := flag.String("env-file", "", "load a KEY=VALUE configuration file (existing environment variables take precedence)")
 	flag.Parse()
 	logLevel := new(slog.LevelVar)
-	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}))
+	log := slog.New(logctx.NewHandler(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel})))
 	if *envFile != "" {
 		fatal(log, "load environment file", config.LoadEnvFile(*envFile))
 	}
@@ -121,7 +122,7 @@ func Run(forcedRole string) {
 		// Host-run processes (local source debugging) ship their own logs; containers
 		// are collected by the log collector and leave this unset.
 		a.logPush = observability.NewLokiPush(cfg.Ops.LogPushURL, cfg.Ops.LogPushTenant, cfg.Ops.WithDefaults().LogServiceName)
-		a.log = slog.New(observability.NewTeeHandler(log.Handler(), slog.NewJSONHandler(a.logPush, &slog.HandlerOptions{Level: logLevel})))
+		a.log = slog.New(logctx.NewHandler(observability.NewTeeHandler(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: logLevel}), slog.NewJSONHandler(a.logPush, &slog.HandlerOptions{Level: logLevel}))))
 	}
 	var cancel context.CancelFunc
 	a.ctx, cancel = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

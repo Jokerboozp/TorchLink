@@ -481,7 +481,7 @@ func (s *Server) commitAccess(w http.ResponseWriter, r *http.Request, store port
 		cancel()
 		if err != nil {
 			result["warning"] = "用户权限已保存，主题订阅旧凭据的撤销仍在重试。"
-			s.log.Warn("revalidate message topic credentials failed", "error", err)
+			s.log.WarnContext(r.Context(), "revalidate message topic credentials failed", "error", err)
 		}
 	}
 	write(w, 200, result)
