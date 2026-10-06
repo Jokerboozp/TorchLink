@@ -32,6 +32,19 @@ var retentionTables = map[string]struct {
 	model.RetentionVideoEvents:      {"event_time", true, ""},
 	model.RetentionNotifications:    {"created_at", true, "status IN ('SENT','FAILED','CANCELLED')"},
 	model.RetentionStandardKeys:     {"created_at", true, ""},
+	// A command older than a day is final: ObservedOutcome reports any
+	// unanswered command as UNKNOWN after 30 seconds.
+	model.RetentionDeviceCommands: {"created_at", true, ""},
+	// Drafts, template preparations and retryable PARTIAL_FAILED batches stay;
+	// a completed batch goes first and its rows follow on a later pass.
+	model.RetentionOnboarding: {"updated_at", true, `((kind IN ('device-batch','device-credential-expiry') AND status='COMPLETED')
+ OR (kind LIKE 'device-batch-row:%' AND NOT EXISTS (SELECT 1 FROM onboarding_record b WHERE b.tenant_id=onboarding_record.tenant_id AND b.kind='device-batch' AND 'device-batch-row:'||b.id=onboarding_record.kind)))`},
+	model.RetentionReplays: {"created_at", false, "status IN ('COMPLETED','FAILED','CANCELLED','INTERRUPTED')"},
+	// Completed backups own their artifacts and backup coverage; the backup
+	// service prunes them. Only failures and finished restores are purged.
+	model.RetentionBackupTasks: {"started_at", false, "(status='FAILED' OR (backup_type IN ('RESTORE','RESTORE_DRILL') AND status<>'RUNNING'))"},
+	// The latest successful inspection backs the AI overview; it is kept.
+	model.RetentionHealthInspections: {"started_at", true, `(status<>'running' AND NOT (status='succeeded' AND started_at >= (SELECT max(j.started_at) FROM health_inspection_job j WHERE j.tenant_id=health_inspection_job.tenant_id AND j.status='succeeded')))`},
 }
 
 func retentionBound(millis bool, at time.Time) any {

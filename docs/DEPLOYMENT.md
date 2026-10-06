@@ -346,10 +346,11 @@ Windows 使用 `scripts/generate-tls-cert.ps1 -HostName <地址>`（需要 opens
 | 审计日志 | PostgreSQL | 1095 天 | `IOT_RETENTION_AUDIT_DAYS` | — |
 | AI 工具调用日志、AI 运行记录、智能助手对话 | PostgreSQL | 180 天 | `IOT_RETENTION_AI_LOG_DAYS` | — |
 | 视频平台告警事件 | PostgreSQL | 1095 天 | `IOT_RETENTION_VIDEO_EVENT_DAYS` | — |
+| 设备命令、批量接入任务、回放任务、失败备份与恢复记录、智能巡检任务 | PostgreSQL | 180 天 | `IOT_RETENTION_TASK_DAYS` | 未结束的任务；接入草稿、模板准备和可重试的部分失败批次；成功的备份记录（由备份服务按保留份数清理）；各租户最近一次成功巡检 |
 | 遥测 | ClickHouse 表 TTL | 365 天 | `IOT_RETENTION_TELEMETRY_DAYS` | — |
 | 高频原文 | ClickHouse 表 TTL | 180 天 | `IOT_RETENTION_CLICKHOUSE_RAW_DAYS` | — |
 
-天数为 0 表示永久保留。正式保留期按消防监控相关规范和合同要求确定。设备、模板、规则、用户、消防管理等业务资料不在清理范围。
+告警的 AI 研判结果（`alarm_ai_analysis`）和研判任务（`alarm_analysis_job`）通过外键随告警一同删除。天数为 0 表示永久保留。正式保留期按消防监控相关规范和合同要求确定。设备、模板、规则、用户、消防管理等业务资料不在清理范围。
 
 - `IOT_RETENTION_REQUIRE_BACKUP=true` 时，标准消息、原文索引和低频原文按天清理，只删除已有成功 `DEVICE_DAILY` 备份覆盖的日期或成功 `FULL` 备份开始之前的数据；未覆盖的日期保留并计入 `retention_unbacked_days_<表>`。
 - 配置 ClickHouse 时，属性上报与告警上报（`PROPERTY_REPORT`、`ALARM_REPORT`）的属性只存 ClickHouse `iot_telemetry`（`properties` 列供按属性查询，`properties_text` 保留原样 JSON 文本），PostgreSQL `standard_message` 只保留索引、处理状态、事件和标签列；消息详情、设备消息列表和原文关联解析结果由平台从 ClickHouse 补回属性。启用前写入的行保留原有属性。遥测保留期短于标准消息保留期时，超出遥测保留期的标准消息不再显示属性；升级时 API 自动为已有 `iot_telemetry` 补 `properties_text` 列。

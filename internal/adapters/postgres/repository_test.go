@@ -291,6 +291,10 @@ func verifyOnboardingAndParseMigration(t *testing.T, r *Repository) {
 func TestAlarmAnalysisJobStore(t *testing.T) {
 	ctx := context.Background()
 	r := testRepository(t)
+	// Jobs belong to an existing alarm (foreign key with cascade).
+	if _, err := r.pool.Exec(ctx, `INSERT INTO alarm_record(tenant_id,id,rule_id,device_id,status,level,source,last_triggered_at,body) VALUES('t1','a1','r','d','ACTIVE','HIGH','iot',1,'{}')`); err != nil {
+		t.Fatal(err)
+	}
 
 	running := model.AlarmAnalysisJob{ID: "job-1", TenantID: "t1", AlarmID: "a1", Status: "running", StartedAt: 1000, UpdatedAt: 1000}
 	if created, createErr := r.CreateAlarmAnalysisJob(ctx, running); createErr != nil || !created {

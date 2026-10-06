@@ -181,6 +181,7 @@ IOT_RETENTION_RAW_DAYS	原始报文索引与低频原文保留天数，默认 18
 IOT_RETENTION_STATE_EVENT_DAYS	设备状态变更事件保留天数，默认 90
 IOT_RETENTION_AI_LOG_DAYS	AI 工具调用日志保留天数，默认 180
 IOT_RETENTION_VIDEO_EVENT_DAYS	视频平台告警事件保留天数，默认 1095
+IOT_RETENTION_TASK_DAYS	已结束的设备命令、批量接入、回放、失败备份与巡检任务保留天数，默认 180
 IOT_RETENTION_RESERVATION_DAYS	原文去重预约保留天数，默认 7，须不大于原文保留天数
 IOT_RETENTION_TELEMETRY_DAYS	ClickHouse 遥测保留天数（表 TTL），默认 365
 IOT_RETENTION_CLICKHOUSE_RAW_DAYS	ClickHouse 高频原文保留天数（表 TTL），默认 180

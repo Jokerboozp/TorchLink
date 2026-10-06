@@ -85,8 +85,19 @@ INSERT INTO alarm_ai_analysis(alarm_id,body) VALUES
 			t.Fatalf("alarm %s migrated to tenant %q, want %q", alarmID, got, wantTenant)
 		}
 	}
-	if _, err = pool.Exec(ctx, `INSERT INTO alarm_ai_analysis(tenant_id,alarm_id,body) VALUES('tenant_b','alarm_a','{}')`); err != nil {
+	if _, err = pool.Exec(ctx, `INSERT INTO alarm_ai_analysis(tenant_id,alarm_id,body) VALUES('tenant_a','alarm_ambiguous','{}'),('tenant_b','alarm_ambiguous','{}')`); err != nil {
 		t.Fatalf("composite tenant/alarm primary key was not installed: %v", err)
+	}
+	// New analyses must name an existing alarm and go away with it.
+	if _, err = pool.Exec(ctx, `INSERT INTO alarm_ai_analysis(tenant_id,alarm_id,body) VALUES('tenant_b','alarm_a','{}')`); err == nil {
+		t.Fatal("analysis of another tenant's alarm was accepted")
+	}
+	if _, err = pool.Exec(ctx, `DELETE FROM alarm_record WHERE tenant_id='tenant_b' AND id='alarm_ambiguous'`); err != nil {
+		t.Fatal(err)
+	}
+	var remaining int
+	if err = pool.QueryRow(ctx, `SELECT count(*) FROM alarm_ai_analysis WHERE tenant_id='tenant_b' AND alarm_id='alarm_ambiguous'`).Scan(&remaining); err != nil || remaining != 0 {
+		t.Fatalf("analysis outlived its alarm: %d %v", remaining, err)
 	}
 	var legacyScope string
 	if err = pool.QueryRow(ctx, `SELECT knowledge_scope FROM alarm_ai_analysis WHERE tenant_id='tenant_a' AND alarm_id='alarm_a'`).Scan(&legacyScope); err != nil {

@@ -35,6 +35,9 @@ type RetentionConfig struct {
 	AILogDays       int
 	VideoEventDays  int
 	ReservationDays int
+	// TaskDays keeps finished commands, onboarding batches, replays, failed
+	// backups and health inspections.
+	TaskDays int
 	// ClickHouse table TTLs.
 	TelemetryDays  int
 	ClickRawDays   int
@@ -63,6 +66,7 @@ func loadRetention() RetentionConfig {
 		{&c.AILogDays, "IOT_RETENTION_AI_LOG_DAYS", 180},
 		{&c.VideoEventDays, "IOT_RETENTION_VIDEO_EVENT_DAYS", 1095},
 		{&c.ReservationDays, "IOT_RETENTION_RESERVATION_DAYS", 7},
+		{&c.TaskDays, "IOT_RETENTION_TASK_DAYS", 180},
 		{&c.TelemetryDays, "IOT_RETENTION_TELEMETRY_DAYS", 365},
 		{&c.ClickRawDays, "IOT_RETENTION_CLICKHOUSE_RAW_DAYS", 180},
 	} {

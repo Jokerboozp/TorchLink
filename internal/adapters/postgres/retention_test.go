@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -190,5 +191,73 @@ func TestBatchedRawMarks(t *testing.T) {
 	// Freshly archived unpublished messages are left to the normal path.
 	if pending, err := r.ListPendingRawIndexes(ctx, 10); err != nil || len(pending) != 0 {
 		t.Fatalf("fresh message offered for republish: %v %v", pending, err)
+	}
+}
+
+func TestPurgeRangeKeepsUnfinishedTasks(t *testing.T) {
+	ctx := context.Background()
+	r := testRepository(t)
+	old := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	oldMS := old.UnixMilli()
+	exec := func(sql string, args ...any) {
+		t.Helper()
+		if _, err := r.pool.Exec(ctx, sql, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	exec(`INSERT INTO device_command(tenant_id,id,device_id,status,created_at,body) VALUES('t','cmd-old','d','SUCCEEDED',$1,'{}'),('t','cmd-new','d','SENT',$2,'{}')`, oldMS, time.Now().UnixMilli())
+	exec(`INSERT INTO onboarding_record(tenant_id,id,owner_id,kind,status,revision,created_at,updated_at,body) VALUES
+  ('t','draft','u','device-draft','DRAFT',1,$1,$1,'{}'),
+  ('t','done','u','device-batch','COMPLETED',1,$1,$1,'{}'),
+  ('t','batch-done-0','u','device-batch-row:done','SUCCEEDED',1,$1,$1,'{}'),
+  ('t','partial','u','device-batch','PARTIAL_FAILED',1,$1,$1,'{}'),
+  ('t','batch-partial-0','u','device-batch-row:partial','FAILED',1,$1,$1,'{}')`, oldMS)
+	exec(`INSERT INTO replay_task(id,tenant_id,status,body,created_at) VALUES('replay-done','t','COMPLETED','{}',$1),('replay-running','t','RUNNING','{}',$1)`, old)
+	exec(`INSERT INTO backup_task(id,backup_type,status,started_at) VALUES('b-ok','FULL','COMPLETED',$1),('b-failed','FULL','FAILED',$1),('b-restore','RESTORE','COMPLETED',$1),('b-running','FULL','RUNNING',$1)`, old)
+	exec(`INSERT INTO health_inspection_job(tenant_id,id,status,started_at,updated_at,body) VALUES
+  ('t','insp-old','succeeded',$1,$1,'{}'),('t','insp-latest','succeeded',$2,$2,'{}'),('t','insp-failed','failed',$1,$1,'{}'),('t','insp-running','running',$1,$1,'{}')`, oldMS, oldMS+1000)
+
+	cutoff := time.Now().Add(-time.Hour)
+	purge := func(table string) {
+		t.Helper()
+		for {
+			n, err := r.PurgeRange(ctx, table, time.Time{}, cutoff, 100)
+			if err != nil {
+				t.Fatal(table, err)
+			}
+			if n == 0 {
+				return
+			}
+		}
+	}
+	ids := func(sql string) []string {
+		t.Helper()
+		rows, err := r.pool.Query(ctx, sql)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer rows.Close()
+		out := []string{}
+		for rows.Next() {
+			var id string
+			if err = rows.Scan(&id); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, id)
+		}
+		return out
+	}
+	for table, check := range map[string]struct{ query, want string }{
+		model.RetentionDeviceCommands: {`SELECT id FROM device_command ORDER BY id`, "[cmd-new]"},
+		// The finished batch goes first, its rows on the following pass.
+		model.RetentionOnboarding:        {`SELECT id FROM onboarding_record ORDER BY id`, "[batch-partial-0 draft partial]"},
+		model.RetentionReplays:           {`SELECT id FROM replay_task ORDER BY id`, "[replay-running]"},
+		model.RetentionBackupTasks:       {`SELECT id FROM backup_task ORDER BY id`, "[b-ok b-running]"},
+		model.RetentionHealthInspections: {`SELECT id FROM health_inspection_job ORDER BY id`, "[insp-latest insp-running]"},
+	} {
+		purge(table)
+		if got := fmt.Sprint(ids(check.query)); got != check.want {
+			t.Fatalf("%s kept %s, want %s", table, got, check.want)
+		}
 	}
 }

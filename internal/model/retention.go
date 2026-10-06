@@ -21,6 +21,13 @@ const (
 	// RetentionStandardKeys holds the recent standard message IDs that
 	// deduplicate concurrent inserts into the partitioned standard_message.
 	RetentionStandardKeys = "standard_message_key"
+	// Finished control-plane tasks: device commands, onboarding batches,
+	// replays, failed backups and restores, health inspections.
+	RetentionDeviceCommands    = "device_command"
+	RetentionOnboarding        = "onboarding_record"
+	RetentionReplays           = "replay_task"
+	RetentionBackupTasks       = "backup_task"
+	RetentionHealthInspections = "health_inspection_job"
 )
 
 // TablePartition is one monthly partition covering [From, To).
