@@ -31,3 +31,8 @@ offline-bundles/
 
 # Claude Code local worktrees and helpers
 .claude/worktrees/
+
+# go build ./cmd/<name> outputs in the repository root
+/backup-service
+/iot-platform
+/iot-access-gateway
