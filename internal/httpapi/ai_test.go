@@ -405,7 +405,7 @@ func TestAIAnalysisProgressCanBeLoadedWithoutJobID(t *testing.T) {
 // and a new run can start for that alarm.
 func TestStaleAIAnalysisJobIsMarkedInterrupted(t *testing.T) {
 	repo := memory.NewRepository()
-	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}
+	engine := &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	old := time.Now().Add(-time.Minute).UnixMilli()
 	stale := model.AlarmAnalysisJob{ID: "ai_job_stale", TenantID: "tenant-a", AlarmID: "alarm-stale", Status: "running", Stage: "calling_model", StartedAt: old, UpdatedAt: old}
@@ -977,6 +977,7 @@ func TestHarnessHTTPBridgeAndTenantScopedConversation(t *testing.T) {
 	registry := metrics.New()
 	cfg := config.Load()
 	cfg.JWTSecret = "test-secret-at-least-32-characters"
+	engine.HarnessTokens = harnessTokens(cfg)
 	api := New(cfg, engine, registry, slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
@@ -1298,7 +1299,7 @@ func TestInspectionDownloadReadsMetadataBeforePDFCache(t *testing.T) {
 	now := time.Now().UnixMilli()
 	items := make([]model.DeviceHealthItem, 10000)
 	_, _ = repo.CreateHealthInspectionJob(context.Background(), model.HealthInspectionJob{ID: "stable-report", TenantID: "t", Status: "succeeded", StartedAt: now, FinishedAt: now, Report: model.DeviceHealthReport{GeneratedAt: now, Items: items}})
-	e := &core.Engine{Repo: repo, Clock: ports.RealClock{}}
+	e := &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}}
 	api := New(config.Config{DevMode: true}, e, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	api.inspectionPDFs.renderPDF = func(model.DeviceHealthReport) ([]byte, error) { return []byte("%PDF-test"), nil }
 	srv := httptest.NewServer(api.Handler())
@@ -1332,7 +1333,7 @@ func TestInspectionReportPagesUseImmutableIDAndTenant(t *testing.T) {
 		}
 		_, _ = repo.CreateHealthInspectionJob(context.Background(), model.HealthInspectionJob{ID: id, TenantID: "t", Status: "succeeded", StartedAt: now, Report: model.DeviceHealthReport{GeneratedAt: now, Items: items}})
 	}
-	api := New(config.Config{DevMode: true}, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(config.Config{DevMode: true}, &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 	token, _ := api.auth.IssueWithVersion("admin", "t", "admin", api.adminSessionVersion(), time.Hour)
@@ -1446,7 +1447,7 @@ func TestAlarmAnalysisNearbyAlarmsFollowDeviceScope(t *testing.T) {
 	ctx := context.Background()
 	base := memory.NewRepository()
 	repo := devicescope.Wrap(base)
-	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime(), Locator: sites.New(repo)}
+	engine := &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime(), Locator: sites.New(repo)}
 	workflows := &aitest.Workflows{Answer: func(ports.AIWorkflowRequest) (string, error) { return testAnalysisAnswer, nil }}
 	engine.AIWorkflows, engine.HarnessTokens = workflows, aitest.Tokens()
 	for _, id := range []string{"mine", "visible", "hidden"} {
@@ -1609,6 +1610,7 @@ func TestChatRunStatesMissingKnowledgeEvidence(t *testing.T) {
 	engine.KB = knowledge.NewLocal()
 	cfg := config.Load()
 	cfg.JWTSecret = "test-secret-at-least-32-characters"
+	engine.HarnessTokens = harnessTokens(cfg)
 	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
@@ -1638,6 +1640,7 @@ func TestChatConversationsBelongToTheUser(t *testing.T) {
 	engine.AIConversations = repo
 	cfg := config.Load()
 	cfg.JWTSecret = "test-secret-at-least-32-characters"
+	engine.HarnessTokens = harnessTokens(cfg)
 	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
@@ -1713,7 +1716,7 @@ func (u usageRuns) AIRunUsage(context.Context, ports.AIRunFilter) ([]model.AIRun
 
 func TestAIQuotaLimitsRunsAndDailyTokens(t *testing.T) {
 	ctx := context.Background()
-	engine := &core.Engine{Repo: memory.NewRepository(), Clock: ports.RealClock{}}
+	engine := &core.Engine{Repo: devicescope.Wrap(memory.NewRepository()), Clock: ports.RealClock{}}
 	s := New(config.Config{DevMode: true, AIRunsPerMinute: 2}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	quota := &aiQuota{server: s, now: time.Now}
 	for i := range 2 {

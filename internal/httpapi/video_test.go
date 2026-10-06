@@ -54,7 +54,7 @@ func newLiveEnv(t *testing.T, deployed bool) *liveEnv {
 	for _, id := range []string{"d1", "d2"} {
 		must(repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant_a", ID: id, AccessKey: id, Name: id, ProductID: "product", DeviceRole: "DIRECT"}))
 	}
-	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}}
+	engine := &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}}
 	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	env := &liveEnv{repo: repo}
 	if deployed {

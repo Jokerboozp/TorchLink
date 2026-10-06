@@ -9,6 +9,7 @@ import (
 	"iot-platform/internal/adapters/memory"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
+	"iot-platform/internal/devicescope"
 	"iot-platform/internal/metrics"
 	"iot-platform/internal/parser"
 	"iot-platform/internal/ports"
@@ -37,7 +38,7 @@ func TestEmbeddingConfigurationPermissionsSecretsAndIndependentTest(t *testing.T
 		t.Fatal(err)
 	}
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	engine := core.New(repo, archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), log)
+	engine := core.New(devicescope.Wrap(repo), archive, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), log)
 	engine.KB = knowledge.NewLocal()
 	api := New(config.Config{DevMode: true, RerankURL: "http://reranker:8080", LocalAIHosts: ports.DefaultLocalAIHosts}, engine, metrics.New(), log)
 	runtime := &embeddingConfigTestRuntime{config: ports.EmbeddingConfig{BaseURL: "https://embedding.example/v1", Model: "text-embedding-v4", APIKey: "private-embedding-credential", Dimensions: 1024, BatchSize: 10, TimeoutSeconds: 60}}

@@ -567,7 +567,7 @@ func checkDashboard(t *testing.T, repo ports.Repository) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := config.Load()
 	cfg.JWTSecret = "dashboard-test-secret-32-characters"
-	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), log)
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), log)
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
 	token, _ := api.auth.Issue("viewer", "tenant", "viewer", nil, time.Hour)
@@ -673,7 +673,7 @@ func TestEventSnapshotIsSharedPerTenantWindow(t *testing.T) {
 // only restricted views keep their own.
 func TestAllScopeUsersShareEventSnapshot(t *testing.T) {
 	repo := &countingEventRepo{Repository: memory.NewRepository()}
-	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}
+	engine := &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}
 	cfg := config.Load()
 	cfg.AdminUser, cfg.AdminPassword = "root", "events-share-password"
 	cfg.AdminTenants = []string{"tenant-a"}
@@ -703,7 +703,7 @@ func TestUserEventsAnswerNotModifiedForSameView(t *testing.T) {
 	if err := repo.UpsertDeviceState(ctx, model.DeviceState{TenantID: "tenant-a", DeviceID: "device-a", BusinessStatus: "ONLINE"}); err != nil {
 		t.Fatal(err)
 	}
-	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}
+	engine := &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}
 	cfg := config.Load()
 	cfg.AdminUser, cfg.AdminPassword = "root", "events-root-password"
 	cfg.AdminTenants = []string{"tenant-a"}
@@ -751,7 +751,7 @@ func TestUserEventsReturnOnlyChangesSinceCursor(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}
+	engine := &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}
 	cfg := config.Load()
 	cfg.AdminUser, cfg.AdminPassword = "root", "events-root-password"
 	cfg.AdminTenants = []string{"tenant-a"}
@@ -856,7 +856,7 @@ func TestDeleteResourceRoutesReturnConflictAndNotFound(t *testing.T) {
 	cfg.AdminUser, cfg.AdminPassword, cfg.JWTSecret = "root", "root-password-test", "delete-test-signing-key-32-characters"
 	cfg.AdminTenants = []string{"tenant_a"}
 	cfg.DevMode = true
-	server := httptest.NewServer(New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+	server := httptest.NewServer(New(cfg, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
 	defer server.Close()
 	request := func(method, path, token string, body any, status int) map[string]any {
 		return requestJSON(t, server.Client(), method, server.URL+path, token, body, status)
@@ -892,7 +892,7 @@ func TestDeleteProtocolReleaseOnlyRemovesSelectedVersionAndArtifacts(t *testing.
 			t.Fatal(err)
 		}
 	}
-	server := httptest.NewServer(New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+	server := httptest.NewServer(New(cfg, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
 	defer server.Close()
 	token := requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/auth/login", "", map[string]any{"username": "root", "password": cfg.AdminPassword, "tenantId": "tenant_a"}, 200)["accessToken"].(string)
 	path := server.URL + "/api/v2/protocols/protocol/releases/1.0.0"
@@ -935,7 +935,7 @@ func TestDeleteKnowledgeDocumentClearsIndexObjectAndRecord(t *testing.T) {
 	cfg.AdminUser, cfg.AdminPassword, cfg.JWTSecret = "root", "root-password-test", "delete-test-signing-key-32-characters"
 	cfg.AdminTenants = []string{"tenant_a"}
 	cfg.DevMode = true
-	server := httptest.NewServer(New(cfg, &core.Engine{Repo: repo, Archive: archive, KB: index}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
+	server := httptest.NewServer(New(cfg, &core.Engine{Repo: devicescope.Wrap(repo), Archive: archive, KB: index}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil))).Handler())
 	defer server.Close()
 	request := func(method, path, token string, body any, status int) map[string]any {
 		return requestJSON(t, server.Client(), method, server.URL+path, token, body, status)
@@ -986,7 +986,7 @@ func TestBackupEndpointsProxyRecordsFilesAndAdminActions(t *testing.T) {
 	defer backupServer.Close()
 
 	cfg := config.Config{BackupURL: backupServer.URL, BackupToken: "internal-backup-token", JWTSecret: "test-backup-secret-at-least-32-characters", CORSAllowedOrigins: []string{}}
-	engine := &core.Engine{Repo: memory.NewRepository()}
+	engine := &core.Engine{Repo: devicescope.Wrap(memory.NewRepository())}
 	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
@@ -1065,7 +1065,7 @@ func TestBackupPlatformTenantBoundary(t *testing.T) {
 	repo := memory.NewRepository()
 	cfg := config.Config{AdminUser: "root", AdminPassword: "synthetic-root-password", AdminTenants: []string{"business", "ops"}, JWTSecret: "synthetic-backup-jwt-secret-32-characters", BackupURL: upstream.URL, BackupToken: "synthetic-backup-token"}
 	cfg.Ops.Tenants = []string{"ops"}
-	api := New(cfg, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 	req := func(method, path, token string, body any, status int) map[string]any {
@@ -1157,7 +1157,7 @@ func TestBackupPlatformTenantBoundary(t *testing.T) {
 
 func TestReplayRateValidationHTTP(t *testing.T) {
 	cfg := config.Config{JWTSecret: "replay-test-secret-at-least-32-characters"}
-	api := New(cfg, &core.Engine{Repo: memory.NewRepository(), Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(memory.NewRepository()), Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 	token, err := api.auth.IssueWithVersion("admin", "t", "admin", api.adminSessionVersion(), time.Hour)
@@ -1180,7 +1180,7 @@ func TestBackupEndpointSurfacesUpstreamFailureDetail(t *testing.T) {
 	defer backupServer.Close()
 
 	cfg := config.Config{BackupURL: backupServer.URL, BackupToken: "internal-backup-token", JWTSecret: "test-backup-secret-at-least-32-characters", CORSAllowedOrigins: []string{}}
-	engine := &core.Engine{Repo: memory.NewRepository()}
+	engine := &core.Engine{Repo: devicescope.Wrap(memory.NewRepository())}
 	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()

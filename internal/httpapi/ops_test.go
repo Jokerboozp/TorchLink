@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -202,7 +203,7 @@ func TestOpsCenterPermissionBoundaryAndAudit(t *testing.T) {
 	cfg.JWTSecret = "test-only-secret-for-ops-at-least-32"
 	cfg.DevMode = true
 	cfg.Ops.Tenants = []string{"tenant_ops"}
-	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	api.SetOpsCenter(&opscenter.Service{
 		Metrics:    observability.NewPrometheus(upstream.URL, time.Second),
 		Dashboards: observability.NewGrafana(upstream.URL, "t", "", "", time.Second),
@@ -301,7 +302,7 @@ func TestOpsCenterPermissionBoundaryAndAudit(t *testing.T) {
 func TestOpsCenterUnavailableWithoutService(t *testing.T) {
 	cfg := config.Load()
 	cfg.AdminUser, cfg.AdminPassword, cfg.JWTSecret, cfg.DevMode = "root", "root-password-test", "test-only-secret-for-ops-at-least-32", true
-	api := New(cfg, &core.Engine{Repo: memory.NewRepository()}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(memory.NewRepository())}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
 	token := requestJSON(t, server.Client(), "POST", server.URL+"/api/v1/auth/login", "", map[string]any{"username": "root", "password": "root-password-test", "tenantId": "tenant_001"}, 200)["accessToken"].(string)
@@ -475,7 +476,7 @@ func TestCapacityCleanupDataProtectsTenantsAndBusinessDevices(t *testing.T) {
 		_ = repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: tenant, ProductID: "cap-business", ID: "cap-real", Name: "容量测试 cap-real", RegistrationSource: "ONBOARDING", Status: "ENABLED", AccessKey: tenant + "-business"})
 		_, _ = repo.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: tenant, ProductID: p.ID, DeviceID: "fixture", MessageID: "raw", ObjectBucket: "postgres", ParseAttemptedAt: 1})
 	}
-	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	token, _ := api.auth.IssueWithVersion("root", "t", "admin", api.adminSessionVersion(), time.Hour)
 	call := func(method, path string, body any, secret string, status int) []byte {
 		t.Helper()

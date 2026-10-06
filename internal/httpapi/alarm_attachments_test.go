@@ -7,6 +7,7 @@ import (
 	"image"
 	"image/png"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"mime/multipart"
 	"net/http"
@@ -38,7 +39,7 @@ func TestAlarmAttachments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	api := New(cfg, &core.Engine{Repo: repo, Archive: archive, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo), Archive: archive, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 	req := func(method, path, token string, body any, status int) map[string]any {

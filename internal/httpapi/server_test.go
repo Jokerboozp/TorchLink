@@ -250,7 +250,7 @@ func TestPropertyHistoryRejectsControlCharactersInPropertyName(t *testing.T) {
 	if err := repo.SaveManagedDevice(context.Background(), model.ManagedDevice{ID: "device_001", TenantID: "tenant-a", ProductID: "product_001"}); err != nil {
 		t.Fatal(err)
 	}
-	api := New(config.Config{JWTSecret: "audit-only-secret-at-least-32-characters"}, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(config.Config{JWTSecret: "audit-only-secret-at-least-32-characters"}, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	token, err := api.auth.Issue("audit", "tenant-a", "viewer", nil, time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +271,7 @@ func TestOversizedPaginationThroughHTTP(t *testing.T) {
 	if err := repo.SaveProduct(context.Background(), model.Product{ID: "first-product", TenantID: "tenant-a"}); err != nil {
 		t.Fatal(err)
 	}
-	api := New(config.Config{JWTSecret: "audit-only-secret-at-least-32-characters"}, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(config.Config{JWTSecret: "audit-only-secret-at-least-32-characters"}, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	token, err := api.auth.Issue("audit", "tenant-a", "viewer", nil, time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -589,7 +589,7 @@ func TestVideoRoutesFollowTheControlOwner(t *testing.T) {
 // password, so a password change invalidates tokens issued before it.
 func TestBuiltinAdminTokenRevokedByPasswordChange(t *testing.T) {
 	cfg := config.Config{AdminUser: "root", AdminPassword: "first-password", JWTSecret: "admin-version-secret-at-least-32-characters"}
-	api := New(cfg, &core.Engine{Repo: memory.NewRepository()}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(memory.NewRepository())}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	stale, err := api.auth.IssueWithVersion("root", "tenant-a", "admin", api.adminSessionVersion()+1, time.Minute)
 	if err != nil {
 		t.Fatal(err)
@@ -613,7 +613,7 @@ func TestBuiltinAdminTokenRevokedByPasswordChange(t *testing.T) {
 // carry dependency hosts or credentials; the log keeps the detail.
 func TestInternalErrorHidesDetailAndLogsReference(t *testing.T) {
 	var logs bytes.Buffer
-	api := New(config.Config{JWTSecret: "internal-error-secret-at-least-32-characters"}, &core.Engine{Repo: memory.NewRepository()}, metrics.New(), slog.New(slog.NewTextHandler(&logs, nil)))
+	api := New(config.Config{JWTSecret: "internal-error-secret-at-least-32-characters"}, &core.Engine{Repo: devicescope.Wrap(memory.NewRepository())}, metrics.New(), slog.New(slog.NewTextHandler(&logs, nil)))
 	w := httptest.NewRecorder()
 	api.internalError(w, httptest.NewRequest(http.MethodGet, "/api/v1/products", nil), errors.New("dial tcp 10.0.0.5:5432: password authentication failed"))
 	var body map[string]any
@@ -668,7 +668,7 @@ func TestReadinessSeparatesOptionalDependenciesAndSlowChecks(t *testing.T) {
 	}
 	probe := func(repo ports.Repository, bus ports.EventBus, cache func(context.Context) error) (int, readiness) {
 		t.Helper()
-		engine := core.New(repo, archive, bus, local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), log)
+		engine := core.New(devicescope.Wrap(repo), archive, bus, local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), log)
 		registry := metrics.New()
 		server := New(config.Config{DevMode: true}, engine, registry, log)
 		if cache != nil {

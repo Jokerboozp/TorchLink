@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"net/http/httptest"
 	"slices"
@@ -45,7 +46,7 @@ func TestOpsDeadLettersListAndReplay(t *testing.T) {
 	cfg.DevMode = true
 	cfg.Ops.Tenants = []string{"tenant_ops"}
 	bus := &deadLetterTestBus{Bus: local.NewBus()}
-	api := New(cfg, &core.Engine{Repo: repo, Bus: bus}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo), Bus: bus}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
 	req := func(method, path, token string, body any, status int) map[string]any {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"iot-platform/internal/auth"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"net/http/httptest"
 	"net/url"
@@ -42,7 +44,7 @@ func newTestAPI(t *testing.T, repo ports.Repository, configure func(*config.Conf
 	if configure != nil {
 		configure(&cfg)
 	}
-	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := httptest.NewServer(api.Handler())
 	t.Cleanup(server.Close)
 	return &testAPI{Server: api, repo: repo, server: server}
@@ -113,4 +115,10 @@ func postgresTestRepo(t *testing.T) ports.Repository {
 func forEachStore(t *testing.T, check func(t *testing.T, repo ports.Repository)) {
 	t.Run("memory", func(t *testing.T) { check(t, memory.NewRepository()) })
 	t.Run("postgres", func(t *testing.T) { check(t, postgresTestRepo(t)) })
+}
+
+// harnessTokens is the Harness MCP credential issuer the process installs in
+// the engine; chat runs sign with it and the API verifies with the same key.
+func harnessTokens(cfg config.Config) *auth.Manager {
+	return auth.New(auth.HarnessSecret(cfg.JWTSecret, cfg.HarnessJWTSecret))
 }

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"iot-platform/internal/devicescope"
 	"net/http/httptest"
 	"testing"
 
@@ -56,7 +57,7 @@ func TestTemplateDeviceProfilesRequireCompatibleCandidate(t *testing.T) {
 			if err := repo.SaveDeviceAccessProfile(context.Background(), profile); err != nil {
 				t.Fatal(err)
 			}
-			server := &Server{engine: &core.Engine{Repo: repo}}
+			server := &Server{engine: &core.Engine{Repo: devicescope.Wrap(repo)}}
 			req := httptest.NewRequest("POST", "/", nil).WithContext(context.WithValue(context.Background(), claimsKey, auth.Claims{TenantID: "tenant"}))
 			if err := server.validateTemplateDeviceProfiles(req, &release, "template"); (err == nil) != test.want {
 				t.Fatalf("compatible=%v error=%v", test.want, err)

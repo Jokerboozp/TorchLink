@@ -156,21 +156,14 @@ type app struct {
 	logPush *observability.LokiPush
 	closers []func()
 
-	repo              ports.Repository
-	postgresRepo      *postgres.Repository
-	opsPrefs          ports.OpsPreferenceStore
-	videoStore        ports.VideoStore
-	knowledgeStore    ports.KnowledgeReindexStore
-	aiRunStore        ports.AIRunStore
-	conversationStore ports.AIConversationStore
-	manifestStore     ports.AIWorkflowManifestStore
-	signalStore       ports.DeviceSignalStore
-	telemetryStats    ports.DeviceTelemetryStats
-	aiProviderStore   ports.AIProviderConfigStore
-	postgresRaw       ports.RawMessageDatabase
-	clickHouseRaw     ports.RawMessageDatabase
-	limits            *ratelimit.Cluster
-	archive           ports.Archive
+	repo         ports.Repository
+	postgresRepo *postgres.Repository
+	// stores are the repository's optional capabilities, found once storage
+	// is open (see storesOf).
+	stores        stores
+	clickHouseRaw ports.RawMessageDatabase
+	limits        *ratelimit.Cluster
+	archive       ports.Archive
 	// cacheHealth reports the optional Redis cache for readiness.
 	cacheHealth func(context.Context) error
 
@@ -184,8 +177,10 @@ type app struct {
 	// revocation and broker-side drop counters for the platform session.
 	emqxAdmin *mqttadapter.Admin
 
-	parsers           *parser.Registry
-	engine            *core.Engine
+	parsers *parser.Registry
+	engine  *core.Engine
+	// deps collects the engine's collaborators until startAPI installs them.
+	deps              core.Deps
 	runtimeAI         *aiadapter.RuntimeProvider
 	harness           *aiadapter.HarnessPool
 	aiSync            *aiadapter.ProviderSync
@@ -215,28 +210,10 @@ func (a *app) every(interval time.Duration, fn func()) {
 func (a *app) openStorage() {
 	cfg, log := a.cfg, a.log
 	a.repo = memory.NewRepository()
-	a.opsPrefs, _ = a.repo.(ports.OpsPreferenceStore)
-	a.videoStore, _ = a.repo.(ports.VideoStore)
-	a.knowledgeStore, _ = a.repo.(ports.KnowledgeReindexStore)
-	a.aiRunStore, _ = a.repo.(ports.AIRunStore)
-	a.conversationStore, _ = a.repo.(ports.AIConversationStore)
-	// Captured before the ClickHouse and Redis decorators, which embed only
-	// ports.Repository and hide the dynamic Agent store.
-	a.manifestStore, _ = a.repo.(ports.AIWorkflowManifestStore)
-	a.signalStore, _ = a.repo.(ports.DeviceSignalStore)
-	a.telemetryStats, _ = a.repo.(ports.DeviceTelemetryStats)
-	a.aiProviderStore, _ = a.repo.(ports.AIProviderConfigStore)
-	a.postgresRaw, _ = a.repo.(ports.RawMessageDatabase)
 	if cfg.PostgresDSN != "" {
 		r, err := postgres.NewWithOptions(a.ctx, cfg.PostgresDSN, postgres.PoolOptions{MaxConns: int32(positiveOr(cfg.PostgresMaxConns, 64)), MaxConnLifetime: cfg.PostgresMaxConnLifetime, HealthCheckPeriod: cfg.PostgresHealthCheckPeriod, ConnectTimeout: cfg.PostgresConnectTimeout, ReadDSN: cfg.PostgresReadDSN, MaxReplicaLag: cfg.PostgresMaxReplicaLag})
 		fatal(log, "initialize postgres", err)
 		a.repo, a.postgresRepo = r, r
-		a.opsPrefs, a.videoStore, a.knowledgeStore, a.aiRunStore, a.conversationStore, a.manifestStore = r, r, r, r, r, r
-		a.signalStore, a.telemetryStats = r, r
-		if store, ok := any(r).(ports.AIProviderConfigStore); ok {
-			a.aiProviderStore = store
-		}
-		a.postgresRaw = r
 		log.Info("repository enabled", "adapter", "postgres")
 	}
 	if cfg.ClickHouseURL != "" {
@@ -244,8 +221,6 @@ func (a *app) openStorage() {
 		fatal(log, "initialize clickhouse", err)
 		a.repo = r
 		a.clickHouseRaw = r
-		// Telemetry properties live in ClickHouse while it is configured.
-		a.telemetryStats = r
 		if a.postgresRepo != nil {
 			// ClickHouse keeps the properties of telemetry messages; the
 			// ClickHouse repository restores them on read.
@@ -265,6 +240,7 @@ func (a *app) openStorage() {
 		log.Info("hot state cache enabled", "adapter", "redis")
 	}
 	a.limits = ratelimit.NewCluster(sharedLimits, int(cfg.ClusterInstances))
+	a.stores = storesOf(a.repo)
 	if cfg.MinIOEndpoint != "" {
 		m, err := minioadapter.New(cfg.MinIOEndpoint, cfg.MinIOAccessKey, cfg.MinIOSecretKey, cfg.MinIOUseTLS)
 		fatal(log, "initialize minio", err)
@@ -402,13 +378,16 @@ func (a *app) buildEngine() {
 	a.parsers = parser.NewPlatformRegistry(cfg.DataDir)
 	engine := core.New(devicescope.Wrap(a.repo), a.archive, a.bus, a.realtime, a.parsers, log)
 	a.engine = engine
-	engine.AIRuns = a.aiRunStore
-	engine.AIConversations = a.conversationStore
-	engine.DeviceSignals, engine.TelemetryStats = a.signalStore, a.telemetryStats
-	engine.SignalOptions = core.DeviceSignalOptions{Window: cfg.DeviceSignalWindow, RaiseAlarms: cfg.DeviceSignalAlarm}
 	engine.SetIdentity(cfg.InstanceID)
-	engine.PublishExternalTopics = cfg.PublishExternalTopics
-	engine.MediaOutbound = netguard.Policy{Allowed: cfg.ExternalDataAllowedCIDRs}
+	a.deps.AIRuns = a.stores.aiRunStore
+	a.deps.AIConversations = a.stores.conversationStore
+	a.deps.DeviceSignals, a.deps.TelemetryStats = a.stores.signalStore, a.stores.telemetryStats
+	a.deps.SignalOptions = core.DeviceSignalOptions{Window: cfg.DeviceSignalWindow, RaiseAlarms: cfg.DeviceSignalAlarm}
+	a.deps.PublishExternalTopics = cfg.PublishExternalTopics
+	a.deps.MediaOutbound = netguard.Policy{Allowed: cfg.ExternalDataAllowedCIDRs}
+	// Chat and business AI runs sign their MCP credentials with the Harness
+	// key, which /mcp/harness verifies with this same issuer.
+	a.deps.HarnessTokens = auth.New(auth.HarnessSecret(cfg.JWTSecret, cfg.HarnessJWTSecret))
 	a.registry.SetProcessInfo(cfg.ProcessRole, cfg.InstanceID, version.Version)
 	log.Info("platform build", "version", version.Version, "revision", version.Commit(), "role", cfg.ProcessRole)
 	if a.kafkaBus != nil && cfg.IngestMaxBacklog > 0 {
@@ -418,14 +397,14 @@ func (a *app) buildEngine() {
 	if reader, ok := a.archive.(ports.RawMessageReader); ok {
 		legacyRaw = reader
 	}
-	engine.RawStore = rawstore.New(rawstore.Config{
-		PostgreSQL:               a.postgresRaw,
+	a.deps.RawStore = rawstore.New(rawstore.Config{
+		PostgreSQL:               a.stores.postgresRaw,
 		ClickHouse:               a.clickHouseRaw,
 		Resolver:                 a.repo,
 		Legacy:                   legacyRaw,
 		HighFrequencyIntervalSec: cfg.RawHighFrequencyIntervalSec,
 	})
-	engine.Metrics = a.registry
+	a.deps.Metrics = a.registry
 }
 
 // watchBacklog applies backpressure: stop taking new raw messages while
@@ -478,19 +457,19 @@ func (a *app) watchBacklog() {
 }
 
 func (a *app) startAI() {
-	cfg, log, engine := a.cfg, a.log, a.engine
+	cfg, log := a.cfg, a.log
 	if !cfg.Runs(config.ComponentAIRuntime) {
 		return
 	}
 	aiPlugins := aiadapter.NewProviderRegistry()
-	engine.AIPlugins = aiPlugins
+	a.deps.AIPlugins = aiPlugins
 	providerID := cfg.AIProvider
 	if providerID == "" {
 		providerID = "deepseek"
 	}
 	providerConfig := ports.AIPluginConfig{Provider: providerID, BaseURL: cfg.AIBaseURL, Model: cfg.AIModel, APIKey: cfg.AIAPIKey}
-	if a.aiProviderStore != nil {
-		if persisted, found, err := a.aiProviderStore.LoadAIProviderConfig(a.ctx); err != nil {
+	if a.stores.aiProviderStore != nil {
+		if persisted, found, err := a.stores.aiProviderStore.LoadAIProviderConfig(a.ctx); err != nil {
 			log.Warn("load persisted AI provider config", "error", err)
 		} else if found {
 			providerConfig = persisted
@@ -525,7 +504,7 @@ func (a *app) startAI() {
 	var err error
 	a.runtimeAI, err = aiadapter.NewRuntimeProvider(aiPlugins, providerConfig)
 	fatal(log, "initialize AI provider plugin", err)
-	engine.AI = a.runtimeAI
+	a.deps.AI = a.runtimeAI
 	if cfg.AIHarnessURL != "" {
 		harnessModel := cfg.AIHarnessModel
 		if providerConfig.Model != "" {
@@ -536,15 +515,12 @@ func (a *app) startAI() {
 		if providerConfig.Provider == "deepseek" && strings.TrimSpace(providerConfig.APIKey) == "" {
 			log.Warn("DeepSeek API key is not configured; enter it in model management")
 		}
-		engine.AIWorkflows = a.harness
-		engine.BusinessRunTimeout = cfg.AIBusinessTimeout
-		engine.ChatRunTimeout = cfg.AIHarnessTimeout
-		// Chat and business AI runs sign their MCP credentials with the
-		// Harness key, which /mcp/harness verifies.
-		engine.HarnessTokens = auth.New(auth.HarnessSecret(cfg.JWTSecret, cfg.HarnessJWTSecret))
+		a.deps.AIWorkflows = a.harness
+		a.deps.BusinessRunTimeout = cfg.AIBusinessTimeout
+		a.deps.ChatRunTimeout = cfg.AIHarnessTimeout
 		log.Info("AI workflow harness enabled", "urls", cfg.AIHarnessURL, "instances", a.harness.Size(), "model", providerConfig.Model)
 	}
-	a.aiSync = aiadapter.NewProviderSync(a.runtimeAI, a.harness, a.aiProviderStore, a.manifestStore, completeProvider)
+	a.aiSync = aiadapter.NewProviderSync(a.runtimeAI, a.harness, a.stores.aiProviderStore, a.stores.manifestStore, completeProvider)
 	// Compose starts the Harness after the API (it calls the platform MCP
 	// endpoint), so the first pass may fail; later passes also follow
 	// settings saved on other replicas and Harness restarts.
@@ -556,7 +532,7 @@ func (a *app) startKnowledge() {
 	embedding.SetLocalHosts(cfg.LocalAIHosts)
 	aiadapter.SetLocalHosts(cfg.LocalAIHosts)
 	if !cfg.Runs(config.ComponentManagement) || postgresRepo == nil {
-		a.engine.KB = knowledge.NewLocal()
+		a.deps.KB = knowledge.NewLocal()
 		return
 	}
 	embeddingConfig := embedding.NormalizeConfig(ports.EmbeddingConfig{BaseURL: cfg.EmbeddingURL, Model: cfg.EmbeddingModel, APIKey: cfg.EmbeddingAPIKey, Dimensions: cfg.EmbeddingDimensions, BatchSize: cfg.EmbeddingBatchSize, QueryInstruction: cfg.EmbeddingQueryPrompt, TimeoutSeconds: int(cfg.EmbeddingTimeout / time.Second)})
@@ -584,11 +560,11 @@ func (a *app) startKnowledge() {
 		}
 		return knowledge.NewPostgres(postgresRepo.Pool(), client, knowledge.PostgresOptions{Provider: c.BaseURL, Dimensions: c.Dimensions, Preprocessing: client.Signature(), ExpectedConfig: &c, Reranker: reranker}), nil
 	}
-	runtime, err := core.NewKnowledgeRuntime(embeddingConfig, activeConfig, factory, postgresRepo, postgresRepo, a.knowledgeStore, postgresRepo, a.engine.Archive, log)
+	runtime, err := core.NewKnowledgeRuntime(embeddingConfig, activeConfig, factory, postgresRepo, postgresRepo, a.stores.knowledgeStore, postgresRepo, a.engine.Archive, log)
 	fatal(log, "initialize postgres knowledge index", err)
 	a.knowledgeRuntime = runtime
-	a.engine.KB = runtime
-	a.engine.KnowledgeReindex = runtime.StatusView
+	a.deps.KB = runtime
+	a.deps.KnowledgeReindex = runtime.StatusView
 	go runtime.Run(a.ctx)
 	log.Info("knowledge index enabled", "adapter", "postgres-pgvector", "embeddingModel", embeddingConfig.Model, "bundledService", embedding.IsLocal(embeddingConfig), "apiKeyConfigured", embeddingConfig.APIKey != "", "rerank", reranker != nil)
 }
@@ -596,7 +572,7 @@ func (a *app) startKnowledge() {
 func (a *app) startOps() {
 	cfg := a.cfg
 	if cfg.Runs(config.ComponentManagement) || cfg.Runs(config.ComponentJobs) {
-		a.opsService = newOpsCenter(cfg, a.opsPrefs, a.log)
+		a.opsService = newOpsCenter(cfg, a.stores.opsPrefs, a.log)
 	}
 	if cfg.Runs(config.ComponentManagement) {
 		// Dashboard provisioning is an idempotent upsert by UID.
@@ -621,7 +597,10 @@ func (a *app) startAPI() {
 		log.Warn("local capacity controller unavailable", "error", capacityErr)
 	}
 	cfg := a.cfg
+	fatal(log, "install engine dependencies", a.engine.Install(a.deps))
 	a.api = httpapi.New(cfg, a.engine, a.registry, log)
+	// Device, open API and login budgets are shared before any ingress runs.
+	a.api.SetRateLimiter(a.limits)
 	if a.cacheHealth != nil {
 		a.api.SetOptionalHealth("cache", a.cacheHealth)
 	}
@@ -678,8 +657,9 @@ func (a *app) startAccess() {
 		log.Info("active protocol runtime enabled", "transports", []string{"TCP", "UDP", "MODBUS_TCP (legacy)"})
 	}
 	if cfg.Runs(config.ComponentAccess) && a.mqttClient != nil {
-		standardIngress := onboarding.New(repo, a.parsers, cfg.DataDir, cfg.ModbusAllowedCIDRs)
-		standardIngress.Limiter = a.limits
+		// The API's onboarding service also checks standard MQTT reports, so
+		// both share one device rate budget.
+		standardIngress := a.api.Onboarding()
 		fatal(log, "subscribe standard mqtt", a.mqttClient.SubscribeStandard(func(c context.Context, tenant, product, device, kind string, payload []byte) error {
 			raw, err := standardIngress.PrepareStandard(c, tenant, product, device, kind, "MQTT", payload)
 			if err != nil {
@@ -694,7 +674,6 @@ func (a *app) startAccess() {
 		fatal(log, "subscribe raw mqtt", a.mqttClient.SubscribeRaw(engine.IngestMQTT))
 		fatal(log, "subscribe device state mqtt", a.mqttClient.SubscribeDeviceState(engine.UpdateDeviceState))
 	}
-	a.api.SetRateLimiter(a.limits)
 	a.every(15*time.Second, func() {
 		a.registry.Set("rate_limit_shared_errors", float64(a.limits.SharedErrors()))
 		a.storageStats()
@@ -740,7 +719,7 @@ func (a *app) storageStats() {
 		a.registry.Set("clickhouse_insert_max_rows", float64(st.MaxRows))
 		a.registry.Set("clickhouse_insert_inflight", float64(st.Inflight))
 	}
-	if pg, ok := a.postgresRaw.(*postgres.Repository); ok {
+	if pg, ok := a.stores.postgresRaw.(*postgres.Repository); ok {
 		if lag, usable := pg.ReplicaLag(); lag >= 0 || usable {
 			a.registry.Set("postgres_replica_lag_ms", float64(lag))
 			a.registry.Set("postgres_replica_reads", map[bool]float64{true: 1, false: 0}[usable])
@@ -794,12 +773,12 @@ func (a *app) wireAPI() {
 	if a.postgresRepo != nil {
 		api.SetKnowledgeJobs(a.postgresRepo)
 	}
-	api.SetAIProviderStore(a.aiProviderStore)
+	api.SetAIProviderStore(a.stores.aiProviderStore)
 	if a.harness != nil {
 		api.SetAIWorkflowProvider(a.harness)
 	}
 	if a.aiSync != nil {
-		api.SetAISync(a.aiSync, a.manifestStore)
+		api.SetAISync(a.aiSync, a.stores.manifestStore)
 	}
 	api.SetProtocolListeners(a.protocolListeners)
 	if cfg.Runs(config.ComponentManagement) {
@@ -816,7 +795,7 @@ func (a *app) startVideo() {
 		log.Error("camera live module configuration is invalid; live view stays unavailable", "error", problem)
 	}
 	newVideo := func() *video.Service {
-		return video.New(cfg.Video, a.videoStore, api.VideoCameraLookup, api.VideoAuthorize, log)
+		return video.New(cfg.Video, a.stores.videoStore, api.VideoCameraLookup, api.VideoAuthorize, log)
 	}
 	if cfg.NodeURL == "" {
 		liveVideo := newVideo()

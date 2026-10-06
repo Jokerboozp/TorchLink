@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -30,7 +31,7 @@ func TestAlarmVerificationStatisticsAndExport(t *testing.T) {
 	cfg.AdminTenants = []string{"t"}
 	cfg.JWTSecret = "disposition-test-secret-at-least-32-bytes"
 	cfg.DevMode = true
-	api := New(cfg, &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 	req := func(method, path, token string, body any, status int) map[string]any {
@@ -173,7 +174,7 @@ func TestAlarmExportStreamsAndAbortsOnFailure(t *testing.T) {
 		if fail {
 			store = failingScan{repo}
 		}
-		api := New(cfg, &core.Engine{Repo: store, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		api := New(cfg, &core.Engine{Repo: devicescope.Wrap(store), Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 		srv := httptest.NewServer(api.Handler())
 		root := requestJSON(t, srv.Client(), "POST", srv.URL+"/api/v1/auth/login", "", map[string]any{"username": "root", "password": cfg.AdminPassword, "tenantId": "t"}, 200)["accessToken"].(string)
 		code, text := exportCSV(t, srv, root)

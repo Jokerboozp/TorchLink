@@ -722,7 +722,7 @@ func TestNewTemplateOnVersionedReleaseIsBound(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := config.Load()
 	cfg.JWTSecret = "versioned-template-binding-test-key-32"
-	api := New(cfg, &core.Engine{Repo: repo}, metrics.New(), log)
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), log)
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
 	token, _ := api.auth.Issue("tester", "tenant", "admin", nil, time.Hour)

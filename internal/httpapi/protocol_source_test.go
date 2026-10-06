@@ -892,7 +892,7 @@ func TestUploadedProtocolLifecycle(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
 	cfg := config.Load()
 	cfg.JWTSecret = "protocol-generation-test-32-chars"
-	api := New(cfg, &core.Engine{Repo: repo, Parsers: parser.NewPlatformRegistry(t.TempDir())}, metrics.New(), log)
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo), Parsers: parser.NewPlatformRegistry(t.TempDir())}, metrics.New(), log)
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
 	token, _ := api.auth.Issue("operator", "tenant", "operator", nil, time.Hour)

@@ -30,6 +30,9 @@ type Repository struct {
 	rawBatch       *insertBatcher
 }
 
+// Unwrap returns the repository whose non-telemetry data this decorator passes through.
+func (r *Repository) Unwrap() ports.Repository { return r.Repository }
+
 // Options select the storage topology. An empty Cluster keeps the single-node
 // MergeTree tables. With a cluster name, each shard stores replicated
 // *_local tables and the original table names become Distributed tables, so

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"iot-platform/internal/devicescope"
 	"net/http/httptest"
 	"sync"
 	"sync/atomic"
@@ -106,7 +107,7 @@ func TestExternalDataRecoveryWaitsForAsynchronousRawDelivery(t *testing.T) {
 	// The fixture's already-started engine remains on its own local bus. This
 	// engine shares its repository and archive but has an independently queued
 	// parser path and no additional singleton jobs.
-	engine := core.New(api.engine.Repo, api.engine.Archive, bus, local.NewRealtime(), api.engine.Parsers, api.log)
+	engine := core.New(devicescope.Wrap(api.engine.Repo), api.engine.Archive, bus, local.NewRealtime(), api.engine.Parsers, api.log)
 	if err := engine.StartWith(ctx, core.Components{Parser: true, Processor: true}); err != nil {
 		t.Fatal(err)
 	}

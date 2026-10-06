@@ -25,7 +25,7 @@ func TestFireSafetyHTTPWorkflowsAndPermissions(t *testing.T) {
 	// Exercise the real forwarding chain: durable store -> telemetry -> cache -> scope.
 	decorated := redisadapter.New(&clickhouse.Repository{Repository: repo}, nil)
 	cfg := config.Config{AdminUser: "root", AdminPassword: "fire-root-test", AdminTenants: []string{"fire-a", "fire-b"}, JWTSecret: "fire-test-secret-at-least-32-characters", DevMode: true, DataDir: t.TempDir()}
-	api := New(cfg, &core.Engine{Repo: decorated}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(decorated)}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
 	req := func(method, path, token string, body any, status int) map[string]any {

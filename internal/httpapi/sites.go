@@ -29,16 +29,13 @@ const (
 )
 
 // siteService shares the engine's site service, so alarm locations and
-// requests use one cache.
+// requests use one cache. An engine built without one (in tests) gets a
+// separate service; alarms then carry no location.
 func siteService(engine *core.Engine) *sites.Service {
 	if svc, ok := engine.Locator.(*sites.Service); ok {
 		return svc
 	}
-	svc := sites.New(engine.Repo)
-	if engine.Locator == nil {
-		engine.Locator = svc
-	}
-	return svc
+	return sites.New(engine.Repo)
 }
 
 func siteRouteAction(method, path string) string {

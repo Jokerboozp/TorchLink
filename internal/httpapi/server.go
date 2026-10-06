@@ -107,8 +107,10 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 			log = slog.New(logctx.NewHandler(log.Handler()))
 		}
 	}
-	if _, ok := engine.Repo.(*devicescope.Repository); !ok {
-		engine.Repo = devicescope.Wrap(engine.Repo)
+	// New only reads the engine: the process installs the scoped repository and
+	// the Harness token issuer before the API and the engine's consumers start.
+	if _, ok := engine.Repo.(*devicescope.Repository); !ok && log != nil {
+		log.Warn("engine repository is not device-scoped; requests are not limited to granted devices")
 	}
 	gin.SetMode(gin.ReleaseMode)
 	router := gin.New()
@@ -121,7 +123,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		sites:                      siteService(engine),
 		onboarding:                 onboarding.New(engine.Repo, engine.Parsers, cfg.DataDir, cfg.ModbusAllowedCIDRs),
 		auth:                       auth.New(cfg.JWTSecret),
-		harnessAuth:                auth.New(auth.HarnessSecret(cfg.JWTSecret, cfg.HarnessJWTSecret)),
+		harnessAuth:                harnessIssuer(cfg, engine),
 		metrics:                    m,
 		log:                        log,
 		router:                     router,
@@ -131,11 +133,6 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		inspectionRequests:         make(chan struct{}, 8),
 		aiAnalysisEstimateMs:       45000,
 		events:                     newEventSnapshots(),
-	}
-	if engine.HarnessTokens == nil {
-		// Chat and business runs sign MCP credentials with the Harness key
-		// unless the process wired a dedicated issuer.
-		engine.HarnessTokens = s.harnessAuth
 	}
 	s.ai = aiworkflow.New(engine, s)
 	s.ai.Quota = &aiQuota{server: s, now: time.Now}
@@ -158,6 +155,19 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	return s
 }
 func (s *Server) Handler() http.Handler { return s.videoRouting(s.roleHandler()) }
+
+// harnessIssuer verifies Harness MCP credentials with the issuer the engine
+// signs them with, or with one built from the same key when none is installed.
+func harnessIssuer(cfg config.Config, engine *core.Engine) *auth.Manager {
+	if issuer, ok := engine.HarnessTokens.(*auth.Manager); ok {
+		return issuer
+	}
+	return auth.New(auth.HarnessSecret(cfg.JWTSecret, cfg.HarnessJWTSecret))
+}
+
+// Onboarding is the device registration and ingress service; the process also
+// uses it to check standard MQTT reports, so both share one rate budget.
+func (s *Server) Onboarding() *onboarding.Service { return s.onboarding }
 
 func (s *Server) SetKnowledgeJobs(jobs ports.KnowledgeDocumentJobs) { s.knowledgeJobs = jobs }
 

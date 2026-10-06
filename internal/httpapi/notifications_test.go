@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"net/http/httptest"
 	"strings"
@@ -26,7 +27,7 @@ func TestNotificationManagementAndRecipientScope(t *testing.T) {
 	cfg.AdminTenants = []string{"t"}
 	cfg.JWTSecret = "notify-test-secret-at-least-32-bytes"
 	cfg.DevMode = true
-	api := New(cfg, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	cipher, _ := notify.NewCipher(cfg.JWTSecret)
 	store := notify.NewMemoryStore()
 	api.SetNotifications(&notify.Service{Store: store, Directory: api.NotificationDirectory(), Cipher: cipher, Sender: notify.NewSender(nil)})

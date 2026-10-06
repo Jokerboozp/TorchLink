@@ -50,7 +50,7 @@ func TestAIWorkflowRunManagementPermissionsAndTenantIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := memory.NewRepository()
-	api := New(config.Config{DevMode: true}, &core.Engine{Repo: repo, AIWorkflows: runtime}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(config.Config{DevMode: true}, &core.Engine{Repo: devicescope.Wrap(repo), AIWorkflows: runtime}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := newTestHTTPServer(api)
 	defer server.Close()
 	issue := func(user, tenant, role string) string {
@@ -114,7 +114,7 @@ func TestAIWorkflowRunManagementPermissionsAndTenantIsolation(t *testing.T) {
 // in the catalog, granted per role, and limited to full device scope.
 func TestAIRunHistoryPermissionsAndTenantIsolation(t *testing.T) {
 	repo := memory.NewRepository()
-	engine := &core.Engine{Repo: repo, AIRuns: repo}
+	engine := &core.Engine{Repo: devicescope.Wrap(repo), AIRuns: repo}
 	api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := newTestHTTPServer(api)
 	defer server.Close()
@@ -220,7 +220,7 @@ func TestProtocolCommandWithoutLocalListenerIsActionable(t *testing.T) {
 		if err := repo.SaveDeviceAccessProfile(context.Background(), model.DeviceAccessProfile{ID: "listen", TenantID: "tenant-a", ProductID: "p", Mode: "listener", Network: "tcp", Enabled: true}); err != nil {
 			t.Fatal(err)
 		}
-		api := New(config.Config{DevMode: true, AccessCoordination: coordination}, &core.Engine{Repo: repo}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+		api := New(config.Config{DevMode: true, AccessCoordination: coordination}, &core.Engine{Repo: devicescope.Wrap(repo)}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 		api.SetProtocolListeners(notLocalCommander{})
 		server := newTestHTTPServer(api)
 		admin, err := api.auth.IssueWithVersion("admin", "tenant-a", "admin", api.adminSessionVersion(), time.Hour)

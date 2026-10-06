@@ -3,6 +3,7 @@ package httpapi
 import (
 	"fmt"
 	"io"
+	"iot-platform/internal/devicescope"
 	"log/slog"
 	"os"
 	"sort"
@@ -19,7 +20,7 @@ import (
 // add, drop or change a route unnoticed. Set IOT_UPDATE_ROUTES=1 to rewrite
 // testdata/routes.txt after an intended route change.
 func TestRegisteredRoutesMatchSnapshot(t *testing.T) {
-	api := New(config.Config{DevMode: true}, &core.Engine{Repo: memory.NewRepository()}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(config.Config{DevMode: true}, &core.Engine{Repo: devicescope.Wrap(memory.NewRepository())}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	routes := []string{}
 	for _, r := range api.router.Routes() {
 		routes = append(routes, r.Method+" "+r.Path)

@@ -44,7 +44,7 @@ func TestAccessControlLifecycleAndIsolation(t *testing.T) {
 	cfg.AdminTenants = []string{"tenant_a", "tenant_b"}
 	cfg.JWTSecret = "test-only-secret-for-iam-at-least-32"
 	cfg.DevMode = true
-	engine := &core.Engine{Repo: repo}
+	engine := &core.Engine{Repo: devicescope.Wrap(repo)}
 	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
@@ -225,7 +225,7 @@ func checkDeviceScopeHTTPIsolation(t *testing.T, repo ports.Repository) {
 		must(e)
 	}
 	must(repo.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "tenant_b", ID: "foreign-device", AccessKey: "foreign-key", Name: "其他租户设备"}))
-	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}}
+	engine := &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}}
 	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
@@ -461,7 +461,8 @@ func testAssistantDeviceScope(t *testing.T, inherited bool) {
 	cfg.AdminTenants = []string{"tenant-a", "tenant-b"}
 	cfg.JWTSecret = "scope-assistant-secret-at-least-32-bytes"
 	runtime := &captureWorkflowRuntime{}
-	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, AIWorkflows: runtime}
+	engine := &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}, AIWorkflows: runtime}
+	engine.HarnessTokens = harnessTokens(cfg)
 	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
@@ -686,7 +687,7 @@ func TestAlarmAnalysisKnowledgeVariantFollowsRole(t *testing.T) {
 	kb := knowledge.NewLocal()
 	must(kb.IndexKnowledge(ctx, ports.KnowledgeIndexInput{TenantID: "tenant-a", WorkflowID: model.AlarmAnalysisWorkflowID, DocumentID: "doc-alarm", ChunkID: "doc-alarm-0", Content: []byte("烟感处置 SOP 维修：核实现场")}))
 	captured := make(chan string, 4)
-	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime(), KB: kb}
+	engine := &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime(), KB: kb}
 	engine.AIWorkflows = &aitest.Workflows{Answer: func(req ports.AIWorkflowRequest) (string, error) {
 		captured <- req.Question
 		return strings.Replace(testAnalysisAnswer, "研判完成", "手动研判", 1), nil
@@ -913,7 +914,7 @@ func TestAIRejectsPermissionChangesDuringKnowledgePrefetch(t *testing.T) {
 			requestCtx = devicescope.With(requestCtx, (&Server{}).scopeFor(user, permissions, "tenant-a"))
 			c := auth.Claims{TenantID: "tenant-a", Username: "expert", TokenUse: "user", SessionVersion: 1}
 			workflows := &aitest.Workflows{}
-			engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, AIWorkflows: workflows, HarnessTokens: aitest.Tokens()}
+			engine := &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}, AIWorkflows: workflows, HarnessTokens: aitest.Tokens()}
 			api := New(config.Config{DevMode: true}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 			engine.KB = changingKnowledgeBase{change: func() {
 				current, err := repo.LoadAccessState(ctx, "tenant-a")
@@ -952,7 +953,7 @@ func TestProtocolCodeUploadIsPlatformOnly(t *testing.T) {
 	cfg.JWTSecret = "protocol-test-secret-at-least-32-bytes"
 	cfg.DevMode = true
 	cfg.DataDir = t.TempDir()
-	api := New(cfg, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 	req := func(method, path, token string, body any, status int) map[string]any {
@@ -1020,7 +1021,7 @@ func TestAIConfigurationIsPlatformOnly(t *testing.T) {
 	cfg.Ops.Tenants = []string{"tenant_ops"}
 	cfg.JWTSecret = "ai-config-test-secret-at-least-32-bytes"
 	cfg.DevMode = true
-	api := New(cfg, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 	req := func(method, path, token string, body any, status int) map[string]any {
@@ -1064,7 +1065,7 @@ func TestAccountAdministratorsGrantOnlyWhatTheyHold(t *testing.T) {
 	cfg.AdminTenants = []string{"t"}
 	cfg.JWTSecret = "grant-test-secret-at-least-32-bytes-long"
 	cfg.DevMode = true
-	api := New(cfg, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 	req := func(method, path, token string, body any, status int) map[string]any {
@@ -1092,7 +1093,7 @@ func TestManagedUserMustChangePasswordBeforeAccess(t *testing.T) {
 	cfg.AdminTenants = []string{"t"}
 	cfg.JWTSecret = "password-test-secret-at-least-32-bytes"
 	cfg.DevMode = true
-	api := New(cfg, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 	req := func(method, path, token string, body any, status int) map[string]any {
@@ -1141,7 +1142,7 @@ func TestCachedAuthorizationFollowsAccessChanges(t *testing.T) {
 	cfg.AdminTenants = []string{"t"}
 	cfg.JWTSecret = "cache-test-secret-at-least-32-bytes!"
 	cfg.DevMode = true
-	api := New(cfg, &core.Engine{Repo: repo, Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo), Clock: ports.RealClock{}}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
 	req := func(method, path, token string, body any, status int) map[string]any {

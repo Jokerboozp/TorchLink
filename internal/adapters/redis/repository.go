@@ -19,6 +19,9 @@ type Repository struct {
 	client redis.UniversalClient
 }
 
+// Unwrap returns the repository this cache decorates.
+func (r *Repository) Unwrap() ports.Repository { return r.Repository }
+
 // Options selects a single Redis address or, with MasterName and Sentinels,
 // the current master found through Redis Sentinel.
 type Options struct {
