@@ -2,7 +2,13 @@ FROM golang:1.26-alpine@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
-COPY . .
+# Only the Go sources the binaries are built from: package directories plus
+# the files they embed (alert rules, tool account scripts). Front end,
+# documentation, scripts and protocol examples stay out of the build.
+COPY cmd ./cmd
+COPY internal ./internal
+COPY ops/prometheus ./ops/prometheus
+COPY deploy/toolaccounts ./deploy/toolaccounts
 # Cluster tools ship in the same image so a deployment needs no Go toolchain:
 # cluster-render and cluster-ssh (controller), cluster-init and
 # clickhouse-migrate (on a node); capacity-test serves the capacity module.
