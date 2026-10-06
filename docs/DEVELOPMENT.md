@@ -34,7 +34,7 @@
 
 Kafka 消费失败三次后写入 `iot.dlq.<消费组>`，写入成功并提交原消息位点后才继续消费。读取出错的订阅按指数退避（最长 30 秒）自动重建；重建期间或在途消息 2 分钟无进展时，`/health/ready` 报告对应消费组未就绪。死信中的合法 JSON 报文保持 `payload` 原结构；非 JSON 或二进制报文放在 `payload` 的 Base64 字符串中，并带 `payloadEncoding: "base64"`，可还原原始字节。
 
-真实依赖与浏览器检查按各测试的 `IOT_TEST_*` 环境变量启用；接入链路见 [接入验证](INTEGRATION.md#验证入口)，知识索引和备份见 [AI 与知识库回归](#ai-与知识库回归)。未配置而跳过的用例不算联调通过。
+真实依赖与浏览器检查按各测试的 `IOT_TEST_*` 环境变量启用（对象存储适配器用 `IOT_TEST_MINIO_ENDPOINT`、`IOT_TEST_MINIO_ACCESS_KEY`、`IOT_TEST_MINIO_SECRET_KEY`，可选 `IOT_TEST_MINIO_TLS=true`，只读写临时桶并在结束时删除）；接入链路见 [接入验证](INTEGRATION.md#验证入口)，知识索引和备份见 [AI 与知识库回归](#ai-与知识库回归)。未配置而跳过的用例不算联调通过。
 
 部署脚本修改使用独立 Compose 可执行文件（不能传 `docker compose` 子命令）：Bash 运行 `bash scripts/tests/deployment-smoke.sh /path/to/docker-compose`，PowerShell 运行 `pwsh -File scripts/tests/deployment-smoke.ps1 -ComposeExe /path/to/docker-compose`。它们使用真实 Compose 解析，模拟 Docker/HTTP 操作，不部署服务。安装器用例集中于 `scripts/tests/docker-bootstrap-smoke.sh`，openEuler 打包用例集中于 `scripts/tests/openeuler-smoke.sh`。
 
