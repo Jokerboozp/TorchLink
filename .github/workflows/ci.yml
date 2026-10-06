@@ -76,7 +76,7 @@ jobs:
           python3 scripts/ci/annotate-go-test.py "$RUNNER_TEMP/go-test.json"
           exit $status
       - name: 并发路径竞态检测
-        run: go test -race -count=1 ./internal/core/... ./internal/protocolruntime/... ./internal/durablequeue/... ./internal/adapters/mqtt/... ./internal/adapters/kafka/... ./internal/externaldata/... ./internal/adapters/memory/... ./internal/video/... ./internal/opscenter/... ./internal/platformapp/... ./internal/notify/... ./internal/messagetopics/... ./internal/sites/... ./internal/onboarding/...
+        run: go test -race -count=1 ./internal/core/... ./internal/protocolruntime/... ./internal/durablequeue/... ./internal/adapters/mqtt/... ./internal/adapters/kafka/... ./internal/externaldata/... ./internal/adapters/memory/... ./internal/video/... ./internal/opscenter/... ./internal/platformapp/... ./internal/notify/... ./internal/messagetopics/... ./internal/sites/... ./internal/onboarding/... ./internal/devicescope/...
       - name: 独立协议 module 测试
         run: |
           for module in protocol-packages/gb26875-dahua dev/*/; do
