@@ -46,7 +46,9 @@ func TestOpsDeadLettersListAndReplay(t *testing.T) {
 	cfg.DevMode = true
 	cfg.Ops.Tenants = []string{"tenant_ops"}
 	bus := &deadLetterTestBus{Bus: local.NewBus()}
-	api := New(cfg, &core.Engine{Repo: devicescope.Wrap(repo), Bus: bus}, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	// core.New wraps the bus for message-topic routing, as in production.
+	engine := core.New(devicescope.Wrap(repo), nil, bus, local.NewRealtime(), nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
 	req := func(method, path, token string, body any, status int) map[string]any {

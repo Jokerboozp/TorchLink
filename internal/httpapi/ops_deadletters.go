@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"iot-platform/internal/model"
+	"iot-platform/internal/ports"
 )
 
 // deadLetterBus is implemented by the Kafka bus; the local development bus
@@ -29,11 +30,21 @@ func (s *Server) deadLetterRoutes() {
 }
 
 func (s *Server) deadLetterStore(w http.ResponseWriter) (deadLetterBus, bool) {
-	bus, ok := s.engine.Bus.(deadLetterBus)
-	if !ok {
-		problem(w, 409, "当前部署未使用 Kafka，没有死信主题")
+	// The engine wraps the adapter (message-topic routing); look through
+	// wrappers for the Kafka bus.
+	bus := s.engine.Bus
+	for bus != nil {
+		if store, ok := bus.(deadLetterBus); ok {
+			return store, true
+		}
+		wrapper, ok := bus.(interface{ Unwrap() ports.EventBus })
+		if !ok {
+			break
+		}
+		bus = wrapper.Unwrap()
 	}
-	return bus, ok
+	problem(w, 409, "当前部署未使用 Kafka，没有死信主题")
+	return nil, false
 }
 
 // opsDeadLetters lists, per consumer group, the retained dead-letter count
