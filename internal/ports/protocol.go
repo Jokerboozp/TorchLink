@@ -24,6 +24,8 @@ type ProtocolStore interface {
 	GetPointTableRelease(context.Context, string, string, string) (model.PointTableRelease, error)
 	SaveProductProtocolBinding(context.Context, model.ProductProtocolBinding) error
 	GetProductProtocolBinding(context.Context, string, string) (model.ProductProtocolBinding, error)
+	// GetProductProtocolBindingsByIDs returns the bindings that exist, keyed by product ID.
+	GetProductProtocolBindingsByIDs(context.Context, string, []string) (map[string]model.ProductProtocolBinding, error)
 	SaveDeviceAccessProfile(context.Context, model.DeviceAccessProfile, ...model.AccessProfileSaveOptions) error
 	UpdateDeviceAccessStatus(context.Context, model.DeviceAccessProfile, string, string, int64) (bool, error)
 	GetDeviceAccessProfile(context.Context, string, string) (model.DeviceAccessProfile, error)

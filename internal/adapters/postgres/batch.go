@@ -55,6 +55,31 @@ func (r *Repository) GetDeviceStatesByIDs(ctx context.Context, tenant string, id
 	return out, rows.Err()
 }
 
+func (r *Repository) GetProductProtocolBindingsByIDs(ctx context.Context, tenant string, ids []string) (map[string]model.ProductProtocolBinding, error) {
+	out := make(map[string]model.ProductProtocolBinding, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := r.pool.Query(ctx, `SELECT product_id,body FROM product_protocol_binding WHERE tenant_id=$1 AND product_id=ANY($2::text[])`, tenant, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var body []byte
+		var value model.ProductProtocolBinding
+		if err = rows.Scan(&id, &body); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal(body, &value); err != nil {
+			return nil, err
+		}
+		out[id] = value
+	}
+	return out, rows.Err()
+}
+
 func (r *Repository) GetStandardMessagesByRawIDs(ctx context.Context, tenant string, ids []string) (map[string]model.StandardMessage, error) {
 	out := make(map[string]model.StandardMessage, len(ids))
 	if len(ids) == 0 {

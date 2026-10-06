@@ -73,16 +73,41 @@ func (s *Server) deviceChildren(w http.ResponseWriter, r *http.Request) {
 		s.internalError(w, r, err)
 		return
 	}
+	// One query per kind for the whole page instead of three per child.
+	productIDs, deviceIDs := make([]string, 0, len(items)), make([]string, 0, len(items))
+	seen := map[string]bool{}
+	for _, d := range items {
+		deviceIDs = append(deviceIDs, d.ID)
+		if !seen[d.ProductID] {
+			seen[d.ProductID] = true
+			productIDs = append(productIDs, d.ProductID)
+		}
+	}
+	bindings, err := s.engine.Repo.GetProductProtocolBindingsByIDs(r.Context(), tenant, productIDs)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	states, err := s.engine.Repo.GetDeviceStatesByIDs(r.Context(), tenant, deviceIDs)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
+	products, err := s.engine.Repo.GetProductsByIDs(r.Context(), tenant, productIDs)
+	if err != nil {
+		s.internalError(w, r, err)
+		return
+	}
 	out := []map[string]any{}
 	for _, d := range items {
 		row := map[string]any{"device": d}
-		if binding, e := s.engine.Repo.GetProductProtocolBinding(r.Context(), tenant, d.ProductID); e == nil {
+		if binding, ok := bindings[d.ProductID]; ok {
 			row["binding"] = binding
 		}
-		if state, e := s.engine.Repo.GetDeviceState(r.Context(), tenant, d.ID); e == nil {
+		if state, ok := states[d.ID]; ok {
 			row["runtimeState"] = state
 		}
-		if product, e := s.engine.Repo.GetProduct(r.Context(), tenant, d.ProductID); e == nil {
+		if product, ok := products[d.ProductID]; ok {
 			row["productName"] = product.Name
 		}
 		out = append(out, row)

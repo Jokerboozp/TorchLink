@@ -24,6 +24,13 @@ func ProtocolChildren(t *testing.T, repo ports.Repository) {
 	if e := repo.SaveProductProtocolBinding(ctx, model.ProductProtocolBinding{TenantID: tenant, ProductID: "sensor", ProtocolID: "sensor", Version: "1"}); e != nil {
 		t.Fatal(e)
 	}
+	// The batch lookup returns only existing bindings of this tenant.
+	if bindings, e := repo.GetProductProtocolBindingsByIDs(ctx, tenant, []string{"sensor", "main", "missing"}); e != nil || len(bindings) != 1 || bindings["sensor"].ProtocolID != "sensor" {
+		t.Fatalf("batch bindings %+v %v", bindings, e)
+	}
+	if bindings, e := repo.GetProductProtocolBindingsByIDs(ctx, "other-"+tenant, []string{"sensor"}); e != nil || len(bindings) != 0 {
+		t.Fatalf("batch bindings crossed tenants %+v %v", bindings, e)
+	}
 	p := model.DeviceAccessProfile{ID: "profile", TenantID: tenant, ProductID: "main", Mode: "listener", Network: "tcp", Enabled: true, ChildProducts: []model.ChildProductBinding{{Type: "smoke", ProductID: "sensor"}}}
 	if e := repo.SaveDeviceAccessProfile(ctx, p); e != nil {
 		t.Fatal(e)

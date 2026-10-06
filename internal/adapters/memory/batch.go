@@ -39,6 +39,18 @@ func (r *Repository) GetDeviceStatesByIDs(_ context.Context, tenant string, ids 
 	return out, nil
 }
 
+func (r *Repository) GetProductProtocolBindingsByIDs(_ context.Context, tenant string, ids []string) (map[string]model.ProductProtocolBinding, error) {
+	out := make(map[string]model.ProductProtocolBinding, len(ids))
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, id := range ids {
+		if value, ok := r.protocolBindings[key(tenant, id)]; ok {
+			out[id] = clone(value)
+		}
+	}
+	return out, nil
+}
+
 func (r *Repository) GetStandardMessagesByRawIDs(_ context.Context, tenant string, ids []string) (map[string]model.StandardMessage, error) {
 	wanted := idSet(ids)
 	out := make(map[string]model.StandardMessage, len(ids))
