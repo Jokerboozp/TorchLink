@@ -130,20 +130,28 @@ func (r *Repository) CleanupCapacityData(ctx context.Context, tenant string, q m
 			return n, err
 		}
 	}
-	if _, err = tx.Exec(ctx, `CREATE TEMP TABLE capacity_removed(kind text,id text) ON COMMIT DROP`); err != nil {
-		return n, err
+	// Fresh statistics let the planner join the temp tables instead of
+	// rescanning them for every candidate row.
+	for _, sql := range []string{`ANALYZE capacity_alarms`, `ANALYZE capacity_raws`, `CREATE TEMP TABLE capacity_removed(kind text,id text) ON COMMIT DROP`} {
+		if _, err = tx.Exec(ctx, sql); err != nil {
+			return n, err
+		}
 	}
+	// No statement ORs a subquery with another condition: that defeats the
+	// semi-join and, past work_mem, compares every row with the whole list.
 	for _, sql := range []string{
 		`DELETE FROM alarm_analysis_job WHERE tenant_id=$1 AND alarm_id IN (SELECT id FROM capacity_alarms)`,
 		`DELETE FROM alarm_ai_analysis WHERE tenant_id=$1 AND alarm_id IN (SELECT id FROM capacity_alarms)`,
-		`DELETE FROM component_alarm_state WHERE tenant_id=$1 AND (device_id=ANY($2) OR body->>'alarmId' IN (SELECT id FROM capacity_alarms))`,
+		`DELETE FROM component_alarm_state WHERE tenant_id=$1 AND device_id=ANY($2)`,
+		`DELETE FROM component_alarm_state WHERE tenant_id=$1 AND body->>'alarmId' IN (SELECT id FROM capacity_alarms)`,
 		`DELETE FROM alarm_rule_pending WHERE tenant_id=$1 AND device_id=ANY($2)`,
 		`DELETE FROM device_state WHERE tenant_id=$1 AND device_id=ANY($2)`,
 		`DELETE FROM device_state_event WHERE tenant_id=$1 AND device_id=ANY($2)`,
 		`DELETE FROM device_command WHERE tenant_id=$1 AND device_id=ANY($2)`,
 		`DELETE FROM device_credential_revocation WHERE tenant_id=$1 AND device_id=ANY($2)`,
 		`DELETE FROM raw_message_log WHERE tenant_id=$1 AND device_id=ANY($2)`,
-		`DELETE FROM raw_ingest_reservation WHERE tenant_id=$1 AND (message_id IN (SELECT message_id FROM capacity_raws) OR metadata->>'deviceId'=ANY($2))`,
+		`DELETE FROM raw_ingest_reservation r USING capacity_raws c WHERE r.tenant_id=$1 AND r.message_id=c.message_id`,
+		`DELETE FROM raw_ingest_reservation WHERE tenant_id=$1 AND metadata->>'deviceId'=ANY($2)`,
 	} {
 		if _, err = tx.Exec(ctx, sql, capacityArgs(sql, tenant, q.Devices)...); err != nil {
 			return n, err

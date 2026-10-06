@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -834,6 +835,58 @@ func TestCapacityFixtureCleanup(t *testing.T) {
 }
 func TestCapacityProductKeptWhileShared(t *testing.T) {
 	repositorytest.CapacityProductKeptWhileShared(t, testRepository(t))
+}
+
+// Reservations and component states are matched by either of two keys; each
+// key is deleted on its own so a large run never rescans the message list.
+func TestCapacityCleanupRemovesReservationsAndComponentStates(t *testing.T) {
+	ctx := context.Background()
+	r := testRepository(t)
+	product := model.Product{TenantID: "t", ID: "cap-standard", Name: model.CapacityFixtureProductName("cap-standard"), ProtocolPackageID: "iot-standard@1.0.0", Status: "ENABLED", Description: model.CapacityFixtureDescription + "，用于容量测试设备"}
+	if err := r.SaveProduct(ctx, product); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"d1", "d2"} {
+		if err := r.SaveManagedDevice(ctx, model.ManagedDevice{TenantID: "t", ID: id, ProductID: product.ID, Name: "容量测试 " + id, RegistrationSource: "ONBOARDING", Status: "ENABLED", AccessKey: "key-" + id}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := r.SaveRawIndex(ctx, model.RawArchiveIndex{TenantID: "t", ProductID: product.ID, DeviceID: "d1", MessageID: "raw-d1", ObjectBucket: "postgres"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.MarkRawParseResult(ctx, "t", "raw-d1", 0, 1, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := r.UpsertAlarm(ctx, model.Alarm{TenantID: "t", ID: "alarm-d1", DeviceID: "d1", RuleID: "rule", Status: "RECOVERED"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, row := range [][]any{{"t", "raw-d1", `{}`}, {"t", "pending-d2", `{"deviceId":"d2"}`}, {"t", "business", `{"deviceId":"business"}`}, {"other", "raw-d1", `{"deviceId":"d1"}`}} {
+		if _, err := r.pool.Exec(ctx, `INSERT INTO raw_ingest_reservation(tenant_id,message_id,payload_hash,metadata) VALUES($1,$2,'h',$3::jsonb)`, row...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, row := range [][]any{{"t", "d1", "by-device", `{}`}, {"t", "gateway", "by-alarm", `{"alarmId":"alarm-d1"}`}, {"t", "business", "kept", `{"alarmId":"other"}`}} {
+		if _, err := r.pool.Exec(ctx, `INSERT INTO component_alarm_state(tenant_id,device_id,rule_id,body) VALUES($1,$2,$3,$4::jsonb)`, row...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := r.CleanupCapacityData(ctx, "t", model.CapacityCleanupBatch{Product: product.ID, Devices: []string{"d1", "d2"}}); err != nil {
+		t.Fatal(err)
+	}
+	remaining := func(sql string) []string {
+		t.Helper()
+		var out []string
+		if err := r.pool.QueryRow(ctx, sql).Scan(&out); err != nil {
+			t.Fatal(err)
+		}
+		return out
+	}
+	if got := remaining(`SELECT array_agg(tenant_id||'/'||message_id ORDER BY tenant_id,message_id) FROM raw_ingest_reservation`); !slices.Equal(got, []string{"other/raw-d1", "t/business"}) {
+		t.Fatal("reservations", got)
+	}
+	if got := remaining(`SELECT array_agg(rule_id ORDER BY rule_id) FROM component_alarm_state`); !slices.Equal(got, []string{"kept"}) {
+		t.Fatal("component alarm states", got)
+	}
 }
 
 func TestAIWorkflowManifestStoreKeepsTombstones(t *testing.T) {
