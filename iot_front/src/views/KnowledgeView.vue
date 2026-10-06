@@ -1,6 +1,6 @@
 <script setup>
 import { can } from '../permissions'
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { FileText, Upload } from '@lucide/vue'
 import { UiMessage } from '../ui/feedback.js'
 
@@ -214,7 +214,8 @@ function openUpload() {
 function chooseFile(file) {
   if (Number(file.size || file.raw?.size || 0) > 32 * 1024 * 1024) {
     selectedFile.value = null
-    uploadRef.value?.clearFiles()
+    // 上传控件在回调之后才把文件加入列表，下一轮再清空，被拒绝的文件才不会留在列表里。
+    void nextTick(() => uploadRef.value?.clearFiles())
     UiMessage.error('知识库文件不能超过 32 MB')
     return
   }

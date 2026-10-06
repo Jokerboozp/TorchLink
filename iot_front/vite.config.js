@@ -90,6 +90,20 @@ function apiStartupGate(apiTarget, timeoutMs = 90000) {
   }
 }
 
+// 依赖按优先级从高到低分组（先匹配到的组优先）：组件库公共内核、数据表格、其余组件、框架、图标。
+const vendorGroups = [
+  [
+    'naive-base',
+    /[\\/]naive-ui[\\/](es|lib)[\\/](_internal|_styles|_mixins|_utils|config-provider|styles|locales|themes)[\\/]|[\\/]node_modules[\\/](vueuc|vooks|vdirs|css-render|@css-render|seemly|evtd|treemate|async-validator|lodash-es|@juggle|date-fns|date-fns-tz|highlight\.js)[\\/]/
+  ],
+  ['naive-table', /[\\/]naive-ui[\\/](es|lib)[\\/](data-table|pagination|ellipsis)[\\/]/],
+  ['naive', /[\\/]node_modules[\\/]naive-ui[\\/]/],
+  ['vue', /[\\/]node_modules[\\/](vue|@vue|vue-router|pinia)[\\/]/],
+  ['icons', /[\\/]node_modules[\\/]@lucide[\\/]/]
+]
+// 日期、时间与上传控件及其日期库只随异步的 heavy-controls 块加载，不并入组件库公共块。
+const lazyVendor = /[\\/]node_modules[\\/](mqtt|hls\.js|uplot)[\\/]|[\\/]naive-ui[\\/](es|lib)[\\/](date-picker|time-picker|upload)[\\/]/
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '')
   const apiTarget = env.VITE_API_PROXY_TARGET || 'http://localhost:8081'
@@ -122,13 +136,24 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
-      // vendor 块集中了组件库与框架（约 1 MB，gzip 约 270 kB），其余分块远小于此。
-      chunkSizeWarningLimit: 1100,
       rollupOptions: {
         output: {
           entryFileNames: 'app.js',
-          // 组件库与框架单独成块：业务代码更新后浏览器仍可复用缓存。
-          manualChunks: id => (/[\\/]node_modules[\\/]/.test(id) && !/[\\/](mqtt|hls\.js|uplot)[\\/]/.test(id) ? 'vendor' : undefined),
+          // 框架、组件库、图标与其他依赖分别成块：业务代码更新后浏览器仍可复用缓存，单块也不过大。
+          // mqtt、hls.js、uplot 只在需要时按需加载，不并入这些块。
+          advancedChunks: {
+            groups: vendorGroups
+              .map(([name, test], index) => ({
+                name,
+                test: id => !lazyVendor.test(id) && test.test(id),
+                priority: vendorGroups.length - index
+              }))
+              .concat({
+                name: 'vendor',
+                test: id => /[\\/]node_modules[\\/]/.test(id) && !lazyVendor.test(id),
+                priority: 0
+              })
+          },
           chunkFileNames: 'assets/[name]-[hash].js',
           assetFileNames: 'assets/[name]-[hash][extname]'
         }

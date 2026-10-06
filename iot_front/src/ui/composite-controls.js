@@ -1,4 +1,4 @@
-import { Comment, Fragment, defineComponent, h, ref } from 'vue'
+import { Comment, Fragment, defineAsyncComponent, defineComponent, h, ref } from 'vue'
 import { darkThemeOverrides, themeOverrides } from '../theme/naive.js'
 import { isDark } from '../theme/mode.js' /* 全站主题由 theme/tokens.css 生成。 */
 import {
@@ -6,7 +6,6 @@ import {
   NCollapseItem,
   NConfigProvider,
   darkTheme,
-  NDatePicker,
   NDrawer,
   NDrawerContent,
   NDropdown,
@@ -17,9 +16,6 @@ import {
   NSteps,
   NTabPane,
   NTabs,
-  NTimePicker,
-  NUpload,
-  NUploadDragger,
   zhCN,
   dateZhCN
 } from 'naive-ui'
@@ -296,104 +292,6 @@ export const UiStep = defineComponent({
   }
 })
 
-export const UiTimePicker = defineComponent({
-  /* 静默时段继续使用 HH:mm 字符串。 */
-  name: 'UiTimePicker',
-  inheritAttrs: false,
-  props: { modelValue: String, valueFormat: String, format: String, placeholder: String, clearable: Boolean, disabled: Boolean },
-  emits: ['update:modelValue', 'change'],
-  setup(props, { attrs, emit }) {
-    return () =>
-      h(NTimePicker, {
-        ...attrs,
-        class: ['ui-time-picker', attrs.class],
-        formattedValue: props.modelValue || null,
-        format: props.format || 'HH:mm',
-        placeholder: props.placeholder,
-        clearable: props.clearable,
-        disabled: props.disabled,
-        'onUpdate:formattedValue': value => {
-          emit('update:modelValue', value || '')
-          emit('change', value || '')
-        }
-      })
-  }
-})
-
-export const UiDateRange = defineComponent({
-  /* 运维中心的自定义时间范围，值为毫秒时间戳数组。 */
-  name: 'UiDateRange',
-  inheritAttrs: false,
-  props: { modelValue: Array, clearable: Boolean, disabled: Boolean, disableFuture: Boolean },
-  emits: ['update:modelValue', 'change'],
-  setup(props, { attrs, emit }) {
-    return () =>
-      h(NDatePicker, {
-        ...attrs,
-        class: ['ui-date-range', attrs.class],
-        type: 'datetimerange',
-        value: props.modelValue || null,
-        clearable: props.clearable,
-        disabled: props.disabled,
-        isDateDisabled: props.disableFuture ? ts => ts > Date.now() : undefined,
-        'onUpdate:value': value => {
-          emit('update:modelValue', value || null)
-          emit('change', value || null)
-        }
-      })
-  }
-})
-
-export const UiDateTime = defineComponent({
-  /* 单个日期时间，值为毫秒时间戳。 */
-  name: 'UiDateTime',
-  inheritAttrs: false,
-  props: { modelValue: Number, clearable: Boolean, disabled: Boolean, disablePast: Boolean, disableFuture: Boolean, placeholder: String },
-  emits: ['update:modelValue', 'change'],
-  setup(props, { attrs, emit }) {
-    return () =>
-      h(NDatePicker, {
-        ...attrs,
-        class: ['ui-date-time', attrs.class],
-        type: 'datetime',
-        value: props.modelValue ?? null,
-        clearable: props.clearable,
-        disabled: props.disabled,
-        placeholder: props.placeholder,
-        isDateDisabled: props.disablePast ? ts => ts < Date.now() - 86400e3 : props.disableFuture ? ts => ts > Date.now() : undefined,
-        'onUpdate:value': value => {
-          emit('update:modelValue', value ?? null)
-          emit('change', value ?? null)
-        }
-      })
-  }
-})
-
-export const UiMonth = defineComponent({
-  /* 月份选择，值为 yyyy-MM 字符串。 */
-  name: 'UiMonth',
-  inheritAttrs: false,
-  props: { modelValue: String, clearable: Boolean, disabled: Boolean, placeholder: String },
-  emits: ['update:modelValue', 'change'],
-  setup(props, { attrs, emit }) {
-    return () =>
-      h(NDatePicker, {
-        ...attrs,
-        class: ['ui-month', attrs.class],
-        type: 'month',
-        valueFormat: 'yyyy-MM',
-        formattedValue: props.modelValue || null,
-        clearable: props.clearable,
-        disabled: props.disabled,
-        placeholder: props.placeholder,
-        'onUpdate:formattedValue': value => {
-          emit('update:modelValue', value || '')
-          emit('change', value || '')
-        }
-      })
-  }
-})
-
 export const UiDropdownMenu = defineComponent({
   name: 'UiDropdownMenu',
   setup() {
@@ -436,43 +334,6 @@ export const UiDropdown = defineComponent({
   }
 })
 
-export const UiUpload = defineComponent({
-  name: 'UiUpload',
-  inheritAttrs: false,
-  props: {
-    drag: Boolean,
-    autoUpload: Boolean,
-    disabled: Boolean,
-    limit: Number,
-    accept: String,
-    onChange: Function,
-    onRemove: Function,
-    onExceed: Function
-  },
-  setup(props, { attrs, slots, expose }) {
-    const upload = ref(null)
-    expose({ clearFiles: () => upload.value?.clear() }) /* 页面在校验失败或上传后清空文件。 */
-    return () =>
-      h('div', { class: ['ui-upload', attrs.class] }, [
-        h(
-          NUpload,
-          {
-            ref: upload,
-            disabled: props.disabled,
-            max: props.limit,
-            accept: props.accept,
-            defaultUpload: props.autoUpload,
-            onChange: ({ file }) => props.onChange?.({ raw: file?.file, size: file?.file?.size, name: file?.name }),
-            onRemove: props.onRemove,
-            onExceed: props.onExceed
-          },
-          { default: () => (props.drag ? h(NUploadDragger, null, { default: () => slots.default?.() }) : slots.default?.()) }
-        ),
-        slots.tip?.()
-      ])
-  }
-})
-
 export const UiConfigProvider = defineComponent({
   name: 'UiConfigProvider',
   inheritAttrs: false,
@@ -489,5 +350,23 @@ export const UiConfigProvider = defineComponent({
         },
         slots
       )
+  }
+})
+
+// 日期、时间与上传控件按需加载（见 heavy-controls.js）。
+const heavy = name => defineAsyncComponent(() => import('./heavy-controls.js').then(module => module[name]))
+export const UiTimePicker = heavy('UiTimePicker')
+export const UiDateRange = heavy('UiDateRange')
+export const UiDateTime = heavy('UiDateTime')
+export const UiMonth = heavy('UiMonth')
+// 页面通过模板引用调用 clearFiles；外层同步组件转发到加载后的上传控件。
+const AsyncUpload = heavy('UiUpload')
+export const UiUpload = defineComponent({
+  name: 'UiUpload',
+  inheritAttrs: false,
+  setup(_, { attrs, slots, expose }) {
+    const inner = ref(null)
+    expose({ clearFiles: () => inner.value?.clearFiles?.() })
+    return () => h(AsyncUpload, { ...attrs, ref: inner }, slots)
   }
 })
