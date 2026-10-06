@@ -115,7 +115,7 @@ jobs:
           新安装管理员和工具账号默认 admin/admin123；应用数据库账号保留 iot，连接密码默认 admin123。
           首次部署在目标机独立生成 JWT、内部令牌和加密密钥，完整配置见 .env.offline。
           升级已有部署：启动前先复制原 .env.offline，保持原项目、数据卷和凭据。
-          对话与知识向量计算需配置 DeepSeek 和外部 Embedding API 密钥并保持联网。
+          对话需配置 DeepSeek API 密钥并保持联网；知识向量与重排由包内的 embedding / reranker 服务完成，无需联网。
           通用包不含特定发行版 RPM/DEB；目标机需满足 docs/DEPLOYMENT.md 的系统依赖。
           EOF
           echo "name=$name" >> "$GITHUB_OUTPUT"
