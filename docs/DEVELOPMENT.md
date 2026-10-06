@@ -389,12 +389,12 @@ IOT_TEST_EXISTING_MQTT_ENV="$PWD/.env.local" go test ./internal/adapters/mqtt -r
 
 消息转入 `iot.dlq.<消费组>` 时计入 `dlq_published_total` 与 `dlq_published_<消费组>_total`，并记录错误日志；Compose 的 Prometheus 规则 `DeadLetterPublished` 立即告警，`KafkaConsumerLagHigh` 在消费积压持续 5 分钟超过一万条时告警。
 
-存储死信恢复工具默认只读审计，显式指定租户、源业务主题和待恢复标准消息 ID 数组文件，核对全部 ID 后再追加 `-execute`：
+死信恢复工具 `cmd/dlq-replay` 把明确选出的业务处理失败消息重新送回设备业务流（`model.TopicDeviceBusiness`），由原业务处理链按消息幂等处理。默认读取 `processor` 消费组的死信；升级前遗留的 `storage` 消费组死信用 `-group storage`，并以 `-source-topic` 指定原来的 property / event / parsed 主题。必须指定租户和待恢复标准消息 ID 的 JSON 数组文件（最多 10000 条）；默认只核对不写数据，核对后追加 `-execute`：
 
 ```bash
 go run ./cmd/dlq-replay -env-file .env.local -tenant <租户> -ids-file ids.json
-# 核对后重新送入原存储消费链，不删除 DLQ、不重置消费者 offset
+# 核对后重新发布到设备业务流，不删除死信、不修改消费位点
 go run ./cmd/dlq-replay -env-file .env.local -tenant <租户> -ids-file ids.json -execute
 ```
 
-重复死信按 messageId 合并，矛盾正文会拒绝整批发布。重新发布成功只代表 Kafka 收到；必须再核对 PostgreSQL `processed_at`、ClickHouse 行数/唯一 ID 和实际告警状态。发布途中失败可重跑同一 ID 列表，仍由原业务幂等处理。
+工具读取死信主题当前的全部消息（`-max-scan` 默认 10000 条，超出则整批拒绝）；同一 messageId 的重复死信合并，正文矛盾或有 ID 未找到时整批不发布。重新发布成功只代表 Kafka 收到；必须再核对 PostgreSQL `processed_at`、ClickHouse 行数/唯一 ID 和实际告警状态。发布途中失败可重跑同一 ID 列表，仍由原业务幂等处理。

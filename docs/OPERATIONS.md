@@ -67,7 +67,7 @@
 | --- | --- | --- |
 | `IotPlatformDown` | 平台进程不可抓取 | `docker compose ps`、`docker compose logs platform-api`；检查 `/health/ready` 中失败的依赖 |
 | `ConsumerBlockedByOutage` | 依赖（数据库、Kafka 等）临时故障，消费者暂停在原位置重试 | 先恢复依赖；恢复后自动继续，不需要回放。持续超过 `IOT_CONSUMER_MAX_BLOCK`（默认 30 分钟）的消息会进入死信 |
-| `DeadLetterPublished` | 消息因永久错误或长时间阻塞进入死信 | 运维中心 → 运维总览 → 死信，查看错误原因；修复后逐条“重新投递”（写审计）。存储死信也可用 `cmd/dlq-replay`，见 [开发与测试](DEVELOPMENT.md) |
+| `DeadLetterPublished` | 消息因永久错误或长时间阻塞进入死信 | 运维中心 → 运维总览 → 死信，查看错误原因；修复后逐条“重新投递”（写审计）。业务处理死信也可按消息 ID 列表用 `cmd/dlq-replay` 批量重新送回业务流，见 [开发与测试](DEVELOPMENT.md) |
 | `KafkaLagObservationMissing` | 无法读取消费积压，积压告警与接入背压判断可能失效 | 检查 Redpanda 管理接口、ACL 与网络；平台日志 `sample kafka consumer lag` / `sample processing backlog` |
 | `KafkaConsumerLagHigh` | 消费积压 | 看是否伴随阻塞或解析失败；持续增长时检查 Parser / Processor 资源与数据库耗时，必要时拆分角色或增加副本 |
 | `RawArchiveFailures`、`ParseFailureRatioHigh`、`ParseFailingCompletely` | 原文归档失败；解析失败超过 5%（且 10 分钟内超过 20 条）；或 10 分钟内全部解析失败 | 归档失败检查 PostgreSQL / ClickHouse；解析失败在“原始报文”按解析状态筛选查看错误，多为协议版本或设备配置变化 |

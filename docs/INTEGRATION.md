@@ -32,6 +32,7 @@
 
 | 接口 | 行为 |
 | --- | --- |
+| `GET /api/v1/products` | 模板列表，`page` / `pageSize` 分页并返回 `total`；`q` 按模板编号或名称做不区分大小写的包含匹配，供下拉框远程搜索 |
 | `GET /api/v1/products/{id}/preparation` | 当前配置、候选、修订、准备状态、影响设备数量、验收和历史 |
 | `PUT /api/v1/products/{id}/preparation` | `{revision,candidate}` 保存可恢复候选草稿，允许尚未填完，拒绝明文凭据 |
 | `POST /api/v1/products/{id}/preparation/trial` | `{revision,profiles?}` 创建独立模板和监听；`profiles` 只覆盖隔离试验地址与端口 |

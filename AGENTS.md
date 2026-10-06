@@ -32,26 +32,28 @@
 | 路径 | 职责 |
 |---|---|
 | `cmd/iot-platform/`、`cmd/iot-access-gateway/`、`internal/platformapp/` | API 与独立接入网关入口；启动、进程角色与依赖装配 |
-| `internal/httpapi/`、`internal/auth/` | HTTP 接口、认证、角色与租户边界 |
+| `internal/httpapi/`、`internal/auth/`、`internal/devicescope/` | HTTP 接口、认证、角色与租户边界；请求设备范围与按范围过滤的仓储 |
 | `internal/core/`、`internal/onboarding/`、`internal/model/`、`internal/ports/` | 业务编排、设备接入登记、领域模型和依赖接口 |
 | `internal/aiworkflow/`、`internal/aiprompt/`、`internal/aioutput/` | 业务 AI 工作流（告警研判、巡检、报告、协议助手、规则草稿）、提示词与版本、模型输出解码；消息链路不依赖它们 |
 | `internal/firesafety/` | 排班与换班审批、灭火器巡检整改、消防站资料与出勤业务 |
 | `internal/sites/` | 单位、建筑、楼层平面图与设备点位；告警位置快照与按单位授权的设备归属 |
 | `internal/messagetopics/`、`internal/externaldata/` | 对外消息主题、订阅授权与分发；第三方推送、拉取和历史补采 |
-| `internal/adapters/` | 数据库、消息、对象存储、AI 等外部实现 |
-| `internal/parser/` | 报文解析 |
-| `internal/protocolbuild/`、`internal/protocolruntime/`、`internal/protocolworker/` | Go 协议源码构建、版本运行与 Worker 契约 |
+| `internal/adapters/`、`internal/durablequeue/` | 数据库、消息、对象存储、AI 等外部实现；MQTT 收件箱使用的本地持久队列 |
+| `internal/parser/`、`internal/modbusframe/`、`internal/connector/` | 报文解析、Modbus 帧编解码与平台提供的设备连接类型 |
+| `internal/protocolbuild/`、`internal/protocolruntime/`、`internal/protocolworker/`、`internal/protocolrunner/` | Go 协议源码构建、版本运行与 Worker 契约；隔离容器中的协议编译与执行服务 |
 | `internal/mcpserver/` | 平台 MCP 工具与访问边界 |
 | `internal/opscenter/`、`internal/adapters/observability/` | 运维中心业务与 Prometheus / Loki / Grafana / Alertmanager 适配 |
-| `internal/config/`、`internal/deploycheck/`、`internal/metrics/` | 配置、部署检查和指标 |
-| `internal/backup/`、`cmd/backup-service/` | 备份逻辑与独立备份服务 |
+| `internal/config/`、`internal/deploycheck/`、`internal/metrics/`、`internal/logctx/`、`internal/logkey/`、`internal/version/` | 配置、部署检查、指标、日志的请求身份与统一字段名、构建版本 |
+| `internal/netguard/`、`internal/ratelimit/` | 平台主动出站请求的地址守卫；集群共享的限流预算 |
+| `internal/backup/`、`cmd/backup-service/`、`internal/retention/` | 备份逻辑与独立备份服务；PostgreSQL 过期数据清理 |
 | `internal/video/`、`deploy/zlmediakit/` | 摄像头直播模块：直播配置、连接测试、播放会话与媒体任务生命周期；`internal/video/gb28181/` 为 GB28181 SIP 信令；固定版本 ZLMediaKit 媒体服务 |
 | `protocol-packages/gb26875-dahua/` | 可独立维护的完整 Go 协议 module 示例 |
 | `cmd/gb26875-gateway/`、`cmd/gb26875-virtual-device/`、`cmd/loadgen/` | 专用网关、虚拟设备与负载工具；按任务使用 |
 | `internal/capacity/`、`cmd/capacity-test/`、`cmd/capacity-check/`、`cmd/harness-mock/` | 容量测试模块（计划、发压 Agent、核对、报告与控制服务）、只读容量检查和 Harness 调度模拟 |
 | `internal/clusterplan/`、`cmd/cluster-render/`、`cmd/cluster-init/`、`cmd/cluster-ssh/`、`deploy/cluster/` | 集群清单校验、按节点渲染、初始化与 SSH 准备 |
 | `cmd/dlq-replay/`、`cmd/clickhouse-migrate/` | 存储死信恢复与 ClickHouse 集群迁移 |
-| `iot_front/` | Vue 3、Vite 管理端，复用现有 Naive UI、Tailwind CSS 和 Lucide 图标 |
+| `internal/repositorytest/`、`internal/aitest/` | 测试支撑：内存与 PostgreSQL 共用的仓储契约用例、脚本化的 Harness 工作流运行时 |
+| `iot_front/` | Vue 3、Vite 管理端，页面路由用 vue-router，会话与权限状态用 Pinia，核心模块为 TypeScript；复用现有 Naive UI、Tailwind CSS 和 Lucide 图标 |
 | `scripts/`、`compose*.yaml`、`deploy/` | 本地准备、部署、离线打包和服务配置 |
 
 修改业务时沿“页面 / API → 业务逻辑 → 依赖接口 → 存储或外部适配器”追踪完整链路。多个页面出现同类症状，优先查共享 API、公共状态和仓储实现。
