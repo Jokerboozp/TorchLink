@@ -29,6 +29,7 @@ import DeviceConnection from '../components/DeviceConnection.vue'
 import DeviceOnboarding from '../components/DeviceOnboarding.vue'
 import DeviceBatchOnboarding from '../components/DeviceBatchOnboarding.vue'
 import { copyText } from '../clipboard'
+import { useRealtime } from '../composables/useRealtime'
 
 const emit = defineEmits(['navigate'])
 const connectionDevice = ref('')
@@ -325,22 +326,16 @@ function leaveOnboarding(id = '') {
 }
 
 // 设备每次上报都会刷新最后活跃时间：可见行就地更新时间，只有运行状态变化或出现新设备才提示刷新。
+useRealtime(['deviceAdded', 'state'], ([event]) => realtime(event))
 function realtime(event) {
-  const detail = event?.detail || {}
-  if (String(detail.topic || '').includes('/device/added/')) {
+  if (event.kind === 'deviceAdded') {
     updatesAvailable.value = true
     return
   }
-  if (!String(detail.topic || '').includes('/device/state/')) return
-  let state = detail.payload
-  try {
-    if (typeof state === 'string') state = JSON.parse(state)
-  } catch {
-    return
-  }
-  const id = state?.deviceId
+  const state = event.data
+  const id = event.deviceId
   if (!id) return
-  if (detail.added) {
+  if (event.added) {
     updatesAvailable.value = true
     return
   }
@@ -365,11 +360,9 @@ onMounted(() => {
   }
   if (detail.deviceId) connectionDevice.value = detail.deviceId
   load()
-  window.addEventListener('iot:realtime', realtime)
 })
 onBeforeUnmount(() => {
   clearTimeout(searchTimer)
-  window.removeEventListener('iot:realtime', realtime)
 })
 </script>
 

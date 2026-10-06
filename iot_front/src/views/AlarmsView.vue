@@ -37,6 +37,7 @@ import AlarmAttachments from '../components/AlarmAttachments.vue'
 import AlarmLocation from '../components/AlarmLocation.vue'
 import AiAnalysisQuality from '../components/AiAnalysisQuality.vue'
 import { usePagedList } from '../composables/usePagedList'
+import { useRealtime } from '../composables/useRealtime'
 
 const filters = reactive({ status: '', level: '', deviceId: '' })
 const items = ref([])
@@ -347,24 +348,16 @@ function removeAlarm(row) {
   })
 }
 
-let realtimeTimer = 0
-const realtime = event => {
-  if ((!event?.detail?.topic?.includes('/alarm/') && !event?.detail?.topic?.includes('/snapshot/refresh/')) || realtimeTimer) return
-  const alarmId = (() => {
-    try {
-      return JSON.parse(event.detail.payload || '{}')?.alarmId || ''
-    } catch {
-      return ''
-    }
-  })()
-  // 打开中的详情被其他人确认或关闭时同步状态；核实表单的未保存输入不受影响。
-  const refreshDetail = detailVisible.value && (!alarmId || alarmId === detail.value?.alarmId)
-  realtimeTimer = window.setTimeout(() => {
-    realtimeTimer = 0
+// 告警变化后 300 毫秒内合并刷新；打开中的详情被其他人确认或关闭时同步状态，核实表单的未保存输入不受影响。
+useRealtime(
+  ['alarm', 'refresh'],
+  events => {
+    const refreshDetail = detailVisible.value && events.some(event => !event.data?.alarmId || event.data.alarmId === detail.value?.alarmId)
     void load()
     if (refreshDetail) void refreshMediaDetail()
-  }, 300)
-}
+  },
+  { debounce: 300 }
+)
 onMounted(async () => {
   const navigation = alarmNavigation(takeNavigation())
   // 从设备等页面带入的设备优先于上次保存的筛选。
@@ -372,15 +365,12 @@ onMounted(async () => {
     filters.deviceId = navigation.deviceId
     page.value = 1
   }
-  window.addEventListener('iot:realtime', realtime)
   await load()
   if (navigation.alarmId) await show(navigation.alarmId)
 })
 onBeforeUnmount(() => {
   analysisViewToken += 1
   stopAnalysisPolling()
-  window.clearTimeout(realtimeTimer)
-  window.removeEventListener('iot:realtime', realtime)
 })
 const statusTone = value => ({ danger: 'danger', warning: 'warning', success: 'success', info: 'info' })[tagType(value)] || 'neutral'
 const filtered = computed(() => Boolean(filters.status || filters.level || filters.deviceId))

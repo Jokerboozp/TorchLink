@@ -9,6 +9,7 @@ import { UiMessage, UiMessageBox } from '../ui/feedback.js'
 import { useUnsavedGuard } from '../composables/unsavedGuard.js'
 import { CheckCircle2, CircleDashed, Copy, XCircle } from '@lucide/vue'
 import OnboardingDiagnosis from './OnboardingDiagnosis.vue'
+import { useRealtime } from '../composables/useRealtime'
 import {
   configurationText,
   enrollRequest,
@@ -344,14 +345,14 @@ function schedulePolling() {
     }, 5000)
 }
 watch(() => [draft.step, draft.result?.device?.id], schedulePolling)
-function realtime(event) {
+// 只响应本设备的消息：按事件中的设备编号或主题中的设备段精确匹配，不做子串匹配。
+useRealtime(['state', 'alarm', 'parsed', 'other'], ([event]) => {
   const id = draft.result?.device?.id
-  if (draft.step !== 2 || !id) return
-  const text = `${event.detail?.topic || ''} ${typeof event.detail?.payload === 'string' ? event.detail.payload : JSON.stringify(event.detail?.payload || '')}`
-  if (!text.includes(id)) return
+  if (!draftReady || draft.step !== 2 || !id) return
+  if (event.deviceId !== id && !event.topic.split('/').includes(id)) return
   clearTimeout(realtimeTimer)
   realtimeTimer = setTimeout(refreshStatus, 800)
-}
+})
 
 async function copy(text, message = '已复制') {
   if (await copyText(text)) UiMessage.success(message)
@@ -465,7 +466,6 @@ onMounted(async () => {
     if (props.trial && draft.step === 0 && canContinue.value) next()
     if (draft.result?.device?.id) emit('enrolled', draft.result.device)
     draftReady = true
-    window.addEventListener('iot:realtime', realtime)
     schedulePolling()
   } catch (cause) {
     loadError.value = cause.message
@@ -479,7 +479,6 @@ onBeforeUnmount(() => {
   clearTimeout(draftTimer)
   stopPolling()
   clearTimeout(realtimeTimer)
-  window.removeEventListener('iot:realtime', realtime)
 })
 </script>
 

@@ -8,6 +8,7 @@ import { compactCount, deviceSegments, ringSegments, productBars, dashboardDistr
 import DashboardDistribution from '../components/DashboardDistribution.vue'
 import StatusDot from '../components/layout/StatusDot.vue'
 import { can } from '../permissions'
+import { useRealtime } from '../composables/useRealtime'
 
 const emit = defineEmits(['navigate'])
 const data = ref(null)
@@ -68,7 +69,6 @@ const ring = computed(() => {
 })
 let controller,
   revision = 0,
-  timer,
   disposed = false
 async function load() {
   const current = ++revision
@@ -118,25 +118,22 @@ async function showDetail(id) {
     openingDetail.value = ''
   }
 }
-const realtime = event => {
-  const topic = event?.detail?.topic || ''
-  if (!topic.includes('/alarm/') && !topic.includes('/device/state/') && !topic.includes('/snapshot/refresh/')) return
-  if (timer || disposed) return
-  timer = setTimeout(() => {
-    timer = null
-    if (loading.value) realtime(event)
-    else load()
-  }, 5000)
-}
+// 告警与设备状态变化后 5 秒内合并刷新一次；仍在加载时稍后再试。
+useRealtime(
+  ['alarm', 'state', 'refresh'],
+  () => {
+    if (disposed) return
+    if (loading.value) return false
+    load()
+  },
+  { debounce: 5000 }
+)
 onMounted(() => {
   load()
-  window.addEventListener('iot:realtime', realtime)
 })
 onBeforeUnmount(() => {
   disposed = true
   controller?.abort()
-  clearTimeout(timer)
-  window.removeEventListener('iot:realtime', realtime)
 })
 </script>
 

@@ -57,6 +57,7 @@ import { storeToRefs } from 'pinia'
 import { onSessionReset, useSessionStore } from './stores/session'
 import { isDark, setThemeMode, themeMode } from './theme/mode.js'
 import { realtimeStatus, retryRealtime, startRealtime, stopRealtime } from './realtime'
+import { toRealtimeEvent } from './composables/useRealtime'
 import { useMediaQuery } from './composables/useMediaQuery'
 
 // 页面按需加载：慢网络显示加载提示，加载失败（如升级后旧文件已不存在）提示刷新。
@@ -469,7 +470,7 @@ function handleUIAction(payload) {
 function connect() {
   startRealtime((topic, payload, meta) => {
     if (topic.includes('/ui-action/')) handleUIAction(payload)
-    window.dispatchEvent(new CustomEvent('iot:realtime', { detail: { topic, payload, added: Boolean(meta?.added) } }))
+    window.dispatchEvent(new CustomEvent('iot:realtime', { detail: toRealtimeEvent(topic, payload, meta?.added) }))
   })
 }
 

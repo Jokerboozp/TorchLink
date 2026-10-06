@@ -4,6 +4,7 @@ import vm from 'node:vm'
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { clientPagination, loadAllPages } from '../src/listPagination.js'
+import { toRealtimeEvent } from '../src/composables/useRealtime.ts'
 import { aiProviderOptions as providerOptions, errorMessage } from '../src/presentation.js'
 import { createClientId } from '../src/clientId.js'
 import { computed, nextTick, reactive, ref, toRef, watch } from 'vue'
@@ -531,11 +532,12 @@ async function devicesView(globals) {
 }
 
 test('实时消息不重载设备列表，手动刷新仍读取最新数据', async () => {
-  let mounted,
-    requests = 0
+  let requests = 0
+  const mountHooks = []
+  const mounted = () => mountHooks.forEach(fn => fn())
   const events = new Map()
   const context = await devicesView({
-    onMounted: fn => (mounted = fn),
+    onMounted: fn => mountHooks.push(fn),
     window: { addEventListener: (k, fn) => events.set(k, fn) },
     api: async () => {
       requests++
@@ -549,7 +551,7 @@ test('实时消息不重载设备列表，手动刷新仍读取最新数据', as
   mounted()
   await new Promise(r => setTimeout(r, 0))
   const initial = requests
-  for (let i = 0; i < 10; i++) events.get('iot:realtime')({ detail: { topic: 'device.state', payload: { deviceId: 'demo' } } })
+  for (let i = 0; i < 10; i++) events.get('iot:realtime')(toRealtimeEvent('device.state', { deviceId: 'demo' }))
   await new Promise(r => setTimeout(r, 0))
   assert.equal(requests, initial, '实时上报不应重新请求整张设备列表')
   assert.equal(context.state.loading.value, false)
@@ -560,34 +562,33 @@ test('实时消息不重载设备列表，手动刷新仍读取最新数据', as
 test('设备心跳只更新最后活跃时间，运行状态变化或新设备才提示有新数据', async () => {
   const context = await devicesView({ api: async () => ({ items: [] }), apiAll: async () => ({ items: [] }) })
   const s = context.state,
-    state = (value, extra = {}) => ({
-      detail: {
-        topic: '/iot/device/state/tenant',
-        payload: JSON.stringify({
+    state = (value, extra = {}) =>
+      toRealtimeEvent(
+        '/iot/device/state/tenant',
+        JSON.stringify({
           deviceId: 'd1',
           businessStatus: 'ONLINE',
           connectionStatus: 'ONLINE',
           dataStatus: 'NORMAL',
           lastSeenAt: value
         }),
-        ...extra
-      }
-    })
+        extra.added
+      )
   s.registry.value = [{ device: { id: 'd1' }, runtimeState: { deviceId: 'd1', businessStatus: 'ONLINE', lastSeenAt: 1 } }]
   s.realtime(state(2))
-  s.realtime({ detail: { topic: '/iot/parsed/tenant/p/d1/PROPERTY_REPORT', payload: '{}' } })
+  s.realtime(toRealtimeEvent('/iot/parsed/tenant/p/d1/PROPERTY_REPORT', '{}'))
   assert.equal(s.updatesAvailable.value, false, '心跳和解析报文不应提示刷新')
   assert.equal(s.registry.value[0].runtimeState.lastSeenAt, 2)
-  s.realtime({ detail: { topic: '/iot/device/state/tenant', payload: { deviceId: 'other', businessStatus: 'OFFLINE' } } })
+  s.realtime(toRealtimeEvent('/iot/device/state/tenant', { deviceId: 'other', businessStatus: 'OFFLINE' }))
   assert.equal(s.updatesAvailable.value, false, '不在当前页且不影响筛选的设备不提示')
-  s.realtime({ detail: { topic: '/iot/device/state/tenant', payload: { deviceId: 'd1', businessStatus: 'ALARM' } } })
+  s.realtime(toRealtimeEvent('/iot/device/state/tenant', { deviceId: 'd1', businessStatus: 'ALARM' }))
   assert.equal(s.updatesAvailable.value, true)
   s.updatesAvailable.value = false
   s.realtime(state(3, { added: true }))
   assert.equal(s.updatesAvailable.value, true, '新出现的设备需要提示')
   s.updatesAvailable.value = false
   s.filters.runtime = 'OFFLINE'
-  s.realtime({ detail: { topic: '/iot/device/state/tenant', payload: { deviceId: 'other', businessStatus: 'OFFLINE' } } })
+  s.realtime(toRealtimeEvent('/iot/device/state/tenant', { deviceId: 'other', businessStatus: 'OFFLINE' }))
   assert.equal(s.updatesAvailable.value, true, '可能进入运行状态筛选结果的设备需要提示')
 })
 
@@ -801,7 +802,9 @@ test('没有设备与产品读取权限时原始报文只显示编号，不发�
 
 test('alarm list batches alarm events and ignores device state events', async () => {
   const script = setupScript(new URL('../src/views/AlarmsView.vue', import.meta.url))
-  const timers = []
+  const timers = [],
+    hooks = [],
+    listeners = new Map()
   let requests = 0
   const context = vm.createContext({
     ...pageStubs,
@@ -809,7 +812,7 @@ test('alarm list batches alarm events and ignores device state events', async ()
     reactive,
     computed,
     defineEmits: () => () => {},
-    onMounted() {},
+    onMounted: fn => hooks.push(fn),
     onBeforeUnmount() {},
     api: async () => {
       requests++
@@ -819,19 +822,21 @@ test('alarm list batches alarm events and ignores device state events', async ()
     notifyError: error => {
       throw error
     },
-    window: {
-      setTimeout: callback => {
-        timers.push(callback)
-        return timers.length
-      },
-      clearTimeout() {}
-    }
+    setTimeout: callback => {
+      timers.push(callback)
+      return timers.length
+    },
+    clearTimeout() {},
+    window: { addEventListener: (name, fn) => listeners.set(name, fn), removeEventListener() {}, setTimeout() {}, clearTimeout() {} }
   })
-  const { realtime } = vm.runInContext(script + '\n;({realtime})', context)
-  realtime({ detail: { topic: '/iot/device/state/tenant/product/device' } })
+  vm.runInContext(script, context)
+  // The realtime subscription registers first; the page's own mount hook is not needed here.
+  hooks[0]()
+  const send = topic => listeners.get('iot:realtime')({ detail: toRealtimeEvent(topic, '{}') })
+  send('/iot/device/state/tenant/product/device')
   assert.equal(timers.length, 0)
-  realtime({ detail: { topic: '/iot/alarm/raised/tenant/product/device' } })
-  realtime({ detail: { topic: '/iot/alarm/recovered/tenant/product/device' } })
+  send('/iot/alarm/raised/tenant/product/device')
+  send('/iot/alarm/recovered/tenant/product/device')
   assert.equal(timers.length, 1)
   timers[0]()
   await new Promise(resolve => setImmediate(resolve))
@@ -1062,10 +1067,10 @@ test('通知窗口溢出不伪报新设备，不重载设备表格', () => {
     },
     'realtime,updatesAvailable'
   )
-  c.realtime({ detail: { topic: '/iot/snapshot/refresh/tenant', payload: '{}' } })
+  c.realtime(toRealtimeEvent('/iot/snapshot/refresh/tenant', '{}'))
   assert.equal(c.updatesAvailable.value, false)
   assert.equal(calls, 0)
-  c.realtime({ detail: { topic: '/iot/device/added/tenant', payload: '{"total":601}' } })
+  c.realtime(toRealtimeEvent('/iot/device/added/tenant', '{"total":601}'))
   assert.equal(c.updatesAvailable.value, true, '授权范围内出现新设备时应提示手动刷新')
   assert.equal(calls, 0)
 })
@@ -1135,4 +1140,15 @@ test('catalog loading reads pages a few at a time, keeps their order and stops a
   assert.equal(result.items[100], '2-0')
   assert.equal(result.items.at(-1), '50-99')
   assert.equal(result.truncated, true)
+})
+
+test('realtime events carry their kind, parsed body and device', () => {
+  const state = toRealtimeEvent('/iot/device/state/t', '{"deviceId":"d10","businessStatus":"ONLINE"}', true)
+  assert.deepEqual([state.kind, state.deviceId, state.added, state.data.businessStatus], ['state', 'd10', true, 'ONLINE'])
+  assert.equal(toRealtimeEvent('/iot/alarm/raised/t', '{"alarmId":"a1","deviceId":"d1"}').kind, 'alarm')
+  assert.equal(toRealtimeEvent('/iot/device/added/t', '{"total":3}').kind, 'deviceAdded')
+  assert.equal(toRealtimeEvent('/iot/snapshot/refresh/t', '{}').kind, 'refresh')
+  assert.equal(toRealtimeEvent('/iot/ui-action/t', '{}').kind, 'uiAction')
+  const garbled = toRealtimeEvent('/iot/parsed/t/p/d1/PROPERTY_REPORT', 'not json')
+  assert.deepEqual([garbled.kind, garbled.data, garbled.deviceId], ['parsed', null, ''])
 })
