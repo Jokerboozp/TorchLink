@@ -295,6 +295,46 @@ function applyRoute() {
 // openPage 发起的导航：携带的细节与是否已确认离开未保存页面；地址栏发起的导航（刷新、前进后退）从地址读取细节。
 let pendingDetail
 let navigationConfirmed = false
+// 页面内容在 .app-content 内滚动，浏览器不会替它恢复位置：离开时按历史记录位置保存滚动高度，
+// 前进后退回到该记录时恢复；其他导航回到顶部。页面重新挂载后数据异步加载，恢复时等内容足够高。
+const scrollPositions = new Map()
+let historyNavigation = false
+const historyPosition = () => window.history.state?.position
+// 由路由历史在处理 popstate 时同步通知，早于本次导航完成；直接监听 popstate 会晚于路由自己的处理。
+router.options.history.listen((to, from, info) => {
+  historyNavigation = info.type === 'pop'
+})
+function restoreScroll(top) {
+  // 重新挂载的页面加载数据时内容高度会变化：每 50 毫秒重新定位，位置连续保持 3 次即停止，最多 2 秒；
+  // 用户在此期间自己滚动或按键则不再干预。
+  let tries = 0,
+    steady = 0,
+    interrupted = false
+  const stop = () => {
+    interrupted = true
+  }
+  const area = contentArea.value
+  area?.addEventListener('wheel', stop, { once: true, passive: true })
+  area?.addEventListener('touchstart', stop, { once: true, passive: true })
+  window.addEventListener('keydown', stop, { once: true })
+  const attempt = () => {
+    if (interrupted || !contentArea.value) return
+    contentArea.value.scrollTo({ top })
+    steady = Math.abs(contentArea.value.scrollTop - top) <= 1 ? steady + 1 : 0
+    if (steady < 3 && ++tries < 40) setTimeout(attempt, 50)
+    else {
+      area?.removeEventListener('wheel', stop)
+      area?.removeEventListener('touchstart', stop)
+      window.removeEventListener('keydown', stop)
+    }
+  }
+  setTimeout(attempt)
+}
+// 滚动时记下当前历史记录的位置；popstate 触发时历史记录已切换，不能再在导航时读取旧位置。
+function rememberScroll() {
+  const position = historyPosition()
+  if (position !== undefined && contentArea.value) scrollPositions.set(position, contentArea.value.scrollTop)
+}
 router.beforeEach(async (to, from) => {
   if (!authenticated.value || !permissionState.ready) return true
   const page = to.meta.page
@@ -322,7 +362,10 @@ router.afterEach((to, from, failure) => {
   active.value = page
   pageKey.value++
   if (detail) sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify(detail))
-  contentArea.value?.scrollTo({ top: 0 })
+  const saved = historyNavigation ? scrollPositions.get(historyPosition()) : undefined
+  historyNavigation = false
+  if (saved) restoreScroll(saved)
+  else contentArea.value?.scrollTo({ top: 0 })
 })
 
 // 管理员设置或重置密码后，首次登录只拿到改密凭据，修改成功后才建立会话。
@@ -722,7 +765,12 @@ onBeforeUnmount(() => {
             </ui-dropdown>
           </div>
         </header>
-        <main ref="contentArea" class="app-content" :class="{ 'app-content--full': current.layout === 'full' }">
+        <main
+          ref="contentArea"
+          class="app-content"
+          :class="{ 'app-content--full': current.layout === 'full' }"
+          @scroll.passive="rememberScroll"
+        >
           <header v-if="showHeader" class="page-header">
             <h1>{{ current.title }}</h1>
             <p v-if="current.sub">{{ current.sub }}</p>
