@@ -1,5 +1,5 @@
 <script setup>
-import { computed, defineAsyncComponent, h, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
   Activity,
   Bell,
@@ -123,6 +123,15 @@ const narrow = useMediaQuery('(max-width: 767px)')
 const navOpen = ref(false)
 watch(narrow, value => {
   if (!value) navOpen.value = false
+})
+// 窄屏抽屉导航：打开时聚焦菜单搜索框，关闭时把焦点还给打开按钮，键盘与读屏用户不会丢失位置。
+const menuSearch = ref(null)
+const navToggle = ref(null)
+watch(navOpen, async (open, wasOpen) => {
+  if (!narrow.value || open === wasOpen) return
+  await nextTick()
+  if (open) menuSearch.value?.focus()
+  else navToggle.value?.focus()
 })
 const contentArea = ref(null)
 const pageKey = ref(0)
@@ -618,6 +627,7 @@ onBeforeUnmount(() => {
         <div v-if="!collapsed || narrow" class="app-sidebar__search">
           <Search aria-hidden="true" />
           <input
+            ref="menuSearch"
             v-model="menuQuery"
             type="search"
             placeholder="搜索功能"
@@ -653,6 +663,7 @@ onBeforeUnmount(() => {
         <header class="app-topbar">
           <div class="app-topbar__left">
             <button
+              ref="navToggle"
               type="button"
               class="icon-button app-topbar__toggle"
               :aria-label="narrow ? '打开菜单' : collapsed ? '展开菜单' : '折叠菜单'"
