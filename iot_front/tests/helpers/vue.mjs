@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import { stripTypeScriptTypes } from 'node:module'
 
 // Shared request helpers a component imports are defined in its context unless
 // the test supplies its own double.
@@ -7,9 +8,9 @@ const shared = [
   '../../src/composables/useListLoader.js',
   '../../src/composables/useDeviceSearch.js',
   '../../src/clipboard.js',
-  '../../src/routing.js'
+  '../../src/router/paths.ts'
 ].map(file =>
-  readFileSync(new URL(file, import.meta.url), 'utf8')
+  (file.endsWith('.ts') ? stripTypeScriptTypes : String)(readFileSync(new URL(file, import.meta.url), 'utf8'))
     .replace(/^import\s[^'"]*['"][^'"]+['"];?$/gm, '')
     .replace(/^export (?=async function|function|const)/gm, '')
 )

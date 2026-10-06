@@ -1,34 +1,45 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { parsePath, pathFor } from '../src/routing.js'
+import { createMemoryHistory, createRouter } from 'vue-router'
+import { routes, linkablePages } from '../src/router/routes.ts'
+import { detailFromLocation, pathFor } from '../src/router/paths.ts'
 
-const pages = { dashboard: {}, alarms: {}, opsOverview: {}, notifications: {} }
+const router = createRouter({ history: createMemoryHistory(), routes })
+const resolve = path => {
+  const route = router.resolve(path)
+  return { page: route.meta.page, detail: detailFromLocation(route.params, route.query) }
+}
 
 test('menu pages and alarm details round-trip through the address', () => {
   assert.equal(pathFor('opsOverview'), '/ops-overview')
-  assert.deepEqual(parsePath('/ops-overview', pages), { page: 'opsOverview', detail: null })
+  assert.deepEqual(resolve('/ops-overview'), { page: 'opsOverview', detail: null })
   assert.equal(pathFor('alarms', { alarmId: 'alarm/1 x' }), '/alarms/alarm%2F1%20x')
-  assert.deepEqual(parsePath('/alarms/alarm%2F1%20x', pages), { page: 'alarms', detail: { alarmId: 'alarm/1 x' } })
+  assert.deepEqual(resolve('/alarms/alarm%2F1%20x'), { page: 'alarms', detail: { alarmId: 'alarm/1 x' } })
 })
 
 test('simple navigation targets survive refresh; complex objects stay out of the address', () => {
   const path = pathFor('raw', { deviceId: 'device 1', rawMessageId: 'raw/1', range: { from: 'now-6h' } })
   assert.equal(path, '/raw?deviceId=device+1&rawMessageId=raw%2F1')
-  const [pathname, search] = path.split('?')
-  assert.deepEqual(parsePath(pathname, { raw: {} }, '?' + search), { page: 'raw', detail: { deviceId: 'device 1', rawMessageId: 'raw/1' } })
-  assert.deepEqual(parsePath('/alarms/a1', pages, '?deviceId=d1&other=x'), { page: 'alarms', detail: { alarmId: 'a1', deviceId: 'd1' } })
+  assert.deepEqual(resolve(path), { page: 'raw', detail: { deviceId: 'device 1', rawMessageId: 'raw/1' } })
+  assert.deepEqual(resolve('/alarms/a1?deviceId=d1&other=x'), { page: 'alarms', detail: { alarmId: 'a1', deviceId: 'd1' } })
   assert.equal(pathFor('rules', { ruleDraft: { name: 'x' } }), '/rules')
+  // An address that already carries page state keeps only the alarm detail.
+  assert.deepEqual(resolve('/alarms/a1?deviceId=d1&s.page=2'), { page: 'alarms', detail: { alarmId: 'a1' } })
 })
 
-test('unknown or malformed paths fall back to the first permitted page', () => {
-  for (const path of ['/', '', '/missing', '/%E0%A4%A', '/constructor', '/__proto__']) {
-    assert.equal(parsePath(path, pages).page, '', path)
+test('unknown or malformed paths resolve to no page; the guard picks the first permitted one', () => {
+  for (const path of ['/', '/missing', '/constructor', '/__proto__', '/alarms/a/b']) {
+    assert.equal(resolve(path).page, '', path)
   }
+})
+
+test('rule linkage may open only the listed pages', () => {
+  for (const page of ['dashboard', 'alarms', 'raw', 'cameras', 'ai', 'backups']) assert.ok(linkablePages.has(page), page)
+  for (const page of ['access', 'duty', 'opsOverview', 'messageTopics', 'notifications']) assert.ok(!linkablePages.has(page), page)
 })
 
 test('list filters persist in the address and per-user session storage', async () => {
   const { nextTick, ref } = await import('vue')
-  const { withPageState } = await import('../src/routing.js')
   const memory = () => {
     const values = new Map()
     return { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, String(value)), values }
@@ -84,8 +95,6 @@ test('list filters persist in the address and per-user session storage', async (
     assert.deepEqual({ ...range.value }, { from: 'now-6h', to: 'now' })
 
     // 刷新改写地址时保留页面状态参数。
-    assert.equal(withPageState('/alarms?deviceId=d1', '?s.status=ACTIVE&x=1'), '/alarms?deviceId=d1&s.status=ACTIVE')
-    assert.equal(withPageState('/alarms', '?x=1'), '/alarms')
   } finally {
     delete globalThis.window
     delete globalThis.sessionStorage

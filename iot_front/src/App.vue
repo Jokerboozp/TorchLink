@@ -48,7 +48,8 @@ import { resetAIConversation } from './aiConversation'
 import { clearAIHistory } from './aiHistory'
 import { api, notifyError, session } from './api'
 import { pageGuide } from './pageGuide'
-import { NAVIGATION_KEY, parsePath, pathFor, withPageState } from './routing'
+import { linkablePages, router } from './router'
+import { NAVIGATION_KEY, detailFromLocation, locationFor, pathOf } from './router/paths'
 import { confirmDiscard, hasUnsaved } from './composables/unsavedGuard.js'
 import PageLoadState from './components/layout/PageLoadState.vue'
 import { can, permissionState } from './permissions'
@@ -237,8 +238,7 @@ watch(
     // 智能助手的回答可在其他页面后台生成；授权变化后停止旧授权下的运行。
     resetAIConversation()
     if (!can('menu:' + active.value)) {
-      active.value = firstAllowedPage()
-      pageKey.value++
+      void router.replace(pathOf(firstAllowedPage() || 'dashboard'))
       return
     }
     // 仍可访问当前页面且有未保存修改时不重载页面，避免丢失填写内容；服务端仍按新权限校验每个请求。
@@ -262,46 +262,55 @@ async function syncIdentity() {
   lastFocusSync = Date.now()
   try {
     await sessionStore.refresh()
-    if (!routeApplied) applyRoute(true)
-    else if (!can('menu:' + active.value)) active.value = firstAllowedPage()
+    if (!routeApplied) applyRoute()
+    else if (!can('menu:' + active.value)) void router.replace(pathOf(firstAllowedPage() || 'dashboard'))
   } catch (error) {
     notifyError(error)
   }
   refreshModules()
 }
 
-// 地址栏与当前页面同步：打开页面写入历史记录，前进后退和深链接按地址切换页面。
+// 地址栏与当前页面由 vue-router 同步：打开页面写入历史记录，前进后退和深链接按地址切换页面。
+// 守卫按菜单权限放行，未知或无权限的地址改到首个可用页面；页面仍由下方 <component> 渲染。
 let routeApplied = false
-function applyRoute(replace) {
+// 权限就绪后按当前地址重新导航一次（登录前打开的深链接在登录后继续打开）。
+function applyRoute() {
   routeApplied = true
-  const parsed = parsePath(window.location.pathname, pages, window.location.search)
-  const { page } = parsed
-  // 地址中已有页面状态（s. 参数）说明页面已接收过跳转带入的条件，刷新时以页面状态为准，只保留告警详情。
-  const pageStateSaved = [...new URLSearchParams(window.location.search).keys()].some(key => key.startsWith('s.'))
-  const detail = pageStateSaved ? (parsed.detail?.alarmId ? { alarmId: parsed.detail.alarmId } : null) : parsed.detail
-  if (page && can('menu:' + page)) openPage(page, detail, { history: false, force: true })
-  else active.value = firstAllowedPage()
-  if (replace || !page || !can('menu:' + page))
-    window.history.replaceState(
-      null,
-      '',
-      page === active.value ? withPageState(pathFor(active.value, detail), window.location.search) : pathFor(active.value, null)
-    )
+  const { path, query, hash } = router.currentRoute.value
+  void router.replace({ path, query, hash, force: true })
 }
-// 前进后退离开有未保存修改的页面时先确认；取消则把地址恢复到当前页面。
-let lastLocation = ''
-async function onPopState() {
-  if (!authenticated.value) return
-  // 前进后退总会重新打开页面（同一页面换了详情或筛选也一样），有未保存修改时都先确认。
-  if (hasUnsaved()) {
-    const back = lastLocation
-    if (!(await confirmDiscard())) {
-      if (back) window.history.pushState(null, '', back)
-      return
-    }
+// openPage 发起的导航：携带的细节与是否已确认离开未保存页面；地址栏发起的导航（刷新、前进后退）从地址读取细节。
+let pendingDetail
+let navigationConfirmed = false
+router.beforeEach(async (to, from) => {
+  if (!authenticated.value || !permissionState.ready) return true
+  const page = to.meta.page
+  if (page === 'profiles' && can('menu:products')) return { path: pathOf('products'), query: { ...to.query, tab: 'access' }, replace: true }
+  if (!page || !can('menu:' + page)) {
+    const first = firstAllowedPage()
+    return first ? { path: pathOf(first), replace: true } : true
   }
-  applyRoute(false)
-}
+  // 前进后退离开有未保存修改的页面时先确认；取消则停留在当前地址。
+  const confirmed = navigationConfirmed
+  navigationConfirmed = false
+  if (!confirmed && from.matched.length && hasUnsaved() && !(await confirmDiscard())) return false
+  return true
+})
+router.afterEach((to, from, failure) => {
+  const detail = pendingDetail === undefined ? detailFromLocation(to.params, to.query) : pendingDetail
+  pendingDetail = undefined
+  if (failure || !authenticated.value || !permissionState.ready) return
+  const page = to.meta.page
+  if (!page || !can('menu:' + page)) {
+    active.value = firstAllowedPage()
+    return
+  }
+  sessionStorage.removeItem(NAVIGATION_KEY)
+  active.value = page
+  pageKey.value++
+  if (detail) sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify(detail))
+  contentArea.value?.scrollTo({ top: 0 })
+})
 
 // 管理员设置或重置密码后，首次登录只拿到改密凭据，修改成功后才建立会话。
 const passwordDialog = ref(false)
@@ -314,7 +323,7 @@ function startSession(data, username) {
     /* 无法保存时下次手动填写租户。 */
   }
   // 登录前打开的深链接（例如通知中的告警详情）在登录后继续打开。
-  applyRoute(true)
+  applyRoute()
   refreshModules()
   loginForm.value.password = ''
   if (can(['menu:devices', 'menu:alarms', 'menu:dashboard', 'menu:raw'])) connect()
@@ -377,32 +386,19 @@ function handleAccountCommand(command) {
   }
 }
 
-function openPage(name, detail, { history = true, force = false } = {}) {
+function openPage(name, detail, { force = false, confirmed = true } = {}) {
   if (name === 'profiles' && can('menu:products')) {
     name = 'products'
     detail = detail && { ...detail, tab: 'access' }
   }
   if (!pages[name] || !can('menu:' + name)) return
   navOpen.value = false
-  // 已在当前页面且没有新的定位条件时不再新增历史记录。
-  if (history && !(active.value === name && !detail && !force)) {
-    const path = pathFor(name, detail)
-    if (path !== window.location.pathname + window.location.search) window.history.pushState(null, '', path)
-  }
+  // 已在当前页面且没有新的定位条件时不再新增历史记录，也不重新打开页面。
   if (active.value === name && !detail && !force) return
-  sessionStorage.removeItem(NAVIGATION_KEY)
-  active.value = name
-  pageKey.value++
-  if (detail) sessionStorage.setItem(NAVIGATION_KEY, JSON.stringify(detail))
-  contentArea.value?.scrollTo({ top: 0 })
+  pendingDetail = detail || null
+  navigationConfirmed = confirmed
+  void router.push({ ...locationFor(name, detail), force: true })
 }
-watch(
-  active,
-  () => {
-    if (typeof window !== 'undefined') lastLocation = window.location.pathname + window.location.search
-  },
-  { flush: 'post' }
-)
 
 // 用户主动切换页面（菜单、页面内跳转、告警弹窗）：离开有未保存修改的页面前先确认。
 // options.onDone 在确实切换后调用（例如全局告警弹窗据此关闭对应提示）。
@@ -456,25 +452,7 @@ function handleUIAction(payload) {
       void openCameraAction(action.cameraId, event.id)
       return
     }
-    const allowedPages = new Set([
-      'dashboard',
-      'devices',
-      'products',
-      'protocols',
-      'profiles',
-      'integration',
-      'cameras',
-      'externalData',
-      'alarms',
-      'inspection',
-      'raw',
-      'rules',
-      'knowledge',
-      'aiProviders',
-      'ai',
-      'backups'
-    ])
-    if (action.type === 'OPEN_PAGE' && allowedPages.has(action.page)) {
+    if (action.type === 'OPEN_PAGE' && linkablePages.has(action.page)) {
       // 自动跳转不能打断正在填写的表单：有未保存修改时只提示，由用户自行打开。
       if (action.page !== active.value && hasUnsaved()) {
         UiMessage.warning(`规则联动请求打开「${pages[action.page]?.title || action.page}」，当前有未保存的修改，未自动跳转`)
@@ -540,7 +518,6 @@ const realtimeNotice = computed(() => {
 onMounted(async () => {
   window.addEventListener('iot:unauthorized', unauthorized)
   window.addEventListener('storage', onStorage)
-  window.addEventListener('popstate', onPopState)
   window.addEventListener('focus', syncOnFocus)
   window.addEventListener('keydown', closeNavigationOnEscape)
   await syncIdentity()
@@ -550,7 +527,6 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   window.removeEventListener('iot:unauthorized', unauthorized)
   window.removeEventListener('storage', onStorage)
-  window.removeEventListener('popstate', onPopState)
   window.removeEventListener('focus', syncOnFocus)
   window.removeEventListener('keydown', closeNavigationOnEscape)
   stopRealtime()

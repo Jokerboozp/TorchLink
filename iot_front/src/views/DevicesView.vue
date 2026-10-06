@@ -1,5 +1,5 @@
 <script setup>
-import { takeNavigation } from '../routing'
+import { takeNavigation } from '../router/paths'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, toRef } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { api, apiAll, formatTime, isAbort, notifyError } from '../api'

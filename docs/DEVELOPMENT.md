@@ -157,7 +157,7 @@ Vue 3 + Vite，沿用 Naive UI、Tailwind CSS 和 Lucide；依赖与 Node 版本
 
 ### 页面地址
 
-每个菜单对应一个地址（`/alarms`、`/ops-overview` 等，菜单键转为短横线形式），告警详情为 `/alarms/<告警编号>`，告警通知中的详情链接即使用该地址；刷新、前进后退和登录前打开的深链接都按地址恢复页面，无权限或未知地址回到首个可用页面。实现见 `iot_front/src/routing.js`，Web 的 nginx 与 Vite 开发服务器均把未知路径回退到 `index.html`。
+每个菜单对应一个地址（`/alarms`、`/ops-overview` 等，菜单键转为短横线形式），告警详情为 `/alarms/<告警编号>`，告警通知中的详情链接即使用该地址；刷新、前进后退和登录前打开的深链接都按地址恢复页面，无权限或未知地址回到首个可用页面。路由由 vue-router 管理：路由表在 `iot_front/src/router/routes.ts`（`linkable` 标记规则联动可打开的页面），地址与跨页定位条件的转换在 `router/paths.ts`；App 的守卫按菜单权限放行，页面组件仍由 App 按需加载并渲染。Web 的 nginx 与 Vite 开发服务器均把未知路径回退到 `index.html`。
 
 ### 浏览器验证
 

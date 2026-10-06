@@ -1,5 +1,5 @@
 <script setup>
-import { takeNavigation } from '../routing'
+import { takeNavigation } from '../router/paths'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 const emit = defineEmits(['navigate'])
 import ProductPreparation from '../components/ProductPreparation.vue'

@@ -1,5 +1,5 @@
 <script setup>
-import { NAVIGATION_KEY, takeNavigation } from '../routing'
+import { NAVIGATION_KEY, takeNavigation } from '../router/paths'
 // 页面统一接收父级导航事件，避免多根节点透传监听器警告。
 defineEmits(['navigate'])
 import { computed, onMounted, reactive, ref } from 'vue'
