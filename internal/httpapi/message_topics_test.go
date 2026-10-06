@@ -137,6 +137,7 @@ func TestMessageTopicKeysCredentialsAndBoundScope(t *testing.T) {
 	cfg.MQTTBroker = "tcp://mqtt.invalid:1883"
 	cfg.MQTTPublicURL = cfg.MQTTBroker
 	api := New(cfg, engine, metrics.New(), log)
+	engine.MessageTopics.SetAccessResolver(api.MessageTopicIdentity)
 	server := httptest.NewServer(api.Handler())
 	defer server.Close()
 	req := func(method, path, token string, body any, status int) map[string]any {

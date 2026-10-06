@@ -45,6 +45,12 @@ func (s *Server) SetMessageTopicMQTTReadiness(ready func(context.Context) error)
 	s.topicBrokers.mqttReady = ready
 }
 
+// MessageTopicIdentity resolves an open API key for topic subscription; the
+// process installs it in the message topic service (SetAccessResolver).
+func (s *Server) MessageTopicIdentity(ctx context.Context, tenant, keyID string) (messagetopics.MessageTopicIdentity, error) {
+	return s.messageTopicIdentity(ctx, tenant, keyID)
+}
+
 // messageTopicIdentity resolves an open API key for topic subscription. The
 // version covers the key itself, so rotating or editing it revokes credentials.
 func (s *Server) messageTopicIdentity(ctx context.Context, tenant, keyID string) (messagetopics.MessageTopicIdentity, error) {

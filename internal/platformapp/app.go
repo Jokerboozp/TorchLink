@@ -602,6 +602,8 @@ func (a *app) startAPI() {
 	cfg := a.cfg
 	fatal(log, "install engine dependencies", a.engine.Install(a.deps))
 	a.api = httpapi.New(cfg, a.engine, a.registry, log)
+	// Topic subscriptions are authorized as the API key's user.
+	a.engine.MessageTopics.SetAccessResolver(a.api.MessageTopicIdentity)
 	// Device, open API and login budgets are shared before any ingress runs.
 	a.api.SetRateLimiter(a.limits)
 	if a.cacheHealth != nil {

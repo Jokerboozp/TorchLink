@@ -120,9 +120,6 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 	s.onboarding.RequirePrepared = true
 	s.onboarding.PublicHTTP = publicEndpoint(cfg.DeviceHTTPPublicURL)
 	s.onboarding.PublicMQTT = publicEndpoint(cfg.MQTTPublicURL)
-	if engine.MessageTopics != nil {
-		engine.MessageTopics.SetAccessResolver(s.messageTopicIdentity)
-	}
 	var externalErr error
 	s.externalData, externalErr = externaldata.New(s.unscopedRepo().ExternalDataStore(), cfg.JWTSecret, s.authorizeExternalSource, s.deliverExternalEvent)
 	if externalErr != nil {
