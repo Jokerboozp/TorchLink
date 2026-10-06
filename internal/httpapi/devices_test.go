@@ -23,6 +23,7 @@ import (
 	"iot-platform/internal/model"
 	"iot-platform/internal/onboarding"
 	"iot-platform/internal/parser"
+	"iot-platform/internal/ports"
 	"iot-platform/internal/protocolworker"
 )
 
@@ -205,8 +206,11 @@ func TestProtocolDevicesHaveNoPlatformCredentials(t *testing.T) {
 }
 
 func TestDeviceRegistryFiltersBeforePagination(t *testing.T) {
+	forEachStore(t, checkDeviceRegistryFiltersBeforePagination)
+}
+
+func checkDeviceRegistryFiltersBeforePagination(t *testing.T, repo ports.Repository) {
 	ctx := context.Background()
-	repo := memory.NewRepository()
 	api := newTestAPI(t, repo, func(cfg *config.Config) {
 		cfg.JWTSecret = "test-only-secret-for-device-filters"
 	})
@@ -220,11 +224,13 @@ func TestDeviceRegistryFiltersBeforePagination(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	// Saved oldest first: PostgreSQL orders by the row's write time, the
+	// memory store by UpdatedAt, and in use both advance together.
 	devices := []model.ManagedDevice{
-		{ID: "gw-1", Name: "一号网关", ProductID: "gw-product", DeviceRole: "GATEWAY", Status: "ENABLED", UpdatedAt: 4},
-		{ID: "child-1", Name: "烟感", ProductID: "smoke-product", DeviceRole: "CHILD", GatewayID: "gw-1", Status: "ENABLED", UpdatedAt: 3},
-		{ID: "direct-1", Name: "独立烟感", ProductID: "smoke-product", DeviceRole: "DIRECT", Status: "DISABLED", UpdatedAt: 2},
 		{ID: "other-1", Name: "其他", ProductID: "bare", Status: "ENABLED", UpdatedAt: 1},
+		{ID: "direct-1", Name: "独立烟感", ProductID: "smoke-product", DeviceRole: "DIRECT", Status: "DISABLED", UpdatedAt: 2},
+		{ID: "child-1", Name: "烟感", ProductID: "smoke-product", DeviceRole: "CHILD", GatewayID: "gw-1", Status: "ENABLED", UpdatedAt: 3},
+		{ID: "gw-1", Name: "一号网关", ProductID: "gw-product", DeviceRole: "GATEWAY", Status: "ENABLED", UpdatedAt: 4},
 		{ID: "foreign", Name: "其他租户", ProductID: "bare", Status: "ENABLED", TenantID: "tenant_b", UpdatedAt: 5},
 	}
 	for _, d := range devices {

@@ -21,14 +21,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	aiadapter "iot-platform/internal/adapters/ai"
 	"iot-platform/internal/adapters/knowledge"
 	"iot-platform/internal/adapters/local"
 	"iot-platform/internal/adapters/memory"
-	"iot-platform/internal/adapters/postgres"
 	"iot-platform/internal/config"
 	"iot-platform/internal/core"
 	"iot-platform/internal/metrics"
@@ -475,42 +472,7 @@ func TestComponentAlarmAPIAndBrowser(t *testing.T) {
 }
 
 func TestDashboard(t *testing.T) {
-	t.Run("memory", func(t *testing.T) { checkDashboard(t, memory.NewRepository()) })
-	t.Run("postgres", func(t *testing.T) {
-		dsn := os.Getenv("IOT_TEST_POSTGRES_DSN")
-		if dsn == "" {
-			t.Skip("IOT_TEST_POSTGRES_DSN not configured")
-		}
-		ctx := context.Background()
-		admin, err := pgxpool.New(ctx, dsn)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer admin.Close()
-		schema := fmt.Sprintf("dashboard_test_%d", time.Now().UnixNano())
-		ident := pgx.Identifier{schema}.Sanitize()
-		if _, err = admin.Exec(ctx, "CREATE SCHEMA "+ident); err != nil {
-			t.Fatal(err)
-		}
-		defer func() {
-			if _, err := admin.Exec(ctx, "DROP SCHEMA "+ident+" CASCADE"); err != nil {
-				t.Error(err)
-			}
-		}()
-		u, err := url.Parse(dsn)
-		if err != nil {
-			t.Fatal(err)
-		}
-		q := u.Query()
-		q.Set("search_path", schema)
-		u.RawQuery = q.Encode()
-		repo, err := postgres.New(ctx, u.String())
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer repo.Close()
-		checkDashboard(t, repo)
-	})
+	forEachStore(t, checkDashboard)
 }
 func checkDashboard(t *testing.T, repo ports.Repository) {
 	t.Helper()

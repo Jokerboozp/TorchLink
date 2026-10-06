@@ -192,7 +192,10 @@ func TestRoleDeviceScopeResolution(t *testing.T) {
 }
 
 func TestDeviceScopeHTTPIsolation(t *testing.T) {
-	repo := memory.NewRepository()
+	forEachStore(t, checkDeviceScopeHTTPIsolation)
+}
+
+func checkDeviceScopeHTTPIsolation(t *testing.T, repo ports.Repository) {
 	ctx := context.Background()
 	now := time.Now().UnixMilli()
 	cfg := config.Load()
