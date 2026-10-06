@@ -71,19 +71,29 @@ INSERT INTO alarm_ai_analysis(alarm_id,body) VALUES
 		t.Fatal(err)
 	}
 
+	// Unmatched legacy analyses are kept aside, so the alarm foreign key holds
+	// for every remaining row.
 	for alarmID, wantTenant := range map[string]string{
 		"alarm_a":         "tenant_a",
 		"alarm_b":         "tenant_b",
 		"alarm_ambiguous": "__legacy_orphaned__",
 		"alarm_orphan":    "__legacy_orphaned__",
 	} {
+		table := "alarm_ai_analysis"
+		if wantTenant == "__legacy_orphaned__" {
+			table = "alarm_ai_analysis_orphaned"
+		}
 		var got string
-		if err = pool.QueryRow(ctx, `SELECT tenant_id FROM alarm_ai_analysis WHERE alarm_id=$1`, alarmID).Scan(&got); err != nil {
-			t.Fatal(err)
+		if err = pool.QueryRow(ctx, `SELECT tenant_id FROM `+table+` WHERE alarm_id=$1`, alarmID).Scan(&got); err != nil {
+			t.Fatal(table, alarmID, err)
 		}
 		if got != wantTenant {
 			t.Fatalf("alarm %s migrated to tenant %q, want %q", alarmID, got, wantTenant)
 		}
+	}
+	var validated bool
+	if err = pool.QueryRow(ctx, `SELECT count(*) = 2 AND bool_and(convalidated) FROM pg_constraint WHERE conname IN ('alarm_ai_analysis_alarm_fk','alarm_analysis_job_alarm_fk') AND conrelid IN ('alarm_ai_analysis'::regclass,'alarm_analysis_job'::regclass)`).Scan(&validated); err != nil || !validated {
+		t.Fatalf("alarm foreign keys must be validated: %v %v", validated, err)
 	}
 	if _, err = pool.Exec(ctx, `INSERT INTO alarm_ai_analysis(tenant_id,alarm_id,body) VALUES('tenant_a','alarm_ambiguous','{}'),('tenant_b','alarm_ambiguous','{}')`); err != nil {
 		t.Fatalf("composite tenant/alarm primary key was not installed: %v", err)
