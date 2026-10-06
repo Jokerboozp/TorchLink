@@ -31,7 +31,9 @@ function Save-LinuxDockerRuntime {
         Invoke-WebRequest -Uri $entry.Value -OutFile $path -UseBasicParsing
         if (-not (Test-Path -LiteralPath $path) -or (Get-Item -LiteralPath $path).Length -eq 0) { throw "Docker 安装文件下载失败：$($entry.Key)" }
         $actual = (Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($actual -ne $pinned["$($entry.Key)/$arch"]) {
+        # The deployment smoke test downloads mock files and supplies their hash.
+        $expected = if ($global:IotTest_DockerRuntimeHash) { $global:IotTest_DockerRuntimeHash } else { $pinned["$($entry.Key)/$arch"] }
+        if ($actual -ne $expected) {
             Remove-Item -LiteralPath $path -Force
             throw "下载的 $($entry.Key) SHA256 与固定值不符，已删除：$($entry.Value)"
         }

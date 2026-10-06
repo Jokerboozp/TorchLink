@@ -96,10 +96,16 @@ if (@($allServices | ForEach-Object { $_.Trim() }) -contains 'zlmediakit') { $bu
 $pullServices = @($allServices | ForEach-Object { $_.Trim() } | Where-Object { $_ -and $_ -notin $buildServices -and $_ -ne 'capacity' })
 Write-Host '拉取运行依赖镜像……'
 Invoke-DockerChecked -Arguments ($compose + @('pull') + $pullServices)
+# Keep the images the running services use so a failed upgrade can go back.
+$rollbackCommands = Save-DeploymentRollback -Tag ("prev-" + (Get-Date -Format 'yyyyMMddHHmmss')) -Compose $compose -Services $buildServices
 Write-Host '构建 API、前端、备份服务和知识库模型镜像……'
 Invoke-DockerChecked -Arguments ($compose + @('build', '--pull') + $buildServices)
 Write-Host '启动服务……'
-Invoke-DockerChecked -Arguments ($compose + @('up', '-d', '--no-build', '--pull', 'never'))
+& docker @($compose + @('up', '-d', '--no-build', '--pull', 'never', '--wait', '--wait-timeout', "$HealthTimeoutSeconds"))
+if ($LASTEXITCODE -ne 0) {
+    Write-DeploymentRollback -Commands $rollbackCommands -Compose $compose
+    throw "Docker 命令失败，退出码 $LASTEXITCODE。"
+}
 if ($Video -eq 'off') {
     # Profile services are not removed by up; stop a media server left from an earlier deployment.
     Invoke-DockerChecked -Arguments ($compose + @('--profile', 'video', 'rm', '-sf', 'zlmediakit'))
@@ -131,5 +137,6 @@ Wait-DeploymentHttp -Url "http://127.0.0.1:$harnessPort/health" -TimeoutSeconds 
 $harnessModel = Get-DeploymentEnvValue -Path $EnvFile -Key 'IOT_AI_HARNESS_MODEL'
 Write-Host "Harness 已启动；工作流模型为 $harnessModel。"
 Invoke-DockerChecked -Arguments ($compose + @('ps'))
+Remove-OldDeploymentRollback -Commands $rollbackCommands
 Write-Host "在线部署完成：http://127.0.0.1:$webPort/；登录账号和密码查看 $EnvFile 中 IOT_ADMIN_USER / IOT_ADMIN_PASSWORD。"
 if ($Capacity -eq 'on') { Write-Host '容量测试模块已部署：在“运维中心 → 容量测试”选择预设即可运行；关闭用 -Capacity off 或 scripts\capacity-module.ps1 disable。' }

@@ -121,6 +121,60 @@ run_docker() {
   docker "$@" || { local result=$?; printf 'Docker 命令失败，退出码 %s。\n' "$result" >&2; return "$result"; }
 }
 
+# deployment_image_repository strips the tag from an image reference; a
+# registry port such as host:5000/name is kept.
+deployment_image_repository() {
+  local image="${1%%@*}"
+  case "${image##*/}" in *:*) printf '%s' "${image%:*}";; *) printf '%s' "$image";; esac
+}
+
+# tag_deployment_rollback TAG COMPOSE_ARGS... -- SERVICES... tags the image each
+# running container of SERVICES uses as <repository>:TAG and prints the
+# commands that put it back. A first deployment has nothing to keep.
+tag_deployment_rollback() {
+  local tag="$1" service container id name repo
+  shift
+  local -a compose=()
+  while [ "$#" -gt 0 ] && [ "$1" != -- ]; do compose+=("$1"); shift; done
+  [ "$#" -gt 0 ] && shift
+  for service in "$@"; do
+    container="$(docker "${compose[@]}" ps -a -q "$service" 2>/dev/null | head -n 1)" || true
+    [ -n "$container" ] || continue
+    read -r id name < <(docker inspect --format '{{.Image}} {{.Config.Image}}' "$container" 2>/dev/null) || continue
+    [ -n "${id:-}" ] && [ -n "${name:-}" ] || continue
+    repo="$(deployment_image_repository "$name")"
+    if docker image tag "$id" "$repo:$tag" >/dev/null 2>&1; then
+      printf 'docker image tag %s:%s %s\n' "$repo" "$tag" "$name"
+    fi
+  done
+}
+
+# print_deployment_rollback COMMANDS COMPOSE_ARGS... explains a failed start.
+print_deployment_rollback() {
+  local commands="$1"
+  shift
+  echo '服务未在时限内全部启动或通过健康检查。用相同的 Compose 项目和配置参数检查 ps / logs。' >&2
+  [ -n "$commands" ] || return 0
+  echo '如需回到本次部署前的镜像，依次执行：' >&2
+  printf '%s\n' "$commands" >&2
+  printf 'docker %s up -d --no-build --pull never\n' "$(printf '%q ' "$@")" >&2
+  echo '数据库迁移只向前执行：新版本已完成迁移时旧镜像可能无法启动，需按 docs/OPERATIONS.md 用升级前的整库备份恢复。' >&2
+}
+
+# prune_deployment_rollback COMMANDS keeps the two newest prev-* tags of each
+# repository named in COMMANDS so old images do not accumulate.
+prune_deployment_rollback() {
+  local line repo old
+  while IFS= read -r line; do
+    [ -n "$line" ] || continue
+    repo="${line#docker image tag }"
+    repo="$(deployment_image_repository "${repo%% *}")"
+    while IFS= read -r old; do
+      [ -n "$old" ] && docker image rm "$repo:$old" >/dev/null 2>&1 || true
+    done < <(docker image ls --format '{{.Tag}}' "$repo" 2>/dev/null | grep '^prev-' | sort -r | tail -n +3)
+  done <<< "$1"
+}
+
 wait_deployment_http() {
   local url="$1" deadline=$((SECONDS + ${2:-180}))
   command -v curl >/dev/null 2>&1 || { echo '健康检查需要 curl，请先安装。' >&2; return 1; }

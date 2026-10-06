@@ -128,10 +128,15 @@ while IFS= read -r service; do
 done <<< "$services"
 echo '拉取运行依赖镜像……'
 run_docker "${compose[@]}" pull "${pull_services[@]}"
+# Keep the images the running services use so a failed upgrade can go back.
+rollback_commands="$(tag_deployment_rollback "prev-$(date +%Y%m%d%H%M%S)" "${compose[@]}" -- "${build_services[@]}")"
 echo '构建 API、前端、备份服务和知识库模型镜像……'
 run_docker "${compose[@]}" build --pull "${build_services[@]}"
 echo '启动服务……'
-run_docker "${compose[@]}" up -d --no-build --pull never
+if ! run_docker "${compose[@]}" up -d --no-build --pull never --wait --wait-timeout "$health_timeout"; then
+  print_deployment_rollback "$rollback_commands" "${compose[@]}"
+  exit 1
+fi
 if [ "$video" = off ]; then
   # Profile services are not removed by up; stop a media server left from an earlier deployment.
   run_docker "${compose[@]}" --profile video rm -sf zlmediakit
@@ -158,6 +163,7 @@ harness_port="$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_PORT)"
 wait_deployment_http "http://127.0.0.1:${harness_port:-8091}/health" "$health_timeout"
 printf 'Harness 已启动；工作流模型为 %s。\n' "${model:-$(get_deployment_env_value "$env_file" IOT_AI_HARNESS_MODEL)}"
 run_docker "${compose[@]}" ps
+prune_deployment_rollback "$rollback_commands"
 printf '在线部署完成：http://127.0.0.1:%s/；登录账号和密码查看 %s 中 IOT_ADMIN_USER / IOT_ADMIN_PASSWORD。\n' "$web_port" "$env_file"
 [ "$capacity" = on ] && echo '容量测试模块已部署：在“运维中心 → 容量测试”选择预设即可运行；关闭用 --capacity off 或 scripts/capacity-module.sh disable。'
 true

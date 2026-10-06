@@ -230,11 +230,14 @@ echo 'PASS local setup bootstraps Docker before checking availability'
 )
 export TEST_COMPOSE="${1:?Pass the standalone docker-compose executable path}"
 export TEST_CALLS="$test_root/calls.log" TEST_HTTP="$test_root/http.log"
-export TEST_FAIL_BUILD=0 TEST_MISSING_IMAGE=0
+export TEST_FAIL_BUILD=0 TEST_MISSING_IMAGE=0 TEST_RUNNING=0 TEST_FAIL_UP=0
 : > "$TEST_CALLS"; : > "$TEST_HTTP"
 while IFS= read -r key; do
   case "$key" in IOT_*|COMPOSE_*|POSTGRES_*|REDIS_*|CLICKHOUSE_*|MINIO_*|EMQX_*|GRAFANA_*|DEEPSEEK_*) unset "$key";; esac
 done < <(compgen -e)
+# Docker runtime downloads are checked against pinned SHA256; the mock files get their own.
+IOT_TEST_DOCKER_RUNTIME_HASH="$(printf 'mock runtime' | { sha256sum 2>/dev/null || shasum -a 256; } | awk '{print $1}')"
+export IOT_TEST_DOCKER_RUNTIME_HASH
 
 # Adding management observation must preserve existing credentials, and must
 # reject incomplete pairs before making a previously working environment worse.
@@ -276,6 +279,12 @@ docker() {
     "$TEST_COMPOSE" "${@:2}"
   elif [ "$TEST_FAIL_BUILD" = 1 ] && [[ " $* " == *' build '* ]]; then
     return 42
+  elif [ "${TEST_RUNNING:-0}" = 1 ] && [ "$1" = compose ] && [[ " $* " == *' ps -a -q platform-api '* ]]; then
+    printf 'container-api\n'
+  elif [ "${TEST_RUNNING:-0}" = 1 ] && [ "$1" = inspect ]; then
+    printf 'sha256:previous iot-platform-api:local\n'
+  elif [ "${TEST_FAIL_UP:-0}" = 1 ] && [[ " $* " == *' up -d --no-build --pull never --wait '* ]]; then
+    return 44
   elif [ "$TEST_MISSING_IMAGE" = 1 ] && [ "$1" = image ]; then
     return 43
   elif [ "$1" = save ]; then
@@ -504,11 +513,20 @@ cmp "$test_root/online-original" "$test_root/.env.online"
 assert_call 'build --pull platform-api platform-web backup-service'
 grep -q '8081/health/ready' "$TEST_HTTP"
 grep -q '8092/health/ready' "$TEST_HTTP"
+assert_call 'up -d --no-build --pull never --wait --wait-timeout 180'
 TEST_FAIL_BUILD=1
 : > "$TEST_CALLS"
 if bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online"; then echo 'Build failure ignored' >&2; exit 1; fi
 assert_no_call ' up '
 TEST_FAIL_BUILD=0
+# An upgrade keeps the running images and prints how to go back when startup fails.
+: > "$TEST_CALLS"
+TEST_RUNNING=1 TEST_FAIL_UP=1
+if bash "$scripts/deploy-online.sh" --env-file "$test_root/.env.online" 2> "$test_root/rollback.err"; then echo 'Failed startup ignored' >&2; exit 1; fi
+TEST_RUNNING=0 TEST_FAIL_UP=0
+assert_call 'image tag sha256:previous iot-platform-api:prev-[0-9]{14}'
+grep -Eq '^docker image tag iot-platform-api:prev-[0-9]{14} iot-platform-api:local$' "$test_root/rollback.err"
+grep -q 'up -d --no-build --pull never$' "$test_root/rollback.err"
 echo 'PASS online: build, health checks, AI, repeatability and failure handling'
 
 : > "$TEST_CALLS"

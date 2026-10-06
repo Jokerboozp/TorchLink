@@ -214,6 +214,55 @@ function Invoke-DockerChecked {
     if ($LASTEXITCODE -ne 0) { throw "Docker 命令失败，退出码 $LASTEXITCODE。" }
 }
 
+# Strips the tag from an image reference; a registry port such as host:5000/name is kept.
+function Get-DeploymentImageRepository {
+    param([Parameter(Mandatory)][string]$Image)
+    $image = ($Image -split '@')[0]
+    $last = ($image -split '/')[-1]
+    if ($last.Contains(':')) { return $image.Substring(0, $image.LastIndexOf(':')) }
+    return $image
+}
+
+# Tags the image each running container of the services uses as <repository>:<Tag>
+# and returns the commands that put it back. A first deployment has nothing to keep.
+function Save-DeploymentRollback {
+    param([Parameter(Mandatory)][string]$Tag, [Parameter(Mandatory)][string[]]$Compose, [Parameter(Mandatory)][string[]]$Services)
+    $commands = @()
+    foreach ($service in $Services) {
+        $container = @(& docker @($Compose + @('ps', '-a', '-q', $service)) 2>$null | Select-Object -First 1)
+        if ($LASTEXITCODE -ne 0 -or -not $container -or -not "$($container[0])".Trim()) { continue }
+        $info = "$(& docker inspect --format '{{.Image}} {{.Config.Image}}' "$($container[0])".Trim() 2>$null)".Trim()
+        if ($LASTEXITCODE -ne 0 -or -not $info) { continue }
+        $id, $name = $info -split ' ', 2
+        if (-not $id -or -not $name) { continue }
+        $repository = Get-DeploymentImageRepository -Image $name
+        & docker image tag $id "${repository}:$Tag" *> $null
+        if ($LASTEXITCODE -eq 0) { $commands += "docker image tag ${repository}:$Tag $name" }
+    }
+    return ,$commands
+}
+
+function Write-DeploymentRollback {
+    param([string[]]$Commands, [Parameter(Mandatory)][string[]]$Compose)
+    Write-Warning '服务未在时限内全部启动或通过健康检查。用相同的 Compose 项目和配置参数检查 ps / logs。'
+    if (-not $Commands -or $Commands.Count -eq 0) { return }
+    Write-Warning '如需回到本次部署前的镜像，依次执行：'
+    foreach ($command in $Commands) { Write-Host $command }
+    Write-Host ('docker ' + (($Compose | ForEach-Object { if ($_ -match '\s') { "'$_'" } else { $_ } }) -join ' ') + ' up -d --no-build --pull never')
+    Write-Warning '数据库迁移只向前执行：新版本已完成迁移时旧镜像可能无法启动，需按 docs/OPERATIONS.md 用升级前的整库备份恢复。'
+}
+
+# Keeps the two newest prev-* tags of each repository named in the commands.
+function Remove-OldDeploymentRollback {
+    param([string[]]$Commands)
+    foreach ($command in @($Commands)) {
+        if (-not $command) { continue }
+        $repository = Get-DeploymentImageRepository -Image (($command -replace '^docker image tag ', '') -split ' ')[0]
+        $old = @(& docker image ls --format '{{.Tag}}' $repository 2>$null | Where-Object { $_ -like 'prev-*' } | Sort-Object -Descending | Select-Object -Skip 2)
+        foreach ($tag in $old) { & docker image rm "${repository}:$tag" *> $null }
+    }
+}
+
 function Wait-DeploymentHttp {
     param([Parameter(Mandatory)][string]$Url, [int]$TimeoutSeconds = 180)
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)

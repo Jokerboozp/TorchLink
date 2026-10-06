@@ -47,6 +47,11 @@ function global:Invoke-WebRequest {
     if ($OutFile) { [IO.File]::WriteAllText($OutFile, 'mock runtime'); return }
     return [pscustomobject]@{StatusCode=200}
 }
+# Docker runtime downloads are checked against pinned SHA256; the mock files get their own.
+$mockRuntime = Join-Path ([IO.Path]::GetTempPath()) "iot-mock-runtime-$([guid]::NewGuid().ToString('N'))"
+[IO.File]::WriteAllText($mockRuntime, 'mock runtime')
+$global:IotTest_DockerRuntimeHash = (Get-FileHash -LiteralPath $mockRuntime -Algorithm SHA256).Hash.ToLowerInvariant()
+Remove-Item -LiteralPath $mockRuntime -Force
 function global:go { $global:IotTest_calls.Add(@('go') + $args); $global:LASTEXITCODE = 0 }
 function global:npm.cmd { $global:IotTest_calls.Add(@('npm') + $args); $global:LASTEXITCODE = 0 }
 function global:npm { $global:IotTest_calls.Add(@('npm') + $args); $global:LASTEXITCODE = 0 }
@@ -390,6 +395,7 @@ try {
     Remove-Item Function:Invoke-IotTestHarnessSource -ErrorAction SilentlyContinue
     foreach ($key in $savedEnv.Keys) { [Environment]::SetEnvironmentVariable($key, $savedEnv[$key], 'Process') }
     Remove-Item Function:\docker,Function:\Invoke-WebRequest,Function:\go,Function:\npm.cmd,Function:\npm -ErrorAction SilentlyContinue
+    Remove-Variable -Scope Global -Name IotTest_DockerRuntimeHash -ErrorAction SilentlyContinue
     # Test fixtures contain random credentials, never real environment values.
     $resolved = [IO.Path]::GetFullPath($testRoot)
     $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar

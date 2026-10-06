@@ -61,12 +61,14 @@ docker_runtime_pinned_hash() {
 # Downloads one pinned file and refuses it unless its SHA256 matches.
 docker_runtime_fetch_pinned() {
   local url="$1" directory="$2" name="$3" arch="$4" expected actual
-  expected="$(docker_runtime_pinned_hash "$name" "$arch")" || { echo "没有 $name ($arch) 的固定校验值。" >&2; return 1; }
+  # The deployment smoke test downloads mock files and supplies their hash.
+  expected="${IOT_TEST_DOCKER_RUNTIME_HASH:-}"
+  [ -n "$expected" ] || expected="$(docker_runtime_pinned_hash "$name" "$arch")" || { echo "没有 $name ($arch) 的固定校验值。" >&2; return 1; }
   docker_runtime_download "$url" "$directory/$name" || return 1
   actual="$(docker_runtime_hash "$directory/$name")"
   if [ "$actual" != "$expected" ]; then
     rm -f "$directory/$name"
-    echo "下载的 $name SHA256 与固定值不符，已删除：$url" >&2
+    echo "下载的 $name SHA256 与固定值不符（实际 $actual，应为 $expected），已删除：$url" >&2
     return 1
   fi
   printf '%s\n' "$actual" > "$directory/$name.sha256"
