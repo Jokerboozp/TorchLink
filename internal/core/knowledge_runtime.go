@@ -27,7 +27,7 @@ type KnowledgeRuntime struct {
 	active       ports.KnowledgeBase
 	factory      KnowledgeFactory
 	store        ports.EmbeddingConfigStore
-	repo         ports.Repository
+	repo         KnowledgeDocuments
 	locks        ports.KnowledgeReindexStore
 	jobs         ports.KnowledgeDocumentJobs
 	archive      ports.Archive
@@ -41,7 +41,7 @@ type KnowledgeRuntime struct {
 	}
 }
 
-func NewKnowledgeRuntime(cfg, activeCfg ports.EmbeddingConfig, factory KnowledgeFactory, store ports.EmbeddingConfigStore, repo ports.Repository, locks ports.KnowledgeReindexStore, jobs ports.KnowledgeDocumentJobs, archive ports.Archive, log interface {
+func NewKnowledgeRuntime(cfg, activeCfg ports.EmbeddingConfig, factory KnowledgeFactory, store ports.EmbeddingConfigStore, repo KnowledgeDocuments, locks ports.KnowledgeReindexStore, jobs ports.KnowledgeDocumentJobs, archive ports.Archive, log interface {
 	Info(string, ...any)
 	Warn(string, ...any)
 	Error(string, ...any)

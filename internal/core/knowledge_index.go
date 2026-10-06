@@ -78,12 +78,19 @@ type KnowledgeIndexStatus struct {
 	Error  string `json:"error,omitempty"`
 }
 
+// KnowledgeDocuments is the repository part knowledge indexing uses: it saves
+// the index state of documents and removes documents with their resources.
+type KnowledgeDocuments interface {
+	SaveKnowledgeDoc(context.Context, model.KnowledgeDoc) error
+	DeleteResource(ctx context.Context, tenant, kind, id string) error
+}
+
 // KnowledgeReindexer re-embeds every stored document from its archived
 // original when the persistent index was built with another embedding model.
 type KnowledgeReindexer struct {
 	KB      ports.KnowledgeBase
 	Store   ports.KnowledgeReindexStore
-	Repo    ports.Repository
+	Repo    KnowledgeDocuments
 	Archive ports.Archive
 	Log     interface {
 		Info(string, ...any)

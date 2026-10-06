@@ -265,7 +265,7 @@ func (r *changedCompatibilityRepository) SaveOnboarding(ctx context.Context, b m
 
 func TestCompatibleRegistrationUsesAtomicPreparedSnapshot(t *testing.T) {
 	api, repo, call := taskHTTPFixture(t)
-	api.onboarding.Repo = &changedCompatibilityRepository{Repository: api.onboarding.Repo, t: t}
+	api.onboarding.Repo = &changedCompatibilityRepository{Repository: api.onboarding.Repo.(ports.Repository), t: t}
 	w := call("alice", "POST", "/api/v1/device-registry", map[string]any{"id": "changed", "name": "并发配置", "productId": "product"})
 	if w.Code != 409 {
 		t.Fatal("concurrent configuration not rejected", w.Code, w.Body.String())

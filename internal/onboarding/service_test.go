@@ -582,7 +582,7 @@ func TestCommandConcurrencyAndEarlyReply(t *testing.T) {
 		if json.Unmarshal(b, &v) != nil {
 			t.Error("invalid envelope")
 		}
-		return s.Repo.CompleteDeviceCommand(ctx, "t", "d", "cmd1", map[string]any{"success": true}, 2)
+		return s.Repo.(ports.DeviceCommands).CompleteDeviceCommand(ctx, "t", "d", "cmd1", map[string]any{"success": true}, 2)
 	}
 	q := model.DeviceCommand{Confirmed: true, ID: "cmd1", Type: "reboot", Data: map[string]any{}}
 	var wg sync.WaitGroup
@@ -599,7 +599,7 @@ func TestCommandConcurrencyAndEarlyReply(t *testing.T) {
 	if sent.Load() != 1 {
 		t.Fatal("duplicate physical dispatch", sent.Load())
 	}
-	v, _, e := s.Repo.ListDeviceCommands(ctx, "t", "d", 20, 0)
+	v, _, e := s.Repo.(ports.Repository).ListDeviceCommands(ctx, "t", "d", 20, 0)
 	if e != nil || len(v) != 1 || v[0].Status != "SUCCEEDED" {
 		t.Fatal(v, e)
 	}

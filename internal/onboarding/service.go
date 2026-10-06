@@ -15,7 +15,6 @@ import (
 
 	"iot-platform/internal/model"
 	"iot-platform/internal/parser"
-	"iot-platform/internal/ports"
 	"iot-platform/internal/ratelimit"
 )
 
@@ -31,7 +30,7 @@ var ErrUnavailable = errors.New("device credential check temporarily unavailable
 type Service struct {
 	RevokeUsername func(context.Context, string) error
 	PublishCommand func(context.Context, string, []byte, byte, bool) error
-	Repo           ports.Repository
+	Repo           Store
 	Parsers        *parser.Registry
 	Root           string
 	AllowedCIDRs   []string
@@ -46,7 +45,7 @@ type Service struct {
 	PublicMQTT      string
 }
 
-func New(repo ports.Repository, p *parser.Registry, root string, cidrs []string) *Service {
+func New(repo Store, p *parser.Registry, root string, cidrs []string) *Service {
 	return &Service{Repo: repo, Parsers: p, Root: root, AllowedCIDRs: cidrs, Limiter: ratelimit.NewLocal()}
 }
 
