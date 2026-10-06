@@ -1,9 +1,12 @@
 <script setup>
 import { useMediaQuery } from '../composables/useMediaQuery'
 import { createClientId } from '../clientId'
-import CommandValueInput from './CommandValueInput.vue'
 import LinkedCameras from './LinkedCameras.vue'
 import OnboardingDiagnosis from './OnboardingDiagnosis.vue'
+import DeviceChildrenPanel from './device-connection/DeviceChildrenPanel.vue'
+import DeviceCommandsPanel from './device-connection/DeviceCommandsPanel.vue'
+import DeviceCredentialsPanel from './device-connection/DeviceCredentialsPanel.vue'
+import DeviceSignalsPanel from './device-connection/DeviceSignalsPanel.vue'
 import { can } from '../permissions'
 import { commandBody } from '../commandForm'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
@@ -11,7 +14,6 @@ import { UiMessageBox, UiMessage } from '../ui/feedback.js'
 import { api, formatTime, notifyError, pretty, session } from '../api'
 import { transportLabel, statusLabel } from '../presentation'
 import {
-  commandStatuses,
   alarmType,
   alarmLevel,
   alarmStatuses,
@@ -56,12 +58,6 @@ async function readVerification(current) {
   }
 }
 const signals = ref([])
-const signalNames = {
-  STUCK_VALUE: '数值长时间不变',
-  REPORT_DRIFT: '上报周期偏离',
-  OUT_OF_RANGE: '数值超出有效范围',
-  PEER_OUTLIER: '与同型号设备差异显著'
-}
 async function loadSignals(current) {
   try {
     const result = await api(`${base()}/signals`, { signal: controller.signal })
@@ -101,9 +97,6 @@ const isParent = computed(
 const standardAccess = computed(() => Boolean(data.value?.accessInfo && !data.value?.parent))
 const httpAccess = computed(() => data.value?.accessInfo?.kind === 'managed' || data.value?.connector === 'HTTP')
 const childTypes = computed(() => data.value?.profile?.childProducts || [])
-const childDialog = ref(false),
-  childSaving = ref(false)
-const childForm = reactive({ type: '', address: '', name: '' })
 const hasSessions = computed(() => Boolean(data.value?.parent || data.value?.profile?.mode === 'listener' || data.value?.sessions?.length))
 const properties = computed(() =>
   Object.entries(data.value?.latestProperties?.[0]?.properties || {}).map(([key, value]) => ({ key, value }))
@@ -259,27 +252,9 @@ async function send() {
     )
   }, can('POST /api/v2/device-access-profiles/:id/devices/:deviceId/commands'))
 }
-function openChildDialog() {
-  Object.assign(childForm, { type: childTypes.value[0]?.type || '', address: '', name: '' })
-  childDialog.value = true
-}
-async function addChild() {
-  if (childSaving.value) return
-  if (!childForm.type || !childForm.address.trim()) return UiMessage.warning('请选择子设备类型并填写地址')
-  childSaving.value = true
-  try {
-    const result = await api(`${base()}/children`, {
-      method: 'POST',
-      body: JSON.stringify({ type: childForm.type, address: childForm.address.trim(), name: childForm.name.trim() })
-    })
-    childDialog.value = false
-    UiMessage.success(result.reused ? '该地址的子设备此前已登记' : '子设备已添加')
-    await loadList('children')
-  } catch (cause) {
-    notifyError(cause)
-  } finally {
-    childSaving.value = false
-  }
+function changeListPage(key, page) {
+  lists[key].page = page
+  loadList(key)
 }
 watch(
   () => props.deviceId,
@@ -429,54 +404,15 @@ onBeforeUnmount(() => {
           </p>
         </section>
 
-        <section v-if="isParent" class="connection-section device-children" v-loading="lists.children.loading">
-          <div class="section-heading">
-            <h3>子设备（{{ lists.children.total }}）</h3>
-            <ui-button
-              v-if="childTypes.length"
-              v-permission="'POST /api/v1/device-registry/:id/children'"
-              size="small"
-              @click="openChildDialog"
-              >添加子设备</ui-button
-            >
-          </div>
-          <p v-if="!childTypes.length">接入点尚未配置子设备类型。请在设备模板的“公共连接”中添加子设备映射后，再按地址添加子设备。</p>
-          <ui-alert v-if="lists.children.error" title="子设备加载失败" :description="lists.children.error" type="error" :closable="false" />
-          <ui-table v-else :data="lists.children.items" border empty-text="暂无子设备，等待主设备上报登记信息">
-            <ui-table-column prop="device.name" label="名称" min-width="140" /><ui-table-column
-              prop="device.childAddress"
-              label="地址"
-              min-width="90"
-            />
-            <ui-table-column prop="productName" label="设备模板" min-width="130" />
-            <ui-table-column label="协议" min-width="150"
-              ><template #default="{ row }"
-                >{{ row.binding?.protocolId || '未配置' }} · {{ row.binding?.version || '—' }}</template
-              ></ui-table-column
-            >
-            <ui-table-column label="最近上报" min-width="170"
-              ><template #default="{ row }">{{ formatTime(row.runtimeState?.lastSeenAt) }}</template></ui-table-column
-            >
-            <ui-table-column label="状态" min-width="95"
-              ><template #default="{ row }">{{
-                label(businessStatuses, row.runtimeState?.businessStatus) || '未知'
-              }}</template></ui-table-column
-            >
-            <ui-table-column label="操作" width="110" fixed="right"
-              ><template #default="{ row }"
-                ><ui-button link type="primary" @click="emit('device', row.device.id)">查看子设备</ui-button></template
-              ></ui-table-column
-            >
-          </ui-table>
-          <ui-pagination
-            v-if="lists.children.total > 20"
-            v-model:current-page="lists.children.page"
-            :page-size="20"
-            :total="lists.children.total"
-            layout="prev, pager, next"
-            @current-change="loadList('children')"
-          />
-        </section>
+        <DeviceChildrenPanel
+          v-if="isParent"
+          :list="lists.children"
+          :child-types="childTypes"
+          :base="base()"
+          @page="page => changeListPage('children', page)"
+          @added="loadList('children')"
+          @device="id => emit('device', id)"
+        />
 
         <section v-if="hasSessions" class="connection-section device-sessions">
           <h3>{{ data.parent ? '主设备通信会话' : '在线会话' }}</h3>
@@ -497,18 +433,7 @@ onBeforeUnmount(() => {
           </ui-table>
         </section>
 
-        <section v-if="signals.length" class="connection-section device-signals">
-          <h3>健康信号 <small>按最近一天的上报数据计算，供巡检与研判参考</small></h3>
-          <ul class="signal-list">
-            <li v-for="item in signals" :key="`${item.signalType}:${item.property}`">
-              <ui-tag size="small" :type="item.strength >= 0.5 ? 'warning' : 'info'">{{
-                signalNames[item.signalType] || item.signalType
-              }}</ui-tag
-              ><span>{{ item.property || '整机' }}</span
-              ><small>强度 {{ Math.round(item.strength * 100) }}% · {{ formatTime(item.windowEnd) }}</small>
-            </li>
-          </ul>
-        </section>
+        <DeviceSignalsPanel v-if="signals.length" :signals="signals" />
 
         <section class="connection-section device-properties">
           <h3>
@@ -610,161 +535,41 @@ onBeforeUnmount(() => {
           </ui-table>
         </section>
 
-        <section
+        <DeviceCommandsPanel
           v-if="operations.length && (data.connector === 'MQTT' || (data.profile && data.canCommand))"
-          class="connection-section device-commands"
-        >
-          <h3>设备控制</h3>
-          <p>已发送不代表设备执行成功。请核对发送状态和设备应答；结果未知时不要重复发送。</p>
-          <template v-if="canCommand">
-            <ui-form label-position="top" :disabled="actionBusy || loading">
-              <ui-form-item label="设备命令"
-                ><ui-select v-model="commandType" aria-label="设备命令" placeholder="选择设备支持的命令"
-                  ><ui-option
-                    v-for="c in operations"
-                    :key="c.identifier"
-                    :value="c.identifier"
-                    :label="c.name || c.identifier" /></ui-select
-              ></ui-form-item>
-              <ui-form-item
-                v-for="field in selectedOperation?.fields || []"
-                :key="`${commandType}:${field.identifier}`"
-                :label="`${field.name || field.identifier}${field.unit ? `（${field.unit}）` : ''}`"
-                :required="field.required"
-              >
-                <CommandValueInput
-                  v-model="commandValues[field.identifier]"
-                  :kind="field.dataType"
-                  :label="field.name || field.identifier"
-                />
-              </ui-form-item>
-              <p v-if="selectedOperation && !selectedOperation.fields?.length">此命令无需参数。</p>
-            </ui-form>
-            <ui-button
-              v-permission="'POST /api/v1/device-registry/:id/commands'"
-              v-if="data.connector === 'MQTT'"
-              :disabled="loading || !data.mqttCommandAvailable || !data.credentialEnabled || !selectedOperation"
-              :loading="actionBusy"
-              @click="sendMQTT"
-              >执行命令</ui-button
-            >
-            <ui-button
-              v-permission="'POST /api/v2/device-access-profiles/:id/devices/:deviceId/commands'"
-              v-else
-              :loading="actionBusy"
-              :disabled="loading || !data.profile.enabled || !data.sessions?.length || !selectedOperation"
-              @click="send"
-              >执行命令</ui-button
-            >
-            <p v-if="data.connector !== 'MQTT' && (!data.profile.enabled || !data.sessions?.length)">
-              当前没有在线会话或接入点已停用，暂时不能下发命令。
-            </p>
-            <ui-button v-if="pendingCommand || pendingProtocol" class="section-feedback" :disabled="actionBusy" @click="newCommand"
-              >开始一条新命令</ui-button
-            >
-          </template>
-          <ui-alert
-            v-if="commandResult?.lastError"
-            :title="label(commandStatuses, String(commandResult.status || '').toUpperCase())"
-            :description="commandResult.lastError"
-            type="warning"
-            :closable="false"
-          />
-          <ui-descriptions v-if="commandResult" :column="1" border class="section-feedback"
-            ><ui-descriptions-item label="发送状态">{{
-              label(commandStatuses, String(commandResult.status || '').toUpperCase())
-            }}</ui-descriptions-item
-            ><ui-descriptions-item label="设备应答">{{
-              commandResult.reply || commandResult.response
-                ? pretty(commandResult.reply || commandResult.response)
-                : commandResult.rawMessageId
-                  ? `已收到应答，原始报文：${commandResult.rawMessageId}`
-                  : '尚无应答内容'
-            }}</ui-descriptions-item></ui-descriptions
-          >
-          <ui-button v-if="commandResult?.rawMessageId" class="section-feedback" @click="showCommandReply">查看应答报文</ui-button>
-          <pre v-if="commandReply">{{ pretty(commandReply) }}</pre>
-          <template v-if="data.connector === 'MQTT'">
-            <ui-alert
-              v-if="lists.commands.error"
-              title="命令记录加载失败"
-              :description="lists.commands.error"
-              type="error"
-              :closable="false"
-            />
-            <ui-table v-else :data="lists.commands.items" border empty-text="暂无命令记录"
-              ><ui-table-column prop="type" label="命令" min-width="120" /><ui-table-column label="状态" min-width="170"
-                ><template #default="{ row }">{{ label(commandStatuses, row.status) }}</template></ui-table-column
-              ><ui-table-column label="回执" min-width="180"
-                ><template #default="{ row }"
-                  ><span class="field-value">{{ pretty(row.reply || {}) }}</span></template
-                ></ui-table-column
-              ></ui-table
-            >
-            <ui-pagination
-              v-if="lists.commands.total > 20"
-              v-model:current-page="lists.commands.page"
-              :page-size="20"
-              :total="lists.commands.total"
-              layout="prev, pager, next"
-              @current-change="loadList('commands')"
-            />
-          </template>
-        </section>
+          v-model:type="commandType"
+          v-model:values="commandValues"
+          :data="data"
+          :operations="operations"
+          :selected-operation="selectedOperation"
+          :list="lists.commands"
+          :can-command="canCommand"
+          :loading="loading"
+          :action-busy="actionBusy"
+          :pending="Boolean(pendingCommand || pendingProtocol)"
+          :command-result="commandResult"
+          :command-reply="commandReply"
+          @send-mqtt="sendMQTT"
+          @send="send"
+          @reset="newCommand"
+          @reply="showCommandReply"
+          @page="page => changeListPage('commands', page)"
+        />
 
-        <section v-if="standardAccess && canManageCredentials" class="connection-section device-credentials">
-          <h3>设备凭据</h3>
-          <p>重新生成后旧凭据立即停用，新密钥仅显示一次。</p>
-          <div class="section-actions">
-            <ui-button
-              v-permission="'DELETE /api/v1/device-registry/:id/credentials'"
-              :disabled="loading || actionBusy || !data.credentialEnabled"
-              @click="disable"
-              >禁用凭据</ui-button
-            ><ui-button v-permission="'POST /api/v1/device-registry/:id/credentials'" :disabled="loading || actionBusy" @click="rotate"
-              >重新生成凭据</ui-button
-            >
-          </div>
-          <pre v-if="credential">仅本次显示，请妥善保存：{{ pretty(credential) }}</pre>
-          <p v-for="revocation in data.revocations" :key="revocation.id">
-            旧凭据消息服务撤销：{{ revocation.status === 'REVOKED' ? '已完成' : '待完成（平台已停用旧凭据）' }}
-          </p>
-        </section>
+        <DeviceCredentialsPanel
+          v-if="standardAccess && canManageCredentials"
+          :data="data"
+          :credential="credential"
+          :disabled="loading || actionBusy"
+          @disable="disable"
+          @rotate="rotate"
+        />
       </template>
     </div>
-    <ui-dialog
-      v-model="childDialog"
-      title="添加子设备"
-      width="min(480px, 94vw)"
-      :close-on-click-modal="false"
-      :close-on-press-escape="!childSaving"
-      :show-close="!childSaving"
-    >
-      <ui-form label-position="top" :disabled="childSaving" @submit.prevent="addChild">
-        <ui-form-item label="子设备类型" required
-          ><ui-select v-model="childForm.type" aria-label="子设备类型"
-            ><ui-option
-              v-for="item in childTypes"
-              :key="item.type"
-              :value="item.type"
-              :label="`${item.type} · 模板 ${item.productId}`" /></ui-select
-        ></ui-form-item>
-        <ui-form-item label="子设备地址" required
-          ><ui-input v-model="childForm.address" placeholder="主设备协议中的子设备地址" aria-label="子设备地址"
-        /></ui-form-item>
-        <ui-form-item label="名称"
-          ><ui-input v-model="childForm.name" maxlength="256" placeholder="留空时按类型和地址生成" aria-label="子设备名称"
-        /></ui-form-item>
-      </ui-form>
-      <p class="child-dialog-hint">子设备沿用主设备的连接，由主设备协议按地址识别。</p>
-      <template #footer
-        ><ui-button :disabled="childSaving" @click="childDialog = false">取消</ui-button
-        ><ui-button type="primary" :loading="childSaving" @click="addChild">添加</ui-button></template
-      >
-    </ui-dialog>
   </ui-drawer>
 </template>
 
+<style scoped src="./device-connection/connection-section.css"></style>
 <style scoped>
 :global(.device-connection-drawer .n-drawer-body-content-wrapper) {
   background: var(--bg);
@@ -798,14 +603,6 @@ onBeforeUnmount(() => {
   font-size: var(--font-size-xs);
   overflow-wrap: anywhere;
 }
-.connection-section {
-  min-width: 0;
-  margin: 0 0 var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-}
 .connection-status-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -833,112 +630,17 @@ onBeforeUnmount(() => {
   line-height: var(--line-height-tight);
   overflow-wrap: anywhere;
 }
-.section-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin-bottom: var(--space-3);
-}
-.section-heading h3 {
-  margin: 0;
-}
-.child-dialog-hint {
-  margin: 0;
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-}
 .connection-subtitle {
   margin: 0 0 10px;
   color: var(--text-strong);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-semibold);
 }
-h3 {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: var(--space-2);
-  margin: 0 0 var(--space-3);
-  color: var(--text-strong);
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-semibold);
-  line-height: 1.5;
-}
-h3 small {
-  color: var(--text-muted);
-  font-size: var(--font-size-xs);
-  font-weight: 400;
-}
-p {
-  margin: 10px 0;
-  color: var(--text-secondary);
-  overflow-wrap: anywhere;
-}
-code,
-.field-value {
-  overflow-wrap: anywhere;
-  word-break: break-word;
-  white-space: pre-wrap;
-}
-.field-value {
-  color: inherit;
-  font: inherit;
-}
-pre {
-  max-height: 320px;
-  margin: var(--space-3) 0 0;
-}
-.section-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-top: var(--space-3);
-}
-.section-feedback,
-.profile-picker,
-.message-detail {
-  margin-top: var(--space-3);
-}
-:deep(.n-descriptions-table) {
-  table-layout: fixed;
-}
-:deep(.n-descriptions-table-header) {
-  width: 120px;
-}
-:deep(.ui-pagination) {
-  margin-top: var(--space-3);
-  justify-content: flex-end;
-}
 @media (max-width: 767px) {
-  .connection-section {
-    padding: var(--space-3);
-    margin-bottom: var(--space-3);
-  }
   .connection-status-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 6px;
     margin-bottom: var(--space-4);
   }
-  :deep(.n-descriptions-table-header) {
-    width: 96px;
-  }
-}
-.signal-list {
-  display: grid;
-  gap: 6px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.signal-list li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-.signal-list small {
-  color: var(--text-muted);
 }
 </style>

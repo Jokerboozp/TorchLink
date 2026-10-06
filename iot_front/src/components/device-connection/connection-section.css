@@ -1,0 +1,84 @@
+/* 设备详情各分区共用：分区卡片、标题、说明、代码与分页。 */
+.connection-section {
+  min-width: 0;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.section-heading h3 {
+  margin: 0;
+}
+h3 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-3);
+  color: var(--text-strong);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.5;
+}
+h3 small {
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  font-weight: 400;
+}
+p {
+  margin: 10px 0;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+code,
+.field-value {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.field-value {
+  color: inherit;
+  font: inherit;
+}
+pre {
+  max-height: 320px;
+  margin: var(--space-3) 0 0;
+}
+.section-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+.section-feedback,
+.profile-picker,
+.message-detail {
+  margin-top: var(--space-3);
+}
+:deep(.n-descriptions-table) {
+  table-layout: fixed;
+}
+:deep(.n-descriptions-table-header) {
+  width: 120px;
+}
+:deep(.ui-pagination) {
+  margin-top: var(--space-3);
+  justify-content: flex-end;
+}
+@media (max-width: 767px) {
+  .connection-section {
+    padding: var(--space-3);
+    margin-bottom: var(--space-3);
+  }
+  :deep(.n-descriptions-table-header) {
+    width: 96px;
+  }
+}

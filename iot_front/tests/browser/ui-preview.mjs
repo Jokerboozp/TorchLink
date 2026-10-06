@@ -135,6 +135,57 @@ const knowledgeDocument = {
   createdAt: now,
   metadata: { chunks: 3, size: 2048 }
 }
+// 设备详情：带子设备、命令、健康信号与在线会话的 MQTT 网关，覆盖详情抽屉的各个分区。
+const connection = {
+  device: { id: 'device-demo', name: '一层走廊烟感', productId: 'product-demo', deviceRole: 'GATEWAY', createdAt: now },
+  product: {
+    name: '烟雾探测器',
+    thingModel: {
+      commands: [
+        {
+          identifier: 'mute',
+          name: '消音',
+          fields: [{ identifier: 'duration', name: '时长', dataType: 'integer', unit: '秒', required: true }]
+        }
+      ]
+    }
+  },
+  connector: 'MQTT',
+  accessInfo: {
+    kind: 'mqtt',
+    mqttBroker: 'mqtt://127.0.0.1:1883',
+    clientId: 'device-demo',
+    username: '示例接入标识',
+    upTopic: 'devices/device-demo/up',
+    downTopic: 'devices/device-demo/down',
+    tokenEndpoint: '/api/v1/device-auth/mqtt-token'
+  },
+  credentialEnabled: true,
+  mqttCommandAvailable: true,
+  connection: { businessStatus: 'ONLINE', connectionStatus: 'CONNECTED', dataStatus: 'NORMAL', lastSeenAt: now, lastConnectAt: now },
+  ingest: { rawReceived: true, parsed: true, rawMessageId: 'raw-demo' },
+  protocolId: 'json',
+  protocolVersion: '1',
+  profile: { id: 'profile-demo', enabled: true, runtimeStatus: 'RUNNING', childProducts: [{ type: 'smoke', productId: 'product-demo' }] },
+  sessions: [{ profileId: 'profile-demo', remoteAddress: '10.0.0.8:50211', protocolId: 'json', protocolVersion: '1', lastSeenAt: now }],
+  latestProperties: [{ timestamp: now, properties: { temperature: 25, smoke: false } }],
+  latest: { messageId: 'msg_raw-demo', messageType: 'PROPERTY', timestamp: now },
+  recentAlarms: alarms,
+  revocations: [{ id: 'revocation-demo', status: 'REVOKED' }]
+}
+const connectionLists = {
+  history: [{ recordedAt: now, state: { connectionStatus: 'CONNECTED', businessStatus: 'ONLINE', statusSource: 'MESSAGE' } }],
+  events: [{ timestamp: now, event: { type: 'heartbeat' } }],
+  commands: [{ id: 'command-demo', type: 'mute', status: 'DELIVERED', reply: { ok: true } }],
+  children: [
+    {
+      device: { id: 'child-demo', name: '二层烟感', childAddress: '2' },
+      productName: '烟雾探测器',
+      binding: { protocolId: 'json', version: '1' },
+      runtimeState: { lastSeenAt: now, businessStatus: 'ONLINE' }
+    }
+  ]
+}
 const list = items => ({ items, total: items.length, count: items.length, page: 1, pageSize: 20 })
 const server = http.createServer(async (req, res) => {
   const u = new URL(req.url, 'http://localhost')
@@ -188,6 +239,13 @@ const server = http.createServer(async (req, res) => {
       data = { ...list([]), total: u.searchParams.has('unregistered') ? 0 : 1, online: 1, offline: 0 }
     else if (u.pathname === '/api/v1/alarms') data = list(alarms)
     else if (u.pathname === '/api/v1/alarms/alarm-demo') data = alarms[0]
+    else if (u.pathname === '/api/v1/device-registry/device-demo/connection') data = connection
+    else if (u.pathname === '/api/v1/device-registry/device-demo/signals')
+      data = { items: [{ signalType: 'STUCK_VALUE', property: 'temperature', strength: 0.6, windowEnd: now }] }
+    else if (u.pathname === '/api/v1/device-registry/device-demo/history')
+      data = list(connectionLists[u.searchParams.get('kind') === 'event' ? 'events' : 'history'])
+    else if (u.pathname === '/api/v1/device-registry/device-demo/commands') data = list(connectionLists.commands)
+    else if (u.pathname === '/api/v1/device-registry/device-demo/children') data = list(connectionLists.children)
     else if (u.pathname === '/api/v1/fire-safety/options') data = fireOptions
     else if (u.pathname === '/api/v1/duty/assignments') data = list([dutyAssignment])
     else if (u.pathname === '/api/v1/duty/shifts') data = list(fireOptions.shifts)

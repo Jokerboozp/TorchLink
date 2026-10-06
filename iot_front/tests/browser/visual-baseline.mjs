@@ -29,7 +29,8 @@ const defaultPages = [
 // IOT_VISUAL_PAGES（逗号分隔的菜单名称）可改为检查其他页面。
 const pages = process.env.IOT_VISUAL_PAGES ? process.env.IOT_VISUAL_PAGES.split(',') : defaultPages
 // IOT_VISUAL_ACTIONS 另外采集弹窗与抽屉：分号分隔，每项为“菜单>按钮|按钮”，依次点击文字完全相同的按钮或页签，
-// 例如 '排班>批量排班;排班>换班申请|审批'；以 = 开头的项（如 '=知识库>检索策略'）不等待弹层，用于采集页签。
+// 例如 '排班>批量排班;排班>换班申请|审批'；以 = 开头的项（如 '=知识库>检索策略'）不等待弹层，用于采集页签；
+// 步骤 @scroll:N 把可滚动区域滚到 N 像素处，用于采集长抽屉的下半部分。
 // 只设置它而不设置 IOT_VISUAL_PAGES 时不采集页面。
 const actions = (process.env.IOT_VISUAL_ACTIONS || '').split(';').filter(Boolean)
 const pageList = process.env.IOT_VISUAL_ACTIONS && !process.env.IOT_VISUAL_PAGES ? [] : pages
@@ -124,9 +125,11 @@ async function clickText(label) {
   await settle()
 }
 
-async function shoot(dir, file, selector) {
-  // Inner panels (chat history, tables) scroll on their own timing; capture them from the top.
-  await evaluate('document.querySelectorAll("*").forEach(e => { if (e.scrollTop) e.scrollTop = 0; if (e.scrollLeft) e.scrollLeft = 0 })')
+async function shoot(dir, file, selector, scroll = 0) {
+  // Inner panels (chat history, tables) scroll on their own timing; capture them from the top, or at the requested offset.
+  await evaluate(
+    `document.querySelectorAll("*").forEach(e => { e.scrollLeft = 0; e.scrollTop = e.scrollHeight > e.clientHeight + 1 && ${scroll} ? ${scroll} : 0 })`
+  )
   await delay(100)
   const shot = await call('Page.captureScreenshot', { format: 'png' })
   await writeFile(join(dir, `${file}.png`), Buffer.from(shot.data, 'base64'))
@@ -162,8 +165,12 @@ async function capture(dir) {
       const [page, steps] = action.replace(/^=/, '').split('>')
       await login(v.theme)
       await openPage(page)
+      let scroll = 0
       try {
-        for (const step of steps.split('|')) await clickText(step)
+        for (const step of steps.split('|')) {
+          if (step.startsWith('@scroll:')) scroll = Number(step.slice(8))
+          else await clickText(step)
+        }
       } catch (error) {
         await shoot(dir, `failed-${v.name}-${index}`, 'body')
         throw error
@@ -172,7 +179,7 @@ async function capture(dir) {
         await until(() => evaluate("[...document.querySelectorAll('.n-modal,.n-drawer')].some(e => e.getClientRects().length)"), 'overlay')
       await evaluate('document.activeElement?.blur()')
       await settle()
-      await shoot(dir, `${v.name}-action-${index.toString().padStart(2, '0')}-${action.replace(/[=>|/]/g, '-')}`, 'body')
+      await shoot(dir, `${v.name}-action-${index.toString().padStart(2, '0')}-${action.replace(/[=>|/:@]/g, '-')}`, 'body', scroll)
     }
     await call('Page.removeScriptToEvaluateOnNewDocument', { identifier })
   }
