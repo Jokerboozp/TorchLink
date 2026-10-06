@@ -55,6 +55,9 @@ func (e *Service) RunChat(ctx context.Context, req ChatRequest, emit func(ports.
 	if !ok || identity.TenantID != "" && identity.TenantID != tenantID || identity.ManagedUser && identity.TenantID == "" {
 		return ports.AIWorkflowResult{}, errors.New("AI 运行身份与当前租户不符，拒绝执行")
 	}
+	if err = e.admit(ctx, tenantID); err != nil {
+		return ports.AIWorkflowResult{}, err
+	}
 	question := strings.TrimSpace(req.Question)
 	if question == "" {
 		return ports.AIWorkflowResult{}, ports.AIRejected(http.StatusUnprocessableEntity, "请输入问题")

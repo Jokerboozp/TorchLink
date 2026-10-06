@@ -1700,3 +1700,41 @@ func TestAIFailuresMapToActionableStatuses(t *testing.T) {
 		t.Fatal("busy answers must say when to retry")
 	}
 }
+
+type usageRuns struct {
+	ports.AIRunStore
+	tokens int64
+}
+
+func (u usageRuns) AIRunUsage(context.Context, ports.AIRunFilter) ([]model.AIRunUsage, error) {
+	return []model.AIRunUsage{{Usage: model.AIUsage{InputTokens: u.tokens / 2, OutputTokens: u.tokens - u.tokens/2}}}, nil
+}
+
+func TestAIQuotaLimitsRunsAndDailyTokens(t *testing.T) {
+	ctx := context.Background()
+	engine := &core.Engine{Repo: memory.NewRepository(), Clock: ports.RealClock{}}
+	s := New(config.Config{DevMode: true, AIRunsPerMinute: 2}, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	quota := &aiQuota{server: s, now: time.Now}
+	for i := range 2 {
+		if err := quota.AdmitAIRun(ctx, "t1"); err != nil {
+			t.Fatalf("run %d refused: %v", i, err)
+		}
+	}
+	var rejected *ports.AIRequestError
+	if err := quota.AdmitAIRun(ctx, "t1"); !errors.As(err, &rejected) || rejected.Status != 429 {
+		t.Fatalf("third run in a minute must be refused, got %v", err)
+	}
+	if err := quota.AdmitAIRun(ctx, "t2"); err != nil {
+		t.Fatalf("tenants have separate budgets: %v", err)
+	}
+	s.cfg.AIRunsPerMinute, s.cfg.AIDailyTokenBudget = 0, 1000
+	engine.AIRuns = usageRuns{tokens: 999}
+	if err := quota.AdmitAIRun(ctx, "t3"); err != nil {
+		t.Fatalf("under the daily budget: %v", err)
+	}
+	quota.usage = nil
+	engine.AIRuns = usageRuns{tokens: 1000}
+	if err := quota.AdmitAIRun(ctx, "t3"); !errors.As(err, &rejected) || rejected.Status != 429 {
+		t.Fatalf("daily budget reached must refuse, got %v", err)
+	}
+}

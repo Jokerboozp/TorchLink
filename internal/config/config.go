@@ -98,41 +98,45 @@ type Config struct {
 	ProtocolRunnerSocket string
 	// ProtocolSandbox is "runner" (the runner is required), "none" (in-process
 	// on purpose) or empty (use the runner when configured, otherwise warn).
-	ProtocolSandbox      string
-	MinIOEndpoint        string
-	MinIOAccessKey       string
-	MinIOSecretKey       string
-	MinIOUseTLS          bool
-	KafkaBrokers         []string
-	KafkaPublicBrokers   []string
-	KafkaSASLUsername    string
-	KafkaSASLPassword    string
-	KafkaSASLMechanism   string
-	KafkaTLS             bool
-	KafkaTLSCAFile       string
-	KafkaAdminURL        string
-	KafkaAdminUsername   string
-	KafkaAdminPassword   string
-	EMQXAPIURL           string
-	EMQXAPIKey           string
-	EMQXAPISecret        string
-	MQTTBroker           string
-	MQTTUsername         string
-	MQTTPassword         string
-	MQTTToolUsername     string
-	MQTTWebSocketURL     string
-	MQTTPublicURL        string
-	DeviceHTTPPublicURL  string
-	AIProvider           string
-	AIBaseURL            string
-	AIModel              string
-	AIAPIKey             string
-	AIHarnessURL         string
-	AIHarnessToken       string
-	AIHarnessMCPURL      string
-	AIHarnessModel       string
-	AIHarnessTimeout     time.Duration
-	AIBusinessTimeout    time.Duration
+	ProtocolSandbox     string
+	MinIOEndpoint       string
+	MinIOAccessKey      string
+	MinIOSecretKey      string
+	MinIOUseTLS         bool
+	KafkaBrokers        []string
+	KafkaPublicBrokers  []string
+	KafkaSASLUsername   string
+	KafkaSASLPassword   string
+	KafkaSASLMechanism  string
+	KafkaTLS            bool
+	KafkaTLSCAFile      string
+	KafkaAdminURL       string
+	KafkaAdminUsername  string
+	KafkaAdminPassword  string
+	EMQXAPIURL          string
+	EMQXAPIKey          string
+	EMQXAPISecret       string
+	MQTTBroker          string
+	MQTTUsername        string
+	MQTTPassword        string
+	MQTTToolUsername    string
+	MQTTWebSocketURL    string
+	MQTTPublicURL       string
+	DeviceHTTPPublicURL string
+	AIProvider          string
+	AIBaseURL           string
+	AIModel             string
+	AIAPIKey            string
+	AIHarnessURL        string
+	AIHarnessToken      string
+	AIHarnessMCPURL     string
+	AIHarnessModel      string
+	AIHarnessTimeout    time.Duration
+	AIBusinessTimeout   time.Duration
+	// AIDailyTokenBudget caps the input plus output tokens one tenant may use
+	// per day (0: unlimited); AIRunsPerMinute caps its AI runs per minute.
+	AIDailyTokenBudget   int64
+	AIRunsPerMinute      int64
 	EmbeddingDimensions  int
 	EmbeddingBatchSize   int
 	EmbeddingURL         string
@@ -268,6 +272,8 @@ func load() Config {
 		AIHarnessModel:              strings.TrimSpace(os.Getenv("IOT_AI_HARNESS_MODEL")),
 		AIHarnessTimeout:            duration("IOT_AI_HARNESS_TIMEOUT", 90*time.Second),
 		AIBusinessTimeout:           duration("IOT_AI_HARNESS_BUSINESS_TIMEOUT", 4*time.Minute),
+		AIDailyTokenBudget:          int64ValueOrZero("IOT_AI_DAILY_TOKEN_BUDGET", 0),
+		AIRunsPerMinute:             int64ValueOrZero("IOT_AI_RUNS_PER_MINUTE", 0),
 		EmbeddingDimensions:         int(int64Value("IOT_EMBEDDING_DIMENSIONS", 1024)),
 		EmbeddingBatchSize:          int(int64Value("IOT_EMBEDDING_BATCH_SIZE", 10)),
 		EmbeddingURL:                strings.TrimRight(strings.TrimSpace(get("IOT_EMBEDDING_URL", "http://embedding/v1")), "/"),

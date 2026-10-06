@@ -23,6 +23,21 @@ type Service struct {
 	// Authorizer, when set, re-checks the requester before data is read and
 	// again before it is sent to the model.
 	Authorizer Authorizer
+	// Quota, when set, admits each run against the tenant's AI budget.
+	Quota Quota
+}
+
+// Quota decides whether a tenant may start another AI run; a refusal is a
+// ports.AIRequestError the user sees.
+type Quota interface {
+	AdmitAIRun(ctx context.Context, tenantID string) error
+}
+
+func (e *Service) admit(ctx context.Context, tenantID string) error {
+	if e.Quota == nil {
+		return nil
+	}
+	return e.Quota.AdmitAIRun(ctx, tenantID)
 }
 
 // New returns the workflows of engine.

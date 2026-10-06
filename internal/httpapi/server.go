@@ -129,6 +129,7 @@ func New(cfg config.Config, engine *core.Engine, m *metrics.Registry, log *slog.
 		engine.HarnessTokens = s.harnessAuth
 	}
 	s.ai = aiworkflow.New(engine, s)
+	s.ai.Quota = &aiQuota{server: s, now: time.Now}
 	s.onboarding.LoadRaw = engine.GetRaw
 	s.onboarding.RequirePrepared = true
 	s.onboarding.PublicHTTP = publicEndpoint(cfg.DeviceHTTPPublicURL)

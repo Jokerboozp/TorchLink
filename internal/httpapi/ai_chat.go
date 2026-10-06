@@ -195,8 +195,10 @@ func (s *Server) runAIWorkflow(ctx context.Context, c auth.Claims, question, wor
 		if configuredModel := strings.TrimSpace(config.Model); configuredModel != "" {
 			modelName = configuredModel
 		}
-		if maxTokens <= 0 {
-			maxTokens = effectiveAIMaxTokens(config.MaxTokens)
+		// The configured output limit is a ceiling the browser may lower but
+		// not raise.
+		if limit := effectiveAIMaxTokens(config.MaxTokens); maxTokens <= 0 || maxTokens > limit {
+			maxTokens = limit
 		}
 	}
 	return s.ai.RunChat(aiRunContext(ctx, c), aiworkflow.ChatRequest{TenantID: c.TenantID, WorkflowID: workflowID, ConversationID: conversationID, Question: question, Model: modelName, MaxTokens: maxTokens}, emit)

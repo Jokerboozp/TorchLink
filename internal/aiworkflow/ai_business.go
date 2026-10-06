@@ -68,6 +68,9 @@ func (e *Service) runBusinessWorkflow(ctx context.Context, tenantID, workflowID,
 	if err := core.ValidateAIInput(prompt, 30<<10); err != nil {
 		return ports.AIWorkflowResult{}, err
 	}
+	if err := e.admit(ctx, tenantID); err != nil {
+		return ports.AIWorkflowResult{}, err
+	}
 	if claims, present := auth.ClaimsFromContext(ctx); present && (claims.TenantID != tenantID || claims.Username != identity.Username || identity.ManagedUser && claims.SessionVersion != identity.SessionVersion) {
 		return ports.AIWorkflowResult{}, errors.New("AI 运行身份与当前租户或会话不符，拒绝执行")
 	}
