@@ -8,7 +8,8 @@ const shared = [
   '../../src/composables/useListLoader.js',
   '../../src/composables/useDeviceSearch.js',
   '../../src/clipboard.js',
-  '../../src/router/paths.ts'
+  '../../src/router/paths.ts',
+  '../../src/transfer.ts'
 ].map(file =>
   (file.endsWith('.ts') ? stripTypeScriptTypes : String)(readFileSync(new URL(file, import.meta.url), 'utf8'))
     .replace(/^import\s[^'"]*['"][^'"]+['"];?$/gm, '')
@@ -20,7 +21,10 @@ const helpers = {
   useListLoader: shared.slice(0, 2).join('\n'),
   useDeviceSearch: shared.slice(0, 3).join('\n'),
   copyText: shared[3],
-  takeNavigation: shared[4]
+  takeNavigation: shared[4],
+  uploadWithProgress: shared[5],
+  downloadWithProgress: shared[5],
+  transferText: shared[5]
 }
 
 // vm contexts have no AbortController unless a test provides one.

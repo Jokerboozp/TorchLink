@@ -4,9 +4,9 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { FileText, Upload } from '@lucide/vue'
 import { UiMessage } from '../ui/feedback.js'
 
-import { ApiError, api, apiAll, formatTime, isAbort, notifyError, session } from '../api'
+import { api, apiAll, formatTime, isAbort, notifyError } from '../api'
+import { uploadWithProgress } from '../transfer'
 import { useListLoader } from '../composables/useListLoader'
-import { errorMessage } from '../presentation'
 import { useUnsavedGuard } from '../composables/unsavedGuard.js'
 import DataTableCard from '../components/layout/DataTableCard.vue'
 import RowActions from '../components/layout/RowActions.vue'
@@ -262,35 +262,10 @@ async function showDocument(document, silent = false) {
   }
 }
 
-function parseUploadResponse(text) {
-  try {
-    return text ? JSON.parse(text) : {}
-  } catch {
-    return {}
-  }
-}
-// 上传使用 XMLHttpRequest 读取真实的已发送字节；认证头和错误信息与 api.js 保持一致。
-function uploadWithProgress(path, body, onProgress) {
-  const xhr = new XMLHttpRequest()
-  const promise = new Promise((resolve, reject) => {
-    xhr.open('POST', path)
-    if (session.token) xhr.setRequestHeader('Authorization', `Bearer ${session.token}`)
-    xhr.upload.onprogress = event => {
-      if (event.lengthComputable) onProgress(event.loaded, event.total)
-    }
-    xhr.onload = () => {
-      const data = parseUploadResponse(xhr.responseText)
-      if (xhr.status >= 200 && xhr.status < 300) return resolve(data)
-      if (xhr.status === 401) window.dispatchEvent(new Event('iot:unauthorized'))
-      reject(
-        new ApiError(errorMessage({ message: data.detail || data.message || '', status: xhr.status }), { ...data, status: xhr.status })
-      )
-    }
-    xhr.onerror = () => reject(new ApiError('无法连接服务，请检查网络后重试', { code: 'NETWORK_ERROR', retryable: true }))
-    xhr.onabort = () => reject(Object.assign(new Error('上传已取消'), { name: 'AbortError' }))
-    xhr.send(body)
-  })
-  return { promise, abort: () => xhr.abort() }
+// 上传使用 api 的 uploadWithProgress（XMLHttpRequest 读取真实的已发送字节），可中止。
+function uploadTaskFor(path, body, onProgress) {
+  const controller = new AbortController()
+  return { promise: uploadWithProgress(path, body, onProgress, controller.signal), abort: () => controller.abort() }
 }
 
 // 上传进度只反映浏览器已发送的字节；发送完成后等待服务器保存原件，不估算后续进度。
@@ -316,7 +291,7 @@ async function upload() {
     form.append('workflowId', workflowId.value)
     if (category.value.trim()) form.append('category', category.value.trim())
     if (tags.value.length) form.append('tags', tags.value.join(','))
-    task = uploadWithProgress('/api/v1/knowledge/documents', form, (loaded, total) => {
+    task = uploadTaskFor('/api/v1/knowledge/documents', form, (loaded, total) => {
       if (uploadTask === task) uploadProgress.value = { loaded, total }
     })
     uploadTask = task

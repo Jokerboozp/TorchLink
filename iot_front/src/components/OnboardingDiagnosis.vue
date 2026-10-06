@@ -30,12 +30,7 @@ const ownConnection = computed(() => {
     (profile?.mode === 'poll' || profile?.connectionMode === 'dial')
   )
 })
-const canCorrect = computed(
-  () =>
-    ownConnection.value &&
-    can('menu:profiles') &&
-    can('PUT /api/v2/device-access-profiles/:id')
-)
+const canCorrect = computed(() => ownConnection.value && can('menu:profiles') && can('PUT /api/v2/device-access-profiles/:id'))
 function editConnection() {
   if (!canCorrect.value) return
   const profile = props.status.profile

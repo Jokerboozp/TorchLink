@@ -1,6 +1,7 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { api, download, notifyError } from '../api'
+import { uploadWithProgress, transferText } from '../transfer'
 import { UiMessage } from '../ui/feedback.js'
 import { platformLabel, transportLabel } from '../presentation'
 import FilePicker from './FilePicker.vue'
@@ -22,6 +23,11 @@ let disposed = false,
   controller
 // 构建是一次阻塞请求，界面只显示实际已用时间，不估算进度。
 const elapsed = ref(0)
+// 源码上传进度：发送完成前显示已上传比例，之后显示构建状态。
+const uploadProgress = ref({ loaded: 0, total: 0 })
+const uploading = computed(
+  () => busy.value === 'build' && uploadProgress.value.total > 0 && uploadProgress.value.loaded < uploadProgress.value.total
+)
 let elapsedTimer = 0
 function stopElapsed() {
   clearInterval(elapsedTimer)
@@ -110,11 +116,13 @@ async function upload() {
     body.append('publish', 'false')
     for (const [key, value] of Object.entries(source)) body.append(key, String(value).trim())
     if (targetPlatforms.value.length) body.append('targetPlatforms', JSON.stringify(targetPlatforms.value))
-    const value = await api(`/api/v2/protocols/${encodeURIComponent(source.protocolId.trim())}/source-releases`, {
-      ...options,
-      method: 'POST',
-      body
-    })
+    uploadProgress.value = { loaded: 0, total: file.value.size }
+    const value = await uploadWithProgress(
+      `/api/v2/protocols/${encodeURIComponent(source.protocolId.trim())}/source-releases`,
+      body,
+      (loaded, total) => (uploadProgress.value = { loaded, total }),
+      options.signal
+    )
     if (disposed) return
     result.value = value
     emit('saved', selection())
@@ -187,7 +195,8 @@ async function publish() {
           ><small>当前服务平台会运行样例；其他平台仅生成制品，需在目标平台实际试跑。</small></ui-collapse-item
         ></ui-collapse
       >
-      <p v-if="busy === 'build'" role="status">
+      <p v-if="uploading" role="status">正在上传源码 {{ transferText(uploadProgress.loaded, uploadProgress.total) }}，请保持页面打开。</p>
+      <p v-else-if="busy === 'build'" role="status">
         正在构建并运行样例，每个平台编译最长 120 秒，请保持页面打开。<span aria-hidden="true">已用时 {{ elapsedText }}</span>
       </p>
       <div class="source-actions">

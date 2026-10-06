@@ -142,6 +142,12 @@ test('source upload validates before explicit publication and never binds a temp
     reactive,
     computed,
     api,
+    // The source upload goes through uploadWithProgress (XMLHttpRequest); record it like api().
+    uploadWithProgress: async (path, body, onProgress, signal) => {
+      onProgress(1, 2)
+      return api(path, { method: 'POST', body, signal })
+    },
+    transferText: (loaded, total) => `${Math.floor((loaded / total) * 100)}%`,
     FormData,
     AbortController,
     setInterval,

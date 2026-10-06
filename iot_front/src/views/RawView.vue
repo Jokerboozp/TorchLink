@@ -6,6 +6,7 @@ import { errorMessage, transportLabel, formatLabel } from '../presentation'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { api, apiAll, download, formatTime, isAbort, notifyError, pretty } from '../api'
+import { downloadWithProgress, transferText } from '../transfer'
 import { useListLoader } from '../composables/useListLoader'
 import { can, permissionState } from '../permissions'
 import { messageTypeLabel, messageTypes } from '../labels'
@@ -47,6 +48,8 @@ const detailTab = ref('parsed') /* 每次查看报文都从解析结果开始，
 const page = ref(1)
 const pageSize = ref(20)
 const total = ref(0)
+// 批量下载的已接收进度，只在下载期间显示在按钮上。
+const batchProgress = ref('')
 // 总数超过一万条时后端只计到 10001；未选时间、设备和消息时只查最近 7 天。
 const totalCapped = ref(false)
 const defaultWindow = ref(false)
@@ -217,11 +220,13 @@ async function downloadBatch() {
   downloading.value = 'batch'
   try {
     const stamp = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14)
-    await download('/api/v1/raw-messages/download', `原始报文_${stamp}_${selectedIds.value.length}条.zip`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messageIds: selectedIds.value })
-    })
+    batchProgress.value = ''
+    await downloadWithProgress(
+      '/api/v1/raw-messages/download',
+      `原始报文_${stamp}_${selectedIds.value.length}条.zip`,
+      (loaded, total) => (batchProgress.value = transferText(loaded, total)),
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageIds: selectedIds.value }) }
+    )
     UiMessage.success(`已将 ${selectedIds.value.length} 条报文整合为压缩包`)
   } catch (error) {
     notifyError(error)
@@ -323,7 +328,9 @@ function rowActions(row) {
           :disabled="loading || !selectedIds.length || Boolean(downloading)"
           :loading="downloading === 'batch'"
           @click="downloadBatch"
-          ><Download />批量下载（{{ selectedIds.length }}）</ui-button
+          ><Download />{{
+            downloading === 'batch' && batchProgress ? `正在下载 ${batchProgress}` : `批量下载（${selectedIds.length}）`
+          }}</ui-button
         >
         <ui-button :loading="loading" @click="load"><RefreshCw />刷新</ui-button>
       </template>

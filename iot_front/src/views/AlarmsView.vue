@@ -4,7 +4,8 @@ import { takeNavigation } from '../router/paths'
 defineEmits(['navigate'])
 import { computed, onBeforeUnmount, onMounted, reactive, ref, toRef } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
-import { api, download, formatTime, isAbort, notifyError, pretty } from '../api'
+import { api, formatTime, isAbort, notifyError, pretty } from '../api'
+import { downloadWithProgress, transferText } from '../transfer'
 import { useListLoader } from '../composables/useListLoader'
 import { usePageState } from '../composables/usePageState.js'
 import { confirmClose } from '../composables/unsavedGuard.js'
@@ -90,6 +91,8 @@ async function load(resetPage = false) {
 const statistics = ref(null)
 const statisticsError = ref(false)
 const exporting = ref(false)
+// 导出与月报的已接收进度，只在下载期间显示在按钮上。
+const transferProgress = ref('')
 const reporting = ref(false)
 // 月报默认上一个月（北京时间）。
 const reportMonth = ref(
@@ -125,7 +128,12 @@ async function downloadMonthly() {
   if (!reportMonth.value) return
   reporting.value = true
   try {
-    await download('/api/v1/alarms/reports/monthly?month=' + encodeURIComponent(reportMonth.value), `告警月报-${reportMonth.value}.pdf`)
+    transferProgress.value = ''
+    await downloadWithProgress(
+      '/api/v1/alarms/reports/monthly?month=' + encodeURIComponent(reportMonth.value),
+      `告警月报-${reportMonth.value}.pdf`,
+      (loaded, total) => (transferProgress.value = transferText(loaded, total))
+    )
   } catch (e) {
     notifyError(e)
   } finally {
@@ -135,7 +143,12 @@ async function downloadMonthly() {
 async function exportAlarms() {
   exporting.value = true
   try {
-    await download('/api/v1/alarms/export?' + reportQuery(), `告警导出-${new Date().toISOString().slice(0, 10)}.csv`)
+    transferProgress.value = ''
+    await downloadWithProgress(
+      '/api/v1/alarms/export?' + reportQuery(),
+      `告警导出-${new Date().toISOString().slice(0, 10)}.csv`,
+      (loaded, total) => (transferProgress.value = transferText(loaded, total))
+    )
   } catch (e) {
     notifyError(e)
   } finally {
@@ -428,9 +441,10 @@ function rowActions(row) {
           :loading="reporting"
           :disabled="!reportMonth"
           @click="downloadMonthly"
-          ><FileText />下载月报</ui-button
+          ><FileText />{{ reporting && transferProgress ? `正在下载 ${transferProgress}` : '下载月报' }}</ui-button
         ></span
-      ><ui-button v-permission="'GET /api/v1/alarms/export'" :loading="exporting" @click="exportAlarms"><Download />导出近 30 天</ui-button
+      ><ui-button v-permission="'GET /api/v1/alarms/export'" :loading="exporting" @click="exportAlarms"
+        ><Download />{{ exporting && transferProgress ? `正在导出 ${transferProgress}` : '导出近 30 天' }}</ui-button
       ><ui-button :loading="loading" @click="load()"><RefreshCw />刷新</ui-button></template
     >
   </FilterBar>
