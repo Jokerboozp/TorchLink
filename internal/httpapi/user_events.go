@@ -36,7 +36,14 @@ func (s *Server) userEvents(w http.ResponseWriter, r *http.Request) {
 	deviceTotal := 0
 	truncated := false
 	if wantAlarms || wantStates {
-		snapshot, err := s.events.snapshot(r.Context(), s.engine.Repo, c.TenantID, access)
+		// Users who see every device read identical rows, so they share one
+		// snapshot per tenant; a restricted user's snapshot is loaded through
+		// their own device scope and stays private to their view.
+		view := access
+		if scope, scoped := requestScope(r.Context()); !scoped || scope.All {
+			view = "all"
+		}
+		snapshot, err := s.events.snapshot(r.Context(), s.engine.Repo, c.TenantID, view)
 		if err != nil {
 			problem(w, 503, "读取消息失败")
 			return

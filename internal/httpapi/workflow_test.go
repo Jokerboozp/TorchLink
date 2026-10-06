@@ -706,6 +706,33 @@ func TestEventSnapshotIsSharedPerTenantWindow(t *testing.T) {
 	}
 }
 
+// Users who see every device share one snapshot read per tenant window;
+// only restricted views keep their own.
+func TestAllScopeUsersShareEventSnapshot(t *testing.T) {
+	repo := &countingEventRepo{Repository: memory.NewRepository()}
+	engine := &core.Engine{Repo: repo, Clock: ports.RealClock{}, Bus: local.NewBus(), Realtime: local.NewRealtime()}
+	cfg := config.Load()
+	cfg.AdminUser, cfg.AdminPassword = "root", "events-share-password"
+	cfg.AdminTenants = []string{"tenant-a"}
+	cfg.JWTSecret = "user-events-share-secret-at-least-32-bytes"
+	api := New(cfg, engine, metrics.New(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	srv := httptest.NewServer(api.Handler())
+	defer srv.Close()
+	root := requestJSON(t, srv.Client(), "POST", srv.URL+"/api/v1/auth/login", "", map[string]any{"username": "root", "password": cfg.AdminPassword, "tenantId": "tenant-a"}, 200)["accessToken"].(string)
+	tokens := []string{root}
+	for _, name := range []string{"watcher-a", "watcher-b"} {
+		requestJSON(t, srv.Client(), "POST", srv.URL+"/api/v1/access/users", root, map[string]any{"username": name, "password": "events-share-user", "enabled": true, "permissions": []string{"menu:alarms", "menu:devices"}, "deviceScope": "all"}, 200)
+		tokens = append(tokens, requestJSON(t, srv.Client(), "POST", srv.URL+"/api/v1/auth/login", "", map[string]any{"username": name, "password": "events-share-user", "tenantId": "tenant-a"}, 200)["accessToken"].(string))
+	}
+	before := repo.alarmReads.Load()
+	for _, token := range tokens {
+		requestJSON(t, srv.Client(), "GET", srv.URL+"/api/v1/events", token, nil, 200)
+	}
+	if reads := repo.alarmReads.Load() - before; reads != 1 {
+		t.Fatalf("three all-scope users read the tenant snapshot %d times, want once", reads)
+	}
+}
+
 // An unchanged event view answers 304 to the ETag the page already holds.
 func TestUserEventsAnswerNotModifiedForSameView(t *testing.T) {
 	repo := memory.NewRepository()

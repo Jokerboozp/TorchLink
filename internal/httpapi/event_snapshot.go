@@ -18,6 +18,10 @@ import (
 const eventSnapshotTTL = 2 * time.Second
 const eventSnapshotLimit = 100
 
+// eventSnapshotViews bounds retained snapshots: one per tenant for users who
+// see every device, plus one per restricted user view.
+const eventSnapshotViews = 1024
+
 type eventSnapshot struct {
 	alarms     []model.Alarm
 	states     []model.DeviceState
@@ -81,25 +85,28 @@ func (c *eventSnapshots) snapshot(ctx context.Context, repo eventSnapshotStore, 
 	}
 	if entry == nil {
 		entry = &eventSnapshot{ready: make(chan struct{})}
-		// Bound retained per-user views and their revision maps.
-		if len(c.tenants) >= 128 {
+		// Bound retained views and their revision maps; the least recently
+		// loaded finished views go first.
+		for len(c.tenants) >= eventSnapshotViews {
+			oldest, found := "", false
+			var oldestAt time.Time
 			for k, v := range c.tenants {
 				select {
 				case <-v.ready:
-					delete(c.tenants, k)
-					c.revisions.mu.Lock()
-					delete(c.revisions.tenants, k)
-					c.revisions.mu.Unlock()
+					if !found || v.loadedAt.Before(oldestAt) {
+						oldest, oldestAt, found = k, v.loadedAt, true
+					}
 				default:
 				}
-				if len(c.tenants) < 128 {
-					break
-				}
 			}
-		}
-		if len(c.tenants) >= 128 {
-			c.mu.Unlock()
-			return nil, errors.New("event snapshot capacity exhausted")
+			if !found {
+				c.mu.Unlock()
+				return nil, errors.New("event snapshot capacity exhausted")
+			}
+			delete(c.tenants, oldest)
+			c.revisions.mu.Lock()
+			delete(c.revisions.tenants, oldest)
+			c.revisions.mu.Unlock()
 		}
 		c.tenants[key] = entry
 		c.mu.Unlock()
