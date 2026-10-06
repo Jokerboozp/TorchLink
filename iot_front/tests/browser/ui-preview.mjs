@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url'
 // 独立的界面验收夹具：仅绑定回环地址，不代理真实服务。
 const root = fileURLToPath(new URL('../../dist/', import.meta.url))
 const port = Number(process.env.IOT_UI_PREVIEW_PORT || 4173)
-const now = Date.now()
+const now = Number(process.env.IOT_UI_PREVIEW_NOW) || Date.now() // 固定时间便于截图对比。
 const products = [
   {
     id: 'product-demo',
