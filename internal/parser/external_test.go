@@ -22,7 +22,7 @@ func TestExternalGoProtocolParserRunsWorkerAndEnforcesEnvelopeIdentity(t *testin
 	root := t.TempDir()
 	worker := buildExternalTestWorker(t, root, `package main
 import("encoding/json";"os")
-func main(){var request struct{Version int; Operation string; Raw struct{Payload json.RawMessage `+"`json:\"payload\"`"+`}};if json.NewDecoder(os.Stdin).Decode(&request)!=nil || request.Version!=2 || request.Operation!="decode"{os.Exit(2)};var body map[string]any;_ = json.Unmarshal(request.Raw.Payload,&body);_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"standardMessage":map[string]any{"messageType":"PROPERTY_REPORT","tenantId":"evil","deviceId":"evil","properties":map[string]any{"temperature":body["temperature"]}}})}`)
+func main(){var request struct{Version int; Operation string; Raw struct{Payload json.RawMessage `+"`json:\"payload\"`"+`}};if json.NewDecoder(os.Stdin).Decode(&request)!=nil || request.Version!=2 || request.Operation!="decode"{os.Exit(2)};var body map[string]any;_ = json.Unmarshal(request.Raw.Payload,&body);_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"standardMessage":map[string]any{"messageType":"PROPERTY_REPORT","messageId":"constant-id","tenantId":"evil","deviceId":"evil","properties":map[string]any{"temperature":body["temperature"]}}})}`)
 	digest := fileDigest(t, worker)
 	r := NewRegistry(ExternalParser{Root: root})
 	m, err := r.ParseWithConfig(GoProtocolParserName, map[string]any{"artifact": map[string]any{"path": filepath.Base(worker), "sha256": digest, "runtime": "go-protocol-v2"}, "timeoutMs": 10000}, model.RawMessage{
@@ -37,6 +37,10 @@ func main(){var request struct{Version int; Operation string; Raw struct{Payload
 	}
 	if m.TenantID != "tenant_001" || m.DeviceID != "device_1" || m.Parser != GoProtocolParserName {
 		t.Fatalf("worker changed protected identity or parser metadata: %#v", m)
+	}
+	// A constant worker message ID would make every later message a duplicate.
+	if m.MessageID != "msg_external" || m.Tags["workerMessageId"] != "constant-id" {
+		t.Fatalf("message ID must follow the raw message, worker ID kept as a tag: %q %v", m.MessageID, m.Tags)
 	}
 }
 

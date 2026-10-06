@@ -105,9 +105,17 @@ func (p ExternalParser) ParseWithContext(parent context.Context, raw model.RawMe
 	default:
 		return nil, fmt.Errorf("unsupported external parser messageType %q", message.MessageType)
 	}
-	if message.MessageID == "" {
-		message.MessageID = "msg_" + strings.TrimPrefix(raw.MessageID, "raw_")
+	// The standard message ID is the deduplication key of business
+	// processing, so it is always derived from the raw message. A worker that
+	// returned a constant or a device serial would otherwise make every later
+	// message look already processed. A worker-supplied ID is kept as a tag.
+	if workerID := strings.TrimSpace(message.MessageID); workerID != "" && workerID != "msg_"+strings.TrimPrefix(raw.MessageID, "raw_") {
+		if message.Tags == nil {
+			message.Tags = map[string]string{}
+		}
+		message.Tags["workerMessageId"] = workerID
 	}
+	message.MessageID = "msg_" + strings.TrimPrefix(raw.MessageID, "raw_")
 	message.RawMessageID = raw.MessageID
 	message.TenantID, message.ProductID, message.DeviceID = raw.TenantID, raw.ProductID, raw.DeviceID
 	if message.Timestamp == 0 {
