@@ -10,6 +10,7 @@ import (
 	"iot-platform/internal/metrics"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1032,5 +1033,38 @@ func TestOnlyOpenAlarmsCanBeSuppressed(t *testing.T) {
 		if _, err := e.SetAlarmStatus(ctx, "t1", id, "SUPPRESSED", "operator"); err == nil {
 			t.Fatalf("a %s alarm was reopened as suppressed", status)
 		}
+	}
+}
+
+type deviceLookupCountingRepository struct {
+	*memory.Repository
+	deviceLookups atomic.Int32
+}
+
+func (r *deviceLookupCountingRepository) GetManagedDevice(ctx context.Context, tenant, id string) (model.ManagedDevice, error) {
+	r.deviceLookups.Add(1)
+	return r.Repository.GetManagedDevice(ctx, tenant, id)
+}
+
+// A controller report with many components looks the device up once, not
+// once per component and alarm kind.
+func TestComponentReportLooksUpTheDeviceOnce(t *testing.T) {
+	ctx := context.Background()
+	repo := &deviceLookupCountingRepository{Repository: memory.NewRepository()}
+	e := New(repo, nil, local.NewBus(), local.NewRealtime(), parser.NewRegistry(parser.JSONParser{}), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	components := make([]model.ComponentStatus, 60)
+	for i := range components {
+		components[i] = model.ComponentStatus{ID: fmt.Sprintf("loop-%03d", i), Name: "探测器", Alarms: map[string]bool{"FIRE": true, "DEVICE_FAULT": false}}
+	}
+	before := repo.deviceLookups.Load()
+	if _, err := e.applyComponentAlarms(ctx, model.StandardMessage{MessageID: "m-bulk", TenantID: "t", ProductID: "p", DeviceID: "controller", MessageType: model.StateChange, Timestamp: 1000}, components); err != nil {
+		t.Fatal(err)
+	}
+	if lookups := repo.deviceLookups.Load() - before; lookups > 2 {
+		t.Fatalf("device looked up %d times for one report", lookups)
+	}
+	alarms, err := repo.ListAlarms(ctx, ports.AlarmFilter{TenantID: "t", DeviceID: "controller", Status: "ACTIVE", Limit: 100})
+	if err != nil || len(alarms) != 60 {
+		t.Fatalf("active alarms = %d err=%v, want 60", len(alarms), err)
 	}
 }

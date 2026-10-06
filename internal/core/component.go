@@ -10,7 +10,20 @@ import (
 
 func (e *Engine) applyComponentAlarms(ctx context.Context, msg model.StandardMessage, components []model.ComponentStatus) ([]string, error) {
 	var ids []string
+	if len(components) == 0 {
+		return ids, nil
+	}
+	// A controller reports up to hundreds of components in one message; the
+	// device name and cameras are the same for all of them, and pending
+	// outbox events are drained once after every component is stored.
+	deviceName := e.alarmDeviceName(ctx, msg.TenantID, msg.DeviceID)
+	cameras, _ := e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
+	defer e.flushOutbox(ctx)
 	for _, component := range components {
+		if len(component.Alarms) == 0 {
+			continue
+		}
+		location := e.alarmLocation(ctx, msg.TenantID, msg.DeviceID, component.ID)
 		kinds := make([]string, 0, len(component.Alarms))
 		for kind := range component.Alarms {
 			kinds = append(kinds, kind)
@@ -18,15 +31,14 @@ func (e *Engine) applyComponentAlarms(ctx context.Context, msg model.StandardMes
 		sort.Strings(kinds)
 		for _, kind := range kinds {
 			now := e.Clock.Now().UnixMilli()
-			a := model.Alarm{ID: id("alarm"), TenantID: msg.TenantID, DeviceID: msg.DeviceID, DeviceName: e.alarmDeviceName(ctx, msg.TenantID, msg.DeviceID),
+			a := model.Alarm{ID: id("alarm"), TenantID: msg.TenantID, DeviceID: msg.DeviceID, DeviceName: deviceName,
 				RuleID: fmt.Sprintf("%s%s:component:%x", directAlarmRulePrefix, kind, sha256.Sum256([]byte(component.ID))), TriggerID: msg.MessageID,
 				ComponentID: component.ID, ComponentName: component.Name, ComponentLocation: component.Location,
 				Content:   componentAlarmContent(component),
 				AlarmType: kind, AlarmLevel: "HIGH", Status: "ACTIVE", Source: "device", FirstTriggeredAt: now, LastTriggeredAt: now, TriggerCount: 1,
 				CityCode: tag(msg, "cityCode", "unknown"), DistrictCode: tag(msg, "districtCode", "unknown"), BuildingID: tag(msg, "buildingId", "unknown"), AreaID: tag(msg, "areaId", ""), DeviceType: tag(msg, "deviceType", msg.ProductID),
 				Details: map[string]any{"message": msg, "component": component, "direct": true}}
-			a.Cameras, _ = e.ListCameraSummaries(ctx, msg.TenantID, msg.DeviceID)
-			a.Location = e.alarmLocation(ctx, msg.TenantID, msg.DeviceID, component.ID)
+			a.Cameras, a.Location = cameras, location
 			var saved model.Alarm
 			var event string
 			var err error
@@ -41,7 +53,6 @@ func (e *Engine) applyComponentAlarms(ctx context.Context, msg model.StandardMes
 			if saved.ID != "" {
 				ids = append(ids, saved.ID)
 			}
-			e.flushOutbox(ctx)
 			if event != "" {
 				topic := model.TopicAlarmRaised
 				if event == "recovered" {
