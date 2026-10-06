@@ -102,6 +102,18 @@ docker_runtime_download() {
     *) printf 'mock plugin' > "$2";;
   esac
 }
+# Downloads are only accepted when they match the pinned SHA256.
+if docker_runtime_fetch_pinned 'https://example.invalid/docker-compose' "$test_root" docker-compose x86_64 2>/dev/null; then echo 'Unpinned download accepted'; exit 1; fi
+[ ! -e "$test_root/docker-compose" ]
+echo 'PASS pinned hashes: a download with another SHA256 is deleted'
+printf 'mock plugin' > "$test_root/mock-plugin"
+docker_runtime_pinned_hash() {
+  case "$1" in
+    *.tgz) docker_runtime_hash "$test_root/runtime/docker-24.0.9.tgz";;
+    *) docker_runtime_hash "$test_root/mock-plugin";;
+  esac
+}
+reset_case
 ensure_deployment_docker online
 [ "$downloads" = 3 ] && [ "$cli" = 1 ] && [ "$daemon" = 1 ]
 grep -q 'cli-plugins/docker-buildx' "$calls"

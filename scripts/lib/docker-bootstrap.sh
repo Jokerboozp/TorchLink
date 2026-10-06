@@ -41,6 +41,37 @@ docker_runtime_download() {
   [ -s "$path" ] || { echo "下载文件为空：$path" >&2; return 1; }
 }
 
+# Expected SHA256 of the pinned downloads. Compose and buildx match their
+# published checksum files; Docker publishes none for the static archives, so
+# those were recorded from download.docker.com when the versions were pinned.
+docker_runtime_pinned_hash() {
+  case "$1/$2" in
+    docker-24.0.9.tgz/x86_64) printf 692ecfc28333485d184f628b74c25b2894cee9495a51a5418ba60ef95bf733ca;;
+    docker-24.0.9.tgz/aarch64) printf 7e999590330a15469de20ac37051407d222ea73c71c10c05d61666d42c5922d1;;
+    docker-28.5.2.tgz/x86_64) printf ea90cfd12e1eeb12aa1c971741adb8bd4ed88e2a574eaac13f5029a1dbc6300d;;
+    docker-28.5.2.tgz/aarch64) printf 9e4f82996ab790724094475ebed33a736434bfe5d45231b676fef22ffb80044d;;
+    docker-compose/x86_64) printf a0d30a63ddb6bc77ccb68bf0eb9adebba2f8b1d8615dc8c986b924e80b9a7aed;;
+    docker-compose/aarch64) printf 100f474cd86417310b3037847ff089da2103789a649be6564d169bc280d3a494;;
+    docker-buildx/x86_64) printf 68e4f8895331ade982de8085a8c137b8af65f3ef95040b6c6113552243638508;;
+    docker-buildx/aarch64) printf 82e776e50a84293c160e8c89c125b7a86295c7aa7f30751d6a7c051c171762c1;;
+    *) return 1;;
+  esac
+}
+
+# Downloads one pinned file and refuses it unless its SHA256 matches.
+docker_runtime_fetch_pinned() {
+  local url="$1" directory="$2" name="$3" arch="$4" expected actual
+  expected="$(docker_runtime_pinned_hash "$name" "$arch")" || { echo "没有 $name ($arch) 的固定校验值。" >&2; return 1; }
+  docker_runtime_download "$url" "$directory/$name" || return 1
+  actual="$(docker_runtime_hash "$directory/$name")"
+  if [ "$actual" != "$expected" ]; then
+    rm -f "$directory/$name"
+    echo "下载的 $name SHA256 与固定值不符，已删除：$url" >&2
+    return 1
+  fi
+  printf '%s\n' "$actual" > "$directory/$name.sha256"
+}
+
 # Called on the connected packaging machine; also used by online bootstrap.
 prepare_docker_runtime() {
   local directory="$1" arch version name build_arch
@@ -50,16 +81,11 @@ prepare_docker_runtime() {
   # The compatibility runtime is for CentOS 7 / older kernels only.
   for version in 24.0.9 28.5.2; do
     name="docker-$version.tgz"
-    docker_runtime_download "https://download.docker.com/linux/static/stable/$arch/$name" "$directory/$name" || return 1
-    docker_runtime_hash "$directory/$name" > "$directory/$name.sha256"
+    docker_runtime_fetch_pinned "https://download.docker.com/linux/static/stable/$arch/$name" "$directory" "$name" "$arch" || return 1
   done
-  name=docker-compose
-  docker_runtime_download "https://github.com/docker/compose/releases/download/v2.27.3/docker-compose-linux-$arch" "$directory/$name" || return 1
-  docker_runtime_hash "$directory/$name" > "$directory/$name.sha256"
+  docker_runtime_fetch_pinned "https://github.com/docker/compose/releases/download/v2.27.3/docker-compose-linux-$arch" "$directory" docker-compose "$arch" || return 1
   build_arch=amd64; [ "$arch" != aarch64 ] || build_arch=arm64
-  name=docker-buildx
-  docker_runtime_download "https://github.com/docker/buildx/releases/download/v0.14.1/buildx-v0.14.1.linux-$build_arch" "$directory/$name" || return 1
-  docker_runtime_hash "$directory/$name" > "$directory/$name.sha256"
+  docker_runtime_fetch_pinned "https://github.com/docker/buildx/releases/download/v0.14.1/buildx-v0.14.1.linux-$build_arch" "$directory" docker-buildx "$arch" || return 1
 }
 
 verify_docker_runtime_file() {
@@ -284,17 +310,14 @@ ensure_deployment_docker() {
       directory="$(mktemp -d)"
       printf '%s\n' "$arch" > "$directory/architecture"
       if [ "$need_engine" -eq 1 ]; then
-        docker_runtime_download "https://download.docker.com/linux/static/stable/$arch/docker-$version.tgz" "$directory/docker-$version.tgz" || return 1
-        docker_runtime_hash "$directory/docker-$version.tgz" > "$directory/docker-$version.tgz.sha256"
+        docker_runtime_fetch_pinned "https://download.docker.com/linux/static/stable/$arch/docker-$version.tgz" "$directory" "docker-$version.tgz" "$arch" || return 1
       fi
       if [ "$need_compose" -eq 1 ]; then
-        docker_runtime_download "https://github.com/docker/compose/releases/download/v2.27.3/docker-compose-linux-$arch" "$directory/docker-compose" || return 1
-        docker_runtime_hash "$directory/docker-compose" > "$directory/docker-compose.sha256"
+        docker_runtime_fetch_pinned "https://github.com/docker/compose/releases/download/v2.27.3/docker-compose-linux-$arch" "$directory" docker-compose "$arch" || return 1
       fi
       if [ "$need_buildx" -eq 1 ]; then
         build_arch=amd64; [ "$arch" != aarch64 ] || build_arch=arm64
-        docker_runtime_download "https://github.com/docker/buildx/releases/download/v0.14.1/buildx-v0.14.1.linux-$build_arch" "$directory/docker-buildx" || return 1
-        docker_runtime_hash "$directory/docker-buildx" > "$directory/docker-buildx.sha256"
+        docker_runtime_fetch_pinned "https://github.com/docker/buildx/releases/download/v0.14.1/buildx-v0.14.1.linux-$build_arch" "$directory" docker-buildx "$arch" || return 1
       fi
     fi
     [ -f "$directory/architecture" ] && [ "$(tr -d '\r\n' < "$directory/architecture")" = "$arch" ] || { echo 'Docker 离线安装包架构与目标系统不一致或安装包缺失。' >&2; return 1; }
