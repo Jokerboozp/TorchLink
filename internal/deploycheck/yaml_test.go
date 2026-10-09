@@ -75,6 +75,53 @@ func TestDeploymentYAMLParses(t *testing.T) {
 	}
 }
 
+func TestLocalComposeLoadsAlertHeartbeat(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	content, err := os.ReadFile(filepath.Join(filepath.Dir(file), "..", "..", "compose.local.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compose struct {
+		Configs map[string]struct {
+			Content string `yaml:"content"`
+		} `yaml:"configs"`
+		Services map[string]struct {
+			Configs []struct {
+				Source string `yaml:"source"`
+				Target string `yaml:"target"`
+			} `yaml:"configs"`
+		} `yaml:"services"`
+	}
+	if err := yaml.Unmarshal(content, &compose); err != nil {
+		t.Fatal(err)
+	}
+	var rules struct {
+		Groups []struct {
+			Rules []struct {
+				Alert string `yaml:"alert"`
+				Expr  string `yaml:"expr"`
+				For   string `yaml:"for"`
+			} `yaml:"rules"`
+		} `yaml:"groups"`
+	}
+	for _, config := range compose.Services["prometheus"].Configs {
+		if config.Target != "/etc/prometheus/alerts.yml" {
+			continue
+		}
+		if err := yaml.Unmarshal([]byte(compose.Configs[config.Source].Content), &rules); err != nil {
+			t.Fatal(err)
+		}
+		for _, group := range rules.Groups {
+			for _, rule := range group.Rules {
+				if rule.Alert == "Watchdog" && rule.Expr == "vector(1)" && (rule.For == "" || rule.For == "0m") {
+					return
+				}
+			}
+		}
+	}
+	t.Fatal("local Prometheus must load an always-firing Watchdog to verify delivery to Alertmanager")
+}
+
 func TestProductionComposeDoesNotInjectAuthenticationFallbacks(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))

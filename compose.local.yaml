@@ -581,6 +581,12 @@ configs:
   prometheus-local-alerts:
     content: |
       groups:
+        - name: heartbeat
+          rules:
+            - alert: Watchdog
+              expr: vector(1)
+              labels: {severity: none}
+              annotations: {summary: "告警链路心跳，用于确认 Prometheus 到 Alertmanager 的告警链路正常"}
         - name: mqtt-capacity
           rules:
             - alert: MQTTSubscriptionLost
