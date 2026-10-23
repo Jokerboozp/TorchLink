@@ -74,9 +74,9 @@ const expectedPlaceholder = computed(() =>
 )
 const operationOptions = computed(() =>
   [
-    { value: 'decode', label: 'decode · 解析' },
-    { value: 'ingress', label: 'ingress · 拆帧与应答' },
-    { value: 'encode', label: 'encode · 命令编码' }
+    { value: 'decode', label: '解析（decode）' },
+    { value: 'ingress', label: '拆帧与应答（ingress）' },
+    { value: 'encode', label: '命令编码（encode）' }
   ].filter(item => item.value === 'decode' || (goProtocol.value && selectedRelease.value?.capabilities?.includes(item.value)))
 )
 watch(
@@ -297,11 +297,11 @@ async function preview() {
   <ui-card shadow="never" class="protocol-preview-panel">
     <template #header
       ><div class="section-toolbar">
-        <strong>协议样本工作台</strong><ui-button size="small" :loading="loading" @click="load">刷新列表</ui-button>
+        <strong>协议样本验证</strong><ui-button size="small" :loading="loading" @click="load">刷新列表</ui-button>
       </div></template
     >
     <p class="muted-text">
-      使用固定版本计算拆帧、解析或命令编码结果，不向设备发送报文、不登记设备、不写入设备数据。这里的结果不能作为现场验收。
+      仅验证样本，不发送报文或写入设备数据，不能代替现场验收。
     </p>
     <ui-alert v-if="error" :title="error" type="error" :closable="false" />
     <div v-if="can('GET /api/v1/raw-messages/:id')" class="raw-loader">
@@ -312,7 +312,7 @@ async function preview() {
         >载入原文</ui-button
       >
     </div>
-    <ui-alert v-if="rawInfo" type="info" :title="`原文 ${rawInfo.id} · 归档版本 ${rawInfo.protocolPackageId}`" :closable="false"
+    <ui-alert v-if="rawInfo" type="info" :title="`原文 ${rawInfo.id}，归档版本 ${rawInfo.protocolPackageId}`" :closable="false"
       ><span>已读取样本，点击试跑后才执行协议；不会创建回放任务。{{ rawInfo.parseError || '' }}</span></ui-alert
     >
     <ui-form label-position="top" :disabled="loading || rawLoading">
@@ -330,10 +330,10 @@ async function preview() {
             v-for="item in releases"
             :key="item.id"
             :value="item.id"
-            :label="`${item.name} · ${item.version} · ${{ DRAFT: '草稿', VALIDATED: '已校验', PUBLISHED: '已发布', DEPRECATED: '已弃用' }[item.status] || item.status}`" /></ui-select
+            :label="`${item.name}，${item.version}，${{ DRAFT: '草稿', VALIDATED: '已校验', PUBLISHED: '已发布', DEPRECATED: '已弃用' }[item.status] || item.status}`" /></ui-select
       ></ui-form-item>
       <p v-if="selectedRelease" class="muted-text">
-        {{ selectedRelease.protocolId }} @ {{ selectedRelease.version }} · {{ transportLabel(selectedRelease.transport) }}
+        {{ selectedRelease.protocolId }} @ {{ selectedRelease.version }}，{{ transportLabel(selectedRelease.transport) }}
       </p>
       <ui-alert
         v-else-if="mode === 'template' && productId"
@@ -401,7 +401,7 @@ async function preview() {
       </template>
     </ui-form>
     <section v-if="result" class="top-gap">
-      <ui-tag type="success">试跑完成 · {{ result.protocolPackageId }}</ui-tag>
+      <ui-tag type="success">试跑完成，{{ result.protocolPackageId }}</ui-tag>
       <p v-if="result.standardMessage">{{ messageTypeLabel(result.standardMessage.messageType) }}</p>
       <ui-alert
         v-if="result.comparison"
@@ -433,13 +433,13 @@ async function preview() {
       </div>
       <template v-if="result.operation === 'ingress'"
         ><p>
-          完整帧 {{ result.operationResult.frames.length }} 条 ·
+          完整帧 {{ result.operationResult.frames.length }} 条，
           {{ result.operationResult.needMore ? '仍在等待后续字节' : '全部缓冲已消费' }}
         </p>
         <div v-for="(frame, index) in result.operationResult.frames" :key="index" class="frame-result">
-          <strong>第 {{ index + 1 }} 帧 · 设备 {{ frame.deviceId }}</strong>
+          <strong>第 {{ index + 1 }} 帧，设备 {{ frame.deviceId }}</strong>
           <p>HEX：{{ frame.frameHex }}</p>
-          <p>ACK / 应答：{{ frame.reply || '无' }} · 关联标识：{{ frame.correlationId || '无' }}</p>
+          <p>ACK / 应答：{{ frame.reply || '无' }}，关联标识：{{ frame.correlationId || '无' }}</p>
           <ui-alert v-if="frame.decodeError" type="warning" :title="frame.decodeError" :closable="false" />
           <pre v-else>{{ pretty(frame.standardMessage) }}</pre>
         </div></template
@@ -483,8 +483,8 @@ async function preview() {
 }
 .frame-result {
   padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
   margin-top: 12px;
   overflow-wrap: anywhere;
 }
@@ -500,7 +500,7 @@ async function preview() {
 .comparison-table th,
 .comparison-table td {
   padding: 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
   vertical-align: top;
 }
 .comparison-table pre {

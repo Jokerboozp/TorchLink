@@ -204,7 +204,7 @@ onMounted(load)
 
     <DataTableCard
       v-if="tab === 'policies'"
-      :title="`通知策略 · ${policies.length} 条`"
+      :title="`通知策略（${policies.length} 条）`"
       :error="loadError"
       :page="policyPage"
       :page-size="policyPageSize"
@@ -224,7 +224,7 @@ onMounted(load)
             ><strong>{{ row.name }}</strong
             ><small class="notify-subline"
               >{{ row.levels?.length ? row.levels.map(l => alarmLevels[l] || l).join('、') : '全部等级'
-              }}{{ row.alarmTypes?.length ? ` · ${row.alarmTypes.length} 种类型` : '' }}</small
+              }}{{ row.alarmTypes?.length ? `，${row.alarmTypes.length} 种类型` : '' }}</small
             ></template
           ></ui-table-column
         >
@@ -246,7 +246,7 @@ onMounted(load)
     </DataTableCard>
     <DataTableCard
       v-else
-      :title="`通知渠道 · ${channels.length} 个`"
+      :title="`通知渠道（${channels.length} 个）`"
       :error="loadError"
       :page="channelPage"
       :page-size="channelPageSize"
@@ -269,7 +269,7 @@ onMounted(load)
         >
         <ui-table-column label="地址" min-width="220"
           ><template #default="{ row }">{{
-            row.type === 'smtp' ? `${row.config.host}:${row.config.port} · ${row.config.from}` : row.config.urlHint || '—'
+            row.type === 'smtp' ? `${row.config.host}:${row.config.port}，${row.config.from}` : row.config.urlHint || '—'
           }}</template></ui-table-column
         >
         <ui-table-column label="状态" width="100"
@@ -497,7 +497,7 @@ onMounted(load)
   gap: var(--space-2);
   margin-bottom: var(--space-3);
   padding: var(--space-3);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
 }
 .notify-stage header {

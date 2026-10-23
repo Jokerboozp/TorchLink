@@ -122,8 +122,8 @@ function fieldLabel(item) {
     item.alarmLow != null ? `低阈值 ${item.alarmLow}` : ''
   ]
     .filter(Boolean)
-    .join(' · ')
-  return `${item.name || item.field}（${fieldKinds[item.kind] || item.kind} ${item.field}${extra ? ` · ${extra}` : ''}）`
+    .join('，')
+  return `${item.name || item.field}（${fieldKinds[item.kind] || item.kind} ${item.field}${extra ? `，${extra}` : ''}）`
 }
 function insertField(key) {
   const item = productFields.value.find(x => `${x.kind}:${x.field}` === key)
@@ -268,7 +268,7 @@ function useDraft() {
 function conditionText(item) {
   if (item.expression) return item.expression
   if (Array.isArray(item.conditions) && item.conditions.length)
-    return `${item.conditions.length} 个条件 · ${item.match === 'any' ? '任一满足' : '全部满足'}`
+    return `${item.conditions.length} 个条件，${item.match === 'any' ? '任一满足' : '全部满足'}`
   return '未配置条件'
 }
 
@@ -301,7 +301,7 @@ function rowActions(row) {
   </FilterBar>
 
   <DataTableCard
-    :title="`告警规则 · ${total} 条`"
+    :title="`告警规则（${total} 条）`"
     :error="loadError"
     @retry="load()"
     :page="page"
@@ -359,24 +359,16 @@ function rowActions(row) {
     <ui-card v-if="draft" shadow="never" class="inner-card top-gap">
       <ui-descriptions :column="1">
         <ui-descriptions-item label="规则名称">{{ draft.name || '未命名' }}</ui-descriptions-item>
-        <ui-descriptions-item label="规则含义">{{ draft.description || '智能未提供说明，请在编辑页补充。' }}</ui-descriptions-item>
+        <ui-descriptions-item label="规则说明">{{ draft.description || '未提供说明，请在编辑时补充' }}</ui-descriptions-item>
         <ui-descriptions-item label="告警类型">{{ alarmType(draft.alarmType) }}</ui-descriptions-item>
         <ui-descriptions-item label="告警等级">{{ label(alarmLevels, draft.level, '未设置') }}</ui-descriptions-item>
         <ui-descriptions-item label="启用状态">待人工确认</ui-descriptions-item>
       </ui-descriptions>
-      <ui-alert
-        class="top-gap"
-        title="结构化数据不支持标准注释"
-        description="可执行结构化数据保持纯净；字段含义、条件运算符和规则引擎替代写法在下面单独展示，避免把说明误当成运行字段。"
-        type="info"
-        :closable="false"
-        show-icon
-      />
       <ui-form label-position="top" class="top-gap">
-        <ui-form-item label="智能生成的规则配置"
+        <ui-form-item label="规则配置 JSON"
           ><ui-input :model-value="draftPresentation?.json || pretty(draft)" type="textarea" :rows="12" readonly
         /></ui-form-item>
-        <ui-form-item label="可选规则引擎表达式（默认注释展示，不会自动启用）"
+        <ui-form-item label="Gengine 表达式参考（未启用）"
           ><ui-input
             :model-value="draftPresentation?.genginePlaceholder || '// 载入编辑器后查看等价 Gengine 表达式'"
             type="textarea"
@@ -397,7 +389,7 @@ function rowActions(row) {
 
   <ui-dialog
     :model-value="dialog"
-    :title="readonly ? `规则详情 · ${form.name}` : form.id ? `编辑规则 · ${form.name}` : '手动添加规则'"
+    :title="readonly ? `规则详情：${form.name}` : form.id ? `编辑规则：${form.name}` : '手动添加规则'"
     width="min(760px, 94vw)"
     destroy-on-close
     @update:model-value="value => value || closeEditor()"
@@ -405,8 +397,7 @@ function rowActions(row) {
     <ui-form :model="form" label-position="top" :disabled="readonly">
       <section class="rule-editor-section">
         <div class="rule-editor-heading">
-          <h3>规则基本信息</h3>
-          <p>确定规则名称、告警结果及适用设备范围。</p>
+          <h3>基本信息</h3>
         </div>
         <ui-form-item label="规则名称"><ui-input v-model="form.name" /></ui-form-item>
         <ui-form-item label="规则说明"
@@ -414,7 +405,7 @@ function rowActions(row) {
             v-model="form.description"
             type="textarea"
             :rows="2"
-            placeholder="说明这条规则的触发含义和现场处置目的，便于后续复核。"
+            placeholder="触发条件与处置目的"
         /></ui-form-item>
         <div class="form-grid">
           <ui-form-item label="告警类型"
@@ -425,8 +416,8 @@ function rowActions(row) {
             ><ui-select v-model="form.level"
               ><ui-option v-for="(text, key) in alarmLevels" :key="key" :label="text" :value="key" /></ui-select
           ></ui-form-item>
-          <ui-form-item label="所属产品（可选）"
-            ><ProductFilterSelect v-model="form.productId" class="ui-select" :custom="false" placeholder="请选择" aria-label="所属产品"
+          <ui-form-item label="设备模板（可选）"
+            ><ProductFilterSelect v-model="form.productId" class="ui-select" :custom="false" placeholder="请选择" aria-label="设备模板"
           /></ui-form-item>
           <ui-form-item label="条件关系"
             ><ui-select v-model="form.match"><ui-option label="全部满足" value="all" /><ui-option label="任一满足" value="any" /></ui-select
@@ -436,17 +427,15 @@ function rowActions(row) {
       <section class="rule-editor-section">
         <div class="rule-editor-heading">
           <h3>触发与恢复条件</h3>
-          <p>按设备上报的数据填写条件；表达式填写后优先于结构化触发条件执行。</p>
         </div>
         <ui-alert
-          title="当前默认使用结构化数据条件"
-          description="智能草稿会同时生成规则引擎，但只以注释形式放在下面的占位文本中；只有人工把表达式填入后，运行时才会优先执行规则引擎。"
+          title="填写 Gengine 表达式后，将优先于 JSON 触发条件执行"
           type="info"
           :closable="false"
           show-icon
           class="rule-help-alert"
         />
-        <ui-form-item label="规则引擎表达式（可选，填入后优先执行）"
+        <ui-form-item label="Gengine 表达式（可选）"
           ><ui-input
             v-model="form.expression"
             type="textarea"
@@ -461,19 +450,18 @@ function rowActions(row) {
               :label="fieldLabel(item)"
               :value="`${item.kind}:${item.field}`" /></ui-select
         ></ui-form-item>
-        <ui-form-item label="触发条件结构化数据"
+        <ui-form-item label="触发条件 JSON"
           ><ui-input v-model="form.conditions" type="textarea" :rows="6" placeholder='[{"field":"temperature","operator":">","value":80}]'
         /></ui-form-item>
-        <ui-form-item label="恢复条件结构化数据"
+        <ui-form-item label="恢复条件 JSON"
           ><ui-input v-model="form.recovery" type="textarea" :rows="4" placeholder='[{"field":"temperature","operator":"<","value":70}]'
         /></ui-form-item>
       </section>
       <section class="rule-editor-section">
         <div class="rule-editor-heading">
           <h3>联动动作与生效</h3>
-          <p>设置命中后的平台动作，以及规则保存后的运行状态。</p>
         </div>
-        <ui-form-item label="联动动作结构化数据"
+        <ui-form-item label="联动动作 JSON"
           ><div class="rule-action-field">
             <ui-input
               v-model="form.actions"
@@ -491,7 +479,7 @@ function rowActions(row) {
         </div>
       </section>
       <details class="rule-field-reference">
-        <summary>查看结构化数据字段说明 <small>填写 JSON 时参考</small></summary>
+        <summary>JSON 字段说明</summary>
         <div class="rule-reference-scroll">
           <ui-table :data="fieldDescriptions" size="small" border class="top-gap">
             <ui-table-column prop="field" label="字段" width="210" />
@@ -522,8 +510,8 @@ function rowActions(row) {
 .rule-editor-section {
   padding: 16px 17px;
   margin-bottom: 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
   background: var(--surface);
 }
 .rule-editor-heading {
@@ -558,14 +546,14 @@ function rowActions(row) {
 }
 .rule-field-reference {
   padding: 13px 16px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
   background: var(--surface);
 }
 .rule-field-reference summary {
   cursor: pointer;
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
 }
 .rule-field-reference summary small {
@@ -604,8 +592,8 @@ function rowActions(row) {
   }
   .rule-reference-cards article {
     padding: 10px;
-    border: 1px solid var(--border);
-    border-radius: 7px;
+    border: 0.5px solid var(--border);
+    border-radius: var(--radius-md);
     background: var(--surface);
   }
   .rule-reference-cards strong {
@@ -623,7 +611,7 @@ function rowActions(row) {
   .rule-reference-cards small {
     display: block;
     color: var(--text);
-    font-size: 11px;
+    font-size: 12px;
     line-height: 1.5;
     overflow-wrap: anywhere;
   }

@@ -12,25 +12,17 @@ const labelIndexes = computed(() => new Set([0, Math.floor((props.items.length -
   <div class="trend-caption">
     <strong :title="`${total.toLocaleString()} 条新增告警`">{{ compactCount(total) }} <small>条新增告警</small></strong
     ><span aria-live="polite">{{
-      selectedPoint ? `${selectedPoint.date} · ${selectedPoint.count.toLocaleString()} 条` : '按首次发生时间统计'
+      selectedPoint ? `${selectedPoint.date}，${selectedPoint.count.toLocaleString()} 条` : '按首次发生时间统计'
     }}</span>
   </div>
   <div v-if="total" class="trend-plot">
     <svg viewBox="0 0 700 245" role="group" aria-label="每日新增告警趋势">
-      <defs>
-        <linearGradient id="dashboard-trend-fill" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="var(--primary)" stop-opacity=".16" />
-          <stop offset="100%" stop-color="var(--primary)" stop-opacity=".01" />
-        </linearGradient>
-      </defs>
-      <!-- 趋势面积使用品牌深蓝渐变。 -->
       <g v-for="tick in chart.ticks" :key="tick.value">
-        <line :x1="chart.left" x2="672" :y1="tick.y" :y2="tick.y" stroke="var(--border)" stroke-dasharray="3 5" />
+        <line :x1="chart.left" x2="672" :y1="tick.y" :y2="tick.y" stroke="var(--border)" stroke-width="0.5" />
         <text :x="chart.left - 14" :y="tick.y + 4" text-anchor="end">{{ tick.label }}</text>
       </g>
-      <polygon :points="chart.area" fill="url(#dashboard-trend-fill)" />
-      <polyline :points="chart.line" fill="none" stroke="var(--primary)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" />
-      <!-- 趋势线使用品牌深蓝。 -->
+      <polygon :points="chart.area" fill="var(--primary-soft)" />
+      <polyline :points="chart.line" fill="none" stroke="var(--primary)" stroke-width="0.5" stroke-linejoin="round" stroke-linecap="round" />
       <g v-for="(point, index) in chart.points" :key="point.date">
         <circle
           :cx="point.x"
@@ -38,7 +30,7 @@ const labelIndexes = computed(() => new Set([0, Math.floor((props.items.length -
           :r="selected === point.date ? 5 : 4"
           fill="var(--surface)"
           stroke="var(--primary)"
-          stroke-width="2"
+          stroke-width="0.5"
         />
         <!-- 趋势节点与主色一致。 -->
         <circle
@@ -82,7 +74,7 @@ const labelIndexes = computed(() => new Set([0, Math.floor((props.items.length -
 .trend-caption > strong {
   white-space: nowrap;
   color: var(--text-strong);
-  font-size: 26px;
+  font-size: 18px;
   font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
@@ -111,7 +103,7 @@ const labelIndexes = computed(() => new Set([0, Math.floor((props.items.length -
 .trend-plot circle[tabindex]:focus {
   outline: none;
   stroke: var(--primary);
-  stroke-width: 1.5;
+  stroke-width: 0.5;
 }
 @media (max-width: 767px) {
   .trend-caption {
@@ -122,7 +114,7 @@ const labelIndexes = computed(() => new Set([0, Math.floor((props.items.length -
     min-height: 150px;
   }
   .trend-plot text {
-    font-size: 22px;
+    font-size: 18px;
   }
 }
 </style>

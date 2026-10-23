@@ -458,7 +458,7 @@ onBeforeUnmount(() => {
   height: 15px;
 }
 .star.is-on {
-  color: var(--warning);
+  color: var(--warning-text);
 }
 .star.is-on svg {
   fill: currentColor;

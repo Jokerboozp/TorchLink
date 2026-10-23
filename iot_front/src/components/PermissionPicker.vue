@@ -47,7 +47,7 @@ function toggle(id, checked) {
           </ui-radio-group>
         </div>
         <details v-if="group.actions.length" class="permission-advanced">
-          <summary>细项设置<span v-if="featureLevel(group, modelValue) === 'custom'"> · 保留已有自定义权限</span></summary>
+          <summary>细项设置<span v-if="featureLevel(group, modelValue) === 'custom'">，保留已有自定义权限</span></summary>
           <ui-checkbox :model-value="modelValue.includes(group.id)" @change="toggle(group.id, $event)">允许访问此功能</ui-checkbox>
           <div class="permission-actions">
             <ui-checkbox
@@ -75,7 +75,7 @@ function toggle(id, checked) {
   line-height: 1.6;
 }
 .permission-section {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 .permission-section > summary {
   display: flex;
@@ -99,7 +99,7 @@ function toggle(id, checked) {
 }
 .permission-group {
   padding: 12px 0;
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
 }
 .permission-feature {
   display: flex;
@@ -107,7 +107,7 @@ function toggle(id, checked) {
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 10px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .permission-advanced {
   margin-top: 8px;

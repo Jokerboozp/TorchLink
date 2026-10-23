@@ -292,7 +292,7 @@ onMounted(() => {
             </div>
             <div>
               <span>设备模板 / 协议</span><strong>{{ product?.name }}</strong
-              ><small>{{ label(parsers, protocolPackage?.parserType, '自定义协议') }} · {{ protocolPackage?.version }}</small>
+              ><small>{{ label(parsers, protocolPackage?.parserType, '自定义协议') }}，{{ protocolPackage?.version }}</small>
             </div>
             <div><span>告警处理</span><strong>直接告警 + 可选规则</strong><small>设备主动告警无需规则，规则可补充联动</small></div>
           </div>
@@ -370,16 +370,16 @@ onMounted(() => {
           >
           <div class="quick-send-grid">
             <button type="button" class="quick-send normal" :disabled="Boolean(sending)" @click="sendTemplate('data')">
-              <strong>发送正常数据</strong><small>属性上报 · 在线状态</small>
+              <strong>发送正常数据</strong><small>属性上报，在线状态</small>
             </button>
             <button type="button" class="quick-send danger" :disabled="Boolean(sending)" @click="sendTemplate('alarm')">
-              <strong>发送报警数据</strong><small>高温 + 烟雾 · 直接入告警中心</small>
+              <strong>发送报警数据</strong><small>高温 + 烟雾，直接入告警中心</small>
             </button>
             <button type="button" class="quick-send warning" :disabled="Boolean(sending)" @click="sendTemplate('recovery')">
-              <strong>发送恢复数据</strong><small>安全值 · 自动恢复</small>
+              <strong>发送恢复数据</strong><small>安全值，自动恢复</small>
             </button>
             <button type="button" class="quick-send event" :disabled="Boolean(sending)" @click="sendTemplate('event')">
-              <strong>发送事件数据</strong><small>心跳事件 · 事件解析</small>
+              <strong>发送事件数据</strong><small>心跳事件，事件解析</small>
             </button>
           </div>
         </ui-card>
@@ -404,7 +404,7 @@ onMounted(() => {
           <div v-for="item in history" :key="item.id" class="send-history-item">
             <div>
               <strong>{{ templateNames[item.kind] }}</strong
-              ><small>{{ formatTime(item.sentAt) }} · {{ item.messageId }}</small>
+              ><small>{{ formatTime(item.sentAt) }}，{{ item.messageId }}</small>
             </div>
             <ui-tag :type="historyTag(item).type" round :title="item.parseError || undefined">{{ historyTag(item).text }}</ui-tag>
           </div>
@@ -435,7 +435,7 @@ onMounted(() => {
               }}</ui-descriptions-item>
               <ui-descriptions-item label="关联告警">{{
                 result.alarms?.length
-                  ? `${result.alarms.length} 条 · ${alarmType(result.alarms[0].alarmType)}`
+                  ? `${result.alarms.length} 条，${alarmType(result.alarms[0].alarmType)}`
                   : result.state === 'pending'
                     ? '确认中'
                     : '本次发送后暂无'
@@ -486,7 +486,7 @@ onMounted(() => {
 .test-device-summary > div {
   min-width: 0;
   padding: 13px;
-  border-radius: 0.625rem;
+  border-radius: var(--radius-lg);
   background: var(--surface-muted);
 }
 .test-device-summary span,
@@ -508,8 +508,8 @@ onMounted(() => {
   display: grid;
   gap: 6px;
   padding: 12px;
-  border: 1px solid var(--warning);
-  border-radius: 0.625rem;
+  border: 0.5px solid var(--warning-border);
+  border-radius: var(--radius-lg);
   background: var(--surface-muted);
 }
 .credential-box code {
@@ -525,16 +525,16 @@ onMounted(() => {
 .template-switcher button {
   min-height: 30px;
   padding: 0 13px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-md);
   color: var(--text-muted);
   background: var(--surface);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 14px;
 }
 .template-switcher button:hover,
 .template-switcher button.active {
-  border-color: var(--primary);
+  border-color: var(--primary-border);
   color: var(--text);
   background: var(--primary-soft);
 }
@@ -544,7 +544,7 @@ onMounted(() => {
   color: var(--code-text);
   background: var(--code-bg);
   border-color: var(--code-border);
-  border-radius: 0.625rem;
+  border-radius: var(--radius-lg);
   font:
     12px/1.65 'SFMono-Regular',
     Consolas,
@@ -572,37 +572,25 @@ onMounted(() => {
   display: grid;
   gap: 5px;
   text-align: left;
-  border: 1px solid var(--border);
-  border-radius: 0.625rem;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
   background: var(--surface);
   cursor: pointer;
 }
 .quick-send:hover:not(:disabled) {
-  border-color: var(--primary);
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--primary) 10%, transparent);
+  border-color: var(--primary-border);
+  box-shadow: none;
 }
 .quick-send:disabled {
   cursor: not-allowed;
   opacity: 0.58;
 }
 .quick-send strong {
-  font-size: 13px;
+  font-size: 14px;
 }
 .quick-send small {
   color: var(--text-muted);
   font-size: 12px;
-}
-.quick-send.normal {
-  border-left: 3px solid var(--success);
-}
-.quick-send.danger {
-  border-left: 3px solid var(--danger);
-}
-.quick-send.warning {
-  border-left: 3px solid var(--warning);
-}
-.quick-send.event {
-  border-left: 3px solid var(--primary);
 }
 .send-history-item {
   min-height: 58px;
@@ -610,7 +598,7 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 .send-history-item:last-child {
   border-bottom: 0;
@@ -655,7 +643,7 @@ onMounted(() => {
     grid-template-columns: 1fr;
   }
   .test-device-summary strong {
-    font-size: 13px;
+    font-size: 14px;
   }
   .template-editor :deep(textarea) {
     min-height: 270px;

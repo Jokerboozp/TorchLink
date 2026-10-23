@@ -52,7 +52,6 @@ const capabilities = [
 ]
 
 const isAdmin = computed(() => can(['PUT /api/v1/ai/providers/config', 'POST /api/v1/ai/providers/test']))
-const selectedProviderOption = computed(() => providerOptions.find(item => item.id === providerForm.provider) || providerOptions[0])
 const activeProvider = computed(() => runtime.value.config?.provider || runtime.value.active?.id || 'disabled')
 const activeProviderName = computed(
   () => providerOptions.find(item => item.id === activeProvider.value)?.label || runtime.value.active?.name || '未配置'
@@ -221,7 +220,7 @@ onMounted(loadRuntime)
           <ui-card shadow="never" class="surface-card ai-provider-config">
             <template #header
               ><div class="card-header">
-                <div><strong>模型服务配置</strong><small>填写配置后直接保存，可选测试连接</small></div>
+                <div><strong>模型服务配置</strong></div>
                 <ui-tag v-if="isAdmin" effect="plain">管理员</ui-tag>
               </div></template
             >
@@ -229,19 +228,16 @@ onMounted(loadRuntime)
               <ui-form label-position="top" :model="providerForm" :disabled="busy">
                 <section class="config-section">
                   <div class="config-section-heading">
-                    <span>01</span>
-                    <div><strong>选择模型来源</strong><small>默认使用 DeepSeek，也可连接其他 OpenAI 兼容 API</small></div>
+                    <div><strong>模型来源</strong></div>
                   </div>
                   <ui-form-item label="模型来源"
                     ><ui-select v-model="providerForm.provider" class="provider-select" @change="providerChanged"
                       ><ui-option v-for="item in providerOptions" :key="item.id" :label="item.label" :value="item.id" /></ui-select
                   ></ui-form-item>
-                  <p class="provider-description">{{ selectedProviderOption.description }}</p>
                 </section>
                 <section class="config-section">
                   <div class="config-section-heading">
-                    <span>02</span>
-                    <div><strong>填写连接信息</strong><small>地址必须能从平台服务器访问</small></div>
+                    <div><strong title="地址必须能从平台服务器访问">连接信息</strong></div>
                   </div>
                   <ui-form-item label="服务地址"
                     ><ui-input
@@ -265,8 +261,7 @@ onMounted(loadRuntime)
                 </section>
                 <section class="config-section">
                   <div class="config-section-heading">
-                    <span>03</span>
-                    <div><strong>设置模型与输出</strong><small>选择实际可用的模型，设置助手回复长度</small></div>
+                    <div><strong>模型与输出</strong></div>
                   </div>
                   <div class="config-field-grid">
                     <ui-form-item label="模型名称"
@@ -275,20 +270,17 @@ onMounted(loadRuntime)
                         :placeholder="providerForm.provider === 'deepseek' ? '例如 deepseek-flash' : '填写 API 服务支持的模型名称'"
                     /></ui-form-item>
                     <div>
-                      <ui-form-item label="最大输出词元"
+                      <ui-form-item label="最大输出词元（128–8192）"
                         ><ui-input-number v-model="providerForm.maxTokens" :min="128" :max="8192" :step="128" controls-position="right"
                       /></ui-form-item>
-                      <p class="provider-field-hint">智能助手单次回复上限，范围 128–8192。</p>
                     </div>
                   </div>
                 </section>
                 <div class="provider-actions">
-                  <span :class="{ ready: testResult?.success }">{{
+                  <span v-if="testResult?.success || providerDirty" :class="{ ready: testResult?.success }">{{
                     testResult?.success
-                      ? '测试通过，点击保存后生效'
-                      : providerDirty
-                        ? '表单有未保存的修改，刷新状态不会覆盖'
-                        : '可直接保存，连接测试为可选操作'
+                      ? '测试通过，保存后生效'
+                      : '修改尚未保存'
                   }}</span>
                   <div>
                     <ui-button v-if="providerDirty && runtime.config" text :disabled="busy" @click="syncProviderForm(runtime, true)"
@@ -313,7 +305,6 @@ onMounted(loadRuntime)
                   ><span v-if="testResult.latencyMs">耗时 {{ testResult.latencyMs }} 毫秒</span>
                 </div>
                 <p v-if="testResult.answer">{{ testResult.answer }}</p>
-                <small v-if="testResult.success">测试只验证连接，点击“保存配置”后才会生效。</small>
               </div>
             </template>
             <div v-else class="provider-viewer-summary">
@@ -323,15 +314,14 @@ onMounted(loadRuntime)
 
           <ui-card shadow="never" class="surface-card ai-capability-card">
             <template #header
-              ><div class="capability-card-title"><strong>智能业务能力</strong><small>保存配置后共同使用当前模型</small></div></template
+              ><div class="capability-card-title"><strong title="以下功能共用当前模型">使用此模型的功能</strong></div></template
             >
             <div class="ai-capability-list">
               <div v-for="item in capabilities" :key="item.title" class="ai-capability-item">
                 <div>
                   <strong>{{ item.title }}</strong>
-                  <p>{{ item.description }}</p>
                 </div>
-                <ui-button size="small" plain @click="emit('navigate', item.page)">{{ item.label }}</ui-button>
+                <ui-button size="small" plain :title="item.description" @click="emit('navigate', item.page)">{{ item.label }}</ui-button>
               </div>
             </div>
           </ui-card>
@@ -339,7 +329,7 @@ onMounted(loadRuntime)
 
         <ui-card shadow="never" class="surface-card ai-provider-list"
           ><ui-collapse
-            ><ui-collapse-item title="可用模型服务 · 查看来源与支持能力" name="providers"
+            ><ui-collapse-item title="可用模型服务" name="providers"
               ><ui-table v-loading="loading" :data="runtime.items || []" stripe>
                 <ui-table-column label="模型服务" min-width="190"
                   ><template #default="{ row }"
@@ -401,7 +391,7 @@ onMounted(loadRuntime)
   gap: 7px;
   padding: 15px 17px;
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
 }
 .ai-active-provider-heading,
@@ -421,12 +411,12 @@ onMounted(loadRuntime)
 }
 .ai-active-provider-main strong {
   color: var(--primary-text);
-  font-size: 17px;
+  font-size: 18px;
 }
 .ai-active-provider-main span {
   overflow: hidden;
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -464,7 +454,7 @@ onMounted(loadRuntime)
   min-width: 0;
   padding: 3px 0 17px;
   margin-bottom: 17px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 .config-section-heading {
   display: flex;
@@ -480,7 +470,7 @@ onMounted(loadRuntime)
   height: 27px;
   color: var(--primary-text);
   background: var(--surface-muted);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   font-weight: 700;
 }
@@ -541,8 +531,8 @@ onMounted(loadRuntime)
 .provider-test-result {
   margin-top: 14px;
   padding: 12px 14px;
-  border: 1px solid;
-  border-radius: 8px;
+  border: 0.5px solid;
+  border-radius: var(--radius-lg);
 }
 .provider-test-result.success {
   background: var(--surface-muted);
@@ -592,14 +582,14 @@ onMounted(loadRuntime)
   gap: 8px;
   align-items: center;
   padding: 13px 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 .ai-capability-item:last-child {
   border-bottom: 0;
 }
 .ai-capability-item strong {
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
 }
 .ai-capability-item p {
   margin: 3px 0 0;

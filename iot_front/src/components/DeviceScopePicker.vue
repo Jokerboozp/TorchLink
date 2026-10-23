@@ -100,8 +100,8 @@ function toggle(id, checked) {
           <ui-checkbox :model-value="selected.has(device.id)" :disabled="disabled" @change="toggle(device.id, $event)">
             <span class="device-scope-name">{{ device.name || device.id }}</span>
             <span class="device-scope-detail"
-              >{{ device.id }}<span v-if="device.deviceRole"> · {{ deviceRoles[device.deviceRole] || device.deviceRole }}</span
-              ><span v-if="device.missing"> · 请取消勾选</span></span
+              >{{ device.id }}<span v-if="device.deviceRole">，{{ deviceRoles[device.deviceRole] || device.deviceRole }}</span
+              ><span v-if="device.missing">，请取消勾选</span></span
             >
           </ui-checkbox>
         </li>
@@ -163,11 +163,11 @@ function toggle(id, checked) {
   max-height: 300px;
   overflow-y: auto;
   overscroll-behavior: contain;
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-md);
 }
 .device-scope-list li + li {
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
 }
 .device-scope-list .ui-checkbox {
   display: flex;
@@ -181,7 +181,7 @@ function toggle(id, checked) {
 .device-scope-name {
   display: block;
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   overflow-wrap: anywhere;
 }
 .device-scope-detail {
@@ -198,7 +198,7 @@ function toggle(id, checked) {
   color: var(--text-muted);
   background: var(--surface-muted);
   border-radius: var(--radius-md);
-  font-size: 13px;
+  font-size: 14px;
 }
 .device-scope-permission {
   padding: 12px;

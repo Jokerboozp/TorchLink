@@ -16,7 +16,7 @@ const { stationName, typeName } = extinguisherLabels(props.options)
 <template>
   <ui-drawer
     :model-value="Boolean(assetDetail)"
-    :title="assetDetail ? `灭火器 · ${assetDetail.code}` : ''"
+    :title="assetDetail ? `灭火器：${assetDetail.code}` : ''"
     size="min(700px,100vw)"
     @close="assetDetail = null"
   >

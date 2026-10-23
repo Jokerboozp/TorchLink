@@ -20,7 +20,7 @@ const { assetName, personName } = extinguisherLabels(props.options)
 <template>
   <ui-drawer
     :model-value="Boolean(taskDetail)"
-    :title="taskDetail ? `巡检 · ${assetName(taskDetail.extinguisherId)}` : ''"
+    :title="taskDetail ? `巡检：${assetName(taskDetail.extinguisherId)}` : ''"
     size="min(760px,100vw)"
     @close="taskDetail = null"
   >
@@ -52,7 +52,7 @@ const { assetName, personName } = extinguisherLabels(props.options)
         </div>
         <div v-if="taskDetail.inspectedAt">
           <dt>巡检时间 / 提交人</dt>
-          <dd>{{ dateTimeLabel(taskDetail.inspectedAt) }} · {{ taskDetail.inspectedBy }}</dd>
+          <dd>{{ dateTimeLabel(taskDetail.inspectedAt) }}，{{ taskDetail.inspectedBy }}</dd>
         </div>
         <div v-if="taskDetail.result">
           <dt>巡检结果</dt>
@@ -81,10 +81,10 @@ const { assetName, personName } = extinguisherLabels(props.options)
           <strong>第 {{ index + 1 }} 次整改</strong
           ><StatusDot :tone="statusTone(item.status)" :label="item.status === 'pending' ? '待复核' : statusLabel(item.status)" />
           <p>{{ item.action }}</p>
-          <small class="fire-hint">{{ item.submittedBy }} · {{ dateTimeLabel(item.submittedAt) }}</small
+          <small class="fire-hint">{{ item.submittedBy }}，{{ dateTimeLabel(item.submittedAt) }}</small
           ><template v-if="item.reviewedAt"
             ><p>复核意见：{{ item.reviewNote || '—' }}</p>
-            <small class="fire-hint">{{ item.reviewedBy }} · {{ dateTimeLabel(item.reviewedAt) }}</small></template
+            <small class="fire-hint">{{ item.reviewedBy }}，{{ dateTimeLabel(item.reviewedAt) }}</small></template
           >
         </article>
       </section>

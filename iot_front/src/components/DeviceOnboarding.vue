@@ -487,7 +487,6 @@ onBeforeUnmount(() => {
     <header v-if="!props.trial" class="onboarding__header">
       <div>
         <h2>{{ props.trial ? '首台设备验证' : '添加设备' }}</h2>
-        <p>选择设备模板，填写设备编号和连接方式，再按提示在现场设备上完成配置并确认数据。</p>
       </div>
       <div class="onboarding__header-actions">
         <ui-button v-if="draft.step < 2" @click="restart">重新开始</ui-button>
@@ -503,14 +502,13 @@ onBeforeUnmount(() => {
         :aria-current="draft.step === index ? 'step' : undefined"
       >
         <span class="onboarding__step-number">{{ index + 1 }}</span>
-        <span class="onboarding__step-copy"
-          ><strong>{{ item.title }}</strong
-          ><small>{{ item.hint }}</small></span
+        <span class="onboarding__step-copy" :title="item.hint"
+          ><strong>{{ item.title }}</strong></span
         >
       </li>
     </ol>
 
-    <p v-if="draftSavedAt" class="onboarding__muted">草稿已保存 · {{ formatTime(draftSavedAt) }}</p>
+    <p v-if="draftSavedAt" class="onboarding__muted">草稿已保存，{{ formatTime(draftSavedAt) }}</p>
     <ui-alert v-if="draftError" :title="draftError" type="warning" :closable="false" /><ui-button
       v-if="draftError && !draftReady"
       size="small"
@@ -520,7 +518,7 @@ onBeforeUnmount(() => {
     <ui-alert v-if="loadError" class="onboarding__alert" :title="loadError" type="error" :closable="false" show-icon />
 
     <section v-if="draft.step === 0" class="onboarding__card" aria-labelledby="onboarding-step-template">
-      <h3 id="onboarding-step-template" class="onboarding__title">这台设备使用哪个模板？</h3>
+      <h3 id="onboarding-step-template" class="onboarding__title">选择设备模板</h3>
       <div class="onboarding__fields">
         <ui-form-item label="设备模板" required
           ><ui-select
@@ -550,7 +548,7 @@ onBeforeUnmount(() => {
           <div class="onboarding__plan">
             <span>接入方式</span>
             <strong>{{ modeLabels[plan.mode] || plan.mode }}</strong>
-            <small v-if="plan.protocol?.id">协议 {{ plan.protocol.id }} · {{ plan.protocol.version }}</small>
+            <small v-if="plan.protocol?.id">协议 {{ plan.protocol.id }}，{{ plan.protocol.version }}</small>
           </div>
           <ul class="onboarding__checks">
             <li v-for="check in preflight.checks" :key="check.key" :class="`is-${check.state}`">
@@ -631,9 +629,9 @@ onBeforeUnmount(() => {
               <span
                 ><strong>{{ listenerLabel(item) }}</strong
                 ><small
-                  >{{ transportLabel(String(item.network).toUpperCase()) }} ·
+                  >{{ transportLabel(String(item.network).toUpperCase()) }}，
                   {{ item.enabled ? statusLabel(item.runtimeStatus || 'PENDING') : '已停用'
-                  }}<template v-if="!item.publicHost"> · 需先在接入点补齐对外地址</template></small
+                  }}<template v-if="!item.publicHost">，需先在接入点补齐对外地址</template></small
                 ></span
               >
             </label>
@@ -692,7 +690,7 @@ onBeforeUnmount(() => {
       <h3 id="onboarding-step-verify" class="onboarding__title">现场配置与验证</h3>
       <p class="onboarding__summary">
         <strong>{{ draft.result?.device?.name }}</strong
-        ><span>{{ draft.result?.device?.id }} · {{ draft.result?.product?.name }} · {{ modeLabels[draft.result?.mode] || '' }}</span>
+        ><span>{{ draft.result?.device?.id }}，{{ draft.result?.product?.name }}，{{ modeLabels[draft.result?.mode] || '' }}</span>
       </p>
 
       <div v-if="credential" class="onboarding__secret" role="alert">
@@ -798,12 +796,12 @@ onBeforeUnmount(() => {
   min-width: 0;
   padding: var(--space-3);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
 }
 .onboarding__steps li.is-active {
   border-color: var(--primary-border);
-  box-shadow: inset 0 -2px 0 var(--primary);
+  box-shadow: none;
 }
 .onboarding__step-number {
   display: grid;
@@ -841,9 +839,9 @@ onBeforeUnmount(() => {
 .onboarding__card {
   padding: var(--space-5) var(--space-6);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xs);
+  box-shadow: none;
 }
 .onboarding__title {
   margin: 0 0 var(--space-4);
@@ -910,7 +908,7 @@ onBeforeUnmount(() => {
   margin-top: var(--space-4);
   padding: var(--space-4);
   background: var(--surface-muted);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
 }
 .onboarding__plan {
@@ -959,13 +957,13 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
 }
 .is-passed .onboarding__check-icon {
-  color: var(--success);
+  color: var(--success-text);
 }
 .is-warning .onboarding__check-icon {
-  color: var(--warning);
+  color: var(--warning-text);
 }
 .is-failed .onboarding__check-icon {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .onboarding__actions {
   display: flex;
@@ -974,7 +972,7 @@ onBeforeUnmount(() => {
   gap: var(--space-2);
   margin-top: var(--space-5);
   padding-top: var(--space-4);
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
 }
 .onboarding__id-field {
   display: flex;
@@ -988,7 +986,7 @@ onBeforeUnmount(() => {
 .onboarding__section {
   margin-top: var(--space-4);
   padding-top: var(--space-4);
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
 }
 .onboarding__section h4 {
   margin: 0 0 var(--space-3);
@@ -1020,7 +1018,7 @@ onBeforeUnmount(() => {
   align-items: flex-start;
   gap: var(--space-3);
   padding: var(--space-3);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-md);
   cursor: pointer;
 }
@@ -1067,7 +1065,7 @@ onBeforeUnmount(() => {
   margin-bottom: var(--space-4);
   padding: var(--space-4);
   background: var(--warning-soft);
-  border: 1px solid var(--warning-border);
+  border: 0.5px solid var(--warning-border);
   border-radius: var(--radius-lg);
 }
 .onboarding__secret p {
@@ -1091,7 +1089,7 @@ onBeforeUnmount(() => {
   gap: var(--space-3);
   align-items: center;
   padding: var(--space-2) 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 .onboarding__kv:last-child {
   border-bottom: 0;

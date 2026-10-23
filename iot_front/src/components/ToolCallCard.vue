@@ -44,7 +44,7 @@ function safeSummary(value) {
         <span>{{ source.filename }}</span
         ><small
           >{{ source.chunkIndex != null ? `第 ${source.chunkIndex + 1} 段` : ''
-          }}{{ source.score != null ? ` · 相关度 ${source.score}` : '' }}</small
+          }}{{ source.score != null ? `，相关度 ${source.score}` : '' }}</small
         >
       </li>
     </ol>
@@ -79,18 +79,17 @@ function safeSummary(value) {
   margin-top: 10px;
   padding: 10px 11px;
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--border-strong);
-  border-radius: 4px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 .tool-card.is-running {
-  border-left-color: var(--warning);
+  border-color: var(--warning-border);
 }
 .tool-card.is-succeeded {
-  border-left-color: var(--success);
+  border-color: var(--success-border);
 }
 .tool-card.is-failed {
-  border-left-color: var(--danger);
+  border-color: var(--danger-border);
 }
 .tool-card header {
   display: flex;
@@ -105,7 +104,7 @@ function safeSummary(value) {
   place-items: center;
   color: var(--primary-text);
   background: var(--surface-muted);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 800;
 }
@@ -122,7 +121,7 @@ function safeSummary(value) {
 }
 .tool-title strong {
   overflow: hidden;
-  font-size: 13px;
+  font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -161,8 +160,8 @@ function safeSummary(value) {
   overflow: auto;
   color: var(--text);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 3px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-sm);
   font:
     12px/1.6 ui-monospace,
     SFMono-Regular,

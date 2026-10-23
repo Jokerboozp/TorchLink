@@ -65,7 +65,7 @@ onBeforeUnmount(() => request.cancel())
       <li v-for="item in items" :key="item.id" :class="{ active: item.id === activeId }">
         <button type="button" class="conversation-list__open" :disabled="disabled" :title="item.title" @click="emit('open', item.id)">
           <span>{{ item.title || '未命名对话' }}</span>
-          <small>{{ formatTime(item.updatedAt) }} · {{ Math.ceil((item.messageCount || 0) / 2) }} 轮</small>
+          <small>{{ formatTime(item.updatedAt) }}，{{ Math.ceil((item.messageCount || 0) / 2) }} 轮</small>
         </button>
         <ui-button size="small" text :disabled="disabled" aria-label="删除对话" @click="remove(item)">删除</ui-button>
       </li>
@@ -82,7 +82,7 @@ onBeforeUnmount(() => request.cancel())
   min-height: 0;
   padding: var(--space-3);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
 }
 .conversation-list__head {

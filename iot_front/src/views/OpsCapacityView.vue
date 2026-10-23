@@ -508,7 +508,7 @@ function rowActions(run) {
 function stateLabel(run) {
   if (run.cleaning) return '正在删除'
   if (isFinished(run.status) && run.verdict)
-    return `${runStatusText[run.status] || run.status} · ${verdictText[run.verdict] || run.verdict}`
+    return `${runStatusText[run.status] || run.status}，${verdictText[run.verdict] || run.verdict}`
   return runStatusText[run.status] || run.status
 }
 
@@ -598,7 +598,7 @@ onBeforeUnmount(() => {
         <p v-if="historyJob?.error" class="cap-sub cap-sub--danger">{{ historyJob.error }}</p>
         <p v-if="cleanupCountItems(historyJob?.counts).length" class="cap-sub">
           已清理：<span v-for="(item, index) in cleanupCountItems(historyJob.counts)" :key="item.key"
-            >{{ index ? ' · ' : '' }}{{ item.label }} {{ cleanupCountText(item.value) }}</span
+            >{{ index ? '，' : '' }}{{ item.label }} {{ cleanupCountText(item.value) }}</span
           >
         </p>
         <details v-if="cleanupRuntimeItems(historyJob?.counts).length">
@@ -616,7 +616,7 @@ onBeforeUnmount(() => {
     <section class="cap-editor surface-panel">
       <FilterBar>
         <span v-if="selfOnly" class="cap-env-meta"
-          >测试环境：本平台（{{ selectedEnv?.metricsTargets || 0 }} 个平台进程指标{{ selectedEnv?.mqtt ? ' · MQTT' : '' }}）</span
+          >测试环境：本平台（{{ selectedEnv?.metricsTargets || 0 }} 个平台进程指标{{ selectedEnv?.mqtt ? '，MQTT' : '' }}）</span
         >
         <template v-else>
           <ui-select
@@ -635,8 +635,8 @@ onBeforeUnmount(() => {
             />
           </ui-select>
           <span v-if="selectedEnv" class="cap-env-meta"
-            >Agent {{ selectedEnv.agents }} 个 · 指标目标 {{ selectedEnv.metricsTargets }} 个{{ selectedEnv.mqtt ? ' · MQTT' : ''
-            }}{{ selectedEnv.tcp ? ' · TCP' : '' }}{{ selectedEnv.web ? ' · Web' : '' }}</span
+            >Agent {{ selectedEnv.agents }} 个，指标目标 {{ selectedEnv.metricsTargets }} 个{{ selectedEnv.mqtt ? '，MQTT' : ''
+            }}{{ selectedEnv.tcp ? '，TCP' : '' }}{{ selectedEnv.web ? '，Web' : '' }}</span
           >
         </template>
         <template #actions>
@@ -713,10 +713,10 @@ onBeforeUnmount(() => {
         <template v-if="check.valid">
           <strong>校验通过</strong>
           <span
-            >{{ presetText[check.preset] || check.preset }} · 设备 {{ check.deviceCount }} 台<template v-if="check.rates?.length">
-              · 速率 {{ check.rates.join(' / ') }} 条/秒</template
+            >{{ presetText[check.preset] || check.preset }}，设备 {{ check.deviceCount }} 台<template v-if="check.rates?.length">
+             ，速率 {{ check.rates.join(' / ') }} 条/秒</template
             >
-            · 时长上限 {{ check.maximumWallTime }}</span
+           ，时长上限 {{ check.maximumWallTime }}</span
           >
           <span v-if="check.modules?.length">业务场景：{{ check.modules.join('、') }}</span>
           <span v-if="check.faults">故障动作 {{ check.faults }} 个</span>
@@ -741,14 +741,14 @@ onBeforeUnmount(() => {
       @retry="loadRuns()"
     >
       <template #header>
-        <h2>运行记录 · {{ total }} 次</h2>
+        <h2>运行记录，{{ total }} 次</h2>
         <ui-button size="small" :loading="loading" @click="loadRuns()"><RefreshCw />刷新</ui-button>
       </template>
       <ui-table v-loading="loading" :data="runs">
         <ui-table-column label="运行" min-width="230"
           ><template #default="{ row }"
             ><code>{{ row.runId }}</code>
-            <div class="cap-sub">{{ row.plan || '—' }} · {{ presetText[row.preset] || row.preset || '—' }}</div></template
+            <div class="cap-sub">{{ row.plan || '—' }}，{{ presetText[row.preset] || row.preset || '—' }}</div></template
           ></ui-table-column
         >
         <ui-table-column label="状态" min-width="170"
@@ -761,7 +761,7 @@ onBeforeUnmount(() => {
         <ui-table-column label="当前阶段" min-width="200"
           ><template #default="{ row }">
             <template v-if="!isFinished(row.status) && row.phaseId">
-              <div class="cap-sub">{{ row.phaseId }} · {{ boundText(row.targetRate) }}</div>
+              <div class="cap-sub">{{ row.phaseId }}，{{ boundText(row.targetRate) }}</div>
               <ui-progress
                 v-if="windowProgress(row, now) != null"
                 :percentage="windowProgress(row, now)"
@@ -780,7 +780,7 @@ onBeforeUnmount(() => {
           ><template #default="{ row }">
             <template v-if="row.classification"
               >{{ classText[row.classification] || row.classification }}
-              <div class="cap-sub">通过 {{ boundText(row.lowerPassedBound) }} · 失败 {{ boundText(row.upperFailedBound) }}</div></template
+              <div class="cap-sub">通过 {{ boundText(row.lowerPassedBound) }}，失败 {{ boundText(row.upperFailedBound) }}</div></template
             >
             <span v-else>—</span>
           </template></ui-table-column
@@ -810,7 +810,7 @@ onBeforeUnmount(() => {
           <ul class="cap-history-items">
             <li v-for="item in historyPreview.products || []" :key="item.productId">
               <strong>{{ item.name || item.productId }}</strong>
-              <p class="cap-sub">设备 {{ cleanupCountText(item.deviceCount) }} · 测试原文 {{ cleanupCountText(item.rawMessages) }}</p>
+              <p class="cap-sub">设备 {{ cleanupCountText(item.deviceCount) }}，测试原文 {{ cleanupCountText(item.rawMessages) }}</p>
             </li>
           </ul>
           <p v-for="(warning, index) in historyPreview.warnings || []" :key="index" class="cap-sub">{{ warning }}</p>
@@ -839,7 +839,7 @@ onBeforeUnmount(() => {
 
     <ui-dialog
       :model-value="Boolean(detail)"
-      :title="detail ? `容量测试 · ${detail.runId}` : ''"
+      :title="detail ? `容量测试，${detail.runId}` : ''"
       width="min(860px, 94vw)"
       @update:model-value="
         value => {
@@ -894,7 +894,7 @@ onBeforeUnmount(() => {
 .cap-history {
   margin-bottom: var(--space-4);
   padding: var(--space-3) var(--space-4);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
 }
 .cap-history-toolbar,
@@ -921,7 +921,7 @@ onBeforeUnmount(() => {
   padding: 0;
 }
 .cap-history-items li {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
   padding: var(--space-2) 0;
 }
 .cap-gap-top {
@@ -931,7 +931,7 @@ onBeforeUnmount(() => {
   margin-bottom: var(--space-4);
   padding: var(--space-4);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
 }
 .cap-env {
@@ -960,10 +960,10 @@ onBeforeUnmount(() => {
   font-size: var(--font-size-sm);
 }
 .cap-check.is-ok {
-  background: var(--success-soft, #ecfdf5);
+  background: var(--success-soft, var(--success-soft));
 }
 .cap-check.is-bad {
-  background: var(--danger-soft, #fef2f2);
+  background: var(--danger-soft, var(--danger-soft));
 }
 .cap-check ul {
   margin: 0;
@@ -975,7 +975,7 @@ onBeforeUnmount(() => {
   margin-top: 2px;
 }
 .cap-sub--danger {
-  color: var(--danger-text, #b91c1c);
+  color: var(--danger-text, var(--danger-text));
 }
 .cap-conclusion {
   margin: 0 0 var(--space-3);
@@ -984,13 +984,13 @@ onBeforeUnmount(() => {
 .cap-off {
   padding: var(--space-5);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
   line-height: 1.7;
 }
 .cap-off h2 {
   margin: 0 0 var(--space-2);
-  font-size: 16px;
+  font-size: 18px;
 }
 .cap-off code {
   font-size: 12px;
@@ -1028,7 +1028,7 @@ onBeforeUnmount(() => {
   grid-column: 1 / -1;
   margin: 0;
   padding-left: 18px;
-  color: var(--danger-text, #b91c1c);
+  color: var(--danger-text, var(--danger-text));
   font-size: var(--font-size-sm);
 }
 .cap-advanced {
@@ -1047,7 +1047,7 @@ onBeforeUnmount(() => {
 }
 .cap-table :deep(.data-table-card__header) h2 {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
 }
 @media (max-width: 767px) {
   .cap-form {

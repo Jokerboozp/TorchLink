@@ -268,8 +268,8 @@ function rowActions(row) {
   display: grid;
   gap: var(--space-2);
   padding: 12px 16px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
   background: var(--surface);
 }
 .gb-devices__sip-head {

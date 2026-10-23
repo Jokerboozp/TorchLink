@@ -34,6 +34,22 @@ select {
   font-family: inherit;
 }
 
+h1,
+h2 {
+  font-size: var(--font-size-lg);
+}
+
+h3,
+h4,
+h5,
+h6 {
+  font-size: var(--font-size-md);
+}
+
+small {
+  font-size: var(--font-size-xs);
+}
+
 button {
   -webkit-tap-highlight-color: transparent;
 }
@@ -47,7 +63,7 @@ code {
   color: var(--code-inline-text);
   background: var(--code-inline-bg);
   border-radius: var(--radius-sm);
-  font: 0.92em var(--font-mono);
+  font: var(--font-size-xs) var(--font-mono);
   overflow-wrap: anywhere;
 }
 
@@ -58,7 +74,7 @@ pre {
   overflow: auto;
   color: var(--code-text);
   background: var(--code-bg);
-  border: 1px solid var(--code-border);
+  border: 0.5px solid var(--code-border);
   border-radius: var(--radius-lg);
   font: var(--font-size-xs) / 1.65 var(--font-mono);
   white-space: pre-wrap;
@@ -197,11 +213,11 @@ summary:focus-visible {
 }
 .n-modal.ui-dialog > .n-card-header .n-card-header__main {
   font-family: var(--font-serif);
-  font-size: 18px;
+  font-size: var(--font-size-lg);
   font-weight: var(--font-weight-medium);
 }
 .n-modal.ui-dialog > .n-card-header {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 .n-modal.ui-dialog > .n-card-content {
   min-height: 0;
@@ -215,7 +231,7 @@ summary:focus-visible {
   justify-content: flex-end;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-6);
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
 }
 .n-modal.ui-dialog.alarm-detail-dialog > .n-card-content > pre,
 .n-modal.ui-dialog.alarm-detail-dialog > .n-card-content > .raw-detail > pre {
@@ -225,6 +241,150 @@ summary:focus-visible {
 .n-drawer .n-drawer-body-content-wrapper {
   overflow: auto;
   overscroll-behavior: contain;
+}
+
+/* Only narrow borders that the corresponding Naive UI variant already draws. */
+body .n-card.n-card--bordered,
+body .n-descriptions.n-descriptions--bordered .n-descriptions-table-wrapper,
+body .n-data-table.n-data-table--bordered .n-data-table-wrapper,
+body .n-tabs .n-tabs-nav.n-tabs-nav--card-type .n-tabs-tab {
+  border-width: 0.5px;
+}
+
+body .n-card.n-card--content-segmented > .n-card-content:not(:first-child),
+body .n-card.n-card--content-soft-segmented > .n-card-content:not(:first-child),
+body .n-card.n-card--footer-segmented > .n-card__footer:not(:first-child),
+body .n-card.n-card--footer-soft-segmented > .n-card__footer:not(:first-child),
+body .n-card.n-card--action-segmented > .n-card__action:not(:first-child),
+body .n-collapse .n-collapse-item:not(:first-child),
+body .n-data-table-filter-menu .n-data-table-filter-menu__action,
+body .n-date-panel .n-date-panel-footer,
+body .n-date-panel .n-date-panel-actions {
+  border-top-width: 0.5px;
+}
+
+body .n-data-table .n-data-table-th,
+body .n-data-table:not(.n-data-table--single-column) .n-data-table-td:not(.n-data-table-td--last-row),
+body .n-data-table.n-data-table--bottom-bordered .n-data-table-td.n-data-table-td--last-row,
+body .n-descriptions.n-descriptions--bordered .n-descriptions-table-row:not(:last-child) .n-descriptions-table-header,
+body .n-descriptions.n-descriptions--bordered .n-descriptions-table-row:not(:last-child) .n-descriptions-table-content,
+body .n-date-panel .n-date-panel-header,
+body .n-date-panel .n-date-panel-weekdays {
+  border-bottom-width: 0.5px;
+}
+
+body .n-data-table:not(.n-data-table--single-line) .n-data-table-th:not(.n-data-table-th--last),
+body .n-data-table:not(.n-data-table--single-line) .n-data-table-td:not(.n-data-table-td--last-col),
+body .n-descriptions.n-descriptions--bordered .n-descriptions-table-header:not(:last-child),
+body .n-descriptions.n-descriptions--bordered .n-descriptions-table-content:not(:last-child) {
+  border-right-width: 0.5px;
+}
+
+body .n-radio-group.n-radio-group--button-group .n-radio-button {
+  border-top-width: 0.5px;
+  border-bottom-width: 0.5px;
+}
+body .n-radio-group.n-radio-group--button-group .n-radio-button:first-child {
+  border-left-width: 0.5px;
+}
+body .n-radio-group.n-radio-group--button-group .n-radio-button:last-child {
+  border-right-width: 0.5px;
+}
+
+body .n-tabs .n-tabs-nav.n-tabs-nav--top.n-tabs-nav--line-type :is(.n-tabs-nav__prefix, .n-tabs-nav__suffix, .n-tabs-nav-scroll-content),
+body
+  .n-tabs
+  .n-tabs-nav.n-tabs-nav--top.n-tabs-nav--card-type
+  :is(.n-tabs-nav__prefix, .n-tabs-nav__suffix, .n-tabs-scroll-padding, .n-tabs-tab-pad, .n-tabs-pad) {
+  border-bottom-width: 0.5px;
+}
+body .n-tabs .n-tabs-nav.n-tabs-nav--bottom.n-tabs-nav--line-type :is(.n-tabs-nav__prefix, .n-tabs-nav__suffix, .n-tabs-nav-scroll-content),
+body
+  .n-tabs
+  .n-tabs-nav.n-tabs-nav--bottom.n-tabs-nav--card-type
+  :is(.n-tabs-nav__prefix, .n-tabs-nav__suffix, .n-tabs-scroll-padding, .n-tabs-tab-pad, .n-tabs-pad) {
+  border-top-width: 0.5px;
+}
+body .n-tabs .n-tabs-nav.n-tabs-nav--left.n-tabs-nav--line-type :is(.n-tabs-nav__prefix, .n-tabs-nav__suffix, .n-tabs-nav-scroll-content),
+body
+  .n-tabs
+  .n-tabs-nav.n-tabs-nav--left.n-tabs-nav--card-type
+  :is(.n-tabs-nav__prefix, .n-tabs-nav__suffix, .n-tabs-scroll-padding, .n-tabs-tab-pad, .n-tabs-pad) {
+  border-right-width: 0.5px;
+}
+body .n-tabs .n-tabs-nav.n-tabs-nav--right.n-tabs-nav--line-type :is(.n-tabs-nav__prefix, .n-tabs-nav__suffix, .n-tabs-nav-scroll-content),
+body
+  .n-tabs
+  .n-tabs-nav.n-tabs-nav--right.n-tabs-nav--card-type
+  :is(.n-tabs-nav__prefix, .n-tabs-nav__suffix, .n-tabs-scroll-padding, .n-tabs-tab-pad, .n-tabs-pad) {
+  border-left-width: 0.5px;
+}
+
+body .n-divider .n-divider__line {
+  height: 0.5px;
+}
+body .n-divider.n-divider--vertical {
+  width: 0.5px;
+}
+body .n-divider.n-divider--dashed .n-divider__line {
+  border-top-width: 0.5px;
+}
+body .n-step .n-step-indicator {
+  box-shadow: 0 0 0 0.5px var(--n-indicator-border-color);
+}
+
+body .n-tabs .n-tabs-bar,
+body .n-radio-group .n-radio-group__splitor,
+body .n-step .n-step-splitor {
+  width: 0.5px;
+}
+
+body .n-tabs.n-tabs--top .n-tabs-bar,
+body .n-tabs.n-tabs--bottom .n-tabs-bar,
+body .n-steps.n-steps--horizontal .n-step-splitor {
+  width: auto;
+  height: 0.5px;
+}
+
+body .n-data-table .n-data-table-th::after,
+body .n-data-table .n-data-table-th::before {
+  height: 0.5px;
+}
+
+/* Hover feedback is immediate; only opening overlays needs a short fade. */
+body .n-button,
+body .n-button .n-button__border,
+body .n-button .n-button__state-border,
+body .n-input,
+body .n-input .n-input__border,
+body .n-input .n-input__state-border,
+body .n-base-selection,
+body .n-base-selection .n-base-selection__border,
+body .n-base-selection .n-base-selection__state-border,
+body .n-card,
+body .n-card .n-card-header,
+body .n-radio-button,
+body .n-tag,
+body .n-tabs .n-tabs-tab,
+body .n-tabs .n-tabs-bar,
+body .n-data-table .n-data-table-th,
+body .n-data-table .n-data-table-td {
+  transition: none;
+}
+
+body .n-base-wave,
+body .n-button .n-button__wave {
+  display: none;
+}
+
+body .n-skeleton {
+  animation: none;
+}
+
+body .n-modal-mask,
+body .n-drawer-mask {
+  background: var(--mask);
+  transition: opacity 250ms ease-out;
 }
 
 /* 分段单选：每个选项独立成块，悬停为暖灰，选中态用主色细边和浅陶土底。 */
@@ -241,12 +401,10 @@ summary:focus-visible {
   align-items: center;
   justify-content: center;
   margin: 0;
-  border: 1px solid var(--border-strong);
+  border: 0.5px solid var(--border-strong);
   border-radius: var(--radius-md);
   background: var(--surface);
-  transition:
-    border-color 0.16s ease,
-    background-color 0.16s ease;
+  transition: none;
 }
 .segmented-choice-group .n-radio-button__state-border,
 .segmented-choice-group .n-radio-group__splitor {
@@ -261,7 +419,7 @@ summary:focus-visible {
   background: var(--surface-hover);
 }
 .segmented-choice-group .n-radio-button.n-radio-button--checked {
-  border-color: var(--primary);
+  border-color: var(--primary-border);
   background: var(--primary-soft);
 }
 .segmented-choice-group .n-radio-button.n-radio-button--checked .n-radio-button__label {
@@ -293,7 +451,7 @@ summary:focus-visible {
   width: 22px;
   height: 22px;
   margin: -11px;
-  border: 2px solid var(--primary-border);
+  border: 0.5px solid var(--primary-border);
   border-top-color: var(--primary);
   border-radius: 50%;
   animation: ui-spin 0.75s linear infinite;
@@ -312,7 +470,7 @@ input[type='file'] {
   padding: 4px 6px;
   color: var(--text-muted);
   background: var(--surface);
-  border: 1px solid var(--border-strong);
+  border: 0.5px solid var(--border-strong);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
   cursor: pointer;
@@ -323,7 +481,7 @@ input[type='file']::file-selector-button {
   padding: 0 var(--space-3);
   color: var(--text);
   background: var(--surface);
-  border: 1px solid var(--border-strong);
+  border: 0.5px solid var(--border-strong);
   border-radius: var(--radius-sm);
   font: var(--font-weight-medium) var(--font-size-sm) var(--font-sans);
   cursor: pointer;

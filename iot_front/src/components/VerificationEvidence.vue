@@ -8,8 +8,8 @@ const emit = defineEmits(['navigate'])
     <summary>{{ title }}</summary>
     <p v-if="trial">这是候选配置的隔离试验证据；正式设备仍须按当前配置完成现场验收。</p>
     <p>
-      设备：{{ evidence.deviceId }} ·
-      {{ evidence.verifiedAt ? `验收于 ${formatTime(evidence.verifiedAt)}` : `检查于 ${formatTime(evidence.checkedAt)}` }} ·
+      设备：{{ evidence.deviceId }}，
+      {{ evidence.verifiedAt ? `验收于 ${formatTime(evidence.verifiedAt)}` : `检查于 ${formatTime(evidence.checkedAt)}` }}，
       {{ evidence.messageCount || 0 }} 条有效报文
     </p>
     <div class="evidence-links">
@@ -30,7 +30,7 @@ const emit = defineEmits(['navigate'])
 .verification-evidence {
   margin: var(--space-3) 0;
   padding: var(--space-3);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-md);
 }
 summary {

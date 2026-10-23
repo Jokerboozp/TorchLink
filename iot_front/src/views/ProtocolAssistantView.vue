@@ -44,7 +44,7 @@ const transports = computed(() => (form.inputKind === 'point-table' ? ['MODBUS_T
 const fields = computed(() => {
   const config = draft.value?.config || {}
   if (config.points)
-    return config.points.map(p => ({ name: p.identifier, label: p.name, address: `${p.address} · FC ${p.functionCode}`, type: p.dataType }))
+    return config.points.map(p => ({ name: p.identifier, label: p.name, address: `${p.address}，FC ${p.functionCode}`, type: p.dataType }))
   if (config.properties)
     return Object.entries(config.properties).map(([name, path]) => ({
       name,
@@ -53,7 +53,7 @@ const fields = computed(() => {
     }))
   return (config.fields || draft.value?.fields || []).map(p => ({
     name: p.name,
-    address: p.offset != null ? `偏移 ${p.offset} · ${p.length} 字节` : p.address || p.coilAddress,
+    address: p.offset != null ? `偏移 ${p.offset}，${p.length} 字节` : p.address || p.coilAddress,
     type: p.type || p.dataType
   }))
 })
@@ -330,7 +330,6 @@ onMounted(() => {
       <section class="generator-section">
         <div class="generator-section-heading">
           <h3>协议基本信息</h3>
-          <p>确认协议名称、传输方式和样本解析格式。</p>
         </div>
         <div class="form-grid">
           <ui-form-item label="协议名称"><ui-input v-model="form.name" placeholder="可由文件名生成" /></ui-form-item
@@ -487,8 +486,8 @@ onMounted(() => {
 .generator-section {
   padding: 16px 18px;
   margin-bottom: 13px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
   background: var(--surface);
 }
 .generator-section-heading {

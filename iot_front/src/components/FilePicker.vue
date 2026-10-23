@@ -33,14 +33,14 @@ function choose(event) {
   min-height: 32px;
   padding: 0 12px;
   flex: none;
-  border: 1px solid var(--border);
-  border-radius: 4px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-sm);
   color: var(--text);
   background: var(--surface);
-  font-size: 13px;
+  font-size: 14px;
 }
 .file-picker-button:focus-within {
-  outline: 2px solid var(--primary);
+  outline: 0.5px solid var(--primary);
   outline-offset: 2px;
 }
 .file-picker-button input {
@@ -54,7 +54,7 @@ function choose(event) {
 }
 .file-picker-name {
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   overflow-wrap: anywhere;
 }
 .is-disabled {

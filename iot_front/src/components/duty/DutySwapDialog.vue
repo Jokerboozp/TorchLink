@@ -72,7 +72,7 @@ async function close() {
     @update:model-value="value => value || close()"
   >
     <p v-if="target" class="duty-hint">
-      {{ stationName(target.stationId) }} · {{ dateTimeLabel(target.startAt) }} — {{ dateTimeLabel(target.endAt) }}
+      {{ stationName(target.stationId) }}，{{ dateTimeLabel(target.startAt) }} — {{ dateTimeLabel(target.endAt) }}
     </p>
     <ui-form label-position="top" :disabled="saving"
       ><div class="duty-form-grid">

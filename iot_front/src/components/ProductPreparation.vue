@@ -412,7 +412,6 @@ onBeforeUnmount(() => clearInterval(timer))
     <header class="preparation-heading">
       <div>
         <h2>{{ productId ? candidate.product.name || '设备模板' : '准备设备模板' }}</h2>
-        <p>在这里完成协议、公共连接与首台真实验证；以后同类设备直接复用。</p>
       </div>
       <ui-button :disabled="!!busy" :loading="busy === 'save'" @click="close">{{ canPrepare ? '保存并返回' : '返回设备模板' }}</ui-button>
     </header>
@@ -431,10 +430,10 @@ onBeforeUnmount(() => clearInterval(timer))
     <ui-alert v-if="error" :title="error" type="error" :closable="false" /><ui-button v-if="conflict" @click="load"
       >重新加载服务器配置</ui-button
     >
-    <p v-if="draftSavedAt" class="preparation-note">草稿已保存 · {{ formatTime(draftSavedAt) }}</p>
+    <p v-if="draftSavedAt" class="preparation-note">草稿已保存，{{ formatTime(draftSavedAt) }}</p>
     <p v-if="preparation" class="preparation-note">
       {{ statusNames[preparation.status] || preparation.status
-      }}<template v-if="existingDevices"> · 当前关联 {{ existingDevices }} 台设备；保存候选配置不会立即切换运行设备。</template>
+      }}<template v-if="existingDevices">，当前关联 {{ existingDevices }} 台设备；保存候选配置不会立即切换运行设备。</template>
     </p>
     <section v-if="step === 0" class="preparation-card">
       <h3>模板信息</h3>
@@ -472,7 +471,6 @@ onBeforeUnmount(() => clearInterval(timer))
     </section>
     <section v-if="step === 1" class="preparation-card">
       <h3>通信协议</h3>
-      <p>选择已经发布的协议，或在当前模板中完成协议开发。</p>
       <ui-form label-position="top"
         ><ui-form-item label="已发布协议"
           ><ui-select v-model="selectedPackage" filterable @change="chooseProtocol"
@@ -671,7 +669,7 @@ onBeforeUnmount(() => clearInterval(timer))
           v-for="entry in preparation.history"
           :key="entry.revision"
           :value="entry.revision"
-          :label="`修订 ${entry.revision} · ${entry.candidate?.protocolId || ''} ${entry.candidate?.version || ''} · ${formatTime(entry.appliedAt)}`" /></ui-select
+          :label="`修订 ${entry.revision}，${entry.candidate?.protocolId || ''} ${entry.candidate?.version || ''}，${formatTime(entry.appliedAt)}`" /></ui-select
       ><ui-button
         v-permission="'PUT /api/v1/products/:id'"
         :disabled="!!busy || !rollbackRevision"
@@ -747,7 +745,7 @@ onBeforeUnmount(() => clearInterval(timer))
   align-items: center;
   text-align: left;
   padding: var(--space-3);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--text-secondary);
@@ -759,7 +757,7 @@ onBeforeUnmount(() => clearInterval(timer))
 }
 .preparation-card {
   padding: var(--space-5);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--surface);
 }
@@ -774,7 +772,7 @@ onBeforeUnmount(() => clearInterval(timer))
 .preparation-profile {
   margin-bottom: var(--space-4);
   padding: var(--space-4);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-md);
 }
 .preparation-actions {
@@ -785,7 +783,7 @@ onBeforeUnmount(() => clearInterval(timer))
   min-width: 200px;
 }
 .preparation-apply {
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
   margin-top: var(--space-4);
   padding-top: var(--space-3);
 }

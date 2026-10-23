@@ -345,7 +345,7 @@ onBeforeUnmount(() => {
     <template v-else
       ><div class="batch-summary">
         <strong>{{ statusNames[batch.status] || batch.status }}</strong
-        ><span>共 {{ batch.total }} 台 · 已登记 {{ batch.succeeded }} · 失败 {{ batch.failed }} · 待处理 {{ batch.pending }}</span
+        ><span>共 {{ batch.total }} 台，已登记 {{ batch.succeeded }}，失败 {{ batch.failed }}，待处理 {{ batch.pending }}</span
         ><ui-button size="small" @click="refresh">刷新</ui-button
         ><ui-button size="small" @click="exportConfiguration">下载本页现场配置</ui-button
         ><ui-button v-if="failedIndices.length && !awaiting" :loading="busy === 'retry'" @click="retry()">重试本页失败项</ui-button
@@ -357,8 +357,8 @@ onBeforeUnmount(() => {
       </div>
       <p>后台保留任务，关闭页面后可从“批量记录”继续查看。密钥限时领取，领取后只在当前页面显示，离开前请保存。</p>
       <p v-if="batch.verificationSummary">
-        当前页验收：已验证 {{ batch.verificationSummary.verified }} · 待配置 {{ batch.verificationSummary.waitingConfiguration }} · 待验证
-        {{ batch.verificationSummary.waitingVerification }} · 异常 {{ batch.verificationSummary.errors }}
+        当前页验收：已验证 {{ batch.verificationSummary.verified }}，待配置 {{ batch.verificationSummary.waitingConfiguration }}，待验证
+        {{ batch.verificationSummary.waitingVerification }}，异常 {{ batch.verificationSummary.errors }}
       </p>
       <ui-alert v-if="batch.error" :title="batch.error" type="warning" :closable="false" />
       <ui-table :data="batch.rows || []"
@@ -387,7 +387,7 @@ onBeforeUnmount(() => {
         ><ui-button v-if="secrets.items?.length" size="small" @click="copySecrets">复制本次密钥</ui-button
         ><ui-button v-if="secrets.items?.length" size="small" @click="exportSecrets">下载本次密钥与配置</ui-button>
         <pre v-for="item in secrets.items" :key="item.index"
-          >{{ item.deviceId }} · {{ item.credential.accessKey }}
+          >{{ item.deviceId }}，{{ item.credential.accessKey }}
 {{ item.credential.secret }}</pre>
         <p v-for="item in secrets.unavailable" :key="item.index">{{ item.deviceId }}：{{ item.reason }}</p>
         <ui-button @click="clearSecrets">我已保存，清除显示</ui-button>
@@ -426,7 +426,7 @@ onBeforeUnmount(() => {
 }
 .batch-secrets {
   padding: var(--space-4);
-  border: 1px solid var(--warning-border);
+  border: 0.5px solid var(--warning-border);
   border-radius: var(--radius-md);
 }
 pre {

@@ -14,8 +14,8 @@ export function mappingRows(config, parserType) {
     ...JSON.parse(JSON.stringify(point)),
     scale: point.scale ?? 1,
     source: config.points
-      ? `${point.name || point.identifier} · 地址 ${point.address} · FC ${point.functionCode}`
-      : `${point.name} · 偏移 ${point.offset} · ${point.length} 字节`
+      ? `${point.name || point.identifier}，地址 ${point.address}，FC ${point.functionCode}`
+      : `${point.name}，偏移 ${point.offset}，${point.length} 字节`
   }))
 }
 

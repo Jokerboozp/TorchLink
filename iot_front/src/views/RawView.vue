@@ -187,7 +187,7 @@ function recentHours(hours) {
   return search()
 }
 function parseState(row) {
-  if (row.parsed) return { tone: 'success', label: `已解析 · ${messageTypeLabel(row.parsedMessageType)}` }
+  if (row.parsed) return { tone: 'success', label: `已解析，${messageTypeLabel(row.parsedMessageType)}` }
   return row.parseError ? { tone: 'danger', label: '解析失败' } : { tone: 'neutral', label: '待解析 / 未匹配' }
 }
 // 详情的解析状态与列表一致：已解析为绿色，解析失败为红色，其余为灰色。
@@ -359,7 +359,7 @@ function rowActions(row) {
     </FilterBar>
   </form>
   <DataTableCard
-    :title="`原始报文 · ${totalLabel} 条`"
+    :title="`原始报文（${totalLabel} 条）`"
     :page="page"
     :page-size="pageSize"
     :total="total"
@@ -368,10 +368,7 @@ function rowActions(row) {
     @update:page-size="changePageSize"
     @retry="load"
   >
-    <p class="raw-hint">
-      {{ activeFilterCount ? `已应用 ${activeFilterCount} 项筛选；` : ''
-      }}{{ defaultWindow ? '已限定为最近 7 天，查看更早的报文请选择接收时间或设备；' : '' }}保留原文证据链；详情同时展示标准解析结果。
-    </p>
+    <p v-if="defaultWindow" class="raw-hint">当前显示最近 7 天；查看更早报文请选择接收时间或设备。</p>
     <ui-table
       v-loading="loading"
       :data="items"
@@ -385,8 +382,8 @@ function rowActions(row) {
         min-width="220"
         ><template #default="{ row }"
           ><span class="raw-id" :title="row.deviceId">{{ deviceName(row.deviceId) || row.deviceId }}</span
-          ><small class="subline raw-id" :title="`设备 ${row.deviceId} · 产品 ${row.productId}`"
-            ><template v-if="deviceName(row.deviceId)">{{ row.deviceId }} · </template
+          ><small class="subline raw-id" :title="`设备 ${row.deviceId}，产品 ${row.productId}`"
+            ><template v-if="deviceName(row.deviceId)">{{ row.deviceId }}，</template
             >{{ productName(row.productId) || row.productId }}</small
           ></template
         ></ui-table-column
@@ -415,7 +412,7 @@ function rowActions(row) {
         }}</small
         ><small class="subline raw-id"
           >产品：{{ productName(detail.message?.productId) || detail.message?.productId
-          }}<template v-if="productName(detail.message?.productId)"> · {{ detail.message?.productId }}</template></small
+          }}<template v-if="productName(detail.message?.productId)">，{{ detail.message?.productId }}</template></small
         ></ui-descriptions-item
       ><ui-descriptions-item label="接收时间">{{ formatTime(detail.message?.receivedAt) }}</ui-descriptions-item
       ><ui-descriptions-item label="协议 / 格式"
@@ -461,8 +458,8 @@ function rowActions(row) {
 .raw-filters {
   margin-bottom: var(--space-4);
   padding: var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg, 12px);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
   background: var(--surface);
 }
 .raw-filter-grid {
@@ -500,7 +497,7 @@ function rowActions(row) {
 .raw-filter-advanced {
   margin-top: var(--space-3);
   padding-top: var(--space-3);
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
 }
 .raw-filter-actions {
   margin-top: var(--space-4);
@@ -534,6 +531,6 @@ function rowActions(row) {
   padding: var(--space-2) var(--space-4);
   color: var(--text-muted);
   font-size: var(--font-size-xs);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 </style>

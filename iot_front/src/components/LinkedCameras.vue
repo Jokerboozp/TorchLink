@@ -74,7 +74,7 @@ onBeforeUnmount(loader.cancel)
         <Video class="linked-cameras__icon" aria-hidden="true" />
         <div class="linked-cameras__text">
           <strong>{{ row.cameraName || row.cameraId }}</strong>
-          <small>{{ [row.brand, cameraLocation(row)].filter(Boolean).join(' · ') || row.cameraId }}</small>
+          <small>{{ [row.brand, cameraLocation(row)].filter(Boolean).join('，') || row.cameraId }}</small>
         </div>
         <ui-button v-if="liveOn && row.liveAvailable" size="small" type="primary" @click="watchLive(row)">观看直播</ui-button>
         <small v-else-if="liveOn" class="linked-cameras__muted">未配置直播</small>
@@ -103,8 +103,8 @@ onBeforeUnmount(loader.cancel)
   gap: var(--space-3);
   min-width: 0;
   padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
 }
 .linked-cameras__icon {
   width: 16px;

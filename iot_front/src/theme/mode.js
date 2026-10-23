@@ -24,7 +24,8 @@ export const isDark = computed(() => themeMode.value === 'dark' || (themeMode.va
 function apply() {
   if (typeof document === 'undefined') return
   document.documentElement.dataset.theme = isDark.value ? 'dark' : 'light'
-  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', isDark.value ? '#1f1e1c' : '#faf9f5')
+  const background = getComputedStyle(document.documentElement).getPropertyValue('--bg').trim()
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', background)
 }
 
 export function setThemeMode(value) {

@@ -340,7 +340,7 @@ onBeforeUnmount(() => {
           <template v-if="result">
             <div class="result-meta">
               <span
-                >{{ result.series.length }} 条序列<template v-if="result.stepMs"> · 步长 {{ result.stepMs / 1000 }} 秒</template></span
+                >{{ result.series.length }} 条序列<template v-if="result.stepMs">，步长 {{ result.stepMs / 1000 }} 秒</template></span
               >
               <ui-tag v-if="result.truncated" type="warning" size="small">结果已截断，只显示前 {{ result.limit }} 条序列</ui-tag>
               <ui-tag v-for="w in result.warnings || []" :key="w" type="warning" size="small">{{ w }}</ui-tag>
@@ -387,7 +387,7 @@ onBeforeUnmount(() => {
                 @click="pick(item)"
               >
                 <strong>{{ item.name }}</strong
-                ><small>{{ item.type || '未知类型' }}{{ item.help ? ` · ${item.help}` : '' }}</small>
+                ><small>{{ item.type || '未知类型' }}{{ item.help ? `，${item.help}` : '' }}</small>
               </button>
             </div>
           </aside>
@@ -583,7 +583,7 @@ onBeforeUnmount(() => {
   display: grid;
   max-height: 560px;
   overflow: auto;
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
 }
@@ -595,7 +595,7 @@ onBeforeUnmount(() => {
   text-align: left;
   background: none;
   border: 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
   cursor: pointer;
 }
 .metric-item:hover {

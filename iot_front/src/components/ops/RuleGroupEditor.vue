@@ -215,7 +215,7 @@ async function save() {
   gap: var(--space-3);
   padding: var(--space-4);
   background: var(--surface-muted);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
 }
 .rule-card header {

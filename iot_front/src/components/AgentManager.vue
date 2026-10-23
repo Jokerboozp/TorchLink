@@ -234,12 +234,12 @@ onMounted(load)
   <section class="agent-manager">
     <div class="agent-manager__intro">
       <p>
-        智能体决定对话时的角色、可用工具与回答方式。内置智能体只读；自定义智能体只能使用平台提供的只读查询工具，规则草稿工具只保存待人工确认的禁用草稿。
+        内置智能体不可修改。规则草稿须人工确认后启用。
       </p>
       <ui-button v-if="can('POST /api/v1/ai/workflows')" type="primary" @click="openEditor()">新建智能体</ui-button>
     </div>
     <DataTableCard
-      :title="`智能体 · ${total} 个`"
+      :title="`智能体（${total} 个）`"
       :error="loadError"
       :page="page"
       :page-size="pageSize"
@@ -252,7 +252,7 @@ onMounted(load)
         <ui-table-column label="智能体" min-width="220">
           <template #default="{ row }">
             <strong>{{ row.name || row.id }}</strong>
-            <small class="agent-manager__id">{{ row.id }}{{ row.version ? ` · v${row.version}` : '' }}</small>
+            <small class="agent-manager__id">{{ row.id }}{{ row.version ? `，v${row.version}` : '' }}</small>
           </template>
         </ui-table-column>
         <ui-table-column label="说明" min-width="260" show-overflow-tooltip>

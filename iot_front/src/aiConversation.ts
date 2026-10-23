@@ -324,7 +324,7 @@ function createAIConversation({ identity, storage, stream }: ConversationOptions
         const tool = findOrCreateTool(run, assistant, event)
         tool.status = 'running'
         tool.inputSummary = event.inputSummary || event.input?.summary || tool.inputSummary
-        addRunEvent(run, event, `调用工具 · ${tool.name}`, 'running', tool.inputSummary)
+        addRunEvent(run, event, `调用工具：${tool.name}`, 'running', tool.inputSummary)
         break
       }
       case 'tool.completed': {
@@ -338,7 +338,7 @@ function createAIConversation({ identity, storage, stream }: ConversationOptions
         addRunEvent(
           run,
           event,
-          `工具${tool.status === 'failed' ? '失败' : '完成'} · ${tool.name}`,
+          `工具${tool.status === 'failed' ? '失败' : '完成'}：${tool.name}`,
           tool.status === 'failed' ? 'danger' : 'success',
           tool.error || tool.outputSummary
         )

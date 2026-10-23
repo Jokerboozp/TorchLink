@@ -118,7 +118,7 @@ onUnmounted(() => {
   <DataTableCard class="workflow-runs" :error="error" @retry="loadRuns">
     <template #header>
       <div class="runs-header">
-        <strong>运行中的 AI 工作流</strong><small>当前租户的任务 · 列表手动刷新，已用时间实时更新 · {{ items.length }} 个任务</small>
+        <strong>运行中的 AI 工作流</strong><small>{{ items.length }} 个任务</small>
       </div>
       <ui-button size="small" :loading="loading" @click="loadRuns">刷新列表</ui-button>
     </template>

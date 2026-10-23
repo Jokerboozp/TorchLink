@@ -436,7 +436,7 @@ test('component alarm popup identifies the actual part and location', async () =
     componentLocation: '二楼走廊'
   })
   assert.equal(alert.deviceName, '消防控制器')
-  assert.equal(alert.detail, '烟感探测器 · 二楼走廊 · 火灾告警')
+  assert.equal(alert.detail, '烟感探测器，二楼走廊，火灾告警')
   assert.deepEqual(alertKeys(alert), ['component-alarm'])
   assert.equal(
     parseRealtimeAlert('/iot/parsed/t/p/d/ALARM_REPORT', {
@@ -537,7 +537,7 @@ test('display names handle canonical and lowercase wire values without mutating 
   assert.equal(statusLabel(null), '未知状态')
   assert.equal(statusLabel('待人工复核'), '待人工复核')
   assert.deepEqual(data, { transport: 'MQTT', format: 'json', status: 'INDEXED' })
-  assert.equal(platformLabel('windows-arm64'), 'Windows · arm64')
+  assert.equal(platformLabel('windows-arm64'), 'Windows，arm64')
   assert.equal(toolName('mcp__iot__query_alarm_list'), '查询告警')
 })
 

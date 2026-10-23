@@ -33,8 +33,7 @@ const {
   <section class="knowledge-panel policy-panel" aria-label="知识库策略">
     <div class="knowledge-panel-heading">
       <div>
-        <h2>知识库策略</h2>
-        <p>每个智能体只检索属于自己的文档，按需调整回答时的检索规则。</p>
+        <h2 title="每个智能体仅检索其所属文档">知识库策略</h2>
       </div>
       <ui-button v-if="agents.length" :loading="bindingLoading" @click="loadBinding">刷新策略</ui-button>
     </div>
@@ -53,7 +52,7 @@ const {
           ><ui-option
             v-for="agent in agents"
             :key="agentKey(agent)"
-            :label="agentName(agent) + ' · ' + agentKey(agent)"
+            :label="agentName(agent) + '，' + agentKey(agent)"
             :value="agentKey(agent)"
         /></ui-select>
         <small>本页 {{ documents.filter(item => item.workflowId === bindingWorkflowId).length }} 份文档归属该智能体</small>
@@ -67,8 +66,7 @@ const {
       >
         <div class="knowledge-policy-section">
           <div class="knowledge-section-copy">
-            <h3>何时检索</h3>
-            <p>默认每次回答前检索本智能体的知识，召回片段作为模型 API 的参考依据。</p>
+            <h3>检索时机</h3>
           </div>
           <ui-form-item label="检索模式"
             ><ui-radio-group v-model="knowledgeBinding.retrievalMode" class="segmented-choice-group" aria-label="检索模式"
@@ -80,7 +78,6 @@ const {
         <div class="knowledge-policy-section">
           <div class="knowledge-section-copy">
             <h3>匹配要求</h3>
-            <p>控制取回的片段数量，以及内容的最低相似度。</p>
           </div>
           <div class="knowledge-number-grid">
             <ui-form-item label="召回数量"
@@ -92,8 +89,7 @@ const {
         </div>
         <div class="knowledge-policy-section">
           <div class="knowledge-section-copy">
-            <h3>没有匹配时</h3>
-            <p>明确缺少依据时，智能体是否还可以给出一般性回答。</p>
+            <h3>无匹配知识时</h3>
           </div>
           <ui-form-item label="无匹配知识时"
             ><ui-select v-model="knowledgeBinding.noMatchPolicy"
@@ -117,7 +113,7 @@ const {
       <div v-if="canTestBinding" class="knowledge-policy-section knowledge-test">
         <div class="knowledge-section-copy">
           <h3>检索测试</h3>
-          <p>按上方召回数量和最低相似度试检索一次，查看该智能体会引用哪些片段；不保存策略，也不调用对话模型。</p>
+          <p>使用当前参数测试，不保存策略或调用对话模型。</p>
         </div>
         <div class="knowledge-test-body">
           <div class="knowledge-test-input">
@@ -127,20 +123,20 @@ const {
               placeholder="例如：烟感持续报警如何处置"
               aria-label="测试问题"
               @keydown.enter.prevent="testBinding"
-            /><ui-button :loading="testing" :disabled="!testQuestion.trim() || !bindingWorkflowId" @click="testBinding">试检索</ui-button>
+            /><ui-button :loading="testing" :disabled="!testQuestion.trim() || !bindingWorkflowId" @click="testBinding">测试检索</ui-button>
           </div>
           <ui-alert v-if="testError" :title="testError" type="error" :closable="false" show-icon />
           <template v-else-if="testResult">
             <small class="knowledge-test-meta"
-              >召回 {{ testResult.items.length }} 条 · 用时 {{ testResult.durationMs ?? 0 }} 毫秒{{
-                testResult.keywordOnly ? ' · 向量服务不可用，仅按关键词匹配' : ''
+              >召回 {{ testResult.items.length }} 条，用时 {{ testResult.durationMs ?? 0 }} 毫秒{{
+                testResult.keywordOnly ? '，向量服务不可用，仅按关键词匹配' : ''
               }}</small
             >
             <ol v-if="testResult.items.length" class="knowledge-test-hits">
               <li v-for="hit in testResult.items" :key="`${hit.documentId}-${hit.chunkIndex}`">
                 <div>
                   <strong>{{ hit.filename || hit.documentId }}</strong
-                  ><small>第 {{ Number(hit.chunkIndex) + 1 }} 段 · 相似度 {{ Number(hit.score).toFixed(3) }}</small>
+                  ><small>第 {{ Number(hit.chunkIndex) + 1 }} 段，相似度 {{ Number(hit.score).toFixed(3) }}</small>
                 </div>
                 <p>{{ hit.content }}</p>
               </li>
@@ -159,7 +155,7 @@ const {
   overflow: hidden;
   background: var(--surface);
   border-radius: var(--radius-lg);
-  box-shadow: 0 1px 2px color-mix(in srgb, var(--primary) 5%, transparent);
+  box-shadow: none;
 }
 .knowledge-panel-heading {
   display: flex;
@@ -176,7 +172,7 @@ const {
 .knowledge-panel-heading p {
   margin: 5px 0 0;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 14px;
 }
 .policy-panel {
   padding-bottom: 8px;
@@ -189,10 +185,10 @@ const {
   align-items: center;
   gap: 14px;
   background: var(--surface-muted);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
 }
 .knowledge-policy-target label {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 .knowledge-policy-target small {
@@ -204,7 +200,7 @@ const {
 }
 .knowledge-policy-section.knowledge-test {
   margin: 0 24px;
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
   border-bottom: 0;
 }
 .knowledge-test-body {
@@ -230,8 +226,8 @@ const {
 .knowledge-test-hits li {
   padding: 10px 12px;
   background: var(--surface-muted);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-sm);
 }
 .knowledge-test-hits li > div {
   display: flex;
@@ -247,7 +243,7 @@ const {
   margin: 6px 0 0;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
-  font-size: 13px;
+  font-size: 14px;
   line-height: 1.6;
 }
 .knowledge-policy-section {
@@ -256,11 +252,11 @@ const {
   grid-template-columns: minmax(170px, 0.8fr) minmax(0, 1.2fr);
   align-items: start;
   gap: 24px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 .knowledge-section-copy h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
 }
 .knowledge-section-copy p {
   max-width: 280px;

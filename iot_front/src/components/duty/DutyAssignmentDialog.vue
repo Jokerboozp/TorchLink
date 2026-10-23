@@ -150,7 +150,7 @@ async function close() {
                 v-for="row in options.shifts"
                 :key="row.id"
                 :value="row.id"
-                :label="`${row.name} · ${row.startTime}—${row.endTime}`" /></ui-select></ui-form-item
+                :label="`${row.name}，${row.startTime}—${row.endTime}`" /></ui-select></ui-form-item
           ><ui-form-item label="实际开始时间" required
             ><ui-date-time v-model="assignment.startAt" :disabled="saving || !assignmentEditable" /></ui-form-item
           ><ui-form-item label="实际结束时间" required

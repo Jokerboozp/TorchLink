@@ -63,7 +63,7 @@ const gbDevices = ref([])
 const gbLoading = ref(false)
 const gbDevice = computed(() => gbDevices.value.find(item => item.deviceId === form.gbDeviceId) || null)
 const gbChannels = computed(() => gbDevice.value?.state?.channels || [])
-const gbChannelLabel = row => `${row.name || row.channelId} · ${row.channelId}${row.status === 'OFF' ? '（离线）' : ''}`
+const gbChannelLabel = row => `${row.name || row.channelId}，${row.channelId}${row.status === 'OFF' ? '（离线）' : ''}`
 
 // 国标设备列表按需读取：只有选择 GB28181 接入时才需要。
 async function loadGBDevices() {
@@ -201,17 +201,17 @@ const resultTone = result => testStatusTone[result?.status] || 'danger'
 function resultDetail(result) {
   const parts = []
   if (result.videoCodec) parts.push(`视频 ${result.videoCodec}${result.h264Profile ? `（${result.h264Profile}）` : ''}`)
-  if (result.width) parts.push(`${result.width}×${result.height}${result.fps ? ` · ${result.fps} fps` : ''}`)
+  if (result.width) parts.push(`${result.width}×${result.height}${result.fps ? `，${result.fps} fps` : ''}`)
   if (result.audioCodec) parts.push(`音频 ${result.audioCodec}`)
   parts.push(result.mediaVerified ? '媒体服务已收到画面' : '未经媒体服务确认')
-  return parts.join(' · ')
+  return parts.join('，')
 }
 </script>
 
 <template>
   <ui-dialog
     v-model="visible"
-    :title="`直播配置 · ${camera?.cameraName || camera?.cameraId || ''}`"
+    :title="`直播配置：${camera?.cameraName || camera?.cameraId || ''}`"
     width="min(760px, 96vw)"
     :close-on-click-modal="false"
     destroy-on-close
@@ -244,7 +244,7 @@ function resultDetail(result) {
                   v-for="item in gbDevices"
                   :key="item.deviceId"
                   :value="item.deviceId"
-                  :label="`${item.name || item.deviceId} · ${item.deviceId}${item.online ? '' : '（不在线）'}`" /></ui-select
+                  :label="`${item.name || item.deviceId}，${item.deviceId}${item.online ? '' : '（不在线）'}`" /></ui-select
             ></ui-form-item>
             <ui-form-item label="通道"
               ><ui-select v-model="form.gbChannelId" filterable allow-create placeholder="选择通道，或输入 20 位通道编号"
@@ -380,7 +380,7 @@ function resultDetail(result) {
             <template v-for="result in [testResult || lastTest]" :key="result.testedAt">
               <StatusDot :tone="resultTone(result)" :label="testStatusText[result.status] || result.status" />
               <p>{{ result.message }}</p>
-              <small>{{ resultDetail(result) }} · {{ testResult ? '刚刚' : formatTime(result.testedAt) }}</small>
+              <small>{{ resultDetail(result) }}，{{ testResult ? '刚刚' : formatTime(result.testedAt) }}</small>
             </template>
           </div>
         </section>
@@ -402,8 +402,8 @@ function resultDetail(result) {
   display: grid;
   gap: var(--space-2);
   padding: 14px 16px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
   background: var(--surface);
 }
 .live-config__section h3 {
@@ -447,7 +447,7 @@ function resultDetail(result) {
   gap: 4px;
   padding: 10px 12px;
   background: var(--surface-muted);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
 }
 .live-config__result p {
   margin: 0;

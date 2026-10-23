@@ -90,7 +90,7 @@ async function close() {
     @update:model-value="value => value || close()"
   >
     <ui-alert v-if="actionError" type="error" :title="actionError" :closable="false" class="fire-section" />
-    <p class="fire-hint">灭火器 {{ assetName(actionTask?.extinguisherId) }} · {{ personName(actionTask?.assigneeId) }}</p>
+    <p class="fire-hint">灭火器 {{ assetName(actionTask?.extinguisherId) }}，{{ personName(actionTask?.assigneeId) }}</p>
     <ui-form label-position="top">
       <template v-if="action === 'inspect'"
         ><p class="fire-hint">按实际检查结果逐项选择。标准项目不能修改或移除，可追加其他检查项目。</p>
@@ -123,7 +123,7 @@ async function close() {
           <strong>本次整改</strong>
           <p>{{ actionTask?.rectifications?.at(-1)?.action }}</p>
           <small class="fire-hint"
-            >提交人 {{ actionTask?.rectifications?.at(-1)?.submittedBy }} ·
+            >提交人 {{ actionTask?.rectifications?.at(-1)?.submittedBy }}，
             {{ dateTimeLabel(actionTask?.rectifications?.at(-1)?.submittedAt) }}</small
           >
         </div>

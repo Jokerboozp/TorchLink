@@ -165,7 +165,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .alarm-media {
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 14px;
   margin-top: 16px;
@@ -186,13 +186,13 @@ onBeforeUnmount(() => {
   margin-left: auto;
 }
 .alarm-media article {
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
   padding-top: 12px;
   margin-top: 12px;
 }
 .alarm-media b,
 .alarm-media strong {
-  font-size: 13px;
+  font-size: 14px;
 }
 .hint,
 .failure {

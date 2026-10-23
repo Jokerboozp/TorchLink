@@ -38,13 +38,6 @@ function palette() {
   return Array.from({ length: 10 }, (_, i) => token(`--chart-${i + 1}`, 'currentColor'))
 }
 
-function withAlpha(color, alpha) {
-  const hex = color.match(/^#([0-9a-f]{6})$/i)
-  if (!hex) return color
-  const n = parseInt(hex[1], 16)
-  return `rgba(${n >> 16}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
-}
-
 // 时间轴使用 24 小时制中文格式：跨天显示“月-日 时:分”，一天内只显示时间。
 function timeTick(u) {
   const span = (u.scales.x.max ?? 0) - (u.scales.x.min ?? 0)
@@ -80,8 +73,21 @@ function build() {
       y: { range: (u, min, max) => [props.min ?? (min > 0 ? 0 : min), props.max ?? (max === min ? max + 1 : max)] }
     },
     axes: [
-      { stroke: axis, font, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid }, values: (u, ticks) => ticks.map(timeTick(u)) },
-      { stroke: axis, font, grid: { stroke: grid, width: 1 }, ticks: { stroke: grid }, size: 80, values: (u, ticks) => ticks.map(fmt) }
+      {
+        stroke: axis,
+        font,
+        grid: { stroke: grid, width: 0.5 },
+        ticks: { stroke: grid, width: 0.5 },
+        values: (u, ticks) => ticks.map(timeTick(u))
+      },
+      {
+        stroke: axis,
+        font,
+        grid: { stroke: grid, width: 0.5 },
+        ticks: { stroke: grid, width: 0.5 },
+        size: 80,
+        values: (u, ticks) => ticks.map(fmt)
+      }
     ],
     series: [
       { label: '时间', value: (u, v) => (v == null ? '—' : formatTime(v * 1000)) },
@@ -100,8 +106,8 @@ function build() {
         return {
           label: s.name,
           stroke: color,
-          width: 1.5,
-          fill: props.fill && props.series.length <= 3 ? withAlpha(color, 0.08) : undefined,
+          width: 0.5,
+          fill: props.fill && props.series.length <= 3 ? token(`--chart-fill-${(i % colors.length) + 1}`, color) : undefined,
           spanGaps: false,
           points: { show: props.times.length < 60 },
           value: (u, v) => fmt(v)
@@ -208,7 +214,7 @@ onBeforeUnmount(() => {
 .ops-chart :deep(.u-legend .u-marker) {
   width: 10px;
   height: 3px;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 .ops-chart :deep(.u-legend th) {
   font-weight: 400;

@@ -6,7 +6,6 @@ import { RefreshCw } from '@lucide/vue'
 import DashboardTrend from '../components/DashboardTrend.vue'
 import { compactCount, deviceSegments, ringSegments, productBars, dashboardDistributions } from '../dashboard.js'
 import DashboardDistribution from '../components/DashboardDistribution.vue'
-import StatusDot from '../components/layout/StatusDot.vue'
 import { can } from '../permissions'
 import { useRealtime } from '../composables/useRealtime'
 
@@ -141,7 +140,6 @@ onBeforeUnmount(() => {
   <div class="dashboard-page" :aria-busy="loading">
     <ui-alert v-if="loadError" class="dashboard-error" :title="loadError" type="error" :closable="false" show-icon />
     <div class="dashboard-toolbar">
-      <span>当前运行快照</span>
       <div>
         <span>{{ loading ? '正在更新…' : data ? `更新于 ${formatTime(data.updatedAt)}` : '尚未获取数据' }}</span
         ><ui-button :loading="loading" @click="load"><RefreshCw />刷新</ui-button>
@@ -149,18 +147,15 @@ onBeforeUnmount(() => {
     </div>
     <div class="stats-grid">
       <section v-for="item in kpis" :key="item.label" class="stat-card" :class="item.tone && `stat-${item.tone}`">
-        <span>{{ item.label }}</span
+        <span :title="item.note">{{ item.label }}</span
         ><strong :title="data ? (item.value ?? 0).toLocaleString() : ''">{{ data ? compactCount(item.value) : '—' }}</strong>
         <small v-if="!data">{{ loadError ? '读取失败' : '等待更新' }}</small>
-        <StatusDot v-else-if="item.tone" :tone="item.tone" :label="item.note" />
-        <small v-else>{{ item.note }}</small>
       </section>
     </div>
     <section class="dashboard-section" aria-labelledby="alarm-section-title">
       <div class="section-heading">
         <div>
           <h2 id="alarm-section-title">告警分析</h2>
-          <span>发生趋势与处置进展</span>
         </div>
         <ui-radio-group v-model="days" size="small" class="segmented-choice-group" aria-label="告警统计时段" @change="load"
           ><ui-radio-button :value="7">近 7 天</ui-radio-button><ui-radio-button :value="30">近 30 天</ui-radio-button></ui-radio-group
@@ -180,11 +175,10 @@ onBeforeUnmount(() => {
         <ui-card shadow="never" class="surface-card recent-alarms"
           ><template #header
             ><div class="card-header">
-              <strong>最新活动告警</strong
+              <strong :title="alarms.length ? `最近 ${alarms.length} 条待处理告警` : '当前待处理告警'">最新活动告警</strong
               ><ui-button v-permission="'menu:alarms'" text @click="emit('navigate', 'alarms')">查看全部</ui-button>
             </div></template
           >
-          <p class="chart-description">{{ alarms.length ? `当前待处理告警 · 最近 ${alarms.length} 条` : '当前待处理告警' }}</p>
           <ui-empty
             v-if="!alarms.length"
             :description="data ? '暂无活动告警' : loading ? '正在读取告警' : '尚未获取告警数据'"
@@ -213,13 +207,12 @@ onBeforeUnmount(() => {
         <ui-card shadow="never" class="surface-card level-card"
           ><template #header
             ><div class="card-header">
-              <strong>活动告警等级</strong
+              <strong title="当前活动告警的风险等级分布">活动告警等级</strong
               ><span class="chart-meta" :title="data ? `${(stats.activeAlarms ?? 0).toLocaleString()} 条` : ''">{{
                 data ? `${compactCount(stats.activeAlarms)} 条` : '—'
               }}</span>
             </div></template
           >
-          <p class="chart-description">当前活动告警的风险等级分布</p>
           <div v-if="data && stats.activeAlarms" class="horizontal-chart">
             <div v-for="item in levels" :key="item.key" class="bar-row">
               <div>
@@ -234,11 +227,10 @@ onBeforeUnmount(() => {
         <ui-card v-for="chart in alarmDistributions" :key="chart.key" shadow="never" class="surface-card insight-card">
           <template #header
             ><div class="card-header">
-              <strong>{{ chart.title }}</strong
+              <strong :title="chart.subtitle">{{ chart.title }}</strong
               ><span class="chart-meta">{{ chart.unit === '台' ? '当前快照' : `近 ${stats.days || days} 天` }}</span>
             </div></template
           >
-          <p class="chart-description">{{ chart.subtitle }}</p>
           <DashboardDistribution
             :items="chart.items"
             :title="chart.title"
@@ -254,19 +246,16 @@ onBeforeUnmount(() => {
       <div class="section-heading">
         <div>
           <h2 id="device-section-title">设备概况</h2>
-          <span>在线、连接与数据活跃情况</span>
         </div>
-        <span class="chart-meta">当前快照</span>
       </div>
       <div class="dashboard-grid">
         <ui-card shadow="never" class="surface-card"
           ><template #header
             ><div class="card-header">
-              <strong>设备状态</strong
+              <strong title="已登记设备的当前业务状态">设备状态</strong
               ><ui-button v-permission="'menu:devices'" text @click="emit('navigate', 'devices')">管理设备</ui-button>
             </div></template
           >
-          <p class="chart-description">已登记设备的当前业务状态</p>
           <div v-if="data && stats.devices" class="device-chart">
             <div class="device-ring">
               <svg viewBox="0 0 180 180" role="img" :aria-label="`设备在线率 ${rate}%`">
@@ -305,11 +294,10 @@ onBeforeUnmount(() => {
         <ui-card v-for="chart in deviceDistributions" :key="chart.key" shadow="never" class="surface-card insight-card">
           <template #header
             ><div class="card-header">
-              <strong>{{ chart.title }}</strong
+              <strong :title="chart.subtitle">{{ chart.title }}</strong
               ><span class="chart-meta">{{ chart.unit === '台' ? '当前快照' : `近 ${stats.days || days} 天` }}</span>
             </div></template
           >
-          <p class="chart-description">{{ chart.subtitle }}</p>
           <DashboardDistribution
             :items="chart.items"
             :title="chart.title"
@@ -323,8 +311,8 @@ onBeforeUnmount(() => {
       <ui-card shadow="never" class="surface-card product-card"
         ><template #header
           ><div class="card-header">
-            <strong>产品设备分布</strong
-            ><ui-button v-permission="'menu:products'" text @click="emit('navigate', 'products')">管理产品</ui-button>
+            <strong>设备模板分布</strong
+            ><ui-button v-permission="'menu:products'" text @click="emit('navigate', 'products')">管理模板</ui-button>
           </div></template
         >
         <div v-if="products.length" class="horizontal-chart product-chart">
@@ -343,7 +331,6 @@ onBeforeUnmount(() => {
       <div class="section-heading">
         <div>
           <h2 id="fire-section-title">消防站概况</h2>
-          <span>站点、人员、器材与出勤</span>
         </div>
         <ui-button text @click="emit('navigate', 'fireStations')">管理消防站</ui-button>
       </div>
@@ -411,22 +398,22 @@ onBeforeUnmount(() => {
   gap: 8px;
   min-width: 0;
   padding: 16px 20px;
-  min-height: 104px;
+  min-height: 88px;
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-xs);
+  box-shadow: none;
 }
 .stat-card > span {
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 14px;
 }
 .stat-card > strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--text-strong);
-  font-size: 30px;
+  font-size: 18px;
   line-height: 1.2;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
@@ -437,10 +424,10 @@ onBeforeUnmount(() => {
   font-size: 12px;
 }
 .stat-danger > strong {
-  color: var(--danger);
+  color: var(--danger-text);
 }
 .stat-warning > strong {
-  color: var(--warning);
+  color: var(--warning-text);
 }
 .dashboard-section {
   display: grid;
@@ -460,7 +447,7 @@ onBeforeUnmount(() => {
 }
 .section-heading h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 600;
   color: var(--text-strong);
 }
@@ -524,12 +511,12 @@ onBeforeUnmount(() => {
   overscroll-behavior: contain;
 }
 .alarm-list:focus-visible {
-  outline: 2px solid var(--primary);
+  outline: 0.5px solid var(--primary);
   outline-offset: 2px;
 }
 .alarm-row {
   padding: 12px 0;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 .alarm-row:first-child {
   padding-top: 0;
@@ -550,7 +537,7 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   color: var(--text-strong);
 }
@@ -590,9 +577,6 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
 }
-.device-ring circle {
-  transition: stroke-dasharray 0.4s ease;
-}
 .device-ring > div {
   position: absolute;
   inset: 0;
@@ -604,8 +588,10 @@ onBeforeUnmount(() => {
 }
 .device-ring strong {
   color: var(--text-strong);
-  font-size: 28px;
+  font-size: 18px;
   font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 .device-ring small {
   margin-left: 2px;
@@ -662,7 +648,7 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
-  font-size: 13px;
+  font-size: 14px;
 }
 .bar-row span {
   overflow: hidden;
@@ -691,7 +677,6 @@ onBeforeUnmount(() => {
   display: block;
   height: 100%;
   border-radius: inherit;
-  transition: width 0.4s ease;
 }
 .fire-grid {
   display: grid;
@@ -702,7 +687,7 @@ onBeforeUnmount(() => {
   min-height: 84px;
 }
 .fire-card > strong {
-  font-size: 26px;
+  font-size: 18px;
 }
 .fire-error {
   margin: 0;
@@ -785,7 +770,7 @@ onBeforeUnmount(() => {
     min-height: 96px;
   }
   .stat-card > strong {
-    font-size: 26px;
+    font-size: 18px;
   }
   .section-heading {
     flex-wrap: wrap;

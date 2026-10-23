@@ -102,12 +102,11 @@ function move(index, delta) {
   gap: var(--space-2);
   padding: var(--space-3);
   background: var(--surface);
-  border: 1px solid var(--border);
-  border-left: 3px solid var(--primary-border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-md);
 }
 .route.is-top {
-  border-left-color: var(--primary);
+  border-color: var(--primary-border);
 }
 .route__head {
   display: flex;

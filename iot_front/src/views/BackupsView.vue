@@ -368,7 +368,7 @@ function rowActions(row) {
     v-if="busy"
     class="backup-missing"
     type="info"
-    :title="`${busy.label}正在执行 · 已进行 ${busyElapsed}`"
+    :title="`${busy.label}正在执行，已进行 ${busyElapsed}`"
     description="完成前不能再触发其他备份、文件校验或恢复验证。切换菜单不会中断任务；刷新或关闭页面会中断请求，可能导致任务失败。"
     :closable="false"
     show-icon
@@ -381,12 +381,10 @@ function rowActions(row) {
 
   <div class="backup-stat-grid">
     <ui-card shadow="never" class="surface-card"
-      ><span>历史记录</span><strong>{{ total }}</strong
-      ><small>设备数据备份与文件校验记录</small></ui-card
+      ><span title="设备数据备份与文件校验记录">历史记录</span><strong>{{ total }}</strong></ui-card
     >
     <ui-card shadow="never" class="surface-card"
-      ><span>当前执行中</span><strong>{{ runningCount }}</strong
-      ><small>备份任务正在进行时不可重复触发</small></ui-card
+      ><span title="任务执行期间不可重复触发">执行中</span><strong>{{ runningCount }}</strong></ui-card
     >
     <ui-card shadow="never" class="surface-card"
       ><span>最近完成</span><strong>{{ latestCompleted ? label(backupTypes, latestCompleted.type) : '暂无' }}</strong
@@ -396,7 +394,7 @@ function rowActions(row) {
 
   <DataTableCard
     class="backup-table-card"
-    :title="`备份记录 · ${total} 条`"
+    :title="`备份记录（${total} 条）`"
     :error="loadError"
     @retry="load()"
     :page="page"
@@ -445,7 +443,7 @@ function rowActions(row) {
 
   <ui-dialog
     v-model="detailVisible"
-    :title="detail ? `${label(backupTypes, detail.type)} · ${detail.id}` : '备份详情'"
+    :title="detail ? `${label(backupTypes, detail.type)}，${detail.id}` : '备份详情'"
     width="min(1080px, 94vw)"
   >
     <ui-skeleton v-if="detailLoading" :rows="6" animated />
@@ -579,13 +577,13 @@ function rowActions(row) {
 } /* 标题、数值和说明分行排列。 */
 .backup-stat-grid span {
   color: var(--text);
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 700;
   line-height: 1.3;
 }
 .backup-stat-grid strong {
   color: var(--text);
-  font-size: 28px;
+  font-size: 18px;
   line-height: 1.1;
 }
 .backup-stat-grid small {

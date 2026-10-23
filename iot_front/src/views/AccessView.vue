@@ -41,7 +41,7 @@ const plainScopeLabel = value =>
       : '无设备'
 const scopeLabel = value =>
   value.deviceScope === 'inherit'
-    ? `继承角色 · ${plainScopeLabel(roleDeviceScope(value.roleIds || [], roles.value))}`
+    ? `继承角色，${plainScopeLabel(roleDeviceScope(value.roleIds || [], roles.value))}`
     : plainScopeLabel(value)
 const inheritedLabel = computed(() => plainScopeLabel(roleDeviceScope(user.roleIds, roles.value)))
 const password = reactive({ username: '', value: '', mustChangePassword: true })
@@ -225,7 +225,7 @@ function roleActions(row) {
       name="apiKeys" /><ui-tab-pane label="权限说明" name="permissions"
   /></ui-tabs>
   <FilterBar>
-    <p class="access-tenant">当前租户：{{ tenantId }}。先为角色配置功能和设备，再给用户分配角色。</p>
+    <p class="access-tenant">当前租户：{{ tenantId }}</p>
     <template #actions>
       <ui-button :loading="loading" @click="refresh"><RefreshCw />刷新</ui-button>
       <ui-button v-if="tab === 'users'" v-permission="'POST /api/v1/access/users'" type="primary" @click="editUser()"
@@ -241,7 +241,7 @@ function roleActions(row) {
   </FilterBar>
   <DataTableCard
     v-if="tab === 'users'"
-    :title="`用户 · ${users.length} 个`"
+    :title="`用户（${users.length} 个）`"
     :page="userPage"
     :page-size="userPageSize"
     :total="userTotal"
@@ -268,7 +268,7 @@ function roleActions(row) {
   ></DataTableCard>
   <DataTableCard
     v-if="tab === 'roles'"
-    :title="`角色 · ${roles.length} 个`"
+    :title="`角色（${roles.length} 个）`"
     :page="rolePage"
     :page-size="rolePageSize"
     :total="roleTotal"
@@ -313,7 +313,6 @@ function roleActions(row) {
       <section class="user-editor-section">
         <div class="user-editor-heading">
           <h3>账户信息</h3>
-          <p>用户登录时填写用户名和密码。</p>
         </div>
         <div class="user-editor-grid">
           <ui-form-item label="所属租户"><ui-input :model-value="tenantId" disabled /></ui-form-item>
@@ -345,8 +344,7 @@ function roleActions(row) {
       </section>
       <section class="user-editor-section">
         <div class="user-editor-heading">
-          <h3>访问范围</h3>
-          <p>分配角色即可继承功能和设备授权，支持多个角色。</p>
+          <h3 title="继承所选角色的功能和设备授权">访问范围</h3>
         </div>
         <ui-form-item label="角色"
           ><ui-select v-model="user.roleIds" multiple clearable placeholder="选择角色；可选择多个"
@@ -376,7 +374,7 @@ function roleActions(row) {
         <details>
           <summary>
             <span
-              >高级：用户附加功能 <small>在角色权限基础上增加 · 已选 {{ user.permissions.length }} 项</small></span
+              >附加权限 <small>已选 {{ user.permissions.length }} 项</small></span
             ><span class="user-editor-expand">展开设置</span>
           </summary>
           <PermissionPicker v-model="user.permissions" :catalog="catalog" />
@@ -456,8 +454,8 @@ function roleActions(row) {
 .user-editor-section {
   min-width: 0;
   padding: 18px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
   background: var(--surface);
 }
 .user-editor-heading {
@@ -465,7 +463,7 @@ function roleActions(row) {
 }
 .user-editor-heading h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: 14px;
 }
 .user-editor-heading p {
   margin: 4px 0 0;
@@ -493,7 +491,7 @@ function roleActions(row) {
   padding: 10px 12px;
   color: var(--text-muted);
   background: var(--surface-muted);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   line-height: 1.5;
 }
@@ -504,8 +502,8 @@ function roleActions(row) {
   gap: 16px;
   padding: 11px 13px;
   background: var(--surface-muted);
-  border-radius: 6px;
-  font-size: 13px;
+  border-radius: var(--radius-md);
+  font-size: 14px;
   font-weight: 600;
 }
 .user-editor-switch small {
@@ -554,7 +552,7 @@ function roleActions(row) {
 }
 .user-editor-permissions :deep(.permission-picker) {
   padding: 0 18px 18px;
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
 }
 .role-editor {
   display: grid;
@@ -563,8 +561,8 @@ function roleActions(row) {
 .role-editor-section {
   min-width: 0;
   padding: 16px 18px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
   background: var(--surface);
 }
 .role-editor-section h3 {

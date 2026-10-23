@@ -115,7 +115,7 @@ const resultSummary = computed(() => {
   const rows = [
     ['协议版本', `${release.protocolId || '—'} @ ${release.version || '—'}`],
     ['状态', statusText(release.status)],
-    ['运行方式', `${transportLabel(release.transport)} · ${label(parsers, release.parserType, '自定义协议程序')}`]
+    ['运行方式', `${transportLabel(release.transport)}，${label(parsers, release.parserType, '自定义协议程序')}`]
   ]
   if (release.createdAt) rows.push(['创建时间', formatTime(release.createdAt)])
   return rows
@@ -212,7 +212,7 @@ function removeProtocol(row) {
 }
 function removeRelease(row, release) {
   return confirmDelete({
-    label: `${row.definition.name || row.definition.id} · ${release.version}`,
+    label: `${row.definition.name || row.definition.id}，${release.version}`,
     path: `/api/v2/protocols/${encodeURIComponent(row.definition.id)}/releases/${encodeURIComponent(release.version)}`,
     onDeleted: load,
     warning: '仅删除此版本及其独有制品，删除后无法恢复。',
@@ -245,7 +245,7 @@ function protocolActions(row) {
       </template>
     </FilterBar>
     <DataTableCard
-      :title="`协议开发 · ${protocols.length} 个协议 · ${releaseCount} 个版本`"
+      :title="`协议（${protocols.length} 个，共 ${releaseCount} 个版本）`"
       :error="loadError"
       @retry="load()"
       :page="protocolPage"
@@ -264,7 +264,7 @@ function protocolActions(row) {
         <ui-table-column label="协议" min-width="230"
           ><template #default="{ row }"
             ><b>{{ row.definition.name }}</b
-            ><small class="subline">{{ row.definition.id }} · {{ row.definition.vendor || '通用' }}</small></template
+            ><small class="subline">{{ row.definition.id }}，{{ row.definition.vendor || '通用' }}</small></template
           ></ui-table-column
         >
         <ui-table-column label="最新版本" width="170" show-overflow-tooltip
@@ -272,7 +272,7 @@ function protocolActions(row) {
         >
         <ui-table-column label="运行方式" min-width="200"
           ><template #default="{ row }"
-            >{{ transportLabel(newestRelease(row).transport) }} ·
+            >{{ transportLabel(newestRelease(row).transport) }}，
             {{ label(parsers, newestRelease(row).parserType, '自定义协议程序') }}</template
           ></ui-table-column
         >
@@ -301,13 +301,13 @@ function protocolActions(row) {
     <ui-dialog
       v-model="versionsOpen"
       class="protocol-versions-dialog"
-      :title="`${managedProtocol?.definition.name || '协议'} · 版本管理`"
+      :title="`${managedProtocol?.definition.name || '协议'}：版本管理`"
       width="min(880px, 96vw)"
       destroy-on-close
     >
       <template v-if="managedProtocol">
         <p class="versions-summary">
-          {{ managedProtocol.definition.id }} · 共
+          {{ managedProtocol.definition.id }}，共
           {{ managedProtocol.releases?.length || 0 }} 个版本。删除前请确认该版本未被设备模板或接入点引用。
         </p>
         <ui-table :data="managedProtocol.releases || []" stripe empty-text="暂无版本，可上传源码创建新版本">
@@ -323,7 +323,7 @@ function protocolActions(row) {
           >
           <ui-table-column label="运行方式" min-width="185"
             ><template #default="{ row }"
-              >{{ transportLabel(row.transport) }} · {{ label(parsers, row.parserType, '自定义协议程序') }}</template
+              >{{ transportLabel(row.transport) }}，{{ label(parsers, row.parserType, '自定义协议程序') }}</template
             ></ui-table-column
           >
           <ui-table-column label="创建时间" min-width="170"
@@ -349,7 +349,7 @@ function protocolActions(row) {
     <ui-dialog v-model="releaseOpen" title="协议版本" width="min(620px, 94vw)" destroy-on-close>
       <template v-if="selectedProtocol && selectedRelease">
         <ui-descriptions :column="1" border>
-          <ui-descriptions-item label="协议">{{ selectedProtocol.name }} · {{ selectedProtocol.id }}</ui-descriptions-item>
+          <ui-descriptions-item label="协议">{{ selectedProtocol.name }}，{{ selectedProtocol.id }}</ui-descriptions-item>
           <ui-descriptions-item label="版本">{{ selectedRelease.version }}</ui-descriptions-item>
           <ui-descriptions-item label="状态"
             ><ui-tag :type="statusType(selectedRelease.status)" round>{{
@@ -357,7 +357,7 @@ function protocolActions(row) {
             }}</ui-tag></ui-descriptions-item
           >
           <ui-descriptions-item label="运行方式"
-            >{{ transportLabel(selectedRelease.transport) }} ·
+            >{{ transportLabel(selectedRelease.transport) }}，
             {{ label(parsers, selectedRelease.parserType, '自定义协议程序') }}</ui-descriptions-item
           >
         </ui-descriptions>
@@ -412,8 +412,7 @@ function protocolActions(row) {
       :show-close="!assistantState.working"
       destroy-on-close
       @update:model-value="value => (value ? (assistantOpen = true) : closeAssistant())"
-      ><p v-if="!assistantRelease" class="muted-text bottom-gap">通过报文或 Excel / CSV 点表生成协议</p>
-      <ProtocolAssistantView
+      ><ProtocolAssistantView
         v-if="assistantOpen"
         :initial-release="assistantRelease"
         :initial-name="assistantName"
@@ -474,7 +473,7 @@ function protocolActions(row) {
   margin-top: var(--space-4);
   padding: var(--space-3) var(--space-4);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
   font-size: var(--font-size-sm);
 }

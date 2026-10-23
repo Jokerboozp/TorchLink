@@ -365,7 +365,7 @@ onBeforeUnmount(() => {
                 v-for="p in data.profiles"
                 :key="p.id"
                 :value="p.id"
-                :label="`${p.id} · ${p.host}:${p.port} · ${p.runtimeStatus || '待确认'}`"
+                :label="`${p.id}，${p.host}:${p.port}，${p.runtimeStatus || '待确认'}`"
             /></ui-select>
           </div>
         </section>
@@ -613,7 +613,7 @@ onBeforeUnmount(() => {
   min-width: 0;
   padding: 10px var(--space-3);
   background: var(--surface-muted);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-md);
 }
 .connection-status-grid span {

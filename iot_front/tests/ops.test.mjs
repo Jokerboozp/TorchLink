@@ -4,6 +4,7 @@ import { entryLevel, formatElapsed, formatKpi, formatValue, parseLogFields, seri
 import { parseRelative, rangeLabel, resolveRange } from '../src/ops/timeRange.js'
 import {
   alignSeries,
+  cssColor,
   framesToChart,
   framesToLogs,
   framesToTable,
@@ -196,7 +197,20 @@ test('阈值颜色使用主题变量，未设置阈值时使用正文颜色', ()
   assert.equal(thresholdColor(10, thresholds), 'var(--success)')
   assert.equal(thresholdColor(90, thresholds), 'var(--warning)')
   assert.equal(thresholdColor(99, thresholds), 'var(--danger)')
+  assert.equal(thresholdColor(90, thresholds, 0, 100, 'text'), 'var(--warning-text)')
+  assert.equal(thresholdColor(90, thresholds, 0, 100, 'contrast'), 'var(--warning-contrast)')
+  assert.equal(cssColor('#ff0000'), 'var(--red-9)')
+  assert.equal(cssColor('rgb(0, 0, 255)', 'text'), 'var(--blue-11)')
+  assert.equal(cssColor('rgba(255, 0, 0, 0)'), 'transparent')
+  assert.equal(cssColor('#f000'), 'transparent')
+  assert.equal(cssColor('#ffffff00'), 'transparent')
+  assert.equal(cssColor('rgba(255, 0, 0, 0.5)'), 'rgb(from var(--red-9) r g b / 0.5)')
+  assert.equal(cssColor('rgba(255, 0, 0, 50%)', 'text'), 'rgb(from var(--red-11) r g b / 0.5)')
+  assert.equal(cssColor('url(https://example.com/color)'), 'var(--text-strong)')
+  assert.equal(cssColor('rgb(1.., 0, 0)'), 'var(--text-strong)')
   assert.equal(thresholdColor(5, undefined), 'var(--text-strong)')
+  assert.equal(thresholdColor(5, undefined, 0, 100, 'contrast'), 'var(--bg)')
+  assert.equal(thresholdColor(null, thresholds, 0, 100, 'contrast'), 'var(--bg)')
   assert.equal(
     thresholdColor(
       50,

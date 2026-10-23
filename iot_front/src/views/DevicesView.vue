@@ -395,7 +395,7 @@ onBeforeUnmount(() => {
     <FilterBar>
       <ui-radio-group v-model="deviceTab" class="segmented-choice-group" aria-label="设备分组" @change="changeFilter">
         <ui-radio-button v-for="(text, key) in tabs" :key="key" :value="key"
-          >{{ text }}<template v-if="key === 'pending' && pendingCount"> · {{ pendingCount }}</template></ui-radio-button
+          >{{ text }}<template v-if="key === 'pending' && pendingCount">（{{ pendingCount }}）</template></ui-radio-button
         >
       </ui-radio-group>
       <template v-if="!pendingTab">
@@ -480,7 +480,7 @@ onBeforeUnmount(() => {
 
     <DataTableCard
       v-if="!pendingTab"
-      :title="`${tabs[deviceTab]} · ${registryTotal} 台`"
+      :title="`${tabs[deviceTab]}（${registryTotal} 台）`"
       :page="registryPage"
       :page-size="registryPageSize"
       :total="registryTotal"
@@ -553,7 +553,7 @@ onBeforeUnmount(() => {
 
     <DataTableCard
       v-else
-      :title="`平台已收到数据、尚未登记的设备 · ${unregisteredTotal} 台`"
+      :title="`未登记设备（${unregisteredTotal} 台）`"
       :page="unregisteredPage"
       :page-size="unregisteredPageSize"
       :total="unregisteredTotal"
@@ -601,7 +601,7 @@ onBeforeUnmount(() => {
 
     <ui-dialog
       :model-value="dialog"
-      :title="`编辑设备 · ${form.name || form.id}`"
+      :title="`编辑设备：${form.name || form.id}`"
       width="min(560px, 94vw)"
       :close-on-click-modal="false"
       :close-on-press-escape="!saving"
@@ -629,7 +629,7 @@ onBeforeUnmount(() => {
             ><ui-option
               v-for="item in gateways"
               :key="item.device.id"
-              :label="`${item.device.name} · ${item.device.id}`"
+              :label="`${item.device.name}，${item.device.id}`"
               :value="item.device.id"
           /></ui-select>
         </ui-form-item>
@@ -653,7 +653,7 @@ onBeforeUnmount(() => {
             </div>
             <small class="device-timing-note">留空时使用设备模板设置；超过“上报周期 + 离线容差”未收到数据即判定离线。</small>
             <div class="device-tags">
-              <p class="device-tags__title">设备标签<small>用名称和内容记录楼层、区域等检索线索</small></p>
+              <p class="device-tags__title" title="记录楼层、区域等信息，便于检索">设备标签</p>
               <div v-for="(row, index) in form.tags" :key="index" class="device-tag-row">
                 <ui-input v-model="row.key" placeholder="名称，例如楼层" aria-label="标签名称" /><ui-input
                   v-model="row.value"
@@ -729,7 +729,7 @@ onBeforeUnmount(() => {
   display: grid;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 .device-card:last-child {
   border-bottom: 0;

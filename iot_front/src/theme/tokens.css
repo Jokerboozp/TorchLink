@@ -1,154 +1,361 @@
 /*
- * 炬联前端唯一的设计变量来源。
- * - 页面样式只引用这里的变量，不直接写十六进制颜色。
- * - src/theme/naive.js 在构建时读取本文件，生成 Naive UI 主题，保证组件与页面同色。
- * - 本文件只允许出现 :root 中的变量声明，便于上述解析。
- * - 深色主题在 tokens-dark.css 中只覆盖颜色变量；新增颜色变量时同时给出深色取值。
+ * Radix UI Colors 3.0.0, official sRGB values, MIT (radix-colors.LICENSE).
+ * Source: https://github.com/radix-ui/colors/tree/3.0.0
+ * Scale: 1-2 backgrounds, 3-5 UI states, 6-8 borders, 9-10 solid, 11-12 text.
+ * Keep variable declarations in :root: naiveTheme.js reads the same values.
  */
 :root {
-  /* 品牌色：参考 Claude 的暖色体系，陶土橙用于主操作和选中，火焰橙保留给 Logo 和高等级告警。 */
-  --brand-clay: #b8573a;
-  --brand-flame: #e07a3f;
+  --sand-1: #fdfdfc;
+  --sand-2: #f9f9f8;
+  --sand-3: #f1f0ef;
+  --sand-4: #e9e8e6;
+  --sand-5: #e2e1de;
+  --sand-6: #dad9d6;
+  --sand-7: #cfceca;
+  --sand-8: #bcbbb5;
+  --sand-9: #8d8d86;
+  --sand-10: #82827c;
+  --sand-11: #63635e;
+  --sand-12: #21201c;
 
-  /* 暖灰中性色阶（米白纸感，而不是冷蓝灰）。 */
-  --gray-0: #ffffff;
-  --gray-25: #fcfbf8;
-  --gray-50: #faf9f5;
-  --gray-75: #f5f4ed;
-  --gray-100: #f0eee6;
-  --gray-150: #e8e6dc;
-  --gray-200: #dedcd1;
-  --gray-300: #c2c0b6;
-  --gray-400: #9c9a92;
-  --gray-500: #73726c;
-  --gray-600: #5e5d59;
-  --gray-700: #3d3d3a;
-  --gray-800: #262624;
-  --gray-900: #141413;
+  --tomato-1: #fffcfc;
+  --tomato-2: #fff8f7;
+  --tomato-3: #feebe7;
+  --tomato-4: #ffdcd3;
+  --tomato-5: #ffcdc2;
+  --tomato-6: #fdbdaf;
+  --tomato-7: #f5a898;
+  --tomato-8: #ec8e7b;
+  --tomato-9: #e54d2e;
+  --tomato-10: #dd4425;
+  --tomato-11: #d13415;
+  --tomato-12: #5c271f;
 
-  /* 表面与分隔线。 */
-  --bg: var(--gray-50);
-  --surface: var(--gray-0);
-  --surface-muted: var(--gray-25);
-  --surface-sunken: var(--gray-75);
-  --surface-hover: var(--gray-100);
-  --border: var(--gray-150);
-  --border-strong: var(--gray-200);
-  --border-hover: var(--gray-300);
+  --green-1: #fbfefc;
+  --green-2: #f4fbf6;
+  --green-3: #e6f6eb;
+  --green-4: #d6f1df;
+  --green-5: #c4e8d1;
+  --green-6: #adddc0;
+  --green-7: #8eceaa;
+  --green-8: #5bb98b;
+  --green-9: #30a46c;
+  --green-10: #2b9a66;
+  --green-11: #218358;
+  --green-12: #193b2d;
 
-  /* 文字层级：正文、标题、次要、辅助、禁用。 */
-  --text: var(--gray-800);
-  --text-strong: var(--gray-900);
-  --text-secondary: var(--gray-600);
-  --text-muted: var(--gray-500);
-  --text-disabled: var(--gray-400);
-  --text-inverse: var(--gray-0);
+  --amber-1: #fefdfb;
+  --amber-2: #fefbe9;
+  --amber-3: #fff7c2;
+  --amber-4: #ffee9c;
+  --amber-5: #fbe577;
+  --amber-6: #f3d673;
+  --amber-7: #e9c162;
+  --amber-8: #e2a336;
+  --amber-9: #ffc53d;
+  --amber-10: #ffba18;
+  --amber-11: #ab6400;
+  --amber-12: #4f3422;
 
-  /* 主色（陶土橙）。 */
-  --primary: var(--brand-clay);
-  --primary-hover: #a64d33;
-  --primary-pressed: #8f4029;
-  --primary-soft: #fbf1ec;
-  --primary-soft-hover: #f6e3d9;
-  --primary-border: #ebc4b3;
-  --primary-text: #9a4a2c;
+  --red-1: #fffcfc;
+  --red-2: #fff7f7;
+  --red-3: #feebec;
+  --red-4: #ffdbdc;
+  --red-5: #ffcdce;
+  --red-6: #fdbdbe;
+  --red-7: #f4a9aa;
+  --red-8: #eb8e90;
+  --red-9: #e5484d;
+  --red-10: #dc3e42;
+  --red-11: #ce2c31;
+  --red-12: #641723;
 
-  /* 强调色（火焰橙）。 */
-  --flame: var(--brand-flame);
-  --flame-soft: #fcefe4;
-  --flame-text: #9c4f1e;
+  --blue-1: #fbfdff;
+  --blue-2: #f4faff;
+  --blue-3: #e6f4fe;
+  --blue-4: #d5efff;
+  --blue-5: #c2e5ff;
+  --blue-6: #acd8fc;
+  --blue-7: #8ec8f6;
+  --blue-8: #5eb1ef;
+  --blue-9: #0090ff;
+  --blue-10: #0588f0;
+  --blue-11: #0d74ce;
+  --blue-12: #113264;
 
-  /* 状态色：低饱和的自然色，solid 用于图标和圆点，text 用于浅底上的文字，soft/border 用于提示底色。 */
-  --success: #2f7d4f;
-  --success-hover: #286c44;
-  --success-pressed: #215a38;
-  --success-text: #2f6b43;
-  --success-soft: #edf5ef;
-  --success-border: #c3dcca;
-  --warning: #a8650f;
-  --warning-hover: #93580d;
-  --warning-pressed: #7c4a0b;
-  --warning-text: #9a5b0b;
-  --warning-soft: #fbf3e3;
-  --warning-border: #ecd6aa;
-  --danger: #b53333;
-  --danger-hover: #9f2c2c;
-  --danger-pressed: #862525;
-  --danger-text: #a62d2d;
-  --danger-soft: #fbeeec;
-  --danger-border: #efc6c1;
-  --info: #3d6d9e;
-  --info-hover: #355f8a;
-  --info-pressed: #2d5075;
-  --info-text: #325f8c;
-  --info-soft: #edf3f9;
-  --info-border: #c6d7e9;
-  --neutral-dot: var(--gray-400);
+  --purple-1: #fefcfe;
+  --purple-2: #fbf7fe;
+  --purple-3: #f7edfe;
+  --purple-4: #f2e2fc;
+  --purple-5: #ead5f9;
+  --purple-6: #e0c4f4;
+  --purple-7: #d1afec;
+  --purple-8: #be93e4;
+  --purple-9: #8e4ec6;
+  --purple-10: #8347b9;
+  --purple-11: #8145b5;
+  --purple-12: #402060;
 
-  /* 运维中心图表序列色：低饱和的暖色体系，保证相邻序列可区分。 */
-  --chart-1: #b8573a;
-  --chart-2: #3d6d9e;
-  --chart-3: #2f7d4f;
-  --chart-4: #a8650f;
-  --chart-5: #7b5ea7;
-  --chart-6: #2a8583;
-  --chart-7: #a8456a;
-  --chart-8: #6b6a64;
-  --chart-9: #7d7a2c;
-  --chart-10: #c27a4a;
-  --chart-grid: var(--gray-150);
-  --chart-axis: var(--gray-500);
+  --teal-1: #fafefd;
+  --teal-2: #f3fbf9;
+  --teal-3: #e0f8f3;
+  --teal-4: #ccf3ea;
+  --teal-5: #b8eae0;
+  --teal-6: #a1ded2;
+  --teal-7: #83cdc1;
+  --teal-8: #53b9ab;
+  --teal-9: #12a594;
+  --teal-10: #0d9b8a;
+  --teal-11: #008573;
+  --teal-12: #0d3d38;
 
-  /* 代码与报文：暖炭黑底。 */
-  --code-bg: #262624;
-  --code-text: #ece9df;
-  --code-border: #33322f;
-  --code-inline-bg: var(--gray-100);
-  --code-inline-text: var(--primary-text);
+  --pink-1: #fffcfe;
+  --pink-2: #fef7fb;
+  --pink-3: #fee9f5;
+  --pink-4: #fbdcef;
+  --pink-5: #f6cee7;
+  --pink-6: #efbfdd;
+  --pink-7: #e7acd0;
+  --pink-8: #dd93c2;
+  --pink-9: #d6409f;
+  --pink-10: #cf3897;
+  --pink-11: #c2298a;
+  --pink-12: #651249;
 
-  /* 浅色侧栏：比内容区略深的米色，选中项用暖灰胶囊。 */
-  --sidebar-bg: var(--gray-75);
-  --sidebar-border: var(--gray-150);
-  --sidebar-text: var(--gray-700);
-  --sidebar-text-active: var(--gray-900);
-  --sidebar-label: #6b6a64;
-  --sidebar-hover: var(--gray-100);
-  --sidebar-active: var(--gray-150);
-  --sidebar-divider: var(--gray-150);
+  --yellow-1: #fdfdf9;
+  --yellow-2: #fefce9;
+  --yellow-3: #fffab8;
+  --yellow-4: #fff394;
+  --yellow-5: #ffe770;
+  --yellow-6: #f3d768;
+  --yellow-7: #e4c767;
+  --yellow-8: #d5ae39;
+  --yellow-9: #ffe629;
+  --yellow-10: #ffdc00;
+  --yellow-11: #9e6c00;
+  --yellow-12: #473b1f;
 
-  /* 登录页品牌区。 */
-  --login-panel-bg: var(--gray-100);
-  --login-panel-text: var(--gray-600);
-  --login-panel-muted: #6b6a64;
-  --login-panel-line: var(--gray-200);
-  --login-highlight: var(--brand-clay);
+  --orange-1: #fefcfb;
+  --orange-2: #fff7ed;
+  --orange-3: #ffefd6;
+  --orange-4: #ffdfb5;
+  --orange-5: #ffd19a;
+  --orange-6: #ffc182;
+  --orange-7: #f5ae73;
+  --orange-8: #ec9455;
+  --orange-9: #f76b15;
+  --orange-10: #ef5f00;
+  --orange-11: #cc4e00;
+  --orange-12: #582d1d;
 
-  /* 遮罩、阴影与焦点：阴影使用暖黑，保持轻薄。 */
-  --mask: rgba(20, 20, 19, 0.32);
-  --loading-veil: rgba(250, 249, 245, 0.7);
-  --shadow-xs: 0 1px 2px rgba(20, 20, 19, 0.03);
-  --shadow-sm: 0 1px 3px rgba(20, 20, 19, 0.05), 0 4px 12px rgba(20, 20, 19, 0.03);
-  --shadow-lg: 0 12px 36px rgba(20, 20, 19, 0.12), 0 2px 6px rgba(20, 20, 19, 0.04);
-  --focus-ring: 0 0 0 3px rgba(184, 87, 58, 0.18);
+  --sand-a1: #55550003;
+  --sand-a2: #25250007;
+  --sand-a3: #20100010;
+  --sand-a4: #1f150019;
+  --sand-a5: #1f180021;
+  --sand-a6: #19130029;
+  --sand-a7: #19140035;
+  --sand-a8: #1915014a;
+  --sand-a9: #0f0f0079;
+  --sand-a10: #0c0c0083;
+  --sand-a11: #080800a1;
+  --sand-a12: #060500e3;
 
-  /* 字体与字号：正文 14，表格 13，辅助 12。 */
-  /* 标题使用衬线字体（Claude 的编辑感来源），正文与控件保持无衬线。 */
-  --font-serif:
-    'Tiempos Headline', 'Source Serif 4', 'Noto Serif SC', 'Noto Serif CJK SC', 'Source Han Serif SC', 'Songti SC', 'STSong', Georgia, serif;
+  --tomato-a1: #ff000003;
+  --tomato-a2: #ff200008;
+  --tomato-a3: #f52b0018;
+  --tomato-a4: #ff35002c;
+  --tomato-a5: #ff2e003d;
+  --tomato-a6: #f92d0050;
+  --tomato-a7: #e7280067;
+  --tomato-a8: #db250084;
+  --tomato-a9: #df2600d1;
+  --tomato-a10: #d72400da;
+  --tomato-a11: #cd2200ea;
+  --tomato-a12: #460900e0;
+
+  --black-a1: rgba(0, 0, 0, 0.05);
+  --black-a2: rgba(0, 0, 0, 0.1);
+  --black-a3: rgba(0, 0, 0, 0.15);
+  --black-a4: rgba(0, 0, 0, 0.2);
+  --black-a5: rgba(0, 0, 0, 0.3);
+  --black-a6: rgba(0, 0, 0, 0.4);
+  --black-a7: rgba(0, 0, 0, 0.5);
+  --black-a8: rgba(0, 0, 0, 0.6);
+  --black-a9: rgba(0, 0, 0, 0.7);
+  --black-a10: rgba(0, 0, 0, 0.8);
+  --black-a11: rgba(0, 0, 0, 0.9);
+  --black-a12: rgba(0, 0, 0, 0.95);
+
+  --white-a1: rgba(255, 255, 255, 0.05);
+  --white-a2: rgba(255, 255, 255, 0.1);
+  --white-a3: rgba(255, 255, 255, 0.15);
+  --white-a4: rgba(255, 255, 255, 0.2);
+  --white-a5: rgba(255, 255, 255, 0.3);
+  --white-a6: rgba(255, 255, 255, 0.4);
+  --white-a7: rgba(255, 255, 255, 0.5);
+  --white-a8: rgba(255, 255, 255, 0.6);
+  --white-a9: rgba(255, 255, 255, 0.7);
+  --white-a10: rgba(255, 255, 255, 0.8);
+  --white-a11: rgba(255, 255, 255, 0.9);
+  --white-a12: rgba(255, 255, 255, 0.95);
+
+  /* Fixed contrast surfaces and media retain the official dark Sand palette. */
+  --radix-white: #ffffff;
+  --radix-ink: #21201c;
+  --radix-dark-bg: #111110;
+  --radix-dark-border: #3b3a37;
+  --radix-dark-text: #eeeeec;
+
+  /* Compatibility aliases for existing page styles. */
+  --brand-clay: var(--tomato-9);
+  --brand-flame: var(--orange-9);
+  --gray-0: var(--sand-1);
+  --gray-25: var(--sand-1);
+  --gray-50: var(--sand-2);
+  --gray-75: var(--sand-3);
+  --gray-100: var(--sand-4);
+  --gray-150: var(--sand-6);
+  --gray-200: var(--sand-7);
+  --gray-300: var(--sand-8);
+  --gray-400: var(--sand-9);
+  --gray-500: var(--sand-11);
+  --gray-600: var(--sand-11);
+  --gray-700: var(--sand-11);
+  --gray-800: var(--sand-12);
+  --gray-900: var(--sand-12);
+
+  --bg: var(--sand-2);
+  --surface: var(--sand-1);
+  --surface-muted: var(--sand-2);
+  --surface-sunken: var(--sand-3);
+  --surface-hover: var(--sand-4);
+  --surface-pressed: var(--sand-5);
+  --border: var(--sand-6);
+  --border-strong: var(--sand-7);
+  --border-hover: var(--sand-8);
+  --border-width: 0.5px;
+
+  --text: var(--sand-12);
+  --text-strong: var(--sand-12);
+  --text-secondary: var(--sand-11);
+  --text-muted: var(--sand-11);
+  --text-disabled: var(--sand-9);
+  --text-inverse: var(--radix-white);
+
+  --primary: var(--tomato-9);
+  --primary-hover: var(--tomato-10);
+  --primary-pressed: var(--tomato-10);
+  --primary-soft: var(--tomato-3);
+  --primary-soft-hover: var(--tomato-4);
+  --primary-soft-active: var(--tomato-5);
+  --primary-border: var(--tomato-7);
+  --primary-text: var(--tomato-11);
+  --flame: var(--orange-9);
+  --flame-soft: var(--orange-3);
+  --flame-text: var(--orange-11);
+
+  --success: var(--green-9);
+  --success-hover: var(--green-10);
+  --success-pressed: var(--green-10);
+  --success-text: var(--green-11);
+  --success-soft: var(--green-3);
+  --success-soft-hover: var(--green-4);
+  --success-soft-active: var(--green-5);
+  --success-border: var(--green-7);
+  --warning: var(--amber-9);
+  --warning-hover: var(--amber-10);
+  --warning-pressed: var(--amber-10);
+  --warning-text: var(--amber-11);
+  --warning-soft: var(--amber-3);
+  --warning-soft-hover: var(--amber-4);
+  --warning-soft-active: var(--amber-5);
+  --warning-border: var(--amber-7);
+  --danger: var(--red-9);
+  --danger-hover: var(--red-10);
+  --danger-pressed: var(--red-10);
+  --danger-text: var(--red-11);
+  --danger-soft: var(--red-3);
+  --danger-soft-hover: var(--red-4);
+  --danger-soft-active: var(--red-5);
+  --danger-border: var(--red-7);
+  --info: var(--blue-9);
+  --info-hover: var(--blue-10);
+  --info-pressed: var(--blue-10);
+  --info-text: var(--blue-11);
+  --info-soft: var(--blue-3);
+  --info-soft-hover: var(--blue-4);
+  --info-soft-active: var(--blue-5);
+  --info-border: var(--blue-7);
+  --warning-contrast: var(--radix-ink);
+  --neutral-dot: var(--sand-9);
+
+  --chart-1: var(--tomato-9);
+  --chart-2: var(--blue-9);
+  --chart-3: var(--green-9);
+  --chart-4: var(--amber-9);
+  --chart-5: var(--purple-9);
+  --chart-6: var(--teal-9);
+  --chart-7: var(--pink-9);
+  --chart-8: var(--sand-9);
+  --chart-9: var(--yellow-9);
+  --chart-10: var(--orange-9);
+  --chart-fill-1: var(--tomato-3);
+  --chart-fill-2: var(--blue-3);
+  --chart-fill-3: var(--green-3);
+  --chart-fill-4: var(--amber-3);
+  --chart-fill-5: var(--purple-3);
+  --chart-fill-6: var(--teal-3);
+  --chart-fill-7: var(--pink-3);
+  --chart-fill-8: var(--sand-3);
+  --chart-fill-9: var(--yellow-3);
+  --chart-fill-10: var(--orange-3);
+  --chart-grid: var(--sand-6);
+  --chart-axis: var(--sand-11);
+
+  --code-bg: var(--radix-dark-bg);
+  --code-text: var(--radix-dark-text);
+  --code-border: var(--radix-dark-border);
+  --code-inline-bg: var(--sand-3);
+  --code-inline-text: var(--tomato-11);
+
+  --sidebar-bg: var(--sand-2);
+  --sidebar-border: var(--sand-6);
+  --sidebar-text: var(--sand-11);
+  --sidebar-text-active: var(--sand-12);
+  --sidebar-label: var(--sand-11);
+  --sidebar-hover: var(--sand-4);
+  --sidebar-active: var(--sand-5);
+  --sidebar-divider: var(--sand-6);
+  --login-panel-bg: var(--sand-2);
+  --login-panel-text: var(--sand-12);
+  --login-panel-muted: var(--sand-11);
+  --login-panel-line: var(--sand-6);
+  --login-highlight: var(--tomato-11);
+
+  --mask: var(--black-a6);
+  --loading-veil: var(--white-a9);
+  --shadow-xs: none;
+  --shadow-sm: none;
+  --shadow-lg: 0 4px 16px var(--black-a3);
+  --focus-ring: 0 0 0 2px var(--tomato-a5);
+  --focus-ring-warning: 0 0 0 2px var(--amber-7);
+  --focus-ring-danger: 0 0 0 2px var(--red-7);
+
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  --font-serif: var(--font-sans);
   --font-mono: 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
   --font-size-xs: 12px;
-  --font-size-sm: 13px;
+  --font-size-sm: 12px;
   --font-size-md: 14px;
-  --font-size-lg: 16px;
-  --font-size-xl: 20px;
-  --font-size-2xl: 24px;
-  --line-height-tight: 1.35;
+  --font-size-lg: 18px;
+  --font-size-xl: 18px;
+  --font-size-2xl: 18px;
+  --line-height-tight: 1.4;
   --line-height-normal: 1.6;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
 
-  /* 间距（4 的倍数）。 */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -157,24 +364,21 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  /* 圆角：标签 6、控件 8、卡片 12、弹窗 16。 */
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 12px;
-  --radius-xl: 16px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
   --radius-full: 999px;
 
-  /* 布局。 */
   --sidebar-width: 232px;
   --sidebar-width-collapsed: 64px;
   --topbar-height: 56px;
   --page-padding: 24px;
   --page-padding-mobile: 16px;
 
-  /* 直播播放器：画面区域固定为深色，与主题无关。 */
-  --media-stage-bg: #000000;
-  --media-overlay-bg: rgba(0, 0, 0, 0.55);
-  --media-overlay-text: #e5e7eb;
-  --media-spinner-track: rgba(255, 255, 255, 0.3);
-  --media-spinner-head: #ffffff;
+  --media-stage-bg: var(--radix-dark-bg);
+  --media-overlay-bg: var(--black-a8);
+  --media-overlay-text: var(--radix-dark-text);
+  --media-spinner-track: var(--white-a5);
+  --media-spinner-head: var(--radix-white);
 }

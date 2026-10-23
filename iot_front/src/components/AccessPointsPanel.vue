@@ -213,8 +213,8 @@ function address(row) {
 }
 function modeText(row) {
   return row.mode === 'listener'
-    ? `${transportLabel(String(row.network || '').toUpperCase())} · ${row.connectionMode === 'dial' ? '平台连接设备' : '设备连接平台'}`
-    : `Modbus 采集 · 站号 ${row.unitId}`
+    ? `${transportLabel(String(row.network || '').toUpperCase())}，${row.connectionMode === 'dial' ? '平台连接设备' : '设备连接平台'}`
+    : `Modbus 采集，站号 ${row.unitId}`
 }
 
 watch(() => props.productId, load)
@@ -232,7 +232,7 @@ onMounted(load)
         <ui-button v-permission="'POST /api/v2/device-access-profiles'" type="primary" @click="createProfile"><Plus />新建接入点</ui-button>
       </template>
     </FilterBar>
-    <DataTableCard :title="`接入点 · ${visibleProfiles.length} 个`">
+    <DataTableCard :title="`接入点（${visibleProfiles.length} 个）`">
       <ui-table :data="visibleProfiles" :loading="loading" row-key="id" empty-text="暂无接入点，可在设备模板中准备公共连接。">
         <ui-table-column type="expand"
           ><template #default="{ row }">
@@ -293,7 +293,7 @@ onMounted(load)
 
     <ui-dialog
       v-model="profileOpen"
-      :title="editingProfile ? `编辑接入点 · ${listener.id}` : '新建接入点'"
+      :title="editingProfile ? `编辑接入点：${listener.id}` : '新建接入点'"
       width="min(820px, 94vw)"
       :close-on-click-modal="false"
       :close-on-press-escape="!savingListener"
@@ -327,7 +327,7 @@ onMounted(load)
               listener.protocolId ||
               '选择模板后自动读取'
             }}</strong>
-            · 版本 <strong>{{ listener.protocolVersion || '请先在设备模板绑定已发布协议' }}</strong>
+           ，版本 <strong>{{ listener.protocolVersion || '请先在设备模板绑定已发布协议' }}</strong>
           </p>
         </section>
         <section class="profile-editor-section">
@@ -461,7 +461,7 @@ onMounted(load)
 .profile-editor-section + .profile-editor-section {
   margin-top: var(--space-4);
   padding-top: var(--space-4);
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
 }
 .profile-editor-section header {
   margin-bottom: var(--space-3);
@@ -515,7 +515,7 @@ onMounted(load)
   justify-content: space-between;
   gap: var(--space-4);
   padding: var(--space-3);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
 }
 .profile-toggle-row strong,
@@ -533,7 +533,7 @@ onMounted(load)
 }
 .profile-advanced {
   margin-top: var(--space-4);
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
 }
 .profile-editor-footer {
   display: flex;

@@ -67,7 +67,7 @@ function addField(path = '') {
             aria-label="添加常用字段"
             :disabled="disabled"
             @update:model-value="addField"
-            ><ui-option v-for="field in fields" :key="field.path" :label="`${field.name} · ${field.path}`" :value="field.path" /></ui-select
+            ><ui-option v-for="field in fields" :key="field.path" :label="`${field.name}，${field.path}`" :value="field.path" /></ui-select
           ><ui-button :disabled="disabled" @click="addField()">添加字段</ui-button>
         </div>
         <p class="query-hint">来源字段支持点路径；例如将 properties.temperature 输出为 temperature。</p>
@@ -139,7 +139,7 @@ function addField(path = '') {
       <details class="query-field-reference">
         <summary>可用业务字段</summary>
         <p v-for="field in fields" :key="field.path" class="query-hint">
-          <code>{{ field.path }}</code> · {{ field.name }}{{ field.dynamic ? '（支持子字段）' : '' }}
+          <code>{{ field.path }}</code>，{{ field.name }}{{ field.dynamic ? '（支持子字段）' : '' }}
         </p>
         <p v-if="draft.editor === 'sql'" class="query-hint">
           业务数据：{{ props.datasets.map(item => `${item.name} (${item.id})`).join('、') }}
@@ -176,7 +176,7 @@ function addField(path = '') {
   gap: var(--space-3);
   min-width: 0;
   padding: var(--space-4) 0;
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
 }
 .query-heading {
   display: flex;
@@ -231,7 +231,7 @@ summary {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   background: var(--surface-muted);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--space-3);
 }
@@ -241,7 +241,7 @@ summary {
     grid-template-columns: minmax(0, 1fr);
   }
   .query-condition-row {
-    border-bottom: 1px solid var(--border);
+    border-bottom: 0.5px solid var(--border);
     padding-bottom: var(--space-3);
   }
 }

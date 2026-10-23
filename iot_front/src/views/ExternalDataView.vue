@@ -511,9 +511,6 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="external-data-view">
-    <p class="intro">
-      配置一次，持续接收外部系统的数据。先登记来源并在来源下添加接口，测试转换后关联编号，最后启用；待关联的接收记录可直接关联并重试。
-    </p>
     <nav class="external-tabs" aria-label="外部数据管理">
       <button
         v-for="[key, label] in visibleTabs"
@@ -596,7 +593,7 @@ onBeforeUnmount(() => {
                       ><template v-if="endpoint.runtime"
                         >接收 {{ formatTime(endpoint.runtime.lastReceivedAt)
                         }}<small class="subline"
-                          >待处理 {{ endpoint.runtime.pendingRecords ?? 0 }} · 失败 {{ endpoint.runtime.failedRecords ?? 0 }}</small
+                          >待处理 {{ endpoint.runtime.pendingRecords ?? 0 }}，失败 {{ endpoint.runtime.failedRecords ?? 0 }}</small
                         ><small v-if="endpoint.runtime.lastError" class="failure wrap-text">{{
                           endpoint.runtime.lastError
                         }}</small></template
@@ -662,9 +659,9 @@ onBeforeUnmount(() => {
           >
           <ui-table-column v-else label="范围与实际进度" min-width="270"
             ><template #default="{ row }"
-              >{{ row.body?.manual ? '手动拉取' : '自动拉取' }} · 已读取 {{ row.body?.pages || 0 }} 页 /
+              >{{ row.body?.manual ? '手动拉取' : '自动拉取' }}，已读取 {{ row.body?.pages || 0 }} 页 /
               {{ row.body?.received || 0 }} 条<small v-if="row.body?.processed != null || row.body?.failed != null" class="subline"
-                >已处理 {{ row.body?.processed ?? '—' }} · 待处理 {{ row.body?.pending ?? '—' }} · 失败 {{ row.body?.failed ?? '—' }}</small
+                >已处理 {{ row.body?.processed ?? '—' }}，待处理 {{ row.body?.pending ?? '—' }}，失败 {{ row.body?.failed ?? '—' }}</small
               ><small class="subline">{{ formatTime(row.body?.from) }} — {{ formatTime(row.body?.to) }}</small></template
             ></ui-table-column
           >
@@ -682,7 +679,7 @@ onBeforeUnmount(() => {
             ><template v-if="row.runtime"
               ><span>接收 {{ formatTime(row.runtime.lastReceivedAt) }}</span
               ><small class="subline">处理 {{ formatTime(row.runtime.lastProcessedAt) }}</small
-              ><small class="subline">待处理 {{ row.runtime.pendingRecords ?? 0 }} · 失败 {{ row.runtime.failedRecords ?? 0 }}</small
+              ><small class="subline">待处理 {{ row.runtime.pendingRecords ?? 0 }}，失败 {{ row.runtime.failedRecords ?? 0 }}</small
               ><small v-if="row.runtime.lastError" class="failure wrap-text" :title="formatTime(row.runtime.lastErrorAt)">{{
                 row.runtime.lastError
               }}</small></template
@@ -714,7 +711,7 @@ onBeforeUnmount(() => {
         @save="save"
         @cancel="editorOpen = false"
     /></ui-dialog>
-    <ui-dialog v-model="operationOpen" :title="`${operationTitle} · ${operationEndpoint?.name || ''}`" width="min(900px, 94vw)">
+    <ui-dialog v-model="operationOpen" :title="`${operationTitle}：${operationEndpoint?.name || ''}`" width="min(900px, 94vw)">
       <p class="intro">
         {{
           operation === 'pull' ? '此操作创建正式拉取任务，接收到的数据会进入告警或设备业务。' : '仅预览请求与字段转换结果，不写入正式业务。'
@@ -809,7 +806,7 @@ onBeforeUnmount(() => {
     <ui-dialog v-model="keyOpen" title="推送接收设置" width="min(680px, 94vw)" :close-on-click-modal="!busy" :show-close="!busy">
       <template v-if="keyResult"
         ><p class="intro">将此地址与认证方式交给对方配置回调。接收地址使用当前访问域名。</p>
-        <h3>接收地址 · POST</h3>
+        <h3>接收地址（POST）</h3>
         <pre>{{ keyResult.receiveUrl }}</pre>
         <ui-button @click="copy(keyResult.receiveUrl)">复制地址</ui-button>
         <h3>认证方式</h3>
@@ -836,7 +833,7 @@ onBeforeUnmount(() => {
   min-width: 0;
 }
 .intro {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-muted);
   line-height: 1.7;
   margin: 0 0 16px;
@@ -844,23 +841,23 @@ onBeforeUnmount(() => {
 .external-tabs {
   display: flex;
   gap: 4px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
   margin-bottom: 16px;
   overflow: auto;
 }
 .external-tabs button {
   background: none;
   border: 0;
-  border-bottom: 2px solid transparent;
+  border-bottom: 0.5px solid transparent;
   white-space: nowrap;
   padding: 10px 16px;
   color: var(--text-muted);
   cursor: pointer;
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
 }
 .external-tabs .active {
-  border-bottom-color: var(--primary);
+  border-bottom-color: var(--primary-border);
   color: var(--primary-text);
 }
 .filter-select {
@@ -900,13 +897,13 @@ pre {
   overflow-wrap: anywhere;
   background: var(--surface-muted, var(--surface));
   padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
   font-size: 12px;
   line-height: 1.6;
 }
 h3 {
-  font-size: 13px;
+  font-size: 14px;
   margin: 16px 0 8px;
 }
 .detail-meta,
@@ -924,7 +921,7 @@ h3 {
 summary {
   cursor: pointer;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: 14px;
   margin-top: 16px;
 }
 @media (max-width: 640px) {

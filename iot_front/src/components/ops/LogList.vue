@@ -124,13 +124,12 @@ function parts(line) {
   min-width: 0;
   overflow: auto;
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-md);
   font: var(--font-size-xs) var(--font-mono);
 }
 .log-row {
-  border-bottom: 1px solid var(--border);
-  border-left: 3px solid transparent;
+  border-bottom: 0.5px solid var(--border);
   content-visibility: auto;
   contain-intrinsic-size: auto 30px;
 }
@@ -138,13 +137,13 @@ function parts(line) {
   content-visibility: visible;
 }
 .log-row--danger {
-  border-left-color: var(--danger);
+  border-color: var(--danger-border);
 }
 .log-row--warning {
-  border-left-color: var(--warning);
+  border-color: var(--warning-border);
 }
 .log-row--info {
-  border-left-color: var(--info-border);
+  border-color: var(--info-border);
 }
 .log-row__main {
   display: grid;
@@ -174,7 +173,6 @@ function parts(line) {
   height: 14px;
   margin-top: 1px;
   color: var(--text-muted);
-  transition: transform 0.15s;
 }
 .log-row__chevron.is-open {
   transform: rotate(90deg);
@@ -208,7 +206,7 @@ function parts(line) {
 .log-row mark {
   color: inherit;
   background: var(--warning-soft);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 .log-detail {
   display: grid;

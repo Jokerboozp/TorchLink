@@ -1,27 +1,54 @@
-// tokens.css 是唯一来源：构建时读取其中的变量，生成 Naive UI 主题，避免两处各写一份颜色。
+// Naive UI and page CSS share the same Radix values and layout tokens.
 export function parseTokens(css) {
   const tokens = {}
   for (const match of css.matchAll(/(--[\w-]+)\s*:\s*([^;]+);/g)) tokens[match[1]] = match[2].trim()
   return tokens
 }
 
-export function resolveToken(tokens, name) {
-  let value = tokens[name]
-  for (let depth = 0; value?.startsWith('var(') && depth < 8; depth++) value = tokens[value.slice(4, -1).trim()]
+export function resolveToken(tokens, name, seen = new Set()) {
+  if (seen.has(name)) throw new Error(`设计变量 ${name} 存在循环引用`)
+  const value = tokens[name]
   if (value == null) throw new Error(`设计变量 ${name} 未定义`)
-  return value
+  const references = new Set(seen).add(name)
+  return value.replace(/var\(\s*(--[\w-]+)\s*\)/g, (_, reference) => resolveToken(tokens, reference, references))
 }
 
 export function createThemeOverrides(css) {
   const tokens = parseTokens(css)
   const t = name => resolveToken(tokens, name)
+  const border = name => `${t('--border-width')} solid ${t(name)}`
+  const types = { Primary: 'primary', Info: 'info', Success: 'success', Warning: 'warning', Error: 'danger' }
+  const byType = create => Object.assign({}, ...Object.entries(types).map(([type, name]) => create(type, name)))
   const statusColors = (key, name) => ({
     [`${key}Color`]: t(`--${name}`),
     [`${key}ColorHover`]: t(`--${name}-hover`),
     [`${key}ColorPressed`]: t(`--${name}-pressed`),
     [`${key}ColorSuppl`]: t(`--${name}-hover`)
   })
-  return {
+  const inputBorders = {
+    border: border('--border-strong'),
+    borderDisabled: border('--border'),
+    borderHover: border('--border-hover'),
+    borderFocus: border('--primary-border'),
+    borderActive: border('--primary-border'),
+    boxShadowFocus: t('--focus-ring'),
+    boxShadowActive: t('--focus-ring'),
+    ...Object.assign(
+      {},
+      ...[
+        ['Warning', 'warning'],
+        ['Error', 'danger']
+      ].map(([type, name]) => ({
+        [`border${type}`]: border(`--${name}-border`),
+        [`borderHover${type}`]: border(`--${name}-border`),
+        [`borderFocus${type}`]: border(`--${name}-border`),
+        [`borderActive${type}`]: border(`--${name}-border`),
+        [`boxShadowFocus${type}`]: t(`--focus-ring-${name}`),
+        [`boxShadowActive${type}`]: t(`--focus-ring-${name}`)
+      }))
+    )
+  }
+  const theme = {
     common: {
       fontFamily: t('--font-sans'),
       fontFamilyMono: t('--font-mono'),
@@ -31,7 +58,7 @@ export function createThemeOverrides(css) {
       fontSizeTiny: t('--font-size-xs'),
       fontSizeSmall: t('--font-size-sm'),
       fontSizeMedium: t('--font-size-md'),
-      fontSizeLarge: '15px',
+      fontSizeLarge: t('--font-size-md'),
       fontSizeHuge: t('--font-size-lg'),
       lineHeight: t('--line-height-normal'),
       borderRadius: t('--radius-md'),
@@ -40,6 +67,9 @@ export function createThemeOverrides(css) {
       heightSmall: '28px',
       heightMedium: '34px',
       heightLarge: '40px',
+      bezier: 'cubic-bezier(0, 0, 0.58, 1)',
+      bezierEaseOut: 'cubic-bezier(0, 0, 0.58, 1)',
+      baseColor: t('--surface'),
       primaryColor: t('--primary'),
       primaryColorHover: t('--primary-hover'),
       primaryColorPressed: t('--primary-pressed'),
@@ -53,9 +83,22 @@ export function createThemeOverrides(css) {
       textColor2: t('--text'),
       textColor3: t('--text-muted'),
       textColorDisabled: t('--text-disabled'),
-      placeholderColor: t('--text-disabled'),
+      placeholderColor: t('--text-muted'),
       placeholderColorDisabled: t('--text-disabled'),
       iconColor: t('--text-muted'),
+      iconColorHover: t('--text-strong'),
+      iconColorPressed: t('--text-strong'),
+      iconColorDisabled: t('--text-disabled'),
+      closeIconColor: t('--text-muted'),
+      closeIconColorHover: t('--text-strong'),
+      closeIconColorPressed: t('--text-strong'),
+      closeColorHover: t('--surface-hover'),
+      closeColorPressed: t('--surface-pressed'),
+      clearColor: t('--text-muted'),
+      clearColorHover: t('--text-strong'),
+      clearColorPressed: t('--text-strong'),
+      scrollbarColor: t('--sand-a6'),
+      scrollbarColorHover: t('--sand-a8'),
       borderColor: t('--border-strong'),
       dividerColor: t('--border'),
       bodyColor: t('--bg'),
@@ -67,9 +110,19 @@ export function createThemeOverrides(css) {
       tableColorHover: t('--surface-hover'),
       tableColorStriped: t('--surface-muted'),
       hoverColor: t('--surface-hover'),
+      pressedColor: t('--surface-pressed'),
       actionColor: t('--surface-muted'),
+      inputColor: t('--surface'),
       inputColorDisabled: t('--surface-muted'),
-      tagColor: t('--surface-hover'),
+      buttonColor2: t('--surface-sunken'),
+      buttonColor2Hover: t('--surface-hover'),
+      buttonColor2Pressed: t('--surface-pressed'),
+      tagColor: t('--surface-sunken'),
+      avatarColor: t('--surface-pressed'),
+      tabColor: t('--surface-sunken'),
+      invertedColor: t('--code-bg'),
+      railColor: t('--sand-6'),
+      progressRailColor: t('--sand-4'),
       codeColor: t('--code-inline-bg'),
       boxShadow1: t('--shadow-sm'),
       boxShadow2: t('--shadow-lg'),
@@ -78,63 +131,118 @@ export function createThemeOverrides(css) {
     Button: {
       fontWeight: t('--font-weight-medium'),
       textColor: t('--text'),
-      border: `1px solid ${t('--border-strong')}`,
-      borderHover: `1px solid ${t('--border-hover')}`,
-      borderPressed: `1px solid ${t('--border-hover')}`,
-      borderFocus: `1px solid ${t('--border-hover')}`,
+      border: border('--border-strong'),
+      borderDisabled: border('--border'),
+      borderHover: border('--border-hover'),
+      borderPressed: border('--border-hover'),
+      borderFocus: border('--border-hover'),
       textColorHover: t('--text-strong'),
       textColorPressed: t('--text-strong'),
       textColorFocus: t('--text-strong'),
+      textColorTextHover: t('--text-strong'),
+      textColorTextPressed: t('--text-strong'),
+      textColorTextFocus: t('--text-strong'),
+      textColorGhostHover: t('--text-strong'),
+      textColorGhostPressed: t('--text-strong'),
+      textColorGhostFocus: t('--text-strong'),
+      color: t('--surface'),
       colorHover: t('--surface-hover'),
-      colorPressed: t('--border'),
+      colorPressed: t('--surface-pressed'),
       colorFocus: t('--surface-hover'),
-      // 实色按钮文字固定为反色，深色主题下也不随 Naive 基底变暗。
-      ...Object.fromEntries(
-        ['Primary', 'Info', 'Success', 'Warning', 'Error'].flatMap(type =>
-          ['', 'Hover', 'Pressed', 'Focus'].map(state => [`textColor${state}${type}`, t('--text-inverse')])
+      ...byType((type, name) =>
+        Object.assign(
+          {},
+          ...['', 'Hover', 'Pressed', 'Focus', 'Disabled'].map(state => ({
+            [`textColor${state}${type}`]: t(name === 'warning' ? '--warning-contrast' : '--text-inverse'),
+            [`textColorText${state}${type}`]: t(`--${name}-text`),
+            [`textColorGhost${state}${type}`]: t(`--${name}-text`),
+            [`border${state}${type}`]: border(`--${name}${state === 'Hover' || state === 'Focus' || state === 'Pressed' ? '-hover' : ''}`)
+          }))
         )
       )
     },
-    Input: {
-      borderHover: `1px solid ${t('--border-hover')}`,
-      borderFocus: `1px solid ${t('--primary-border')}`,
+    Input: { ...inputBorders, groupLabelBorder: border('--border-strong') },
+    InternalSelection: inputBorders,
+    InternalSelectMenu: {
+      optionColorActive: t('--primary-soft-active'),
+      optionColorActivePending: t('--primary-soft-hover'),
+      optionTextColorActive: t('--primary-text'),
+      optionTextColorPressed: t('--primary-text'),
+      optionCheckColor: t('--primary-text')
+    },
+    Dropdown: {
+      borderRadius: t('--radius-lg'),
+      optionColorHover: t('--surface-hover'),
+      optionColorActive: t('--primary-soft-active'),
+      optionTextColor: t('--text'),
+      optionTextColorActive: t('--primary-text'),
+      optionTextColorChildActive: t('--primary-text'),
+      padding: '4px'
+    },
+    Popover: { borderRadius: t('--radius-lg') },
+    Tooltip: { color: t('--code-bg'), textColor: t('--code-text'), borderRadius: t('--radius-sm') },
+    Skeleton: { color: t('--sand-3'), colorEnd: t('--sand-4') },
+    Empty: { textColor: t('--text-muted') },
+    Radio: {
+      boxShadow: `inset 0 0 0 ${t('--border-width')} ${t('--border-strong')}`,
+      boxShadowActive: `inset 0 0 0 ${t('--border-width')} ${t('--primary')}`,
+      boxShadowHover: `inset 0 0 0 ${t('--border-width')} ${t('--border-hover')}`,
+      boxShadowDisabled: `inset 0 0 0 ${t('--border-width')} ${t('--border')}`,
+      boxShadowFocus: `inset 0 0 0 ${t('--border-width')} ${t('--primary')}, ${t('--focus-ring')}`,
+      buttonBoxShadowFocus: t('--focus-ring'),
+      buttonBoxShadowHover: 'none',
+      buttonBoxShadow: 'none',
+      buttonTextColorActive: t('--primary-text'),
+      buttonColorActive: t('--primary-soft-active'),
+      buttonBorderColorActive: t('--primary-border'),
+      buttonTextColorHover: t('--text-strong')
+    },
+    Checkbox: {
+      border: border('--border-strong'),
+      borderDisabled: border('--border'),
+      borderDisabledChecked: border('--border'),
+      borderChecked: border('--primary'),
+      borderFocus: border('--primary-border'),
+      checkMarkColor: t('--text-inverse'),
       boxShadowFocus: t('--focus-ring')
     },
-    InternalSelection: {
-      borderHover: `1px solid ${t('--border-hover')}`,
-      borderFocus: `1px solid ${t('--primary-border')}`,
-      borderActive: `1px solid ${t('--primary-border')}`,
-      boxShadowFocus: t('--focus-ring'),
-      boxShadowActive: t('--focus-ring')
-    },
-    Dropdown: { borderRadius: t('--radius-lg'), optionColorHover: t('--surface-hover'), padding: '6px' },
-    Popover: { borderRadius: t('--radius-lg') },
-    Radio: {
-      buttonTextColorActive: t('--primary-text'),
-      buttonColorActive: t('--primary-soft'),
-      buttonBorderColorActive: t('--primary'),
-      buttonTextColorHover: t('--text-strong')
+    Switch: {
+      railColor: t('--sand-7'),
+      railColorActive: t('--primary'),
+      buttonColor: t('--radix-white'),
+      textColor: t('--text-inverse'),
+      buttonBoxShadow: 'none',
+      boxShadowFocus: t('--focus-ring')
     },
     Card: {
       borderRadius: t('--radius-lg'),
       borderColor: t('--border'),
+      boxShadow: 'none',
       titleTextColor: t('--text-strong'),
       titleFontWeight: t('--font-weight-semibold'),
       titleFontSizeSmall: t('--font-size-md'),
-      titleFontSizeMedium: '15px',
+      titleFontSizeMedium: t('--font-size-md'),
+      titleFontSizeLarge: t('--font-size-lg'),
+      titleFontSizeHuge: t('--font-size-lg'),
       paddingSmall: '12px 16px',
       paddingMedium: '16px 20px 20px'
     },
     DataTable: {
       fontSizeSmall: t('--font-size-sm'),
-      fontSizeMedium: t('--font-size-sm'),
+      fontSizeMedium: t('--font-size-md'),
+      fontSizeLarge: t('--font-size-md'),
       thColor: t('--surface-muted'),
+      thColorHover: t('--surface-hover'),
+      thColorSorting: t('--surface-pressed'),
       thTextColor: t('--text-secondary'),
       thFontWeight: t('--font-weight-medium'),
       tdTextColor: t('--text'),
       tdColorHover: t('--surface-hover'),
       tdColorStriped: t('--surface-muted'),
+      tdColorSorting: t('--surface-pressed'),
       borderColor: t('--border'),
+      boxShadowBefore: 'none',
+      boxShadowAfter: 'none',
       thPaddingMedium: '10px 12px',
       tdPaddingMedium: '10px 12px',
       thPaddingSmall: '8px 10px',
@@ -143,33 +251,51 @@ export function createThemeOverrides(css) {
     Tag: {
       borderRadius: t('--radius-sm'),
       fontSizeSmall: t('--font-size-xs'),
-      // 状态标签的文字用对应的 text 色，浅色与深色底上都保持可读。
-      textColorPrimary: t('--primary-text'),
-      textColorInfo: t('--info-text'),
-      textColorSuccess: t('--success-text'),
-      textColorWarning: t('--warning-text'),
-      textColorError: t('--danger-text')
+      border: border('--border'),
+      colorBordered: t('--surface-sunken'),
+      ...byType((type, name) => ({
+        [`textColor${type}`]: t(`--${name}-text`),
+        [`color${type}`]: t(`--${name}-soft`),
+        [`colorBordered${type}`]: t(`--${name}-soft`),
+        [`border${type}`]: border(`--${name}-border`),
+        [`closeIconColor${type}`]: t(`--${name}-text`),
+        [`closeIconColorHover${type}`]: t(`--${name}-text`),
+        [`closeIconColorPressed${type}`]: t(`--${name}-text`),
+        [`closeColorHover${type}`]: t(`--${name}-soft-hover`),
+        [`closeColorPressed${type}`]: t(`--${name}-soft-active`)
+      }))
     },
     Form: {
-      labelFontSizeTopMedium: t('--font-size-sm'),
-      labelFontSizeLeftMedium: t('--font-size-sm'),
+      labelFontSizeTopMedium: t('--font-size-md'),
+      labelFontSizeLeftMedium: t('--font-size-md'),
       labelTextColor: t('--text-secondary'),
-      labelFontWeight: t('--font-weight-medium')
+      labelFontWeight: t('--font-weight-medium'),
+      feedbackTextColorWarning: t('--warning-text'),
+      feedbackTextColorError: t('--danger-text')
     },
     Tabs: {
+      tabFontSizeSmall: t('--font-size-xs'),
+      tabFontSizeMedium: t('--font-size-md'),
+      tabFontSizeLarge: t('--font-size-md'),
       tabTextColorLine: t('--text-secondary'),
       tabTextColorActiveLine: t('--text-strong'),
       tabTextColorHoverLine: t('--text-strong'),
+      tabTextColorActiveCard: t('--primary-text'),
+      tabTextColorHoverCard: t('--text-strong'),
+      tabTextColorActiveBar: t('--primary-text'),
+      tabTextColorHoverBar: t('--text-strong'),
       barColor: t('--primary'),
       tabFontWeightActive: t('--font-weight-semibold')
     },
     Modal: { peers: { Card: { borderRadius: t('--radius-xl'), paddingMedium: '20px 24px 24px' } } },
     Dialog: { borderRadius: t('--radius-xl'), titleFontSize: t('--font-size-lg') },
     Message: { borderRadius: t('--radius-lg') },
-    Notification: { borderRadius: t('--radius-lg') },
+    Notification: { borderRadius: t('--radius-lg'), titleFontSize: t('--font-size-md') },
     Drawer: {
       titleFontSize: t('--font-size-lg'),
       titleFontWeight: t('--font-weight-semibold'),
+      headerBorderBottom: border('--border'),
+      footerBorderTop: border('--border'),
       headerPadding: '16px 24px',
       bodyPadding: '20px 24px'
     },
@@ -179,7 +305,64 @@ export function createThemeOverrides(css) {
       tdTextColor: t('--text'),
       borderColor: t('--border')
     },
-    Pagination: { itemBorderRadius: t('--radius-md') },
-    Alert: { borderRadius: t('--radius-lg') }
+    Progress: {
+      fontSizeCircle: t('--font-size-lg'),
+      textColorLineInner: t('--text-inverse'),
+      lineBgProcessing: `linear-gradient(90deg, ${t('--white-a5')}, ${t('--white-a7')})`
+    },
+    DatePicker: {
+      itemColorIncluded: t('--primary-soft'),
+      itemColorActive: t('--primary'),
+      itemTextColorActive: t('--text-inverse'),
+      itemTextColorCurrent: t('--primary-text')
+    },
+    Tree: { nodeColorActive: t('--primary-soft-active') },
+    Steps: {
+      stepHeaderFontSizeSmall: t('--font-size-md'),
+      stepHeaderFontSizeMedium: t('--font-size-md'),
+      indicatorIndexFontSizeSmall: t('--font-size-md'),
+      indicatorIndexFontSizeMedium: t('--font-size-md'),
+      indicatorTextColorProcess: t('--text-inverse')
+    },
+    Upload: {
+      draggerBorder: `${t('--border-width')} dashed ${t('--border-strong')}`,
+      draggerBorderHover: `${t('--border-width')} dashed ${t('--border-hover')}`,
+      itemBorderImageCard: border('--border-strong'),
+      itemBorderImageCardError: border('--danger-border'),
+      itemColorHoverError: t('--danger-soft'),
+      itemTextColorError: t('--danger-text'),
+      itemTextColorSuccess: t('--success-text')
+    },
+    Pagination: {
+      itemBorderRadius: t('--radius-md'),
+      buttonBorder: border('--border-strong'),
+      buttonBorderHover: border('--border-hover'),
+      buttonBorderPressed: border('--border-hover'),
+      itemBorder: `${t('--border-width')} solid transparent`,
+      itemBorderHover: `${t('--border-width')} solid transparent`,
+      itemBorderPressed: `${t('--border-width')} solid transparent`,
+      itemBorderActive: border('--primary-border'),
+      itemBorderDisabled: border('--border'),
+      itemColorHover: t('--surface-hover'),
+      itemColorPressed: t('--surface-pressed'),
+      itemColorActive: t('--primary-soft-active'),
+      itemColorActiveHover: t('--primary-soft-hover'),
+      itemTextColorHover: t('--text-strong'),
+      itemTextColorPressed: t('--text-strong'),
+      itemTextColorActive: t('--primary-text')
+    },
+    Alert: {
+      borderRadius: t('--radius-lg'),
+      border: border('--border'),
+      titleFontSize: t('--font-size-md'),
+      ...byType((type, name) => ({
+        [`border${type}`]: border(`--${name}-border`),
+        [`color${type}`]: t(`--${name}-soft`),
+        [`iconColor${type}`]: t(`--${name}-text`),
+        [`titleTextColor${type}`]: t(`--${name}-text`),
+        [`contentTextColor${type}`]: t('--text')
+      }))
+    }
   }
+  return theme
 }

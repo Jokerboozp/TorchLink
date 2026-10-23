@@ -61,7 +61,7 @@ async function addChild() {
       <ui-table-column prop="productName" label="设备模板" min-width="130" />
       <ui-table-column label="协议" min-width="150"
         ><template #default="{ row }"
-          >{{ row.binding?.protocolId || '未配置' }} · {{ row.binding?.version || '—' }}</template
+          >{{ row.binding?.protocolId || '未配置' }}，{{ row.binding?.version || '—' }}</template
         ></ui-table-column
       >
       <ui-table-column label="最近上报" min-width="170"
@@ -100,7 +100,7 @@ async function addChild() {
             v-for="item in childTypes"
             :key="item.type"
             :value="item.type"
-            :label="`${item.type} · 模板 ${item.productId}`" /></ui-select
+            :label="`${item.type}，模板 ${item.productId}`" /></ui-select
       ></ui-form-item>
       <ui-form-item label="子设备地址" required
         ><ui-input v-model="childForm.address" placeholder="主设备协议中的子设备地址" aria-label="子设备地址"

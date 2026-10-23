@@ -69,7 +69,7 @@ function more() {
       </p>
       <div class="context__actions">
         <span
-          >前 {{ index < 0 ? 0 : index }} 行 · 后 {{ index < 0 ? 0 : rows.length - index - 1 }} 行（同一日志流，前后各最多 6 小时）</span
+          >前 {{ index < 0 ? 0 : index }} 行，后 {{ index < 0 ? 0 : rows.length - index - 1 }} 行（同一日志流，前后各最多 6 小时）</span
         >
         <ui-button size="small" :loading="loading" :disabled="size >= 100" @click="more">加载更多上下文</ui-button>
       </div>

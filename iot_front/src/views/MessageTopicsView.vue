@@ -327,7 +327,7 @@ function useQuerySql() {
   queryForm.value.editor = 'sql'
 }
 function querySummary(row) {
-  return `${datasets.value.find(item => item.id === row.query?.dataset)?.name || row.query?.dataset} · ${row.query?.mode === 'interval' ? `每 ${row.query.intervalSeconds} 秒查询` : '实时发送'}`
+  return `${datasets.value.find(item => item.id === row.query?.dataset)?.name || row.query?.dataset}，${row.query?.mode === 'interval' ? `每 ${row.query.intervalSeconds} 秒查询` : '实时发送'}`
 }
 watch(() => JSON.stringify([queryForm.value, form.protocol]), clearQueryPreview, { flush: 'sync' })
 function identityChanged() {
@@ -384,7 +384,7 @@ onBeforeUnmount(() => {
     </details>
     <ui-alert v-if="notice" :title="notice" type="warning" :closable="false" class="topic-notice" />
     <DataTableCard
-      :title="`消息主题${snapshot ? ` · ${filteredItems.length} 项` : ''}`"
+      :title="`消息主题${snapshot ? `（${filteredItems.length} 项）` : ''}`"
       :error="error"
       :page="page"
       :page-size="pageSize"
@@ -428,7 +428,7 @@ onBeforeUnmount(() => {
         ></ui-table-column> </ui-table
     ></DataTableCard>
     <details v-if="snapshot" class="topic-legacy">
-      <summary>平台内置主题（只读） · {{ builtinItems.length }} 项</summary>
+      <summary>内置主题（{{ builtinItems.length }} 项，只读）</summary>
       <div class="topic-runtime" aria-label="消息通道配置">
         <span>MQTT 通道{{ snapshot.runtime?.mqttEnabled ? '已启用' : '未启用' }}</span
         ><span>Kafka 通道{{ snapshot.runtime?.kafkaEnabled ? '已启用' : '未启用' }}</span
@@ -440,7 +440,7 @@ onBeforeUnmount(() => {
           ><template #default="{ row }"
             ><strong>{{ row.name }}</strong
             ><small class="subline"
-              >{{ row.protocol === 'kafka' ? 'Kafka' : 'MQTT' }} · {{ topicDirectionLabel(row.direction) }}</small
+              >{{ row.protocol === 'kafka' ? 'Kafka' : 'MQTT' }}，{{ topicDirectionLabel(row.direction) }}</small
             ></template
           ></ui-table-column
         ><ui-table-column label="地址" min-width="280"
@@ -459,7 +459,7 @@ onBeforeUnmount(() => {
 
     <ui-dialog
       :model-value="editorOpen"
-      :title="creating ? '新建消息主题' : `编辑主题 · ${editing?.name || ''}`"
+      :title="creating ? '新建消息主题' : `编辑主题：${editing?.name || ''}`"
       width="min(860px, 94vw)"
       :close-on-click-modal="false"
       :close-on-press-escape="!saving"
@@ -515,7 +515,7 @@ onBeforeUnmount(() => {
               ><ui-option
                 v-for="key in keys"
                 :key="key.id"
-                :label="`${key.name} · ${key.username}${key.enabled ? '' : '（已停用）'}`"
+                :label="`${key.name}，${key.username}${key.enabled ? '' : '（已停用）'}`"
                 :value="key.id" /></ui-select
           ></ui-form-item>
           <p class="topic-hint">
@@ -583,7 +583,7 @@ onBeforeUnmount(() => {
 .topic-authorization > div {
   display: grid;
   gap: var(--space-1);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   background: var(--surface);
   border-radius: var(--radius-md);
   padding: var(--space-3);

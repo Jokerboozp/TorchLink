@@ -101,7 +101,7 @@ async function save() {
         dispositionResults[alarm.disposition.result] || alarm.disposition.result
       }}</ui-descriptions-item>
       <ui-descriptions-item label="核实人 / 时间"
-        >{{ alarm.disposition.handler }} · {{ formatTime(alarm.disposition.verifiedAt) }}</ui-descriptions-item
+        >{{ alarm.disposition.handler }}，{{ formatTime(alarm.disposition.verifiedAt) }}</ui-descriptions-item
       >
       <ui-descriptions-item v-if="alarm.disposition.arrivedAt" label="到场时间">{{
         formatTime(alarm.disposition.arrivedAt)
@@ -139,7 +139,7 @@ async function save() {
 .disposition-time {
   height: 32px;
   padding: 0 var(--space-2);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
   color: var(--text-strong);

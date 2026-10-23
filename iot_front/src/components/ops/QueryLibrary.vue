@@ -127,7 +127,7 @@ async function clearHistory() {
   gap: var(--space-2);
   padding: var(--space-3);
   margin-bottom: var(--space-2);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
 }

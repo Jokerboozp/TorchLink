@@ -35,7 +35,7 @@
   justify-content: flex-end;
   padding: var(--space-3) var(--space-4);
   background: var(--surface);
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
 }
 .list-pagination .ui-pagination {
   flex-wrap: wrap;
@@ -80,7 +80,7 @@
   padding: 0 var(--space-4);
   color: var(--text-secondary);
   background: var(--surface-sunken);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
   font-size: var(--font-size-sm);
 }
@@ -90,7 +90,7 @@
   cursor: pointer;
 }
 .technical-details[open] summary {
-  border-bottom: 1px solid var(--border);
+  border-bottom: 0.5px solid var(--border);
 }
 .technical-details pre,
 .technical-details ul {
@@ -98,6 +98,7 @@
 }
 .inner-card.n-card {
   background: var(--surface-sunken);
+  border-radius: var(--radius-sm);
   box-shadow: none;
 }
 .inner-card p,
@@ -136,7 +137,7 @@
 .ui-table-card {
   padding: var(--space-3);
   background: var(--surface);
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
 }
 .ui-table-card dl {
@@ -167,7 +168,7 @@
   gap: var(--space-2);
   margin-top: var(--space-2);
   padding-top: var(--space-2);
-  border-top: 1px solid var(--border);
+  border-top: 0.5px solid var(--border);
 }
 
 /* 窄屏时按钮式单选组换行，不超出弹层与卡片。 */

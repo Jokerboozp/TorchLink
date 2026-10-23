@@ -108,7 +108,7 @@ onUnmounted(() => request?.abort())
   <ui-card shadow="never" class="surface-card ai-run-history">
     <template #header
       ><div class="history-header">
-        <div><strong>AI 运行记录与用量</strong><small>已结束的工作流运行 · 词元用量由模型服务返回</small></div>
+        <div><strong title="已结束的工作流；词元用量由模型服务返回">AI 运行记录与用量</strong></div>
         <ui-button size="small" :loading="loading" @click="load">刷新</ui-button>
       </div></template
     >
@@ -129,14 +129,14 @@ onUnmounted(() => request?.abort())
       <div v-for="row in usageTotals" :key="row.workflowId" class="usage-item">
         <strong>{{ workflowName(row.workflowId) }}</strong>
         <span
-          >{{ row.runs }} 次运行<template v-if="row.failed"> · {{ row.failed }} 次未成功</template></span
+          >{{ row.runs }} 次运行<template v-if="row.failed">，{{ row.failed }} 次未成功</template></span
         >
         <small
-          >输入 {{ tokens(row.input) }} · 输出 {{ tokens(row.output) }} 词元<template v-if="row.cacheRead">
-            · 缓存命中 {{ tokens(row.cacheRead) }}</template
+          >输入 {{ tokens(row.input) }}，输出 {{ tokens(row.output) }} 词元<template v-if="row.cacheRead">
+           ，缓存命中 {{ tokens(row.cacheRead) }}</template
           ></small
         >
-        <small>平均耗时 {{ seconds(row.durationMs / row.runs) }} · 工具调用 {{ row.toolCalls }} 次</small>
+        <small>平均耗时 {{ seconds(row.durationMs / row.runs) }}，工具调用 {{ row.toolCalls }} 次</small>
       </div>
     </div>
     <ui-table v-if="items.length" :data="items" stripe row-key="runId">
@@ -223,11 +223,11 @@ onUnmounted(() => request?.abort())
 }
 .usage-item {
   padding: 10px 12px;
-  border: 1px solid var(--border);
+  border: 0.5px solid var(--border);
   border-radius: var(--radius-lg);
 }
 .usage-item span {
-  font-size: 13px;
+  font-size: 14px;
 }
 .ai-run-history {
   min-width: 0;
