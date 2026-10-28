@@ -233,11 +233,11 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="ai-runtime" v-loading="runtimeLoading">
-    <div><strong>智能助手</strong></div>
+    <div><strong>智能助手</strong><small>查询设备、告警和知识，查看每次回答的依据与执行过程。</small></div>
     <div class="runtime-actions">
       <div class="runtime-status">
         <ui-tag :type="activeTone" effect="light">{{ selectedWorkflow ? 'AI 服务' : '未配置' }}</ui-tag
-        ><span>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }}，{{ runConfig.model || '无活动模型' }}</span
+        ><span>{{ providerLabel(runtime.config?.provider || runtime.active?.id) }} · {{ runConfig.model || '无活动模型' }}</span
         ><i :class="{ online: activeHealthy }" />{{ healthMessage }}
       </div>
       <ui-button v-permission="'POST /api/v1/ai/reports'" size="small" @click="reportVisible = true">运维报告</ui-button
@@ -295,8 +295,9 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 20px;
   background: var(--surface);
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: 4px;
 }
 .ai-runtime > div:first-child {
   display: grid;
@@ -309,7 +310,7 @@ onBeforeUnmount(() => {
   letter-spacing: 0.14em;
 }
 .ai-runtime strong {
-  font-size: 18px;
+  font-size: 16px;
 }
 .ai-runtime small {
   color: var(--text-muted);
@@ -324,7 +325,7 @@ onBeforeUnmount(() => {
   align-items: center;
   gap: 8px;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   white-space: nowrap;
 }
 .runtime-status i {
@@ -405,6 +406,7 @@ onBeforeUnmount(() => {
 }
 .ai-runtime {
   border: 0;
+  border-left: 3px solid var(--primary);
   border-radius: var(--radius-lg);
 }
 </style>

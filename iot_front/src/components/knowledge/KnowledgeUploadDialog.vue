@@ -166,7 +166,7 @@ onBeforeUnmount(() => {
             ><ui-option
               v-for="agent in agents"
               :key="agentKey(agent)"
-              :label="agentName(agent) + '，' + agentKey(agent)"
+              :label="agentName(agent) + ' · ' + agentKey(agent)"
               :value="agentKey(agent)" /></ui-select
         ></ui-form-item>
         <div class="metadata-grid">
@@ -226,7 +226,7 @@ onBeforeUnmount(() => {
 } /* 上传步骤各占独立区域，说明不与输入框挤在同一行。 */
 .knowledge-upload-section + .knowledge-upload-section {
   padding-top: 20px;
-  border-top: 0.5px solid var(--border);
+  border-top: 1px solid var(--border);
 }
 .knowledge-upload-section:last-of-type {
   padding-bottom: 0;

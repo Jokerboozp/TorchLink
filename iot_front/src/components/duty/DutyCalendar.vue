@@ -61,7 +61,7 @@ const timeLabel = value => new Date(value).toLocaleTimeString('zh-CN', { hour12:
     </header>
     <div class="duty-calendar__summary">
       <span
-        >{{ mode === 'month' ? '当月' : '当周' }}{{ filtered ? '筛选范围' : '' }}：已加载 {{ rows.length }} / {{ total }} 个排班，
+        >{{ mode === 'month' ? '当月' : '当周' }}{{ filtered ? '筛选范围' : '' }}：已加载 {{ rows.length }} / {{ total }} 个排班 ·
         {{ calendarPeople }} 名人员</span
       ><StatusDot :tone="complete ? 'success' : 'warning'" :label="loading ? '加载中' : complete ? '已加载全部排班' : '尚未加载完整'" />
     </div>
@@ -114,7 +114,7 @@ const timeLabel = value => new Date(value).toLocaleTimeString('zh-CN', { hour12:
 .duty-calendar {
   min-width: 0;
   background: var(--surface);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   overflow: hidden;
 }
@@ -135,7 +135,7 @@ const timeLabel = value => new Date(value).toLocaleTimeString('zh-CN', { hour12:
 }
 .duty-calendar__period h2 {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
 }
 .duty-calendar__controls :deep(.n-date-picker) {
@@ -147,7 +147,7 @@ const timeLabel = value => new Date(value).toLocaleTimeString('zh-CN', { hour12:
   flex-wrap: wrap;
   gap: 8px;
   padding: 10px 16px;
-  border-top: 0.5px solid var(--border);
+  border-top: 1px solid var(--border);
   color: var(--text-muted);
   font-size: 12px;
 }
@@ -163,7 +163,7 @@ const timeLabel = value => new Date(value).toLocaleTimeString('zh-CN', { hour12:
 .duty-calendar__weekdays {
   color: var(--text-muted);
   background: var(--surface-muted);
-  border-top: 0.5px solid var(--border);
+  border-top: 1px solid var(--border);
   font-size: 12px;
   text-align: center;
 }
@@ -174,8 +174,8 @@ const timeLabel = value => new Date(value).toLocaleTimeString('zh-CN', { hour12:
 .duty-calendar__blank {
   min-height: 155px;
   padding: 8px;
-  border-top: 0.5px solid var(--border);
-  border-right: 0.5px solid var(--border);
+  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
 }
 .duty-calendar__day:nth-child(7n),
 .duty-calendar__blank:nth-child(7n) {
@@ -215,27 +215,28 @@ const timeLabel = value => new Date(value).toLocaleTimeString('zh-CN', { hour12:
   padding: 8px;
   color: var(--text);
   background: var(--surface-muted);
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--primary);
+  border-radius: 5px;
   font: inherit;
-  font-size: 12px;
+  font-size: 11px;
   text-align: left;
   cursor: pointer;
   overflow-wrap: anywhere;
 }
 .duty-calendar__assignment:hover {
   background: var(--primary-soft);
-  border-color: var(--primary-border);
+  border-color: var(--primary);
 }
 .duty-calendar__assignment strong {
   font-size: 12px;
 }
 .duty-calendar__assignment small {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 .duty-calendar__empty {
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-muted);
 }
 .duty-calendar__footer {
@@ -245,7 +246,7 @@ const timeLabel = value => new Date(value).toLocaleTimeString('zh-CN', { hour12:
   flex-wrap: wrap;
   gap: 10px;
   padding: 12px 16px;
-  border-top: 0.5px solid var(--border);
+  border-top: 1px solid var(--border);
   color: var(--text-muted);
   font-size: 12px;
 }
@@ -263,7 +264,7 @@ const timeLabel = value => new Date(value).toLocaleTimeString('zh-CN', { hour12:
     min-width: 130px;
   }
   .duty-calendar__period h2 {
-    font-size: 14px;
+    font-size: 13px;
   }
 }
 </style>

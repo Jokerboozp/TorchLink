@@ -47,13 +47,13 @@ defineExpose({ load })
       <li v-for="item in items" :key="item.id">
         <StatusDot :tone="taskTone(item.status)" :label="taskStatuses[item.status] || item.status" />
         <span
-          >{{ stageText(item) }}，{{ item.channelName || item.channelId
-          }}<template v-if="item.policyName">，{{ item.policyName }}</template></span
+          >{{ stageText(item) }} · {{ item.channelName || item.channelId
+          }}<template v-if="item.policyName"> · {{ item.policyName }}</template></span
         >
         <small class="subline"
           >{{ item.status === 'SENT' ? `发送于 ${time(item.sentAt)}` : item.status === 'PENDING' ? `计划 ${time(item.nextAt)}` : ''
-          }}<template v-if="item.recipients?.length">，接收人：{{ item.recipients.join('、') }}</template
-          ><template v-if="item.lastError">，{{ item.lastError }}</template></small
+          }}<template v-if="item.recipients?.length"> · 接收人：{{ item.recipients.join('、') }}</template
+          ><template v-if="item.lastError"> · {{ item.lastError }}</template></small
         >
       </li>
     </ol>

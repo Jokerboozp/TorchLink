@@ -76,7 +76,7 @@ export const formatLabel = value => displayName(formatNames, value, String(value
 export const statusLabel = value => displayName(statusNames, value, '未知状态')
 export function platformLabel(value) {
   const [os, arch] = String(value || '').split('-')
-  return `${{ linux: 'Linux', windows: 'Windows', darwin: 'macOS' }[os] || os || '未设置系统'}，${arch || '未设置架构'}`
+  return `${{ linux: 'Linux', windows: 'Windows', darwin: 'macOS' }[os] || os || '未设置系统'} · ${arch || '未设置架构'}`
 }
 export function errorMessage(error) {
   const raw = String(error?.message || error || '')

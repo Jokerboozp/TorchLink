@@ -95,7 +95,7 @@ const reviewAssignment = computed(() => swapContext(reviewTarget.value))
 const assignmentLabel = swapRow => {
   const row = swapContext(swapRow)
   return row
-    ? `${stationName(row.stationId)}，${shiftName(row.shiftId)}，${dateTimeLabel(row.startAt)} — ${dateTimeLabel(row.endAt)}`
+    ? `${stationName(row.stationId)} · ${shiftName(row.shiftId)} · ${dateTimeLabel(row.startAt)} — ${dateTimeLabel(row.endAt)}`
     : '关联排班不可用，请刷新核对'
 }
 const errorText = error => error?.message || '加载失败，请重试'
@@ -388,7 +388,7 @@ onMounted(() =>
 
   <DataTableCard
     v-if="tab === 'assignments'"
-    :title="`排班（${total.assignments} 个）`"
+    :title="`排班 · ${total.assignments} 个`"
     :page="page.assignments"
     :page-size="pageSize.assignments"
     :total="total.assignments"
@@ -418,7 +418,7 @@ onMounted(() =>
   </DataTableCard>
   <DataTableCard
     v-if="tab === 'shifts'"
-    :title="`班次模板（${total.shifts} 个）`"
+    :title="`班次模板 · ${total.shifts} 个`"
     :page="page.shifts"
     :page-size="pageSize.shifts"
     :total="total.shifts"
@@ -441,7 +441,7 @@ onMounted(() =>
   </DataTableCard>
   <DataTableCard
     v-if="tab === 'swaps'"
-    :title="`换班申请（${total.swaps} 个）`"
+    :title="`换班申请 · ${total.swaps} 个`"
     :page="page.swaps"
     :page-size="pageSize.swaps"
     :total="total.swaps"
@@ -472,7 +472,7 @@ onMounted(() =>
       <ui-table-column label="审批记录" min-width="200"
         ><template #default="{ row }"
           ><span v-if="row.reviewedBy"
-            >{{ row.reviewedBy }}，{{ row.reviewNote || '无备注' }}<small class="subline">{{ dateTimeLabel(row.reviewedAt) }}</small></span
+            >{{ row.reviewedBy }} · {{ row.reviewNote || '无备注' }}<small class="subline">{{ dateTimeLabel(row.reviewedAt) }}</small></span
           ><span v-else>{{ row.requestedBy === session.user ? '由其他有审批权限的用户处理' : '等待审批' }}</span></template
         ></ui-table-column
       >
@@ -525,8 +525,8 @@ onMounted(() =>
   margin-bottom: 16px;
   color: var(--text-muted);
   background: var(--surface-muted);
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-lg);
-  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 13px;
 }
 </style>

@@ -74,7 +74,7 @@ defineExpose({ follow, scheduleScroll })
     <template #header>
       <div class="card-header chat-header">
         <div class="chat-workflow">
-          <div class="chat-workflow-label"><strong title="对话自动保存">智能体</strong></div>
+          <div class="chat-workflow-label"><strong>智能体</strong><small>对话自动保存到历史</small></div>
           <ui-select
             :model-value="workflowId"
             class="chat-workflow-select"
@@ -182,21 +182,21 @@ defineExpose({ follow, scheduleScroll })
   flex-wrap: wrap;
   gap: 7px;
   padding-bottom: 12px;
-  border-bottom: 0.5px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 .quick-prompts button {
   padding: 6px 9px;
   color: var(--primary-text);
   background: var(--surface-muted);
-  border: 0.5px solid var(--info-border);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--info-border);
+  border-radius: 3px;
   font-size: 12px;
   cursor: pointer;
 }
 .quick-prompts button:hover:not(:disabled) {
   color: var(--surface);
   background: var(--primary-soft);
-  border-color: var(--primary-border);
+  border-color: var(--primary);
 }
 .quick-prompts button:disabled {
   opacity: 0.5;
@@ -261,7 +261,7 @@ defineExpose({ follow, scheduleScroll })
   right: 24px;
   bottom: 96px;
   z-index: 1;
-  box-shadow: none;
+  box-shadow: var(--shadow-sm);
 }
 .ai-chat-card {
   height: 100%;
@@ -273,7 +273,7 @@ defineExpose({ follow, scheduleScroll })
 .ai-chat-card :deep(.n-card-header) {
   flex: none;
   padding: 14px 20px;
-  border-bottom: 0.5px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 .chat-header {
   display: flex;
@@ -378,7 +378,7 @@ defineExpose({ follow, scheduleScroll })
   text-align: center;
 }
 .quick-prompts button {
-  font-size: 14px;
+  font-size: 13px;
 }
 /* 深色用户消息与浅色悬停状态分别使用可读的前景色。 */
 
@@ -398,8 +398,8 @@ defineExpose({ follow, scheduleScroll })
   padding: 6px 12px;
   color: var(--text-secondary);
   background: var(--surface);
-  border: 0.5px solid var(--border-strong);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-full);
 }
 .quick-prompts button:hover:not(:disabled) {
   color: var(--text-strong);
@@ -410,15 +410,16 @@ defineExpose({ follow, scheduleScroll })
   display: flex;
   gap: 9px;
   padding-top: 11px;
-  border-top: 0.5px solid var(--border);
+  border-top: 1px solid var(--border);
   flex: none;
   align-items: flex-end;
   margin-top: 4px;
-  padding: 10px;
+  padding: 10px 10px 10px 6px;
   background: var(--surface);
-  border: 0.5px solid var(--border-strong);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-xl);
-  box-shadow: none;
+  box-shadow: var(--shadow-sm);
+  transition: border-color 0.15s ease;
 }
 .chat-compose:focus-within {
   border-color: var(--border-hover);
@@ -432,6 +433,6 @@ defineExpose({ follow, scheduleScroll })
   display: none;
 }
 .chat-compose .ui-button {
-  border-radius: max(0px, calc(var(--radius-xl) - 10px));
+  border-radius: var(--radius-md);
 }
 </style>

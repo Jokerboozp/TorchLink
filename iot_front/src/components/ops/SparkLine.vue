@@ -19,7 +19,7 @@ const points = computed(() => {
 
 <template>
   <svg v-if="points" class="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
-    <polyline :points="points" fill="none" :stroke="color" stroke-width="0.5" vector-effect="non-scaling-stroke" />
+    <polyline :points="points" fill="none" :stroke="color" stroke-width="1.5" vector-effect="non-scaling-stroke" />
   </svg>
 </template>
 

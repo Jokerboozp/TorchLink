@@ -266,7 +266,7 @@ onBeforeUnmount(loader.cancel)
         向量维度应与 API 实际输出一致。改变服务地址、模型、维度或查询指令会重建知识索引，保存前会再次确认，进度可在知识库查看。
       </p>
       <div class="embedding-actions">
-        <small v-if="!canSave">当前账号仅可查看配置</small>
+        <small>{{ canSave ? '可直接保存，连接测试为可选操作。' : '当前账号可查看配置。' }}</small>
         <div>
           <ui-button v-if="canTest" plain :loading="testing" :disabled="busy || Boolean(loadError)" @click="testConnection"
             >测试 Embedding</ui-button

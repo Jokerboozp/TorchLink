@@ -29,7 +29,9 @@ function formatClock(value) {
   <ui-drawer :model-value="modelValue" size="min(520px, 94vw)" destroy-on-close @update:model-value="emit('update:modelValue', $event)">
     <template #header>
       <div class="drawer-heading">
-        <strong title="仅显示执行摘要">执行记录</strong>
+        <span class="section-kicker">执行过程</span>
+        <strong>运行轨迹</strong>
+        <small>只展示服务端返回的摘要，不呈现工具原始敏感载荷。</small>
       </div>
     </template>
 
@@ -50,15 +52,15 @@ function formatClock(value) {
       </section>
 
       <div class="trace-identifiers">
-        <span v-if="run.runId">执行编号，{{ run.runId }}</span>
-        <span v-if="run.traceId">追踪编号，{{ run.traceId }}</span>
+        <span v-if="run.runId">执行编号 · {{ run.runId }}</span>
+        <span v-if="run.traceId">追踪编号 · {{ run.traceId }}</span>
       </div>
 
       <ui-alert
         v-if="run.error"
         class="run-error"
         :title="run.error.message || '运行失败'"
-        :description="[run.error.code, run.error.stage].filter(Boolean).join('，')"
+        :description="[run.error.code, run.error.stage].filter(Boolean).join(' · ')"
         type="error"
         :closable="false"
         show-icon
@@ -99,7 +101,7 @@ function formatClock(value) {
 }
 .drawer-heading strong {
   color: var(--text);
-  font-size: 18px;
+  font-size: 17px;
 }
 .drawer-heading small {
   color: var(--text-muted);
@@ -121,8 +123,8 @@ function formatClock(value) {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 13px;
   background: var(--surface);
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: 4px;
 }
 .run-summary > div {
   min-width: 0;
@@ -136,7 +138,7 @@ function formatClock(value) {
 .run-summary strong {
   overflow: hidden;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -163,10 +165,10 @@ function formatClock(value) {
   align-items: center;
   justify-content: space-between;
   padding-bottom: 8px;
-  border-bottom: 0.5px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 .section-title strong {
-  font-size: 14px;
+  font-size: 13px;
 }
 .section-title span {
   color: var(--text-muted);
@@ -198,17 +200,17 @@ function formatClock(value) {
   width: 11px;
   height: 11px;
   background: var(--surface);
-  border: 0.5px solid var(--text-muted);
+  border: 3px solid var(--text-muted);
   border-radius: 50%;
 }
 .trace-list .is-success i {
-  border-color: var(--success-border);
+  border-color: var(--success);
 }
 .trace-list .is-running i {
-  border-color: var(--warning-border);
+  border-color: var(--warning);
 }
 .trace-list .is-danger i {
-  border-color: var(--danger-border);
+  border-color: var(--danger);
 }
 .trace-list li > div {
   display: grid;
@@ -216,7 +218,7 @@ function formatClock(value) {
 }
 .trace-list strong {
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
 }
 .trace-list small {
   color: var(--text-muted);

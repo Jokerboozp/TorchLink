@@ -208,71 +208,17 @@ const namedColors = {
   transparent: 'transparent'
 }
 
-// 自定义仪表盘保留原配置，渲染时将颜色归入平台色阶，避免浅色值用于正文。
-function customColor(color, usage) {
-  if (typeof color !== 'string') return ''
-  const hex = color.match(/^#([0-9a-f]{3,4}|[0-9a-f]{6}(?:[0-9a-f]{2})?)$/i)?.[1]
-  const rgb = color.match(/^rgba?\(\s*([\d.]+)(%)?\s*,\s*([\d.]+)(%)?\s*,\s*([\d.]+)(%)?(?:\s*,\s*([\d.]+)(%)?)?\s*\)$/i)
-  const channels = hex
-    ? (hex.length < 5 ? [...hex.slice(0, 3)].map(c => c + c) : hex.slice(0, 6).match(/../g)).map(c => parseInt(c, 16) / 255)
-    : rgb && [1, 3, 5].map(i => Number(rgb[i]) / (rgb[i + 1] ? 100 : 255))
-  if (!channels || channels.some(c => !Number.isFinite(c) || c < 0 || c > 1)) return ''
-  const alpha =
-    hex?.length === 4
-      ? parseInt(hex[3] + hex[3], 16) / 255
-      : hex?.length === 8
-        ? parseInt(hex.slice(6), 16) / 255
-        : rgb?.[7] !== undefined
-          ? Number(rgb[7]) / (rgb[8] ? 100 : 1)
-          : 1
-  if (!Number.isFinite(alpha) || alpha < 0 || alpha > 1) return ''
-  if (alpha === 0) return 'transparent'
-  const [r, g, b] = channels
-  const max = Math.max(...channels)
-  const delta = max - Math.min(...channels)
-  const hue = ((max === r ? (g - b) / delta : max === g ? (b - r) / delta + 2 : (r - g) / delta + 4) * 60 + 360) % 360
-  const family =
-    delta < 0.08
-      ? 'sand'
-      : hue < 15 || hue >= 345
-        ? 'red'
-        : hue < 45
-          ? 'orange'
-          : hue < 70
-            ? 'yellow'
-            : hue < 165
-              ? 'green'
-              : hue < 195
-                ? 'teal'
-                : hue < 260
-                  ? 'blue'
-                  : hue < 295
-                    ? 'purple'
-                    : 'pink'
-  const value = `var(--${family}-${usage === 'text' ? 11 : 9})`
-  return alpha === 1 ? value : `rgb(from ${value} r g b / ${alpha})`
-}
-
-export function cssColor(color, usage = 'solid') {
-  const value = namedColors[color] || customColor(color, usage) || 'var(--text-strong)'
-  if (usage === 'solid') return value
-  if (usage === 'contrast') {
-    if (value === 'var(--text)' || value === 'var(--text-strong)') return 'var(--bg)'
-    if (value === 'transparent' || value.startsWith('rgb(from')) return 'var(--text-strong)'
-    return /--(?:warning|amber|yellow|orange)/.test(value) ? 'var(--warning-contrast)' : 'var(--text-inverse)'
-  }
-  return value
-    .replace(/--(success|danger|warning|info)\)/, '--$1-text)')
-    .replace('--chart-5)', '--purple-11)')
-    .replace(/-9\)/, '-11)')
+export function cssColor(color) {
+  if (!color) return 'var(--text-strong)'
+  return namedColors[color] || (/^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\))$/i.test(color) ? color : 'var(--text-strong)')
 }
 
 // thresholdColor 按 Grafana 绝对阈值返回颜色；百分比模式按 min/max 换算。
-export function thresholdColor(value, thresholds, min = 0, max = 100, usage = 'solid') {
+export function thresholdColor(value, thresholds, min = 0, max = 100) {
   const steps = thresholds?.steps || []
-  if (value == null || !steps.length) return cssColor(undefined, usage)
+  if (value == null || !steps.length) return 'var(--text-strong)'
   const v = thresholds.mode === 'percentage' ? ((value - min) / (max - min || 1)) * 100 : value
   let color = steps[0]?.color
   for (const step of steps) if (step.value == null || v >= step.value) color = step.color
-  return cssColor(color, usage)
+  return cssColor(color)
 }

@@ -169,9 +169,10 @@ onBeforeUnmount(() => {
   <div class="inspection-page">
     <header class="inspection-hero">
       <div class="inspection-hero-copy">
-        <div class="inspection-scope"><span>在线状态</span><span>上报时效</span><span>活动告警</span></div>
+        <div class="inspection-scope"><span>在线状态</span><span>数据新鲜度</span><span>活动告警</span></div>
       </div>
       <div class="inspection-hero-side">
+        <small>手动启动检查，不会执行设备控制</small>
         <div class="inspection-hero-actions">
           <ui-button
             v-permission="'POST /api/v1/ai/health-inspection/pdf'"
@@ -185,7 +186,6 @@ onBeforeUnmount(() => {
             type="primary"
             :disabled="inspectionRunning"
             :loading="loading"
-            title="检查设备状态，不执行设备控制"
             @click="run"
             >{{ inspectionRunning ? '巡检进行中' : '立即巡检' }}</ui-button
           >
@@ -251,6 +251,7 @@ onBeforeUnmount(() => {
       </template>
       <div v-else class="inspection-empty">
         <strong>尚无巡检结果</strong>
+        <p>点击上方“立即巡检”开始检查，结果会显示在这里。</p>
       </div>
     </ui-card>
 
@@ -270,7 +271,7 @@ onBeforeUnmount(() => {
         ><ui-table-column label="设备" min-width="190"
           ><template #default="{ row }"
             ><b>{{ row.deviceName || row.deviceId }}</b
-            ><small class="subline">{{ row.deviceId }}，{{ row.productId }}</small></template
+            ><small class="subline">{{ row.deviceId }} · {{ row.productId }}</small></template
           ></ui-table-column
         ><ui-table-column label="业务状态" width="130"
           ><template #default="{ row }"
@@ -315,9 +316,8 @@ onBeforeUnmount(() => {
 }
 .inspection-counts strong {
   color: var(--text-strong);
-  font-size: 18px;
-  line-height: 1.2;
-  font-variant-numeric: tabular-nums;
+  font-size: 25px;
+  line-height: 1;
 }
 .inspection-counts .healthy {
   background: var(--success-soft);
@@ -356,8 +356,9 @@ onBeforeUnmount(() => {
   justify-content: space-between;
   gap: 24px;
   background: var(--surface);
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--primary);
+  border-radius: 10px;
 }
 .inspection-hero-copy {
   min-width: 0;
@@ -371,7 +372,7 @@ onBeforeUnmount(() => {
   padding: 3px 9px;
   color: var(--primary-text);
   background: var(--surface-muted);
-  border-radius: var(--radius-sm);
+  border-radius: 5px;
   font-size: 12px;
 }
 .inspection-hero-side {
@@ -411,7 +412,7 @@ onBeforeUnmount(() => {
 .inspection-empty p {
   margin: 0;
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
 }
 .inspection-progress {
@@ -434,7 +435,7 @@ onBeforeUnmount(() => {
   font-size: 14px;
 }
 .inspection-progress-heading > strong {
-  font-size: 18px;
+  font-size: 20px;
 }
 .inspection-progress-heading small,
 .inspection-progress-meta {

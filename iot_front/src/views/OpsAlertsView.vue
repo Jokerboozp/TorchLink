@@ -377,8 +377,8 @@ onBeforeUnmount(() => {
                           .join('，') || '未分组'
                       }}</strong
                       ><small
-                        >接收人 {{ group.receiver }}，{{ group.total }} 条告警<span v-if="group.total !== group.alerts.length">
-                         ，本页 {{ group.alerts.length }} 条</span
+                        >接收人 {{ group.receiver }} · {{ group.total }} 条告警<span v-if="group.total !== group.alerts.length">
+                          · 本页 {{ group.alerts.length }} 条</span
                         ></small
                       >
                     </div>
@@ -442,7 +442,7 @@ onBeforeUnmount(() => {
               <ui-table-column label="来源" width="150"
                 ><template #default="{ row }"
                   >{{ row.source === 'loki' ? '日志（Loki）' : '指标（Prometheus）' }}<br /><small class="muted"
-                    >{{ row.group }}{{ row.managed ? '' : '，部署配置' }}</small
+                    >{{ row.group }}{{ row.managed ? '' : ' · 部署配置' }}</small
                   ></template
                 ></ui-table-column
               >
@@ -624,7 +624,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
-  border-top: 0.5px solid var(--border);
+  border-top: 1px solid var(--border);
 }
 .alert-groups {
   display: grid;
@@ -661,7 +661,7 @@ onBeforeUnmount(() => {
   flex-wrap: wrap;
   gap: var(--space-2);
   padding: 6px 0;
-  border-bottom: 0.5px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 .group-alert small,
 .expr {
@@ -680,14 +680,14 @@ onBeforeUnmount(() => {
   position: relative;
   height: 10px;
   background: var(--surface-muted);
-  border-radius: var(--radius-sm);
+  border-radius: 3px;
 }
 .timeline__bar {
   position: absolute;
   top: 0;
   bottom: 0;
   background: var(--warning);
-  border-radius: var(--radius-sm);
+  border-radius: 3px;
 }
 .timeline__bar.is-active {
   background: var(--danger);

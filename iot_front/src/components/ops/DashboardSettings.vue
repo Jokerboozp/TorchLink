@@ -180,7 +180,7 @@ function apply() {
               ><ui-option v-for="r in refreshOptions" :key="r.value" :value="r.value" :label="r.label" /></ui-select
           ></label>
           <p class="muted">
-            UID：{{ draft.uid || '保存后由 Grafana 生成' }}<template v-if="draft.version">，版本 {{ draft.version }}</template>
+            UID：{{ draft.uid || '保存后由 Grafana 生成' }}<template v-if="draft.version"> · 版本 {{ draft.version }}</template>
           </p>
         </div>
       </ui-tab-pane>

@@ -265,7 +265,7 @@ function removeDocument(row) {
               : '内存'
             : '读取中'
         }}</strong
-        ><small>{{ runtime.embeddingModel ? `Embedding API，${runtime.embeddingModel}` : runtime.indexMode || '索引模式未返回' }}</small>
+        ><small>{{ runtime.embeddingModel ? `Embedding API · ${runtime.embeddingModel}` : runtime.indexMode || '索引模式未返回' }}</small>
       </div>
     </section>
 
@@ -284,6 +284,7 @@ function removeDocument(row) {
           <template #header>
             <div class="documents-heading">
               <h2>已上传文档</h2>
+              <p>查看文档的归属、索引状态和内容切片。</p>
             </div>
             <ui-button :loading="loading" @click="load">刷新列表</ui-button>
           </template>
@@ -295,7 +296,7 @@ function removeDocument(row) {
                   <FileText class="document-icon" />
                   <div>
                     <strong>{{ row.filename }}</strong
-                    ><small>{{ categoryLabel(row.category) }}，{{ formatBytes(row.metadata?.size) }}</small>
+                    ><small>{{ categoryLabel(row.category) }} · {{ formatBytes(row.metadata?.size) }}</small>
                   </div>
                 </div></template
               ></ui-table-column
@@ -324,7 +325,7 @@ function removeDocument(row) {
                 <FileText class="document-icon" />
                 <div>
                   <strong>{{ row.filename }}</strong
-                  ><small>{{ categoryLabel(row.category) }}，{{ formatBytes(row.metadata?.size) }}</small>
+                  ><small>{{ categoryLabel(row.category) }} · {{ formatBytes(row.metadata?.size) }}</small>
                 </div>
               </div>
               <div class="knowledge-mobile-document-meta">
@@ -332,7 +333,7 @@ function removeDocument(row) {
                 ><KnowledgeIndexStatus :document="row" />
               </div>
               <div class="knowledge-mobile-document-foot">
-                <small>{{ row.metadata?.chunks || 0 }} 个分片，{{ formatTime(row.createdAt) }}</small
+                <small>{{ row.metadata?.chunks || 0 }} 个分片 · {{ formatTime(row.createdAt) }}</small
                 ><RowActions :actions="documentActions(row)" />
               </div>
             </article>
@@ -390,14 +391,14 @@ function removeDocument(row) {
 .knowledge-stats {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 0.5px;
+  gap: 1px;
   overflow: hidden;
   border-radius: var(--radius-lg);
   background: var(--surface-muted);
 }
 .knowledge-stats > div {
   min-width: 0;
-  min-height: 88px;
+  min-height: 104px;
   padding: 16px 18px;
   display: grid;
   align-content: space-between;
@@ -410,7 +411,7 @@ function removeDocument(row) {
 }
 .knowledge-stats strong {
   color: var(--text);
-  font-size: 18px;
+  font-size: 26px;
   line-height: 1.15;
   font-weight: 650;
   font-variant-numeric: tabular-nums;
@@ -431,8 +432,8 @@ function removeDocument(row) {
   font-size: 14px;
 }
 .knowledge-tabs :deep(.n-tabs-bar) {
-  height: 0.5px;
-  border-radius: 0;
+  height: 3px;
+  border-radius: 3px;
 }
 .documents-heading {
   min-width: 0;
@@ -445,7 +446,7 @@ function removeDocument(row) {
 .documents-heading p {
   margin: 5px 0 0;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
 }
 .knowledge-table {
   width: 100%;
@@ -463,7 +464,7 @@ function removeDocument(row) {
   padding: 9px;
   color: var(--primary-text);
   background: var(--surface-muted);
-  border-radius: var(--radius-lg);
+  border-radius: 10px;
 }
 .document-name > div {
   min-width: 0;
@@ -515,10 +516,10 @@ function removeDocument(row) {
     padding: 12px;
   }
   .knowledge-stats strong {
-    font-size: 18px;
+    font-size: 22px;
   }
   .knowledge-stats .knowledge-index-state strong {
-    font-size: 18px;
+    font-size: 16px;
   }
   .documents-heading p {
     display: none;
@@ -537,7 +538,7 @@ function removeDocument(row) {
     display: grid;
     gap: 12px;
     background: var(--surface-muted);
-    border-radius: var(--radius-lg);
+    border-radius: 10px;
   }
   .knowledge-mobile-document-head {
     min-width: 0;

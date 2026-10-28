@@ -42,21 +42,19 @@ const emit = defineEmits(['update:page', 'update:pageSize', 'retry'])
   min-width: 0;
   overflow: hidden;
   background: var(--surface);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: none;
+  box-shadow: var(--shadow-xs);
 }
 .data-table-card__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  border-bottom: 0.5px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 .data-table-card__header h2 {
-  min-width: 0;
   margin: 0;
   color: var(--text-strong);
   font-size: var(--font-size-md);
@@ -66,12 +64,11 @@ const emit = defineEmits(['update:page', 'update:pageSize', 'retry'])
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
   color: var(--danger-text);
   background: var(--danger-soft);
-  border-bottom: 0.5px solid var(--danger-border);
+  border-bottom: 1px solid var(--danger-border);
   font-size: var(--font-size-sm);
 }
 .data-table-card__footer {
@@ -81,7 +78,7 @@ const emit = defineEmits(['update:page', 'update:pageSize', 'retry'])
   flex-wrap: wrap;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  border-top: 0.5px solid var(--border);
+  border-top: 1px solid var(--border);
 }
 .data-table-card__footer > span {
   color: var(--text-muted);

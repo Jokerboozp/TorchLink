@@ -75,7 +75,7 @@ const html = computed(() => {
   padding: var(--space-1) var(--space-3);
   color: var(--text-muted);
   background: var(--info-soft);
-  border-left: 0.5px solid var(--info-border);
+  border-left: 3px solid var(--info-border);
 }
 .markdown-content pre {
   margin: 10px 0;
@@ -88,7 +88,7 @@ const html = computed(() => {
 .markdown-content hr {
   margin: var(--space-3) 0;
   border: 0;
-  border-top: 0.5px solid var(--border);
+  border-top: 1px solid var(--border);
 }
 .markdown-table-wrap {
   max-width: 100%;
@@ -98,14 +98,14 @@ const html = computed(() => {
 .markdown-content table {
   width: 100%;
   border-collapse: collapse;
-  font-size: var(--font-size-sm);
+  font-size: 0.95em;
 }
 .markdown-content th,
 .markdown-content td {
   padding: 6px var(--space-2);
   text-align: left;
   vertical-align: top;
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
 }
 .markdown-content th {
   font-weight: var(--font-weight-semibold);

@@ -122,7 +122,7 @@ const values = computed(() =>
           <component :is="icons[check.state] || CircleDashed" :aria-label="states[check.state] || check.state" />
           <div>
             <strong>{{ check.label }}</strong>
-            <p>{{ check.detail }}{{ check.at ? `，${formatTime(check.at)}` : '' }}</p>
+            <p>{{ check.detail }}{{ check.at ? ` · ${formatTime(check.at)}` : '' }}</p>
           </div>
         </li>
       </ol>
@@ -207,12 +207,12 @@ const values = computed(() =>
 }
 .connection-correction {
   padding: var(--space-3);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
 .onboarding-diagnosis {
   padding: var(--space-4);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }
 .diagnosis-heading {

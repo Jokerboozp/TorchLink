@@ -103,7 +103,7 @@ async function load({ catalog = true } = {}) {
                 .filter(r => r.status === 'PUBLISHED')
                 .map(r => ({
                   id: `${p.definition.id}@${r.version}`,
-                  name: `${p.definition.name}，${r.version}`,
+                  name: `${p.definition.name} · ${r.version}`,
                   transport: r.transport,
                   payloadFormat: r.payloadFormat
                 }))
@@ -235,7 +235,7 @@ function rowActions(row) {
       />
     </section>
     <DataTableCard
-      :title="`设备模板（${productTotal} 个）`"
+      :title="`设备模板 · ${productTotal} 个`"
       :error="loadError"
       @retry="load()"
       :page="productPage"
@@ -257,12 +257,12 @@ function rowActions(row) {
         <ui-table-column label="通信协议" min-width="220"
           ><template #default="{ row }"
             >{{ protocolName(row.protocolPackageId)
-            }}<small class="subline">{{ transportLabel(row.transport) }}，{{ formatLabel(row.payloadFormat) }}</small></template
+            }}<small class="subline">{{ transportLabel(row.transport) }} · {{ formatLabel(row.payloadFormat) }}</small></template
           ></ui-table-column
         >
         <ui-table-column label="厂商 / 型号" min-width="160"
           ><template #default="{ row }">{{
-            [row.metadata?.manufacturer, row.metadata?.model].filter(Boolean).join('，') || '—'
+            [row.metadata?.manufacturer, row.metadata?.model].filter(Boolean).join(' · ') || '—'
           }}</template></ui-table-column
         >
         <ui-table-column label="准备状态" min-width="160"

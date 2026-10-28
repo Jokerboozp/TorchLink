@@ -312,7 +312,7 @@ function pointActions(point) {
 const locationText = point =>
   [data.buildings.find(item => item.id === point.buildingId)?.name, floorLabel(data.floors.find(item => item.id === point.floorId))]
     .filter(Boolean)
-    .join('，') || '未指定建筑'
+    .join(' · ') || '未指定建筑'
 
 onMounted(load)
 onBeforeUnmount(() => {
@@ -324,6 +324,7 @@ onBeforeUnmount(() => {
 
 <template>
   <FilterBar>
+    <span class="site-hint">先建单位与建筑楼层，再上传平面图并标注设备；告警会带上标注位置。</span>
     <template #actions>
       <ui-button @click="downloadTemplate"><Download />导入模板</ui-button>
       <ui-button v-permission="'POST /api/v1/sites/import'" @click="openImport"><Upload />批量导入</ui-button>
@@ -372,20 +373,20 @@ onBeforeUnmount(() => {
                   ? unit?.name
                   : selected.kind === 'building'
                     ? building?.name
-                    : `${building?.name || ''}，${floorLabel(floor)}`
+                    : `${building?.name || ''} · ${floorLabel(floor)}`
               }}
             </h2>
             <small v-if="selected.kind === 'unit'">{{
-              [unit?.code, unit?.address, unit?.contact, unit?.phone].filter(Boolean).join('，') || '未填写编码、地址与联系人'
+              [unit?.code, unit?.address, unit?.contact, unit?.phone].filter(Boolean).join(' · ') || '未填写编码、地址与联系人'
             }}</small>
             <small v-else-if="selected.kind === 'building'"
               >{{ unit?.name
               }}<template v-if="building?.aboveFloors || building?.belowFloors">
-               ，地上 {{ building.aboveFloors }} 层 / 地下 {{ building.belowFloors }} 层</template
+                · 地上 {{ building.aboveFloors }} 层 / 地下 {{ building.belowFloors }} 层</template
               ></small
             >
             <small v-else
-              >{{ unit?.name }}<template v-if="floor?.plan">，平面图 {{ floor.plan.width }}×{{ floor.plan.height }}</template></small
+              >{{ unit?.name }}<template v-if="floor?.plan"> · 平面图 {{ floor.plan.width }}×{{ floor.plan.height }}</template></small
             >
           </div>
           <div class="site-actions">
@@ -463,17 +464,17 @@ onBeforeUnmount(() => {
               class="site-marker"
               :class="{ dragging: dragging.id === point.id }"
               :style="markerStyle(point)"
-              :title="`${point.name || point.deviceName || point.deviceId}${point.componentId ? '，部件 ' + point.componentId : ''}`"
+              :title="`${point.name || point.deviceName || point.deviceId}${point.componentId ? ' · 部件 ' + point.componentId : ''}`"
               @pointerdown="startDrag($event, point)"
               @click.stop
             >
               <MapPin /><span>{{ point.name || point.deviceName || point.deviceId }}</span>
             </button>
           </div>
-          <small v-if="planUrl" class="site-hint">拖动标记可调整位置。</small>
+          <small v-if="planUrl" class="site-hint">拖动图上的标记可调整位置；告警详情会显示设备在此平面图上的位置。</small>
         </div>
 
-        <h3 class="site-section-title">设备点位（{{ visiblePoints.length }}）</h3>
+        <h3 class="site-section-title">设备点位 · {{ visiblePoints.length }}</h3>
         <DataTableCard
           :page="pointPage"
           :page-size="pointPageSize"
@@ -491,7 +492,7 @@ onBeforeUnmount(() => {
               ><template #default="{ row }"
                 ><b>{{ row.deviceName || row.deviceId }}</b
                 ><small class="site-subline"
-                  >{{ row.deviceId }}<template v-if="row.componentId">，部件 {{ row.componentId }}</template></small
+                  >{{ row.deviceId }}<template v-if="row.componentId"> · 部件 {{ row.componentId }}</template></small
                 ></template
               ></ui-table-column
             >
@@ -564,7 +565,7 @@ onBeforeUnmount(() => {
             ><ui-option
               v-for="item in devices"
               :key="item.id"
-              :label="`${item.name || item.id}，${item.id}`"
+              :label="`${item.name || item.id} · ${item.id}`"
               :value="item.id" /></ui-select
         ></ui-form-item>
         <ui-form-item label="部件编号（可选）"
@@ -647,7 +648,7 @@ onBeforeUnmount(() => {
 .site-tree,
 .site-detail {
   background: var(--surface);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: var(--space-3);
   min-width: 0;
@@ -688,11 +689,11 @@ onBeforeUnmount(() => {
 }
 .site-tree-floor {
   padding-left: var(--space-5) !important;
-  font-size: 14px;
+  font-size: 13px;
 }
 .site-empty {
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
 }
 .site-detail-header {
   display: flex;
@@ -724,13 +725,13 @@ onBeforeUnmount(() => {
   text-align: center;
   color: var(--text-muted);
   background: var(--surface-muted);
-  border: 0.5px dashed var(--border);
+  border: 1px dashed var(--border);
   border-radius: var(--radius-md);
 }
 .site-plan {
   position: relative;
   overflow: hidden;
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-muted);
   user-select: none;
@@ -738,7 +739,7 @@ onBeforeUnmount(() => {
 }
 .site-plan.placing {
   cursor: crosshair;
-  outline: 0.5px solid var(--primary);
+  outline: 2px solid var(--primary);
 }
 .site-plan img {
   display: block;
@@ -754,14 +755,14 @@ onBeforeUnmount(() => {
   align-items: center;
   border: 0;
   background: none;
-  color: var(--danger-text);
+  color: var(--danger);
   cursor: grab;
   padding: 0;
 }
 .site-marker svg {
   width: 24px;
   height: 24px;
-  filter: none;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
 }
 .site-marker span {
   max-width: 120px;
@@ -769,14 +770,14 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   padding: 1px 4px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-strong);
   background: var(--surface);
   border-radius: var(--radius-sm);
-  box-shadow: none;
+  box-shadow: var(--shadow-xs);
 }
 .site-plan:focus-visible {
-  outline: 0.5px solid var(--primary);
+  outline: 3px solid var(--primary);
   outline-offset: 2px;
 }
 .site-cursor {
@@ -784,9 +785,9 @@ onBeforeUnmount(() => {
   width: 24px;
   height: 24px;
   transform: translate(-50%, -50%);
-  border: 0.5px solid var(--primary-border);
+  border: 2px solid var(--primary);
   border-radius: 50%;
-  box-shadow: 0 0 0 0.5px var(--surface);
+  box-shadow: 0 0 0 2px var(--surface);
   pointer-events: none;
 }
 .site-cursor::before,
@@ -850,7 +851,7 @@ onBeforeUnmount(() => {
   margin: var(--space-3) 0 0;
   padding-left: 20px;
   color: var(--danger-text);
-  font-size: 14px;
+  font-size: 13px;
 }
 @media (max-width: 760px) {
   .site-layout {

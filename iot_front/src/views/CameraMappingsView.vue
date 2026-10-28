@@ -187,6 +187,7 @@ function rowActions(row) {
 
 <template>
   <FilterBar>
+    <p class="camera-hint">一个摄像头最多关联一个设备，一个设备可以关联多个摄像头。</p>
     <template #actions>
       <ui-button :loading="loading" @click="load"><RefreshCw />刷新</ui-button>
       <ui-button v-if="liveDeployed" v-permission="'PUT /api/v1/integrations/video/gb28181/devices/:deviceId'" @click="gbVisible = true"
@@ -200,7 +201,7 @@ function rowActions(row) {
     <div class="camera-module__text">
       <strong>摄像头直播</strong>
       <StatusDot :tone="moduleStateTone[liveStatus?.state] || 'neutral'" :label="moduleStateText[liveStatus?.state] || '读取中'" />
-      <small v-if="liveStatus?.message">{{ liveStatus.message }}</small>
+      <small>{{ liveStatus?.message || '基础资料、设备关联和告警摄像头信息始终可用；直播默认启用，未配置直播的摄像头只保留资料。' }}</small>
     </div>
     <ui-switch
       v-if="liveState.canManageModule && liveDeployed"
@@ -213,7 +214,7 @@ function rowActions(row) {
   </section>
 
   <DataTableCard
-    :title="`摄像头（${total} 个）`"
+    :title="`摄像头 · ${total} 个`"
     :error="loadError"
     @retry="load()"
     :page="page"
@@ -226,7 +227,7 @@ function rowActions(row) {
       <ui-table-column label="摄像头" min-width="180"
         ><template #default="{ row }"
           ><b>{{ row.cameraName }}</b
-          ><small class="subline">{{ row.cameraId }}，{{ row.brand || '品牌未填' }}</small></template
+          ><small class="subline">{{ row.cameraId }} · {{ row.brand || '品牌未填' }}</small></template
         ></ui-table-column
       >
       <ui-table-column label="摄像头点位" min-width="170"
@@ -262,7 +263,8 @@ function rowActions(row) {
   >
     <ui-form :model="camera" label-position="top">
       <section class="camera-editor-section">
-        <h3>基本信息</h3>
+        <h3>摄像头身份</h3>
+        <p>填写摄像头标识和现场可识别的名称。</p>
         <div class="form-grid">
           <ui-form-item label="摄像头标识"
             ><ui-input v-model="camera.cameraId" :disabled="!!editing" placeholder="例如 camera-001"
@@ -273,6 +275,7 @@ function rowActions(row) {
       </section>
       <section class="camera-editor-section">
         <h3>安装位置</h3>
+        <p>用于在告警联动时快速确认摄像头拍摄范围。</p>
         <div class="form-grid">
           <ui-form-item label="摄像头点位"><ui-input v-model="camera.cameraPoint" placeholder="例如：东侧入口" /></ui-form-item>
           <ui-form-item label="建筑"><ui-input v-model="camera.building" /></ui-form-item>
@@ -295,11 +298,11 @@ function rowActions(row) {
             ><ui-option
               v-for="item in devices"
               :key="item.id"
-              :label="`${item.name || item.id}，${item.id}`"
+              :label="`${item.name || item.id} · ${item.id}`"
               :value="item.id" /></ui-select
         ></ui-form-item>
         <ui-form-item label="摄像头状态"><ui-switch v-model="camera.enabled" active-text="启用该摄像头" /></ui-form-item>
-        <small>直播接入请在列表中选择“直播配置”。</small>
+        <small>直播接入在列表的“直播配置”中单独设置，保存这里的资料不会改动直播配置。</small>
       </section>
     </ui-form>
     <template #footer
@@ -332,8 +335,8 @@ function rowActions(row) {
   gap: var(--space-2) var(--space-4);
   margin-bottom: var(--space-4);
   padding: 12px 16px;
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
   background: var(--surface);
 }
 .camera-module__text {
@@ -352,8 +355,8 @@ function rowActions(row) {
 .camera-editor-section {
   padding: 15px 17px;
   margin-bottom: 12px;
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
   background: var(--surface);
 }
 .camera-editor-section h3 {

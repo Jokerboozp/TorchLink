@@ -86,7 +86,7 @@ onBeforeUnmount(() => {
     <ui-input v-model="query" clearable :disabled="disabled" placeholder="搜索设备名称或编号" aria-label="搜索设备" @input="search" />
     <p>已选 {{ modelValue.length }} 台。{{ hint }}</p>
     <div v-if="modelValue.length" class="topic-device-selected">
-      <ui-button v-for="id in modelValue" :key="id" size="small" :disabled="disabled" @click="toggle(id, false)">{{ id }}，移除</ui-button>
+      <ui-button v-for="id in modelValue" :key="id" size="small" :disabled="disabled" @click="toggle(id, false)">{{ id }} · 移除</ui-button>
     </div>
     <div v-if="loading" class="topic-device-empty" role="status">正在读取设备…</div>
     <div v-else-if="error" class="topic-device-empty" role="alert">{{ error }} <ui-button size="small" @click="load">重试</ui-button></div>
@@ -141,14 +141,14 @@ onBeforeUnmount(() => {
   list-style: none;
   max-height: 240px;
   overflow-y: auto;
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
 .topic-device-list li {
   padding: var(--space-2) var(--space-3);
 }
 .topic-device-list li + li {
-  border-top: 0.5px solid var(--border);
+  border-top: 1px solid var(--border);
 }
 .topic-device-list small {
   display: block;

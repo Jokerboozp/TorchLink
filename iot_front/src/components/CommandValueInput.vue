@@ -86,7 +86,7 @@ function remove(key) {
 .command-object {
   width: 100%;
   min-width: 0;
-  border-left: 0.5px solid var(--border);
+  border-left: 2px solid var(--border);
   padding-left: 12px;
 }
 .command-entry {

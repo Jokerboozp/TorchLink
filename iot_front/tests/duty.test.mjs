@@ -299,7 +299,7 @@ test('换班列表和审批使用服务端关联排班，跨月及列表分页�
   await c.loadList('swaps')
   const loaded = c.swaps.value[0]
   assert.equal(c.swapContext(loaded).id, linked.id)
-  const expected = `西区站，夜班，${fireSafety.dateTimeLabel(startAt)} — ${fireSafety.dateTimeLabel(endAt)}`
+  const expected = `西区站 · 夜班 · ${fireSafety.dateTimeLabel(startAt)} — ${fireSafety.dateTimeLabel(endAt)}`
   assert.equal(c.assignmentLabel(loaded), expected)
   c.openReview(loaded)
   assert.equal(c.reviewAssignment.value.startAt, startAt)

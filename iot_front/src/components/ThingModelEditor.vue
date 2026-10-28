@@ -24,10 +24,10 @@ const operations = [
 <template>
   <section class="thing-model-editor">
     <h3>数据定义</h3>
-    <p>字段定义须与协议支持的能力一致。</p>
+    <p>为解析字段设置中文名称、单位，声明设备实际支持的事件与命令。保存声明不会自动新增协议能力。</p>
     <ui-form label-position="top"
       ><details>
-        <summary>属性字段（{{ model.properties?.length || 0 }}）</summary>
+        <summary>属性字段 · {{ model.properties?.length || 0 }}</summary>
         <ThingModelFields
           :rows="model.properties || []"
           properties
@@ -36,7 +36,7 @@ const operations = [
         />
       </details>
       <details v-for="group in operations" :key="group.kind">
-        <summary>{{ group.label }}（{{ model[group.kind]?.length || 0 }}）</summary>
+        <summary>{{ group.label }} · {{ model[group.kind]?.length || 0 }}</summary>
         <p>{{ group.help }}</p>
         <section v-for="(operation, index) in model[group.kind] || []" :key="index" class="model-operation">
           <div class="operation-heading">
@@ -64,7 +64,7 @@ const operations = [
 .thing-model-editor {
   margin-top: var(--space-5);
   padding-top: var(--space-4);
-  border-top: 0.5px solid var(--border);
+  border-top: 1px solid var(--border);
 }
 .thing-model-editor p {
   color: var(--text-muted);
@@ -80,7 +80,7 @@ summary {
 }
 .model-operation {
   padding: var(--space-4);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   margin-bottom: var(--space-3);
 }

@@ -543,7 +543,7 @@ function onStorage(event) {
 watch(
   () => (authenticated.value ? current.value.title : ''),
   title => {
-    if (typeof document !== 'undefined') document.title = title ? `${title} - 炬联 TorchLink` : '炬联 TorchLink - 消防物联网管理平台'
+    if (typeof document !== 'undefined') document.title = title ? `${title} · 炬联 TorchLink` : '炬联 TorchLink · 消防物联网管理平台'
   },
   { immediate: true }
 )
@@ -583,29 +583,33 @@ onBeforeUnmount(() => {
       <section class="login-brand-panel" aria-hidden="true">
         <div class="login-brand-panel__top">
           <img class="login-brand-panel__logo" :src="isDark ? '/torchlink-sidebar-dark.svg' : '/torchlink-sidebar.svg'" alt="" />
+          <span class="login-chip">消防物联网管理平台</span>
         </div>
         <div class="login-brand-panel__copy">
-          <h1>消防物联网管理平台</h1>
+          <p class="login-eyebrow">智慧消防 · 全域感知</p>
+          <h1>连接现场设备<br /><em>守护每一处安全</em></h1>
+          <p>从设备接入、实时监测到告警处置，在一个工作台掌握现场运行情况。</p>
         </div>
         <ul class="login-features">
           <li>
             <Network />
-            <strong>设备接入</strong>
+            <div><strong>多协议接入</strong><span>标准 HTTP / MQTT、TCP / UDP 与 Modbus 设备统一登记</span></div>
           </li>
           <li>
             <Bell />
-            <strong>告警处置</strong>
+            <div><strong>实时告警</strong><span>设备上报告警与规则告警在同一处确认和处置</span></div>
           </li>
           <li>
             <ClipboardCheck />
-            <strong>消防巡检</strong>
+            <div><strong>智能巡检</strong><span>在线情况、上报时效与活动告警一次汇总</span></div>
           </li>
         </ul>
       </section>
       <section class="login-form-panel">
         <form class="login-form" @submit.prevent="login">
           <img class="login-form__logo" :src="isDark ? '/torchlink-login-dark.svg' : '/torchlink-login.svg'" alt="炬联 TorchLink" />
-          <h2>登录</h2>
+          <h2>欢迎使用炬联</h2>
+          <p class="login-form__lead">登录账户，进入消防物联网工作台</p>
           <div class="login-fields">
             <div class="login-field">
               <label for="username">用户名</label>
@@ -631,7 +635,8 @@ onBeforeUnmount(() => {
               />
             </div>
           </div>
-          <ui-button native-type="submit" type="primary" size="large" class="login-submit" :loading="loginLoading">登录</ui-button>
+          <ui-button native-type="submit" type="primary" size="large" class="login-submit" :loading="loginLoading">进入平台</ui-button>
+          <p class="login-help">账户由管理员分配，按授权访问设备和功能</p>
         </form>
       </section>
     </div>
@@ -716,9 +721,7 @@ onBeforeUnmount(() => {
                 <span class="account__avatar" aria-hidden="true">{{ currentRole.slice(0, 1) }}</span>
                 <span class="account__copy"
                   ><strong>{{ currentUser === 'admin' ? '管理员' : currentUser }}</strong
-                  ><small v-if="currentRole !== (currentUser === 'admin' ? '管理员' : currentUser)" :title="currentRole">{{
-                    currentRole
-                  }}</small></span
+                  ><small :title="currentRole">{{ currentRole }}</small></span
                 >
                 <ChevronDown class="account__chevron" />
               </button>
@@ -747,6 +750,7 @@ onBeforeUnmount(() => {
         >
           <header v-if="showHeader" class="page-header">
             <h1>{{ current.title }}</h1>
+            <p v-if="current.sub">{{ current.sub }}</p>
           </header>
           <component
             :is="current.component"

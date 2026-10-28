@@ -341,7 +341,7 @@ async function action(id, value) {
 }
 function removeAlarm(row) {
   return confirmDelete({
-    label: `${row.deviceName || row.deviceId}，${alarmType(row.alarmType)}`,
+    label: `${row.deviceName || row.deviceId} · ${alarmType(row.alarmType)}`,
     path: `/api/v1/alarms/${encodeURIComponent(row.alarmId)}`,
     onDeleted: load,
     warning: '告警记录和研判结果将一并清理；活动告警请先关闭。'
@@ -458,7 +458,7 @@ function rowActions(row) {
   </div>
 
   <DataTableCard
-    :title="`告警（${total} 条）`"
+    :title="`告警 · ${total} 条`"
     :error="loadError"
     @retry="load()"
     :page="page"
@@ -476,9 +476,9 @@ function rowActions(row) {
           ><template #default="{ row }"
             ><b>{{ row.deviceName || row.deviceId }}</b
             ><small v-if="row.componentId" class="subline"
-              >{{ row.componentName || row.componentId }}，{{ row.componentLocation || row.componentId }}</small
+              >{{ row.componentName || row.componentId }} · {{ row.componentLocation || row.componentId }}</small
             ><small v-if="row.location" class="subline">{{
-              [row.location.unitName, row.location.buildingName, row.location.floorName, row.location.pointName].filter(Boolean).join('，')
+              [row.location.unitName, row.location.buildingName, row.location.floorName, row.location.pointName].filter(Boolean).join(' · ')
             }}</small
             ><small class="subline">{{ label(alarmSources, row.source, '其他来源') }}</small></template
           ></ui-table-column
@@ -509,7 +509,7 @@ function rowActions(row) {
       <li v-for="row in items" :key="row.alarmId" class="alarm-card">
         <button type="button" class="alarm-card__title" @click="show(row.alarmId)">
           <strong>{{ row.deviceName || row.deviceId }}</strong
-          ><small>{{ alarmType(row.alarmType) }}，{{ formatTime(row.lastTriggeredAt) }}</small>
+          ><small>{{ alarmType(row.alarmType) }} · {{ formatTime(row.lastTriggeredAt) }}</small>
         </button>
         <div class="alarm-card__meta">
           <ui-tag :type="tagType(row.alarmLevel)" round size="small">{{ label(alarmLevels, row.alarmLevel, '未设置') }}</ui-tag>
@@ -585,9 +585,9 @@ function rowActions(row) {
         <small v-if="analysisProgress.status === 'running'">{{ formatRemaining(analysisProgress.estimatedRemainingMs) }}</small>
         <small v-else>{{ analysisProgress.status === 'succeeded' ? '处理完成' : analysisProgress.error || '处理失败' }}</small>
       </div>
-      <ui-empty v-if="!analysis && !analysisLoading" description="尚无研判结果" :image-size="52" />
+      <ui-empty v-if="!analysis && !analysisLoading" description="该告警尚未研判，点击“开始研判”后执行" :image-size="52" />
       <div v-if="analysis" class="analysis-grid">
-        <ui-alert :title="analysis.summary || '模型未返回摘要'" :type="riskAlertType(analysis.riskLevel)" :closable="false" show-icon />
+        <ui-alert :title="analysis.summary || '智能未返回摘要'" :type="riskAlertType(analysis.riskLevel)" :closable="false" show-icon />
         <div>
           <strong>风险等级：</strong>{{ alarmLevel(analysis.riskLevel) }}
           <span class="subline">置信度 {{ analysis.confidence == null ? '—' : Number(analysis.confidence).toFixed(2) }}</span>
@@ -605,7 +605,7 @@ function rowActions(row) {
           </ul>
         </div>
         <small class="subline">{{ analysisKnowledgeText(analysis) }}</small
-        ><small class="subline">模型：{{ analysis.model || '—' }}，生成时间：{{ formatTime(analysis.createdAt) }}</small>
+        ><small class="subline">模型：{{ analysis.model || '—' }} · 生成时间：{{ formatTime(analysis.createdAt) }}</small>
       </div>
     </ui-card>
     <details v-if="detail" class="raw-detail top-gap">
@@ -644,7 +644,7 @@ function rowActions(row) {
   display: grid;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
-  border-bottom: 0.5px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 .alarm-card:last-child {
   border-bottom: 0;
@@ -708,7 +708,7 @@ function rowActions(row) {
   padding: var(--space-3);
   color: var(--danger-text, var(--danger));
   background: var(--surface);
-  border: 0.5px solid var(--danger-border);
+  border: 1px solid var(--danger-border);
   border-radius: var(--radius-lg);
 }
 .alarm-stats > div {
@@ -716,7 +716,7 @@ function rowActions(row) {
   gap: 2px;
   padding: var(--space-3);
   background: var(--surface);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }
 .alarm-stats span,
@@ -725,12 +725,12 @@ function rowActions(row) {
   font-size: 12px;
 }
 .alarm-stats strong {
-  font-size: 18px;
+  font-size: 20px;
   color: var(--text-strong);
 }
 .alarm-stats strong.danger,
 .pending-verify {
-  color: var(--danger-text);
+  color: var(--danger);
 }
 .analysis-grid {
   display: grid;
@@ -746,8 +746,8 @@ function rowActions(row) {
   margin: 12px 0;
   padding: 12px;
   background: var(--surface-muted);
-  border: 0.5px solid var(--info-border);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--info-border);
+  border-radius: 5px;
 }
 .analysis-progress-heading {
   display: flex;
@@ -755,7 +755,7 @@ function rowActions(row) {
   gap: 12px;
   margin-bottom: 7px;
   color: var(--primary-text);
-  font-size: 14px;
+  font-size: 13px;
 }
 .analysis-progress-heading span {
   color: var(--primary-text);

@@ -354,9 +354,9 @@ function submit() {
   margin-bottom: 18px;
 }
 .editor-steps button {
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   background: var(--surface);
-  border-radius: var(--radius-md);
+  border-radius: 6px;
   padding: 8px 12px;
   color: var(--text);
   cursor: pointer;
@@ -364,12 +364,12 @@ function submit() {
 .editor-steps .active {
   color: var(--primary-text);
   background: var(--primary-soft);
-  border-color: var(--primary-border);
+  border-color: var(--primary);
 }
 .field-rule {
   padding: 12px;
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
   margin: 12px 0;
 }
 .field-heading,
@@ -396,7 +396,7 @@ function submit() {
   background: var(--surface);
   padding: 16px 0 var(--n-padding-bottom, 0px);
   margin: 16px 0 calc(-1 * var(--n-padding-bottom, 0px));
-  border-top: 0.5px solid var(--border);
+  border-top: 1px solid var(--border);
 }
 .editor-error {
   color: var(--danger-text);

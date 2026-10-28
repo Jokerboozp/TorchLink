@@ -155,7 +155,7 @@ load()
         每个密钥绑定一个平台用户，按该用户的功能权限和设备范围访问；能力项只能进一步收窄。建议为每个外部系统单独创建用户和密钥，并只在对方服务端保存密钥，不要放在浏览器页面中。
       </p>
     </ui-card>
-    <DataTableCard :title="`开放接口密钥（${keys.length} 个）`">
+    <DataTableCard :title="`开放接口密钥 · ${keys.length} 个`">
       <ui-table v-loading="loading" :data="keys" empty-text="暂无密钥，点击新建密钥为外部系统授权">
         <ui-table-column prop="name" label="名称" min-width="140" />
         <ui-table-column label="绑定用户" min-width="160"
@@ -255,12 +255,12 @@ load()
 }
 .api-keys-guide h3 {
   margin: 0 0 6px;
-  font-size: 14px;
+  font-size: 15px;
 }
 .api-keys-guide p {
   margin: 6px 0 0;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.6;
 }
 .api-keys-guide code,
@@ -292,7 +292,7 @@ load()
   margin-top: 14px;
   padding: 12px;
   background: var(--surface-muted);
-  border-radius: var(--radius-md);
+  border-radius: 6px;
 }
 .api-keys-issued code {
   flex: 1;

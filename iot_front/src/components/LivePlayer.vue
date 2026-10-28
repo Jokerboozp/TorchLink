@@ -389,7 +389,7 @@ onBeforeUnmount(() => {
         <strong>{{ cameraName || cameraId }}</strong>
         <small v-if="location">{{ location }}</small>
       </div>
-      <StatusDot :tone="phaseTone" :label="protocolText ? `${phaseText}，${protocolText}` : phaseText" />
+      <StatusDot :tone="phaseTone" :label="protocolText ? `${phaseText} · ${protocolText}` : phaseText" />
     </div>
     <div ref="container" class="live-player__stage">
       <video ref="video" class="live-player__video" muted playsinline autoplay disablepictureinpicture />
@@ -421,7 +421,7 @@ onBeforeUnmount(() => {
         <ui-radio-button value="sub">子码流</ui-radio-button>
       </ui-radio-group>
       <span class="live-player__meta"
-        >{{ profileText }}<template v-if="grant?.videoCodec">，源 {{ grant.videoCodec }}</template></span
+        >{{ profileText }}<template v-if="grant?.videoCodec"> · 源 {{ grant.videoCodec }}</template></span
       >
       <span class="live-player__actions">
         <ui-button size="small" text :aria-label="muted ? '开启声音' : '静音'" :title="muted ? '开启声音' : '静音'" @click="toggleMute"
@@ -468,7 +468,7 @@ onBeforeUnmount(() => {
   width: 100%;
   overflow: hidden;
   background: var(--media-stage-bg);
-  border-radius: var(--radius-md);
+  border-radius: 6px;
 }
 .live-player__video {
   width: 100%;
@@ -497,7 +497,7 @@ onBeforeUnmount(() => {
 .live-player__spinner {
   width: 22px;
   height: 22px;
-  border: 0.5px solid var(--media-spinner-track);
+  border: 2px solid var(--media-spinner-track);
   border-top-color: var(--media-spinner-head);
   border-radius: 50%;
   animation: live-spin 0.9s linear infinite;

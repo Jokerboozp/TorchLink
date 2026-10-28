@@ -61,7 +61,7 @@ const color = computed(() => thresholdColor(props.value, props.thresholds, props
         :stroke-dasharray="`${fill} 100`"
       />
     </svg>
-    <strong :style="{ color: thresholdColor(value, thresholds, min, max, 'text') }">{{ formatValue(value, unit, decimals) }}</strong>
+    <strong :style="{ color }">{{ formatValue(value, unit, decimals) }}</strong>
     <span v-if="label" :title="label">{{ label }}</span>
   </div>
 </template>

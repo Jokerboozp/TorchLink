@@ -145,7 +145,7 @@ function changeType(row, value) {
 }
 .mapping-editor p {
   margin: 8px 0 12px;
-  font-size: 14px;
+  font-size: 13px;
 }
 .mapping-editor :deep(.ui-input-number) {
   width: 100%;

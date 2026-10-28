@@ -49,7 +49,7 @@ function actionSummary(action) {
             ><ui-tag :type="draft.type" size="small">{{ draft.label }}</ui-tag>
           </div>
           <small
-            >{{ message.ruleDraft.conditions?.length || 0 }} 个条件，
+            >{{ message.ruleDraft.conditions?.length || 0 }} 个条件 ·
             {{ message.ruleDraft.actions?.map(actionSummary).join('、') || '仅告警' }}</small
           ><ui-button type="primary" size="small" :disabled="draft.disabled" @click="emit('edit-rule-draft', message)">{{
             draft.action
@@ -58,9 +58,9 @@ function actionSummary(action) {
         <div v-if="message.error" class="message-error">
           <strong>{{ message.error.message }}</strong
           ><small v-if="message.error.code || message.error.stage">{{
-            [message.error.code, message.error.stage].filter(Boolean).join('，')
+            [message.error.code, message.error.stage].filter(Boolean).join(' · ')
           }}</small
-          ><small v-if="message.traceId || message.error.traceId">追踪编号，{{ message.traceId || message.error.traceId }}</small
+          ><small v-if="message.traceId || message.error.traceId">追踪编号 · {{ message.traceId || message.error.traceId }}</small
           ><ui-button
             v-permission="'POST /api/v1/ai/chat/stream'"
             v-if="message.prompt"
@@ -105,7 +105,7 @@ function actionSummary(action) {
   padding: 11px 14px;
   line-height: 1.7;
   white-space: pre-wrap;
-  border-radius: var(--radius-xl);
+  border-radius: 14px;
 }
 .chat-message.assistant {
   background: var(--surface-hover);
@@ -138,7 +138,7 @@ function actionSummary(action) {
   place-items: center;
   color: var(--surface);
   background: var(--text);
-  border-radius: var(--radius-sm);
+  border-radius: 4px;
   font-size: 12px;
   font-weight: 700;
 }
@@ -166,8 +166,8 @@ function actionSummary(action) {
   padding: 10px 12px;
   color: var(--text);
   background: var(--surface-muted);
-  border-radius: var(--radius-sm);
-  font-size: 14px;
+  border-radius: 4px;
+  font-size: 13px;
   line-height: 1.75;
   word-break: break-word;
 }
@@ -181,12 +181,12 @@ function actionSummary(action) {
 }
 .chat-message.is-failed {
   background: var(--surface-muted);
-  border: 0.5px solid var(--danger-border);
+  border: 1px solid var(--danger-border);
 }
 .chat-message.is-canceled {
   color: var(--text);
   background: var(--surface);
-  border: 0.5px dashed var(--border-strong);
+  border: 1px dashed var(--border-strong);
 }
 .chat-message p {
   margin: 0;
@@ -204,6 +204,10 @@ function actionSummary(action) {
   height: 5px;
   background: var(--text-muted);
   border-radius: 50%;
+  animation: pulse 1s infinite;
+}
+.typing i:nth-child(2) {
+  animation-delay: 0.16s;
 }
 .typing i:nth-child(3) {
   animation-delay: 0.32s;
@@ -217,10 +221,10 @@ function actionSummary(action) {
   padding-top: 9px;
   display: grid;
   gap: 3px;
-  border-top: 0.5px solid var(--danger-border);
+  border-top: 1px solid var(--danger-border);
 }
 .message-error strong {
-  color: var(--danger-text);
+  color: var(--danger);
   font-size: 12px;
 }
 .message-error small {
@@ -256,8 +260,8 @@ function actionSummary(action) {
   display: grid;
   gap: 7px;
   background: var(--surface-muted);
-  border: 0.5px solid var(--warning-border);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--warning);
+  border-radius: 4px;
 }
 .rule-draft-card > div {
   display: flex;
@@ -270,6 +274,12 @@ function actionSummary(action) {
 }
 .rule-draft-card .ui-button {
   width: max-content;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.28;
+    transform: translateY(-2px);
+  }
 }
 @media (max-width: 640px) {
   .message-content {
@@ -296,21 +306,21 @@ function actionSummary(action) {
   padding: 3px 8px;
   color: var(--primary-text);
   background: var(--surface-muted);
-  border: 0.5px solid var(--info-border);
-  border-radius: var(--radius-md);
+  border: 1px solid var(--info-border);
+  border-radius: 0.375rem;
   font-size: 12px;
   cursor: pointer;
 }
 .message-meta button:hover {
   background: var(--primary-soft);
-  border-color: var(--primary-border);
+  border-color: var(--primary);
 }
 .message-meta button:focus-visible {
-  outline: 0.5px solid var(--primary-border);
+  outline: 2px solid color-mix(in srgb, var(--primary) 35%, transparent);
   outline-offset: 2px;
 }
 .message-meta button {
-  font-size: 14px;
+  font-size: 13px;
 }
 .message-row.user .message-avatar,
 .chat-message.user {
@@ -331,7 +341,7 @@ function actionSummary(action) {
   color: var(--text-inverse);
   background: var(--primary);
   border-radius: 50%;
-  font-size: 12px;
+  font-size: 11px;
   font-weight: var(--font-weight-semibold);
 }
 .message-row.user .message-avatar {
@@ -359,19 +369,19 @@ function actionSummary(action) {
 .chat-message.assistant.is-failed {
   padding: 10px 14px;
   background: var(--danger-soft);
-  border: 0.5px solid var(--danger-border);
+  border: 1px solid var(--danger-border);
   border-radius: var(--radius-lg);
 }
 .chat-message.user.is-failed {
   color: var(--text);
   background: var(--surface-muted);
-  border: 0.5px solid var(--danger-border);
+  border: 1px solid var(--danger-border);
 }
 .message-meta button {
   color: var(--text-secondary);
   background: var(--surface);
   border-color: var(--border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-full);
 }
 .message-meta button:hover {
   color: var(--text-strong);

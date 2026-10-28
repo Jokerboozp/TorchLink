@@ -49,7 +49,7 @@ function agentLabel(id) {
         </div>
         <div>
           <dt>内容统计</dt>
-          <dd>{{ selectedDocument.metadata?.chunks || 0 }} 个分片，{{ formatBytes(selectedDocument.metadata?.size) }}</dd>
+          <dd>{{ selectedDocument.metadata?.chunks || 0 }} 个分片 · {{ formatBytes(selectedDocument.metadata?.size) }}</dd>
         </div>
         <div>
           <dt>上传时间</dt>
@@ -63,7 +63,7 @@ function agentLabel(id) {
       <section v-if="selectedDetail?.index" class="knowledge-index-rules">
         <div class="knowledge-detail-section-heading">
           <h3>索引与切片规则</h3>
-          <span>{{ selectedDetail.index.mode }}，{{ selectedDetail.index.vectorizer }}</span>
+          <span>{{ selectedDetail.index.mode }} · {{ selectedDetail.index.vectorizer }}</span>
         </div>
         <div class="knowledge-rule-grid">
           <div>
@@ -101,7 +101,7 @@ function agentLabel(id) {
             </summary>
             <div class="knowledge-chunk-body">
               <p>{{ row.content }}</p>
-              <small>重叠 {{ row.overlapChars || 0 }} 字符，{{ row.characterCount }} 字符，{{ row.chunkId }}</small>
+              <small>重叠 {{ row.overlapChars || 0 }} 字符 · {{ row.characterCount }} 字符 · {{ row.chunkId }}</small>
             </div>
           </details>
         </div>
@@ -130,7 +130,7 @@ function agentLabel(id) {
   padding: 9px;
   color: var(--primary-text);
   background: var(--surface-muted);
-  border-radius: var(--radius-lg);
+  border-radius: 10px;
 }
 .knowledge-detail {
   min-height: 140px;
@@ -149,7 +149,7 @@ function agentLabel(id) {
 }
 .knowledge-detail-file strong {
   overflow: hidden;
-  font-size: 18px;
+  font-size: 16px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -165,7 +165,7 @@ function agentLabel(id) {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   background: var(--surface-muted);
-  border-radius: var(--radius-lg);
+  border-radius: 10px;
 }
 .knowledge-detail-meta div {
   min-width: 0;
@@ -176,7 +176,7 @@ function agentLabel(id) {
 }
 .knowledge-detail-meta dd {
   margin: 5px 0 0;
-  font-size: 14px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .knowledge-index-rules,
@@ -192,7 +192,7 @@ function agentLabel(id) {
 }
 .knowledge-detail-section-heading h3 {
   margin: 0;
-  font-size: 14px;
+  font-size: 15px;
 }
 .knowledge-detail-section-heading span {
   color: var(--text-muted);
@@ -209,14 +209,14 @@ function agentLabel(id) {
   display: grid;
   gap: 5px;
   background: var(--surface-muted);
-  border-radius: var(--radius-sm);
+  border-radius: 8px;
 }
 .knowledge-rule-grid small {
   color: var(--text-muted);
   font-size: 12px;
 }
 .knowledge-rule-grid strong {
-  font-size: 14px;
+  font-size: 13px;
   overflow-wrap: anywhere;
 }
 .knowledge-index-rules p {
@@ -229,8 +229,8 @@ function agentLabel(id) {
   gap: 8px;
 }
 .knowledge-chunk {
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  border-radius: 9px;
 }
 .knowledge-chunk summary {
   min-height: 52px;
@@ -240,7 +240,7 @@ function agentLabel(id) {
   gap: 12px;
   cursor: pointer;
   list-style: none;
-  font-size: 14px;
+  font-size: 13px;
 }
 .knowledge-chunk summary::-webkit-details-marker {
   display: none;
@@ -256,7 +256,7 @@ function agentLabel(id) {
   place-items: center;
   color: var(--primary-text);
   background: var(--surface-muted);
-  border-radius: var(--radius-sm);
+  border-radius: 7px;
   font-size: 12px;
   font-weight: 700;
 }
@@ -271,8 +271,8 @@ function agentLabel(id) {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   background: var(--surface-muted);
-  border-radius: var(--radius-sm);
-  font-size: 14px;
+  border-radius: 7px;
+  font-size: 13px;
   line-height: 1.7;
 }
 .knowledge-chunk-body small {

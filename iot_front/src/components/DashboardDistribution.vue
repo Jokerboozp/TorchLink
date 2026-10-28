@@ -136,6 +136,9 @@ const summary = computed(() => `${props.title}：${segments.value.map(item => `$
   display: block;
   width: 100%;
 }
+.summary-ring circle {
+  transition: opacity 0.15s;
+}
 .ring-center {
   position: absolute;
   inset: 0;
@@ -148,7 +151,7 @@ const summary = computed(() => `${props.title}：${segments.value.map(item => `$
 }
 .ring-center strong,
 .stack-total strong {
-  font-size: 18px;
+  font-size: 28px;
   line-height: 1.2;
   color: var(--text-strong);
   font-weight: 600;
@@ -161,10 +164,10 @@ const summary = computed(() => `${props.title}：${segments.value.map(item => `$
   text-overflow: ellipsis;
 }
 .ring-center strong.long {
-  font-size: 18px;
+  font-size: 20px;
 }
 .ring-center strong.longer {
-  font-size: 18px;
+  font-size: 16px;
 }
 .ring-center small {
   max-width: 100%;
@@ -188,10 +191,10 @@ const summary = computed(() => `${props.title}：${segments.value.map(item => `$
   align-items: center;
   gap: 7px;
   font-size: 12px;
-  border-radius: var(--radius-sm);
+  border-radius: 4px;
 }
 .legend-row:focus-visible {
-  outline: 0.5px solid var(--primary);
+  outline: 2px solid var(--primary);
   outline-offset: 4px;
 }
 .legend-row i {
@@ -228,7 +231,7 @@ const summary = computed(() => `${props.title}：${segments.value.map(item => `$
   display: flex;
   height: 24px;
   overflow: hidden;
-  border-radius: var(--radius-sm);
+  border-radius: 5px;
   background: var(--surface-hover);
   gap: 2px;
 }
@@ -244,12 +247,12 @@ const summary = computed(() => `${props.title}：${segments.value.map(item => `$
   align-items: center;
   gap: 9px;
   margin-bottom: 7px;
-  font-size: 14px;
+  font-size: 13px;
 }
 .rank {
   width: 18px;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: 11px;
 }
 .rank-name {
   flex: 1;
@@ -269,7 +272,7 @@ const summary = computed(() => `${props.title}：${segments.value.map(item => `$
 .ranking-track {
   height: 7px;
   background: var(--surface-hover);
-  border-radius: var(--radius-sm);
+  border-radius: 5px;
   margin-left: 27px;
   overflow: hidden;
 }

@@ -48,7 +48,7 @@ export const UiButton = defineComponent({
           ...attrs,
           class: ['ui-button', (props.link || props.text) && 'ui-button--text', attrs.class],
           type: kind(props.type),
-          ghost: props.plain,
+          secondary: props.plain,
           text: props.link || props.text,
           round: props.round,
           circle: props.circle,

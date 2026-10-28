@@ -70,10 +70,9 @@ function sparkValues(name) {
 }
 function statStyle(value) {
   const color = thresholdColor(value, thresholds.value, gaugeMin.value, gaugeMax.value)
-  if (colorMode.value === 'background')
-    return { background: color, color: thresholdColor(value, thresholds.value, gaugeMin.value, gaugeMax.value, 'contrast') }
+  if (colorMode.value === 'background') return { background: color, color: 'var(--text-inverse)' }
   if (colorMode.value === 'none') return {}
-  return { color: thresholdColor(value, thresholds.value, gaugeMin.value, gaugeMax.value, 'text') }
+  return { color }
 }
 function barRatio(value) {
   return value == null ? 0 : Math.min(1, Math.max(0, (value - gaugeMin.value) / (gaugeMax.value - gaugeMin.value || 1)))
@@ -170,12 +169,14 @@ onBeforeUnmount(() => observer?.disconnect())
       <div v-else-if="type === 'stat'" class="stat-grid" :class="{ 'is-single': reduced.length === 1 }">
         <div v-for="item in reduced" :key="item.name" class="stat-item" :style="statStyle(item.value)">
           <small v-if="reduced.length > 1 && options.textMode !== 'value'">{{ item.name }}</small>
-          <strong>{{ formatValue(item.value, unit, decimals) }}</strong>
+          <strong :style="{ fontSize: reduced.length === 1 ? `${Math.min(56, Math.max(20, bodyHeight / 3))}px` : undefined }">{{
+            formatValue(item.value, unit, decimals)
+          }}</strong>
           <SparkLine
             v-if="options.graphMode === 'area'"
             class="stat-item__spark"
             :values="sparkValues(item.name)"
-            :color="statStyle(item.value).color || 'var(--primary)'"
+            :color="colorMode === 'background' ? 'var(--text-inverse)' : statStyle(item.value).color || 'var(--primary)'"
           />
         </div>
         <p v-if="!reduced.length && !loading" class="dash-panel__empty">无数据</p>
@@ -205,7 +206,7 @@ onBeforeUnmount(() => observer?.disconnect())
               class="bar-item__fill"
               :style="{ width: `${barRatio(item.value) * 100}%`, background: thresholdColor(item.value, thresholds, gaugeMin, gaugeMax) }"
           /></span>
-          <strong :style="{ color: thresholdColor(item.value, thresholds, gaugeMin, gaugeMax, 'text') }">{{
+          <strong :style="{ color: thresholdColor(item.value, thresholds, gaugeMin, gaugeMax) }">{{
             formatValue(item.value, unit, decimals)
           }}</strong>
         </div>
@@ -249,7 +250,7 @@ onBeforeUnmount(() => observer?.disconnect())
   min-width: 0;
   overflow: hidden;
   background: var(--surface);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
 .dash-panel.is-transparent {
@@ -288,10 +289,10 @@ onBeforeUnmount(() => observer?.disconnect())
   color: var(--text-muted);
 }
 .dash-panel__icon.is-warning {
-  color: var(--warning-text);
+  color: var(--warning);
 }
 .dash-panel__icon.is-danger {
-  color: var(--danger-text);
+  color: var(--danger);
 }
 .dash-panel__spin {
   animation: spin 1.2s linear infinite;
@@ -325,7 +326,7 @@ onBeforeUnmount(() => observer?.disconnect())
   background: var(--surface-hover);
 }
 .dash-panel__layout button.is-danger:hover {
-  color: var(--danger-text);
+  color: var(--danger);
 }
 .dash-panel__layout svg,
 .dash-panel__menu-button svg {
@@ -461,12 +462,13 @@ onBeforeUnmount(() => observer?.disconnect())
   height: 12px;
   overflow: hidden;
   background: var(--surface-muted);
-  border-radius: var(--radius-sm);
+  border-radius: 3px;
 }
 .bar-item__fill {
   display: block;
   height: 100%;
-  border-radius: var(--radius-sm);
+  border-radius: 3px;
+  transition: width 0.3s;
 }
 .bar-item strong {
   font-variant-numeric: tabular-nums;
@@ -483,7 +485,7 @@ onBeforeUnmount(() => observer?.disconnect())
 .dash-table th,
 .dash-table td {
   padding: 4px 8px;
-  border-bottom: 0.5px solid var(--border);
+  border-bottom: 1px solid var(--border);
   text-align: left;
   white-space: nowrap;
 }

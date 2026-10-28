@@ -158,7 +158,7 @@ function close() {
         <div class="panel-editor__canvas"><DashboardPanel :panel="draft" :data="preview" :loading="previewing" /></div>
         <div v-if="preview?.queries?.length" class="executed">
           <span>实际执行（{{ preview.intervalMs ? `间隔 ${preview.intervalMs / 1000} 秒` : '' }}）</span>
-          <code v-for="q in preview.queries" :key="q.refId">{{ q.refId }}，{{ q.dataSource }}：{{ q.expr }}</code>
+          <code v-for="q in preview.queries" :key="q.refId">{{ q.refId }} · {{ q.dataSource }}：{{ q.expr }}</code>
           <span v-for="w in preview.warnings || []" :key="w" class="warn">{{ w }}</span>
         </div>
       </section>
@@ -186,7 +186,7 @@ function close() {
                     v-for="ds in supported"
                     :key="ds.uid"
                     :value="ds.uid"
-                    :label="`${ds.name}（${ds.type}）${ds.isDefault ? '，默认' : ''}`"
+                    :label="`${ds.name}（${ds.type}）${ds.isDefault ? ' · 默认' : ''}`"
                   />
                 </ui-select>
               </label>
@@ -462,7 +462,7 @@ function close() {
   margin-bottom: var(--space-2);
   padding: var(--space-2) var(--space-3);
   background: var(--surface-muted);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
 .target.is-hidden {

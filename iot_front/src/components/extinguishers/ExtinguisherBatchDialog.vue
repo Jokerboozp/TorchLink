@@ -142,7 +142,7 @@ async function close() {
         /></ui-form-item>
       </div>
       <section class="fire-section">
-        <h3>选择灭火器，已选 {{ batchSelected.length }} / {{ batchAssets.length }}</h3>
+        <h3>选择灭火器 · 已选 {{ batchSelected.length }} / {{ batchAssets.length }}</h3>
         <p class="fire-hint">只列出没有未结巡检任务的在用灭火器（最多 100 个）。</p>
         <p v-if="batchLoading" class="fire-hint">正在读取灭火器…</p>
         <div v-else class="fire-batch-assets">

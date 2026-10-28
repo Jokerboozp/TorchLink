@@ -186,7 +186,7 @@ const dsFor = pluginId => props.dataSources.filter(ds => ds.type === pluginId)
       <section v-if="analysis" class="analysis">
         <p>
           <strong>{{ analysis.title }}</strong
-          ><span v-if="analysis.uid" class="muted">，UID {{ analysis.uid }}</span>
+          ><span v-if="analysis.uid" class="muted"> · UID {{ analysis.uid }}</span>
         </p>
         <p class="muted">
           平台显示：<strong :class="`level-${analysis.support.level}`">{{ levelText[analysis.support.level] }}</strong
@@ -266,7 +266,7 @@ const dsFor = pluginId => props.dataSources.filter(ds => ds.type === pluginId)
   color: var(--text);
   text-align: left;
   background: var(--surface);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   cursor: pointer;
 }
@@ -301,7 +301,7 @@ const dsFor = pluginId => props.dataSources.filter(ds => ds.type === pluginId)
   gap: var(--space-2);
   padding: var(--space-3);
   background: var(--surface-muted);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
 .analysis p {

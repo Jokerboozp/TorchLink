@@ -116,9 +116,9 @@ defineExpose({ load })
             <small
               >{{
                 group.managed
-                  ? `平台管理${group.updatedBy ? `，${group.updatedBy} ${relativeTime(group.updatedAt)}更新` : ''}`
-                  : `部署配置，${group.file}`
-              }}{{ group.interval ? `，每 ${group.interval} 评估` : '' }}</small
+                  ? `平台管理${group.updatedBy ? ` · ${group.updatedBy} ${relativeTime(group.updatedAt)}更新` : ''}`
+                  : `部署配置 · ${group.file}`
+              }}{{ group.interval ? ` · 每 ${group.interval} 评估` : '' }}</small
             >
           </div>
           <div class="rule-group__actions">

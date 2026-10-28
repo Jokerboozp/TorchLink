@@ -9,7 +9,7 @@ import { errorMessage } from '../presentation'
 const props = defineProps({ alarm: { type: Object, required: true } })
 const location = computed(() => props.alarm.location || null)
 const text = computed(() =>
-  [location.value?.unitName, location.value?.buildingName, location.value?.floorName, location.value?.pointName].filter(Boolean).join('，')
+  [location.value?.unitName, location.value?.buildingName, location.value?.floorName, location.value?.pointName].filter(Boolean).join(' · ')
 )
 const planUrl = ref(''),
   loading = ref(false),
@@ -65,7 +65,7 @@ onBeforeUnmount(() => {
 .location-text svg {
   width: 16px;
   height: 16px;
-  color: var(--danger-text);
+  color: var(--danger);
 }
 .location-note {
   color: var(--text-muted);
@@ -74,7 +74,7 @@ onBeforeUnmount(() => {
 .location-plan {
   position: relative;
   margin-top: var(--space-3);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   overflow: hidden;
 }
@@ -86,12 +86,18 @@ onBeforeUnmount(() => {
 .location-marker {
   position: absolute;
   transform: translate(-50%, -100%);
-  color: var(--danger-text);
+  color: var(--danger);
+  animation: location-pulse 1.2s ease-in-out infinite;
 }
 .location-marker svg {
   width: 28px;
   height: 28px;
-  filter: none;
+  filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.4));
+}
+@keyframes location-pulse {
+  50% {
+    transform: translate(-50%, -115%);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .location-marker {

@@ -93,7 +93,7 @@ function addQuery() {
           </div>
         </div>
         <p v-if="bindings[child.productId]" class="access-binding">
-          已绑定协议：{{ bindings[child.productId].protocolId }}，{{ bindings[child.productId].version }}
+          已绑定协议：{{ bindings[child.productId].protocolId }} · {{ bindings[child.productId].version }}
         </p>
         <p v-else-if="child.productId" class="access-binding binding-error">{{ errors[child.productId] || '正在读取模板绑定协议…' }}</p>
         <p v-else class="access-binding">选择模板后显示其绑定协议。</p>
@@ -114,8 +114,8 @@ function addQuery() {
 .access-option-section {
   min-width: 0;
   padding: 16px;
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
   background: var(--surface);
 }
 .access-section-heading {
@@ -139,16 +139,16 @@ function addQuery() {
 .access-section-heading > span {
   flex: none;
   padding: 3px 8px;
-  border-radius: var(--radius-full);
+  border-radius: 999px;
   color: var(--text);
   background: var(--surface-muted);
-  font-size: 12px;
+  font-size: 11px;
   white-space: nowrap;
 }
 .access-empty {
   padding: 15px;
-  border: 0.5px dashed var(--info-border);
-  border-radius: var(--radius-sm);
+  border: 1px dashed var(--info-border);
+  border-radius: 8px;
   color: var(--text);
   background: var(--surface);
   font-size: 12px;
@@ -156,8 +156,8 @@ function addQuery() {
 }
 .access-config-card {
   padding: 14px;
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  border-radius: 9px;
   background: var(--surface);
 }
 .access-config-card + .access-config-card {
@@ -172,7 +172,7 @@ function addQuery() {
 }
 .access-card-heading strong {
   color: var(--text);
-  font-size: 14px;
+  font-size: 13px;
 }
 .access-field-grid {
   display: grid;
@@ -202,7 +202,7 @@ function addQuery() {
   overflow-wrap: anywhere;
 }
 .access-binding.binding-error {
-  color: var(--danger-text);
+  color: var(--danger);
 }
 .access-add-button {
   margin-top: 12px;

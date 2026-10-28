@@ -1,11 +1,11 @@
-/* 应用框架：紧凑导航、清晰的页面标题、独立滚动内容。 */
+/* 整体框架：米色侧栏、与内容同底的顶栏、衬线页面标题与登录页（参考 Claude 的暖色编辑风格）。 */
 
 /* ---------- 登录页 ---------- */
 .login-page {
   width: 100%;
   height: 100%;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(380px, 1fr);
+  grid-template-columns: minmax(0, 1.1fr) minmax(380px, 0.9fr);
   gap: clamp(24px, 4vw, 64px);
   padding: clamp(20px, 3vw, 48px);
   overflow: auto;
@@ -16,13 +16,24 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-8);
-  min-height: 520px;
+  min-height: 620px;
   padding: clamp(32px, 3.6vw, 56px);
   overflow: hidden;
   color: var(--text-strong);
   background: var(--login-panel-bg);
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+}
+.login-brand-panel::before {
+  content: '';
+  position: absolute;
+  right: -120px;
+  bottom: -160px;
+  width: 460px;
+  height: 460px;
+  pointer-events: none;
+  background: radial-gradient(circle, var(--primary-soft-hover) 0%, transparent 68%);
+  border-radius: 50%;
 }
 .login-brand-panel > * {
   position: relative;
@@ -39,14 +50,43 @@
   height: 54px;
   object-fit: contain;
 }
+.login-chip {
+  padding: 6px 12px;
+  background: var(--surface);
+  border: 1px solid var(--login-panel-line);
+  border-radius: var(--radius-full);
+  color: var(--login-panel-text);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
 .login-brand-panel__copy {
   margin-top: auto;
 }
-.login-brand-panel h1 {
+.login-eyebrow {
   margin: 0;
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-  line-height: var(--line-height-normal);
+  color: var(--primary-text);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.14em;
+}
+.login-brand-panel h1 {
+  margin: var(--space-4) 0 var(--space-5);
+  font-family: var(--font-serif);
+  font-size: clamp(34px, 3.4vw, 52px);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.22;
+  letter-spacing: -0.01em;
+}
+.login-brand-panel h1 em {
+  color: var(--login-highlight);
+  font-style: normal;
+}
+.login-brand-panel__copy > p:last-child {
+  max-width: 440px;
+  margin: 0;
+  color: var(--login-panel-text);
+  font-size: var(--font-size-md);
+  line-height: 1.8;
 }
 .login-features {
   display: grid;
@@ -54,17 +94,18 @@
   margin: 0;
   padding: var(--space-6) 0 0;
   list-style: none;
-  border-top: 0.5px solid var(--login-panel-line);
+  border-top: 1px solid var(--login-panel-line);
 }
 .login-features li {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-3);
 }
 .login-features svg {
   width: 20px;
   height: 20px;
   flex: none;
+  margin-top: 2px;
   color: var(--login-highlight);
   stroke-width: 1.8;
 }
@@ -73,6 +114,10 @@
   color: var(--text-strong);
   font-size: var(--font-size-md);
   font-weight: var(--font-weight-semibold);
+}
+.login-features span {
+  color: var(--login-panel-muted);
+  font-size: var(--font-size-sm);
 }
 .login-form-panel {
   display: flex;
@@ -83,8 +128,9 @@
   width: min(420px, 100%);
   padding: clamp(28px, 3vw, 44px);
   background: var(--surface);
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-sm);
 }
 .login-form__logo {
   display: block;
@@ -92,10 +138,17 @@
   margin-bottom: var(--space-6);
 }
 .login-form h2 {
-  margin: 0 0 var(--space-6);
+  margin: 0;
   color: var(--text-strong);
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-serif);
+  font-size: 28px;
+  font-weight: var(--font-weight-medium);
+  letter-spacing: -0.01em;
+}
+.login-form__lead {
+  margin: var(--space-2) 0 var(--space-8);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
 }
 .login-fields {
   display: grid;
@@ -113,6 +166,12 @@
 .login-submit {
   width: 100%;
   margin-top: var(--space-8);
+}
+.login-help {
+  margin: var(--space-5) 0 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+  text-align: center;
 }
 
 /* ---------- 应用框架 ---------- */
@@ -135,7 +194,7 @@
   height: 100%;
   overflow: hidden;
   background: var(--sidebar-bg);
-  border-right: 0.5px solid var(--sidebar-border);
+  border-right: 1px solid var(--sidebar-border);
 }
 .app-shell.is-collapsed .app-sidebar {
   width: var(--sidebar-width-collapsed);
@@ -204,7 +263,7 @@
   padding: 0 var(--space-2) 0 32px;
   color: var(--sidebar-text);
   background: var(--surface);
-  border: 0.5px solid var(--sidebar-border);
+  border: 1px solid var(--sidebar-border);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
   outline: none;
@@ -229,14 +288,15 @@
   margin-top: var(--space-5);
 }
 .nav-group__label {
-  margin: var(--space-2) 10px var(--space-1);
+  margin: var(--space-2) var(--space-3) var(--space-1);
   color: var(--sidebar-label);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
+  letter-spacing: 0.04em;
   white-space: nowrap;
 }
 .app-shell.is-collapsed .nav-group__label {
-  height: 0.5px;
+  height: 1px;
   margin: var(--space-3) var(--space-2);
   overflow: hidden;
   color: transparent;
@@ -246,11 +306,11 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 10px;
   width: 100%;
   min-height: 34px;
   margin: 1px 0;
-  padding: 0 10px;
+  padding: 0 var(--space-3);
   color: var(--sidebar-text);
   background: transparent;
   border: 0;
@@ -259,10 +319,13 @@
   text-align: left;
   white-space: nowrap;
   cursor: pointer;
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease;
 }
 .nav-item svg {
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   flex: none;
   color: var(--text-muted);
   stroke-width: 1.7;
@@ -320,7 +383,7 @@
   height: var(--topbar-height);
   padding: 0 var(--page-padding);
   background: var(--bg);
-  border-bottom: 0.5px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 .app-topbar__left {
   display: flex;
@@ -337,7 +400,7 @@
   padding: 0;
   color: var(--text-secondary);
   background: transparent;
-  border: 0.5px solid transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   cursor: pointer;
 }
@@ -384,7 +447,7 @@
   padding: 0 var(--space-3);
   color: var(--text-secondary);
   background: var(--surface);
-  border: 0.5px solid var(--border-strong);
+  border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
@@ -423,7 +486,7 @@
   padding: 2px var(--space-2) 2px 3px;
   color: var(--text);
   background: transparent;
-  border: 0.5px solid transparent;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   font: inherit;
   text-align: left;
@@ -438,8 +501,8 @@
   place-items: center;
   width: 30px;
   height: 30px;
-  color: var(--text-inverse);
-  background: var(--primary);
+  color: var(--surface);
+  background: var(--text-secondary);
   border-radius: 50%;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
@@ -484,14 +547,21 @@
   overflow: hidden;
 }
 .page-header {
-  margin-bottom: var(--space-5);
+  margin-bottom: var(--space-6);
 }
 .page-header h1 {
   margin: 0;
   color: var(--text-strong);
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
+  font-family: var(--font-serif);
+  font-size: 26px;
+  font-weight: var(--font-weight-medium);
   line-height: var(--line-height-tight);
+  letter-spacing: -0.01em;
+}
+.page-header p {
+  margin: var(--space-2) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-sm);
 }
 
 .app-content::-webkit-scrollbar {
@@ -499,7 +569,7 @@
 }
 .app-content::-webkit-scrollbar-thumb {
   background: var(--border-strong);
-  border: 0.5px solid var(--bg);
+  border: 2px solid var(--bg);
   border-radius: var(--radius-full);
 }
 .app-content::-webkit-scrollbar-track {
@@ -513,6 +583,9 @@
   }
   .login-brand-panel {
     min-height: 560px;
+  }
+  .login-features span {
+    display: none;
   }
 }
 @media (max-width: 860px) {
@@ -530,7 +603,7 @@
     inset: 0 auto 0 0;
     width: 272px;
     transform: translateX(-100%);
-    transition: transform 250ms ease-out;
+    transition: transform 0.2s ease;
     box-shadow: var(--shadow-lg);
   }
   .app-shell.is-nav-open .app-sidebar {
@@ -552,6 +625,9 @@
   }
   .page-header {
     margin-bottom: var(--space-4);
+  }
+  .page-header h1 {
+    font-size: 22px;
   }
   .app-breadcrumb span,
   .app-breadcrumb svg {

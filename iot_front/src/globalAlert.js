@@ -153,7 +153,7 @@ function hasFaultEvent(data) {
 
 function detailText(data, kind) {
   if (data.componentId)
-    return [data.componentName || data.componentId, data.componentLocation, alarmType(data.alarmType)].filter(Boolean).join('，')
+    return [data.componentName || data.componentId, data.componentLocation, alarmType(data.alarmType)].filter(Boolean).join(' · ')
   const event = asObject(data.event)
   const details = asObject(data.details)
   const nested = nestedMessage(data)

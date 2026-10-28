@@ -18,7 +18,7 @@ const signalNames = {
       <li v-for="item in signals" :key="`${item.signalType}:${item.property}`">
         <ui-tag size="small" :type="item.strength >= 0.5 ? 'warning' : 'info'">{{ signalNames[item.signalType] || item.signalType }}</ui-tag
         ><span>{{ item.property || '整机' }}</span
-        ><small>强度 {{ Math.round(item.strength * 100) }}%，{{ formatTime(item.windowEnd) }}</small>
+        ><small>强度 {{ Math.round(item.strength * 100) }}% · {{ formatTime(item.windowEnd) }}</small>
       </li>
     </ul>
   </section>
@@ -38,7 +38,7 @@ const signalNames = {
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  font-size: 14px;
+  font-size: 13px;
 }
 .signal-list small {
   color: var(--text-muted);

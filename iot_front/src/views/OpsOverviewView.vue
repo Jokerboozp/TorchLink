@@ -324,9 +324,9 @@ onBeforeUnmount(() => {
   gap: 6px;
   padding: var(--space-4);
   background: var(--surface);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: none;
+  box-shadow: var(--shadow-xs);
 }
 .component-card header {
   display: flex;
@@ -371,17 +371,18 @@ onBeforeUnmount(() => {
   gap: 6px;
   padding: var(--space-3) var(--space-4);
   background: var(--surface);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
   border-radius: var(--radius-lg);
 }
 .kpi-card--success {
-  border-color: var(--success-border);
+  border-left-color: var(--success);
 }
 .kpi-card--warning {
-  border-color: var(--warning-border);
+  border-left-color: var(--warning);
 }
 .kpi-card--danger {
-  border-color: var(--danger-border);
+  border-left-color: var(--danger);
 }
 .kpi-card__title {
   color: var(--text-secondary);

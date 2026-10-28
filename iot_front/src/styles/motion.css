@@ -1,20 +1,3 @@
-/* Keep overlays legible without scaling the page or animating ordinary controls. */
-body .fade-in-scale-up-transition-enter-active,
-body .fade-in-scale-up-transition-leave-active {
-  transition: opacity 250ms ease-out;
-}
-
-body .fade-in-scale-up-transition-enter-from,
-body .fade-in-scale-up-transition-enter-to,
-body .fade-in-scale-up-transition-leave-from,
-body .fade-in-scale-up-transition-leave-to {
-  transform: none;
-}
-
-body .n-drawer {
-  transition: transform 250ms ease-out;
-}
-
 /* 系统开启“减少动态效果”时关闭过渡与动画；这是全站唯一允许使用 !important 的位置。 */
 @media (prefers-reduced-motion: reduce) {
   *,

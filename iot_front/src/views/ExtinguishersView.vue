@@ -337,7 +337,7 @@ onMounted(refresh)
       <span>{{ statisticsError }}</span
       ><ui-button size="small" @click="loadStatistics">重新加载统计</ui-button>
     </div>
-    <div v-if="statistics" class="fire-stats" aria-label="灭火器概况" :title="tab === 'inspections' ? '统计所选消防站的全部巡检任务' : undefined">
+    <div v-if="statistics" class="fire-stats" aria-label="灭火器概况">
       <div
         v-for="(label, key) in tab === 'assets'
           ? { total: '灭火器', active: '在用', maintenance: '维护中', retired: '已报废', overdue: '已逾期', soon: '即将到期' }
@@ -350,8 +350,9 @@ onMounted(refresh)
         ><strong>{{ statistics[key] ?? '—' }}</strong>
       </div>
     </div>
+    <p v-if="tab === 'inspections' && statistics" class="fire-hint">概况统计所选消防站的全部巡检任务；下方任务列表按关键字和状态筛选。</p>
     <DataTableCard
-      :title="`${tab === 'assets' ? '灭火器' : '巡检任务'}（${total} 条）`"
+      :title="`${tab === 'assets' ? '灭火器' : '巡检任务'} · ${total} 条`"
       :page="page"
       :page-size="pageSize"
       :total="total"
@@ -369,7 +370,7 @@ onMounted(refresh)
           <ui-table-column label="灭火器" min-width="180"
             ><template #default="{ row }"
               ><button class="fire-name" type="button" @click="openAssetDetail(row)">{{ row.code }}</button
-              ><small class="fire-subline">{{ typeName(row.type) }}，{{ row.specification || '规格未填' }}</small></template
+              ><small class="fire-subline">{{ typeName(row.type) }} · {{ row.specification || '规格未填' }}</small></template
             ></ui-table-column
           >
           <ui-table-column label="所属消防站 / 位置" min-width="200"
@@ -380,7 +381,7 @@ onMounted(refresh)
           <ui-table-column label="到期提醒" min-width="230"
             ><template #default="{ row }"
               ><span v-for="item in row.reminders || []" :key="item.kind" class="fire-reminder" :class="`fire-reminder--${item.status}`"
-                >{{ reminderKinds[item.kind] }}，{{ dateLabel(item.dueOn)
+                >{{ reminderKinds[item.kind] }} · {{ dateLabel(item.dueOn)
                 }}{{ item.status === 'overdue' ? '（已逾期）' : item.status === 'soon' ? '（即将到期）' : '' }}</span
               ><span v-if="!row.reminders?.length">—</span></template
             ></ui-table-column

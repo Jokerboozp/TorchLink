@@ -370,7 +370,7 @@ onMounted(refresh)
       ><ui-button size="small" @click="loadStatistics">重新加载统计</ui-button>
     </div>
     <details v-if="statistics?.byStation?.length" class="fire-station-stats">
-      <summary title="出勤次数按开始时间统计；未归队为当前全部记录；器材数量含维护中器材">各消防站统计（{{ statistics.byStation.length }} 个）</summary>
+      <summary>各消防站统计 · {{ statistics.byStation.length }} 个</summary>
       <ui-table :data="statistics?.byStation || []" :loading="statisticsLoading" empty-text="暂无消防站统计"
         ><ui-table-column prop="name" label="消防站" min-width="180" /><ui-table-column
           prop="personnel"
@@ -383,9 +383,12 @@ onMounted(refresh)
           label="已归队次数"
           min-width="120"
       /></ui-table>
+      <p class="fire-hint" style="padding: 0 16px">
+        日期范围按出勤开始时间统计出勤次数；未归队为当前全部未归队记录。器材数量包含维护中的器材。
+      </p>
     </details>
     <DataTableCard
-      :title="`${labels(tab)}（${total} 条）`"
+      :title="`${labels(tab)} · ${total} 条`"
       :page="page"
       :page-size="pageSize"
       :total="total"
@@ -399,13 +402,13 @@ onMounted(refresh)
           <ui-table-column label="消防站" min-width="200"
             ><template #default="{ row }"
               ><strong>{{ row.name }}</strong
-              ><small class="fire-subline">{{ row.code }}，{{ enumName(stationTypes, row.type) }}</small></template
+              ><small class="fire-subline">{{ row.code }} · {{ enumName(stationTypes, row.type) }}</small></template
             ></ui-table-column
           >
           <ui-table-column label="地址 / 位置" min-width="230"
             ><template #default="{ row }"
               >{{ row.address || '未填写地址'
-              }}<small class="fire-subline">经度 {{ row.longitude }}，纬度 {{ row.latitude }}</small></template
+              }}<small class="fire-subline">经度 {{ row.longitude }} · 纬度 {{ row.latitude }}</small></template
             ></ui-table-column
           >
           <ui-table-column label="联系信息" min-width="180"
@@ -449,7 +452,7 @@ onMounted(refresh)
           <ui-table-column label="出勤" min-width="200"
             ><template #default="{ row }"
               ><button class="fire-name" type="button" @click="detail = row">{{ row.title }}</button
-              ><small class="fire-subline">{{ enumName(dispatchTypes, row.type) }}，{{ stationName(row.stationId) }}</small></template
+              ><small class="fire-subline">{{ enumName(dispatchTypes, row.type) }} · {{ stationName(row.stationId) }}</small></template
             ></ui-table-column
           ><ui-table-column prop="location" label="地点" min-width="160" /><ui-table-column label="人员 / 器材" min-width="180"
             ><template #default="{ row }"

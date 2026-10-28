@@ -44,7 +44,7 @@ const types = [
 }
 .model-field {
   padding: var(--space-3);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
 }
 .model-field-grid {

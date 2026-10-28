@@ -22,7 +22,7 @@ export function protocolOptions(catalog = []) {
       if (release.status === 'PUBLISHED')
         options.push({
           id: `${item.definition.id}@${release.version}`,
-          name: `${item.definition.name || item.definition.id}（${release.version}）`,
+          name: `${item.definition.name || item.definition.id} · ${release.version}`,
           transport: release.transport || '',
           payloadFormat: release.payloadFormat || ''
         })

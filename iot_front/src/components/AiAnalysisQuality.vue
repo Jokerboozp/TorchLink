@@ -46,7 +46,7 @@ onUnmounted(() => request?.abort())
   <ui-card shadow="never" class="surface-card ai-quality">
     <template #header
       ><div class="quality-header">
-        <div><strong title="对照告警核实结论与 AI 风险等级，仅统计有权查看的设备">AI 研判质量</strong></div>
+        <div><strong>AI 研判质量</strong><small>按告警核实结论对照当时的 AI 风险等级 · 仅统计有权查看的设备</small></div>
         <ui-button size="small" :loading="loading" @click="load">刷新</ui-button>
       </div></template
     >
@@ -132,14 +132,14 @@ onUnmounted(() => request?.abort())
   display: grid;
   gap: 4px;
   padding: 10px 12px;
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-lg);
 }
 .quality-figures span {
-  font-size: 14px;
+  font-size: 13px;
 }
 .quality-figures strong {
-  font-size: 18px;
+  font-size: 20px;
 }
 .quality-figures .warn strong {
   color: var(--danger-text);
@@ -154,12 +154,12 @@ onUnmounted(() => request?.abort())
 .quality-matrix table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
+  font-size: 13px;
 }
 .quality-matrix th,
 .quality-matrix td {
   padding: 6px 10px;
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   text-align: center;
   white-space: nowrap;
 }

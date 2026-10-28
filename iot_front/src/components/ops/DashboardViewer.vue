@@ -753,7 +753,7 @@ const statusText = { supported: '支持', partial: '部分支持', unsupported: 
         <article v-for="q in executed(inspectPanel)" :key="q.refId">
           <header>
             <strong>{{ q.refId }}</strong
-            ><small>{{ q.dataSource }}，{{ q.type }}</small>
+            ><small>{{ q.dataSource }} · {{ q.type }}</small>
           </header>
           <pre>{{ q.expr }}</pre>
         </article>
@@ -880,15 +880,15 @@ const statusText = { supported: '支持', partial: '部分支持', unsupported: 
   border-radius: var(--radius-sm);
 }
 .is-favorite {
-  color: var(--warning-text);
+  color: var(--warning);
   fill: currentColor;
 }
 .support-chip {
   padding: 1px 8px;
   font-size: var(--font-size-xs);
   background: var(--surface-muted);
-  border: 0.5px solid var(--border);
-  border-radius: var(--radius-full);
+  border: 1px solid var(--border);
+  border-radius: 999px;
   cursor: pointer;
 }
 .support-chip.is-success {
@@ -938,7 +938,7 @@ const statusText = { supported: '支持', partial: '部分支持', unsupported: 
   align-items: center;
   gap: var(--space-2);
   padding-bottom: 4px;
-  border-bottom: 0.5px solid var(--border);
+  border-bottom: 1px solid var(--border);
 }
 .dash-row__toggle {
   display: inline-flex;

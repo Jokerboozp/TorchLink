@@ -98,7 +98,7 @@ function remove(att) {
             {{ att.name }}
           </button>
           <span v-else class="attachment-name">{{ att.name }}</span>
-          <small>{{ size(att.size) }}，{{ att.uploadedBy }}，{{ formatTime(att.uploadedAt) }}</small>
+          <small>{{ size(att.size) }} · {{ att.uploadedBy }} · {{ formatTime(att.uploadedAt) }}</small>
         </div>
         <ui-button text size="small" title="下载" @click="save(att)"><Download /></ui-button>
         <ui-button

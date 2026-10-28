@@ -90,7 +90,7 @@ async function close() {
               v-for="row in options.shifts"
               :key="row.id"
               :value="row.id"
-              :label="`${row.name}，${row.startTime}—${row.endTime}`" /></ui-select
+              :label="`${row.name} · ${row.startTime}—${row.endTime}`" /></ui-select
         ></ui-form-item>
         <ui-form-item label="开始日期" required
           ><NDatePicker v-model:formatted-value="batch.from" type="date" value-format="yyyy-MM-dd" format="yyyy-MM-dd" :clearable="false"
@@ -146,12 +146,12 @@ async function close() {
 }
 .duty-batch-group > span {
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
 }
 .duty-batch-summary {
   margin: 0;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.6;
 }
 .duty-batch-error {

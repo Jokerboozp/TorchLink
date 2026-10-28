@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { UiMessage } from '../ui/feedback.js'
 import { AlertTriangle, BellRing, Clock3, Volume2, X } from '@lucide/vue'
 import { formatTime, session } from '../api'
@@ -25,6 +25,11 @@ const settings = reactive({ ...DEFAULT_ALERT_SETTINGS })
 const settingsDraft = reactive({ ...DEFAULT_ALERT_SETTINGS })
 const storageIdentity = () => ({ tenant: session.tenant, user: session.user })
 const seenAlerts = new Map()
+
+const quietHoursLabel = computed(() => {
+  if (!settings.quietStart || !settings.quietEnd || settings.quietStart === settings.quietEnd) return '未设置'
+  return `${settings.quietStart} - ${settings.quietEnd}`
+})
 
 function currentQuietHours() {
   return isWithinQuietHours(new Date(), settings)
@@ -176,7 +181,8 @@ onBeforeUnmount(() => {
         <div class="global-alert-head">
           <div class="global-alert-icon"><component :is="item.kind === 'fault' ? AlertTriangle : BellRing" /></div>
           <div class="global-alert-title">
-            <h3>{{ item.kind === 'fault' ? '设备故障' : '设备告警' }}</h3>
+            <span class="global-alert-kicker">实时通知</span>
+            <h3>{{ item.kind === 'fault' ? '设备故障' : '发现报警' }}</h3>
           </div>
           <button class="global-alert-close" type="button" aria-label="关闭报警提示" @click="dismissAlert(item.id)"><X /></button>
         </div>
@@ -218,15 +224,15 @@ onBeforeUnmount(() => {
     <div class="alert-settings">
       <div class="alert-setting-row">
         <div class="alert-setting-copy">
-          <strong>显示告警弹窗</strong>
-          <span>关闭后仍可在告警中心查看。</span>
+          <strong>显示报警弹窗</strong>
+          <span>关闭后不显示右下角弹窗，告警仍会保留在告警中心。</span>
         </div>
         <ui-switch v-model="settingsDraft.popupEnabled" active-text="开启" inactive-text="关闭" />
       </div>
       <div class="alert-setting-row alert-setting-row-stack">
         <div class="alert-setting-copy">
-          <strong>静默时段</strong>
-          <span>暂停弹窗和提示音，可留空。</span>
+          <strong>弹窗静默时段</strong>
+          <span>每天该时段不显示弹窗，也不播放警报声；留空表示不设置。</span>
         </div>
         <div class="alert-quiet-times">
           <ui-time-picker v-model="settingsDraft.quietStart" value-format="HH:mm" format="HH:mm" placeholder="开始时间" clearable />
@@ -236,7 +242,8 @@ onBeforeUnmount(() => {
       </div>
       <div class="alert-setting-row">
         <div class="alert-setting-copy">
-          <strong>播放提示音</strong>
+          <strong>播放警报声</strong>
+          <span>新报警或故障到达时播放提示音，静默时段除外。</span>
         </div>
         <div class="alert-sound-setting">
           <ui-switch v-model="settingsDraft.soundEnabled" active-text="开启" inactive-text="关闭" /><ui-button
@@ -247,7 +254,10 @@ onBeforeUnmount(() => {
           >
         </div>
       </div>
-      <div class="alert-settings-note"><Clock3 /> 仅对当前账户和浏览器生效。</div>
+      <ui-alert type="info" :closable="false" show-icon>
+        <template #title>当前静默时段：{{ quietHoursLabel }}</template>
+      </ui-alert>
+      <div class="alert-settings-note"><Clock3 /> 设置仅保存在当前浏览器的当前租户和用户下。</div>
     </div>
     <template #footer>
       <ui-button @click="settingsVisible = false">取消</ui-button>
@@ -298,9 +308,9 @@ onBeforeUnmount(() => {
   padding: 6px 10px;
   color: var(--text-secondary);
   background: var(--surface);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  box-shadow: none;
+  box-shadow: var(--shadow-sm);
   font-size: var(--font-size-sm);
   pointer-events: auto;
 }
@@ -311,18 +321,20 @@ onBeforeUnmount(() => {
   padding: 15px;
   color: var(--text);
   background: var(--surface);
-  border: 0.5px solid var(--danger-border);
+  border: 1px solid var(--danger-border);
+  border-left: 4px solid var(--danger);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-sm);
+  box-shadow: var(--shadow-lg);
   pointer-events: auto;
 }
 .global-alert-popup.is-fault {
   border-color: var(--warning-border);
+  border-left-color: var(--warning);
 }
 .global-alert-head {
   display: grid;
   grid-template-columns: 34px minmax(0, 1fr) 24px;
-  align-items: center;
+  align-items: start;
   gap: 10px;
 }
 .global-alert-icon {
@@ -330,7 +342,7 @@ onBeforeUnmount(() => {
   place-items: center;
   width: 34px;
   height: 34px;
-  color: var(--danger-text);
+  color: var(--danger);
   background: var(--danger-soft);
   border-radius: var(--radius-lg);
 }
@@ -350,12 +362,13 @@ onBeforeUnmount(() => {
   color: var(--text-muted);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
 }
 .global-alert-title h3 {
   margin: 3px 0 2px;
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 14px;
+  font-size: 15px;
   line-height: var(--line-height-tight);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -372,7 +385,7 @@ onBeforeUnmount(() => {
   cursor: pointer;
 }
 .global-alert-close:hover {
-  color: var(--danger-text);
+  color: var(--danger);
   background: var(--danger-soft);
 }
 .global-alert-close svg {
@@ -408,7 +421,7 @@ onBeforeUnmount(() => {
   padding: 7px var(--space-2);
   color: var(--text-secondary);
   background: var(--surface-muted);
-  border: 0.5px solid var(--border);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   font-weight: var(--font-weight-medium);
 }
@@ -426,68 +439,57 @@ onBeforeUnmount(() => {
 }
 .global-alert-enter-active,
 .global-alert-leave-active {
-  transition: opacity 250ms ease-out;
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
 }
 .global-alert-enter-from,
 .global-alert-leave-to {
   opacity: 0;
+  transform: translateY(10px);
 }
 .alert-settings {
   display: grid;
-  gap: 0;
+  gap: var(--space-3);
 }
 .alert-setting-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
-  gap: 4px 16px;
-  padding: 16px 0;
+  justify-content: space-between;
+  gap: 18px;
+  min-height: 58px;
+  padding: var(--space-3);
+  background: var(--surface-muted);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
 }
-.alert-setting-row:first-child {
-  padding-top: 0;
-}
-.alert-setting-row + .alert-setting-row {
-  border-top: 0.5px solid var(--border);
+.alert-setting-row-stack {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
 }
 .alert-setting-copy {
-  display: contents;
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
 }
 .alert-setting-copy strong {
-  grid-column: 1;
-  grid-row: 1;
-  min-width: 0;
   color: var(--text-strong);
   font-size: var(--font-size-sm);
-  line-height: 28px;
 }
 .alert-setting-copy span {
-  grid-column: 1 / -1;
-  grid-row: 2;
   color: var(--text-muted);
   font-size: var(--font-size-xs);
   line-height: 1.55;
 }
-.alert-setting-row > .ui-switch-field,
-.alert-sound-setting {
-  grid-column: 2;
-  grid-row: 1;
-  justify-self: end;
-}
-.alert-setting-row-stack .alert-setting-copy strong {
-  grid-column: 1 / -1;
-}
 .alert-quiet-times {
-  grid-column: 1 / -1;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  display: flex;
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  margin-top: 8px;
 }
 .alert-quiet-times .ui-time-picker {
-  min-width: 0;
-  width: 100%;
+  width: 145px;
 }
 .alert-quiet-times > span {
   color: var(--text-muted);
@@ -500,17 +502,14 @@ onBeforeUnmount(() => {
 }
 .alert-settings-note {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 5px;
-  margin-top: 12px;
   color: var(--text-muted);
   font-size: var(--font-size-xs);
 }
 .alert-settings-note svg {
-  flex: none;
   width: 14px;
   height: 14px;
-  margin-top: 2px;
 }
 @media (max-width: 767px) {
   .global-alert-popups {
@@ -522,8 +521,19 @@ onBeforeUnmount(() => {
   .global-alert-popup {
     padding: 13px;
   }
-  .alert-setting-row {
-    column-gap: 12px;
+  .alert-setting-row:not(.alert-setting-row-stack) {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .alert-quiet-times .ui-time-picker {
+    flex: 1;
+    min-width: 0;
+    width: 0;
+  }
+  .alert-sound-setting {
+    justify-content: space-between;
+    width: 100%;
   }
 }
 </style>

@@ -544,8 +544,8 @@ onBeforeUnmount(() => {
           <div v-if="tailing" class="tail-status">
             <span class="tail-status__dot" :class="{ 'is-live': tailState === 'live' && !paused }" />
             <span>{{ paused ? `已暂停显示，暂存 ${pending} 行新日志` : tailText[tailState] || '' }}</span>
-            <span>保留最近 {{ TAIL_KEEP }} 行</span>
-            <span v-if="dropped">Loki 丢弃 {{ dropped }} 行（速率过高）</span>
+            <span>· 保留最近 {{ TAIL_KEEP }} 行</span>
+            <span v-if="dropped">· Loki 丢弃 {{ dropped }} 行（速率过高）</span>
           </div>
 
           <ui-card v-if="volume && !tailing" shadow="never" class="surface-card volume-card">
@@ -588,8 +588,8 @@ onBeforeUnmount(() => {
             <div v-if="result" class="result-meta">
               <span>已显示 {{ entries.length }} 行（最新在前）</span>
               <ui-tag v-if="result.nextCursor" size="small">还有更早的日志</ui-tag>
-              <span v-if="result.stats?.totalBytesProcessed">扫描 {{ formatValue(result.stats.totalBytesProcessed, 'bytes') }}</span>
-              <span v-if="result.stats?.execTime">用时 {{ formatValue(result.stats.execTime, 's') }}</span>
+              <span v-if="result.stats?.totalBytesProcessed">· 扫描 {{ formatValue(result.stats.totalBytesProcessed, 'bytes') }}</span>
+              <span v-if="result.stats?.execTime">· 用时 {{ formatValue(result.stats.execTime, 's') }}</span>
               <code v-if="result.query" class="query-code query-code--inline" :title="result.query">{{ result.query }}</code>
             </div>
             <LogList :entries="entries" :wrap="wrap" :highlight="highlightWord" max-height="calc(100vh - 360px)" @context="openContext" />
@@ -719,6 +719,12 @@ onBeforeUnmount(() => {
 }
 .tail-status__dot.is-live {
   background: var(--success);
+  animation: pulse 1.6s ease-in-out infinite;
+}
+@keyframes pulse {
+  50% {
+    opacity: 0.35;
+  }
 }
 .volume-card.n-card > :deep(.n-card__content) {
   padding-top: 0;
